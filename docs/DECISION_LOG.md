@@ -65,21 +65,31 @@ payment settled which charge.
 **Status:** Accepted
 
 Therapist settlement is based on completed-session value and is independent of
-family payment.
+whether or when the family pays.
+
+Therapist share percentages may differ by therapist and may change over time.
+The percentage applied to a completed participant/session must be preserved as
+a historical snapshot.
 
 A family discount is split explicitly between the therapist and the clinic:
 
 - therapist discount amount + clinic discount amount = total family discount;
 - therapist net share = therapist gross share - therapist discount amount;
 - clinic net share = clinic gross share - clinic discount amount;
-- therapist net share must not become negative;
-- the family's effective session charge must not become negative;
-- clinic net share may be negative when the clinic explicitly bears more
-  discount than its gross share.
+- therapist net share must never be negative;
+- the family's effective session charge must never be negative;
+- clinic net share may be negative when the clinic explicitly bears a discount
+  greater than its gross share.
+
+For therapists who do not participate in discounts, therapist discount amount
+is zero and the clinic bears the entire family discount, even when this produces
+a negative clinic net.
 
 A negative clinic net represents an explicit clinic subsidy or loss. It must be
-visible in reports and preserve the actor, time, reason, and applied split.
+visible in reports and preserve the applied split, actor, time, and reason.
 
-For therapists who do not participate in discounts, therapist discount is zero
-and the clinic bears the full family discount, even when this produces a
-negative clinic net.
+Defaults may be defined per therapist. Any participant/session-level override
+must be explicit, reasoned, and audited.
+
+This decision supersedes any earlier wording that prohibited a negative clinic
+net.
