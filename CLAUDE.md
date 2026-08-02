@@ -27,7 +27,7 @@ Not initial product: native app, parent portal, direct online booking/payment, a
 - A family may have multiple children.
 - Balance is family-level; each charge identifies the child.
 - Only a completed appointment creates the primary session charge.
-- One appointment has at most one valid primary session charge; retries are idempotent.
+Each appointment participant has at most one valid primary session charge; retries are idempotent. An individual appointment has exactly one participant.
 - Cancellation creates no charge by default. No-show policy is unresolved; default to no charge.
 - Tariff changes never rewrite historical charges.
 - Final financial records are voided/adjusted, never physically deleted.
@@ -36,6 +36,13 @@ Not initial product: native app, parent portal, direct online booking/payment, a
 - Partial payments and overpayments/credit are supported.
 - Money uses integer storage in one approved unit.
 - Therapist-settlement rules are never inferred.
+
+
+- Therapist settlement is based on completed-session value, regardless of whether or when the family pays.
+- Therapist share percentages may differ by therapist and may change over time; historical sessions must preserve the applied percentage as a snapshot.
+- A session discount may be borne entirely by the clinic, entirely by the therapist, or split between them.
+- The therapist discount amount plus the clinic discount amount must equal the total family discount.
+- Discount allocation and any manual override must be explicit, auditable, and must never rewrite historical sessions.
 
 ## Architecture boundary
 
