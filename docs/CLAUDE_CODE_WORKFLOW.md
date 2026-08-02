@@ -1,136 +1,127 @@
-# روند اجرای پروژه با Claude Code
+# Claude Code Collaboration Workflow
 
-## 1. ساخت Repository
+## Roles
 
-ساختار اولیه:
+- **Owner:** owns product policy, private data, budget, and approval.
+- **Claude Code:** owns technical analysis and implementation recommendations.
+- **Adviser:** reviews plans/diffs/tests and offers non-binding feedback, except when identifying an approved-requirement, security, privacy, integrity, production-safety, or milestone-scope conflict.
+
+## Setup
+
+Place these files in the repository:
 
 ```text
-repo/
-  CLAUDE.md
-  docs/
-    PROJECT_SPEC.md
-    CLAUDE_CODE_WORKFLOW.md
-  .gitignore
-  README.md
+CLAUDE.md
+docs/PROJECT_SPEC.md
+docs/CLAUDE_CODE_WORKFLOW.md
+docs/DECISION_LOG.md
 ```
 
-ابتدا اسناد را Commit کنید:
+Commit them, then start from the root:
 
 ```bash
-git init
 git add CLAUDE.md docs/
-git commit -m "docs: add clinic MVP specification"
-```
-
-## 2. شروع Plan Mode
-
-```bash
+git commit -m "docs: add clinic product specification and workflow"
 claude --permission-mode plan
 ```
 
-## 3. Prompt اول
+Use Section 19 of `PROJECT_SPEC.md` as the first prompt.
 
-Prompt بخش 38 فایل `PROJECT_SPEC.md` را ارسال کنید. در این مرحله Claude Code حق ویرایش، نصب Package یا اجرای Migration ندارد.
+## Advisory review format
 
-## 4. خروجی لازم از Plan
-
-- Scope و Non-goal
-- تصمیم‌های باز
-- اعتبارسنجی معماری Next.js + NestJS و مقایسهٔ Selective BFF با Direct API و Proxy-all
-- مرز مسئولیت Web/BFF و API
-- مقایسه Prisma و TypeORM
-- Auth/Session Flow و OpenAPI Client Generation
-- برنامهٔ SEO و Rendering
-- ERD
-- State Transition نوبت
-- Ledger و Payment Design
-- Permission Matrix
-- Security و Backup
-- Test Plan
-- Milestoneهای کوچک
-- فایل‌های مورد انتظار دو مرحلهٔ اول
-- ریسک‌ها
-
-خروجی کامل را قبل از تأیید برای بازبینی خارجی ارسال کنید.
-
-موارد معماری که باید صریح باشند:
-
-- Next.js هیچ دسترسی مستقیمی به PostgreSQL ندارد.
-- NestJS منبع حقیقت تمام قواعد مالی و مجوزها است.
-- Server Componentها NestJS را از Server-only API Client صدا می‌زنند، نه Route Handler داخلی Next.js.
-- BFF فقط Endpointهای صریح دارد و Catch-all Proxy پیش‌فرض ممنوع است.
-- قرارداد API از OpenAPI و Client تولیدشده کنترل می‌شود.
-- تمام Mutationها در NestJS دوباره Validation و Authorization می‌شوند.
-
-## 5. اجرای مرحله‌ای
-
-بعد از تأیید، فقط یک Milestone اجرا شود. در پایان:
-
-```bash
-git status
-git diff --stat
-git diff
-```
-
-همراه این موارد بررسی شود:
-
-- Migration
-- Test Output
-- دستورات اجرا
-- اثر امنیتی
-- انحراف از Plan
-- تصمیم‌های باز
-
-## 6. Commitهای کوچک
-
-نمونه:
+Send Claude's plan to the adviser. The adviser should reply as:
 
 ```text
-chore: initialize project and local environment
-feat: add Nest auth and manager receptionist roles
-feat: add family API and Next admin screens
-feat: add reference-data API and admin screens
-feat: add appointment API and Next scheduling UI
-feat: create idempotent charges from completed appointments
-feat: add payments and family balances
-feat: add payment promises and debt dashboard
+Advisory review
+
+Strong points:
+- ...
+
+Questions worth reconsidering:
+- ...
+
+Possible requirement/integrity conflicts:
+- ...
+
+Optional alternatives:
+- ...
+
+These are advisory observations. Please evaluate them independently and explain any accepted, modified, or rejected point.
 ```
 
-Refactor، Format، Dependency و Feature نامرتبط را در یک Commit مخلوط نکنید.
+Record final decisions in `DECISION_LOG.md`; do not store full chat transcripts.
 
-## 7. ایمنی Migration
+## Implement one milestone
 
-قبل از هر Migration:
+After review, approve one small milestone. Use:
 
-1. توضیح Schema Change
-2. بررسی فایل Migration
-3. اطمینان از عدم حذف یا بازنویسی داده
-4. اجرا روی دیتابیس Development
-5. اجرای Test
-6. Commit بعد از تأیید
+```text
+Please implement only the approved milestone.
 
-## 8. Pilot
+Before editing, briefly restate the scope, expected files, and any material blocker.
+Use your technical judgment while preserving the approved scope and domain invariants. Avoid unrelated cleanup and future abstractions.
 
-1. Seed ساختگی
-2. اجرای سناریوهای پذیرش
-3. شبیه‌سازی کار منشی
-4. رفع مشکل Workflow
-5. تست Backup و Restore
-6. آموزش با دادهٔ ساختگی
-7. Pilot محدود
-8. تطبیق مجموع سیستم با روش قبلی
-9. توسعه پس از تطبیق
+After implementation, report files changed, migrations/contracts, commands and actual results, tests, deviations, risks, assumptions, and a concise diff summary. Stop after this milestone.
+```
 
-## 9. چیزهایی که برای بازبینی ارسال می‌شوند
+## What to send for review
 
-- Plan کامل یا Summary اجرا
-- `git diff --stat`
-- Diff مرتبط
-- Migrationها
-- Model/Schema Changes
-- Test Output
-- Error و Warning
-- Screenshot صفحات هنگام UI
-- تمام سؤال‌های Claude دربارهٔ قواعد کسب‌وکار
+```bash
+git status --short
+git diff --stat
+```
 
-اطلاعات واقعی خانواده یا کودک ارسال نشود.
+Also send relevant diffs, migrations/schema changes, API-contract changes, test output, warnings, and UI screenshots only when visual behavior matters. Do not paste lockfiles, generated clients, build output, or unrelated formatting.
+
+## Test cadence
+
+- During edits: focused affected-module tests and fast checks.
+- At milestone end: agreed formatting, lint/type, affected unit/integration, migration validation, and build when relevant.
+- Before merge/release/pilot: full suite and end-to-end acceptance.
+
+Require actual command output, not an unsupported “tests pass” statement.
+
+## Human-owned work
+
+Do outside Claude Code and provide when needed:
+
+- decide money unit, no-show/cancellation policy, settlement basis, discounts, roles;
+- prepare private structured clinic configuration and opening balances;
+- provide approved Persian content, brand assets, photos, location, biographies, testimonials, and legal/privacy wording;
+- control domain, DNS, hosting, production secrets, deployment approval, and backup retention;
+- clean/import/reconcile real historical data.
+
+Use fake data in development. Never paste real child/family data into AI prompts.
+
+## Work to avoid unless justified
+
+- repeated full-repository summaries;
+- generic Next/Nest tutorials;
+- many equivalent architecture alternatives;
+- speculative future modules;
+- placeholder legal/medical/marketing copy;
+- row-by-row mock data instead of a seed script;
+- full test suite after every tiny edit;
+- early UI variant exploration;
+- manual edits to generated clients;
+- production deployment, credentials, or DNS operations;
+- exhaustive comments on obvious code.
+
+For deterministic local work, prefer a short command or script.
+
+## Owner's useful local commands
+
+```bash
+git status --short
+git diff --stat
+git diff -- path/to/file
+git switch -c milestone/00-foundation
+git add -p
+git commit -m "chore: initialize project foundation"
+```
+
+Before a meaningful migration: get an explanation, inspect the migration, identify destructive/backfill/locking risk, test on a disposable database, run focused tests, then approve. Production migration approval is human-owned.
+
+## Pilot
+
+Synthetic seed → acceptance scenarios → simulated receptionist days → workflow fixes → backup/restore test → synthetic-data training → limited pilot → reconcile totals → expand only after matching.

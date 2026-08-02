@@ -1,77 +1,61 @@
 # CLAUDE.md
 
-## Source of truth
+## Context
 
-Read `docs/PROJECT_SPEC.md` before planning or implementing product work. It is authoritative for scope, terminology, business rules, non-goals, acceptance scenarios, and open decisions.
+This repository is a Persian RTL rehabilitation-clinic platform:
 
-## Workflow
+- `apps/web`: Next.js public site, internal UI, and selective BFF;
+- `apps/api`: NestJS modular monolith;
+- PostgreSQL: system of record.
 
-- Start complex work in Plan Mode.
-- Do not implement until the plan or milestone is explicitly approved.
-- Work on one approved milestone at a time and stop afterward.
-- Before editing, list intended files and restate scope.
-- After editing, run tests and summarize the diff.
-- Do not silently resolve open business decisions.
+Use `docs/PROJECT_SPEC.md` for product rules and `docs/DECISION_LOG.md` for accepted technical/business decisions. For later milestones, read only the relevant specification sections unless a cross-cutting change requires more context.
 
-## MVP
+## Decision ownership
 
-The MVP is a Persian RTL Next.js public website and internal manager/receptionist panel, backed by a NestJS REST API and PostgreSQL. Data entry is manual; appointment and financial calculations are automatic and auditable.
+You are the primary technical decision-maker. Reviewer feedback is advisory unless it identifies a conflict with approved scope, a non-negotiable domain rule, privacy/security, data integrity, production safety, or the approved milestone.
 
-The MVP is not a native app, parent portal, online booking, online payment, automated SMS, clinical record system, AI screening tool, or distributed microservice system.
+Evaluate suggestions independently. Accept, modify, or reject them with concise reasoning. For important choices state: decision, credible alternative, reason, trade-off, and revisit trigger.
 
-## Core business rules
+## Product boundary
+
+Initial product: families/children, therapists/services/rooms/tariffs, receptionist-entered appointments, completed-session charges, payments, credits, payment promises, family balances, basic reports, audit history, public website, and simple contact-request inbox.
+
+Not initial product: native app, parent portal, direct online booking/payment, automated SMS/waiting list, clinical records, AI screening, full CRM/HR, microservices, Redis/queues/CQRS/GraphQL/Kubernetes.
+
+## Non-negotiable rules
 
 - A family may have multiple children.
-- Balance belongs to the family; charges identify the child.
+- Balance is family-level; each charge identifies the child.
 - Only a completed appointment creates the primary session charge.
-- One appointment can create at most one primary charge.
-- Repeated requests must not duplicate charges.
-- Cancelled appointments do not create charges by default.
-- No-show charging is unresolved; default to no charge.
+- One appointment has at most one valid primary session charge; retries are idempotent.
+- Cancellation creates no charge by default. No-show policy is unresolved; default to no charge.
 - Tariff changes never rewrite historical charges.
-- Final financial records are never physically deleted.
-- Voids and corrections require reason, actor, timestamp, and audit history.
-- Payment promises are not payments and do not reduce balance.
-- Partial payments and overpayments are supported.
-- Money uses integer storage, never floating point.
-- Do not guess therapist settlement rules.
+- Final financial records are voided/adjusted, never physically deleted.
+- Corrections preserve actor, time, reason, and audit history.
+- Payment promises do not reduce balance.
+- Partial payments and overpayments/credit are supported.
+- Money uses integer storage in one approved unit.
+- Therapist-settlement rules are never inferred.
 
-## Security
+## Architecture boundary
 
-- Use server-side authorization.
-- Never commit secrets.
-- Never use real clinic, child, parent, or patient data in tests, seeds, logs, commits, or prompts.
-- Keep audit logs for sensitive actions.
-- Use transactions for appointment completion, charge creation, payments, voids, and allocations.
-- Destructive migrations require explicit approval and a backup plan.
-- Never operate directly on production.
+- NestJS owns database access, domain rules, authoritative authorization/validation, transactions, audit, and financial state transitions.
+- Next.js never accesses PostgreSQL or calculates balances, charges, or therapist shares.
+- A selective BFF is allowed for secure browser sessions, Server Actions, page-specific aggregation, response shaping, and UI-friendly errors.
+- Avoid a generic catch-all proxy. Server Components may call a server-only NestJS client directly.
+- Keep NestJS a modular monolith and avoid duplicated business logic.
+- ORM and API-contract choices remain open until reasoned in planning.
 
-## Approved architecture
+## Working style and context economy
 
-- Use a pnpm TypeScript monorepo.
-- `apps/web` is Next.js App Router for the public site, admin UI, and a selective BFF.
-- `apps/api` is a NestJS modular monolith and the sole owner of PostgreSQL, business rules, transactions, RBAC, and audit logs.
-- Next.js must never access the database directly.
-- Next.js must never calculate balances, charges, therapist shares, or appointment financial transitions.
-- Server Components should call NestJS through a server-only generated API client, not through the app's own Route Handlers.
-- Client-side interactions may use explicit Server Actions or Route Handlers when a BFF is justified.
-- Do not create a generic catch-all proxy from Next.js to NestJS.
-- NestJS must validate and authorize every protected operation even when Next.js already checked it.
-- Generate OpenAPI from NestJS and a TypeScript client for Next.js; do not hand-edit generated files.
-- ORM choice is unresolved until Plan Mode compares Prisma and TypeORM for migrations, transactions, locking, and PostgreSQL constraints.
+- Inspect only files relevant to the current milestone.
+- Do not repeat the specification; cite section numbers.
+- Distinguish blockers from questions that can wait.
+- Prefer the smallest reviewable implementation.
+- Avoid future abstractions, unused packages, placeholder marketing/legal/medical copy, and hand-editing generated files.
+- Use focused checks during edits and the agreed full check set at milestone completion.
+- Ask humans for business decisions, real content, private data, credentials, DNS, and production approval rather than inventing them.
+- Never use real clinic data in tests, seeds, logs, screenshots, commits, or prompts.
+- Never operate directly on production from an AI coding session.
 
-## Engineering preferences
-
-- Keep NestJS as a modular monolith; do not split domain modules into deployable services.
-- Prefer Server Components for public and read-heavy pages, Client Components only where interaction requires them.
-- Keep domain modules and frontend features separated.
-- Add database constraints where practical.
-- Add automated tests for financial, permission, API-contract, and BFF-boundary rules.
-- Keep changes small and reviewable.
-- Avoid premature abstractions, Redis, queues, GraphQL, CQRS, and future-scope infrastructure unless an approved milestone requires them.
-- Store timestamps in UTC; display local/Jalali dates in the presentation layer.
-- User-facing text is Persian and RTL.
-
-## Completion report
-
-At each milestone report files changed, migrations, tests, commands and results, risks, assumptions, unresolved decisions, and the suggested next milestone. Do not begin it automatically.
+At milestone end report: files changed, migrations/contracts, commands and actual results, tests, deviations, risks, assumptions, and open decisions. Stop at the milestone boundary.
