@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic_ci_only
+          POSTGRES_DB: clinic_ci
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinic_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # DATABASE_URL is deliberately defined NOWHERE in this workflow — not at job
+    # level and not on any step. Nothing in the current pipeline connects to the
+    # database: `prisma generate` only reads the schema and emits client code, and
+    # no test opens a connection yet. Web lint, typecheck, test and build processes
+    # therefore cannot see a connection string (CLAUDE.md, Architecture boundary).
+    #
+    # When a milestone adds tests that genuinely connect, give DATABASE_URL to
+    # those steps only, scoped with a step-level `env:` block. Never job level.
+    env:
+      NODE_ENV: test
+      API_PORT: 3001
+      API_BASE_URL: http://localhost:3001
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Version comes from the root package.json "packageManager" field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # The API's postinstall runs `prisma generate`, so the client is generated
+      # here. Verified to succeed with DATABASE_URL unset and no .env present:
+      # generation reads the schema only and never resolves env("DATABASE_URL").
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Architecture boundary
+        run: pnpm check:boundary
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Proves the boundary holds in CI: the web build must succeed with no
+      # DATABASE_URL anywhere in its environment, and must fail without its own
+      # required variable.
+      - name: Web fails fast without API_BASE_URL
+        run: |
+          if pnpm --filter @clinic/web build > /tmp/web-noenv.log 2>&1; then
+            echo "FAIL: web build succeeded without API_BASE_URL"
+            exit 1
+          fi
+          grep -q "Invalid web environment configuration" /tmp/web-noenv.log
+          echo "OK: web build refused to start without API_BASE_URL"
+        env:
+          API_BASE_URL: ''
