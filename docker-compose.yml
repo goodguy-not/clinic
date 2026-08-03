@@ -1,0 +1,27 @@
+# Development database only. Not a production deployment artefact.
+# Credentials here are synthetic and local-only; production secrets never live in Git.
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: clinic-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clinic
+      POSTGRES_PASSWORD: clinic_dev_only
+      POSTGRES_DB: clinic_dev
+      # Iran has had no DST since 2022; pinned so container time never depends on the host.
+      TZ: Asia/Tehran
+      PGTZ: Asia/Tehran
+    # 5433 on the host avoids colliding with a locally installed PostgreSQL on 5432.
+    ports:
+      - '5433:5432'
+    volumes:
+      - clinic_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U clinic -d clinic_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  clinic_db_data:

@@ -1,0 +1,15 @@
+// Milestone 0 configures Prisma only.
+//
+// There are deliberately no models and no migrations yet. The first domain
+// tables arrive with the milestone that owns them, and PostgreSQL-native
+// constraints (partial unique indexes, EXCLUDE, CHECK) are hand-written inside
+// the generated migration SQL because Prisma cannot express them.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}

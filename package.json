@@ -1,0 +1,34 @@
+{
+  "name": "clinic",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Persian RTL rehabilitation-clinic platform",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "check:boundary": "node scripts/check-web-boundary.mjs",
+    "check": "pnpm format:check && pnpm lint && pnpm check:boundary && pnpm typecheck && pnpm test && pnpm build",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "dev:api": "pnpm --filter @clinic/api start:dev",
+    "dev:web": "pnpm --filter @clinic/web dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@next/eslint-plugin-next": "16.2.12",
+    "eslint": "10.8.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.8.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0"
+  }
+}

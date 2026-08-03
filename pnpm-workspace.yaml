@@ -1,0 +1,20 @@
+packages:
+  - 'apps/*'
+
+engineStrict: true
+strictPeerDependencies: false
+
+# pnpm blocks dependency build scripts unless explicitly approved. `allowBuilds`
+# is the pnpm 11 mechanism (a map maintained by `pnpm approve-builds`); the older
+# `onlyBuiltDependencies` array is not used, so there is one allowlist to review.
+#
+# `strictDepBuilds: true` is the pnpm 11 default, stated explicitly because it is
+# security-relevant: a dependency that gains an unreviewed build script fails the
+# install instead of having its script silently skipped.
+strictDepBuilds: true
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
