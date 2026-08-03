@@ -1,9 +1,10 @@
-// Milestone 0 configures Prisma only.
+// Milestone 1 — authentication and audit foundation.
 //
-// There are deliberately no models and no migrations yet. The first domain
-// tables arrive with the milestone that owns them, and PostgreSQL-native
-// constraints (partial unique indexes, EXCLUDE, CHECK) are hand-written inside
-// the generated migration SQL because Prisma cannot express them.
+// PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
+// indexes, functions and triggers — are hand-written inside the generated
+// migration SQL and pinned by tests that assert each object exists by name.
+// Reading this file alone therefore understates what the database enforces;
+// read the migration alongside it.
 
 datasource db {
   provider = "postgresql"
@@ -12,4 +13,132 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+}
+
+enum UserRole {
+  MANAGER
+  RECEPTIONIST
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+
+  @@map("user_status")
+}
+
+enum SessionRevokeReason {
+  LOGOUT
+  PASSWORD_CHANGED
+  USER_DISABLED
+  MANAGER_REVOKED
+  SUPERSEDED
+
+  @@map("session_revoke_reason")
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  ANONYMOUS
+
+  @@map("audit_actor_type")
+}
+
+/// Staff accounts. Manager-created only; there is no self-registration.
+///
+/// User rows are permanent historical records: account creation is audited and
+/// later financial rows will name the actor. There is no delete endpoint, no
+/// delete service method, and the migration adds BEFORE DELETE and BEFORE
+/// TRUNCATE triggers so the database refuses one too. Deactivation is
+/// `status = DISABLED`.
+///
+/// There is deliberately no `updatedAt`: Prisma's `@updatedAt` is written by the
+/// application clock, and `audit_log` is already the authoritative change
+/// history for this table.
+model AppUser {
+  id                         String     @id @default(uuid(7)) @db.Uuid
+  username                   String     @unique
+  displayName                String     @map("display_name")
+  role                       UserRole
+  status                     UserStatus @default(ACTIVE)
+  passwordHash               String     @map("password_hash")
+  passwordUpdatedAt          DateTime   @default(now()) @map("password_updated_at") @db.Timestamptz
+  mustChangePassword         Boolean    @default(true) @map("must_change_password")
+  failedLoginCount           Int        @default(0) @map("failed_login_count")
+  failedLoginWindowStartedAt DateTime?  @map("failed_login_window_started_at") @db.Timestamptz
+  lockedUntil                DateTime?  @map("locked_until") @db.Timestamptz
+  lastLoginAt                DateTime?  @map("last_login_at") @db.Timestamptz
+  disabledAt                 DateTime?  @map("disabled_at") @db.Timestamptz
+  createdAt                  DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId            String?    @map("created_by_user_id") @db.Uuid
+
+  createdBy    AppUser?      @relation("AppUserCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdUsers AppUser[]     @relation("AppUserCreatedBy")
+  sessions     UserSession[]
+  auditEntries AuditLog[]
+
+  @@map("app_user")
+}
+
+/// Server-side session records. The browser holds an opaque token; this table
+/// stores only its SHA-256 hash, so a leaked backup or query log yields no
+/// usable session.
+///
+/// Unlike the other two tables this one is operational state, not a historical
+/// record, and expired rows are meant to be purgeable. That is only possible
+/// because `audit_log.sessionId` carries no foreign key to it.
+model UserSession {
+  id                String               @id @default(uuid(7)) @db.Uuid
+  tokenHash         Bytes                @unique @map("token_hash")
+  userId            String               @map("user_id") @db.Uuid
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  lastSeenAt        DateTime             @default(now()) @map("last_seen_at") @db.Timestamptz
+  idleExpiresAt     DateTime             @map("idle_expires_at") @db.Timestamptz
+  absoluteExpiresAt DateTime             @map("absolute_expires_at") @db.Timestamptz
+  revokedAt         DateTime?            @map("revoked_at") @db.Timestamptz
+  revokedReason     SessionRevokeReason? @map("revoked_reason")
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("user_session")
+}
+
+/// Append-only audit trail. The migration adds BEFORE UPDATE, BEFORE DELETE and
+/// BEFORE TRUNCATE triggers; TRUNCATE needs its own because it bypasses
+/// row-level triggers entirely.
+///
+/// Exactly one foreign key exists here, to `actorUserId`, because user rows are
+/// permanent. `sessionId`, `entityId` and `entityType` are historical
+/// references with no constraint: they must be able to outlive the rows they
+/// name, and the audit module must not become coupled to every future table.
+model AuditLog {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  occurredAt  DateTime       @default(now()) @map("occurred_at") @db.Timestamptz
+  action      String
+  actorType   AuditActorType @map("actor_type")
+  actorUserId String?        @map("actor_user_id") @db.Uuid
+  /// Deliberately a plain UUID with no relation, so session retention stays
+  /// possible. See the model comment above.
+  sessionId   String?        @map("session_id") @db.Uuid
+  requestId   String         @map("request_id") @db.Uuid
+  entityType  String         @map("entity_type")
+  entityId    String?        @map("entity_id") @db.Uuid
+  before      Json?          @db.JsonB
+  after       Json?          @db.JsonB
+  metadata    Json?          @db.JsonB
+  ip          String?        @db.Inet
+  userAgent   String?        @map("user_agent")
+
+  actor AppUser? @relation(fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([occurredAt])
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([requestId])
+  @@index([sessionId])
+  @@map("audit_log")
 }

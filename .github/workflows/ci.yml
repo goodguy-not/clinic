@@ -67,6 +67,12 @@ jobs:
       - name: Architecture boundary
         run: pnpm check:boundary
 
+      # @clinic/contracts is compiled to CommonJS + .d.ts and consumed by both
+      # applications, so its declarations must exist before anything typechecks
+      # against them. Nothing here connects to a database.
+      - name: Build contracts
+        run: pnpm build:contracts
+
       - name: Typecheck
         run: pnpm typecheck
 

@@ -13,9 +13,11 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@clinic/contracts": "workspace:*",
     "@nestjs/common": "11.1.28",
     "@nestjs/core": "11.1.28",
     "@nestjs/platform-express": "11.1.28",
+    "@node-rs/argon2": "2.0.2",
     "@prisma/client": "6.19.3",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",

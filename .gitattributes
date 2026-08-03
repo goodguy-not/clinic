@@ -1,7 +1,51 @@
+# Line endings.
+#
+# `* text=auto` alone normalises text to LF *in the repository* but checks it
+# out with the platform's native ending — CRLF on Windows. Prettier is
+# configured with `endOfLine: "lf"`, so on a Windows checkout it reports every
+# such file as misformatted and `pnpm check` fails, while the same commit passes
+# in Linux CI. The blobs were always LF; only the working tree differed. An
+# explicit `eol=lf` makes the working tree match the blob on every platform.
+#
+# `* text=auto` is kept as the default because it is binary-safe: Git detects
+# binary content and leaves it alone. The per-format rules below only ever apply
+# to files Git has already classified as text, so adding a PNG or a font later
+# cannot be corrupted by them. There is deliberately no blanket `* text eol=lf`,
+# which would force every file — including binaries — through the text filter.
+
 * text=auto
-*.md text eol=lf
-*.ts text eol=lf
-*.tsx text eol=lf
-*.json text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
+
+# TypeScript and JavaScript, in every module flavour the toolchain accepts.
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.mts   text eol=lf
+*.cts   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.mjs   text eol=lf
+*.cjs   text eol=lf
+
+# Data, configuration and documentation.
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.txt   text eol=lf
+
+# Database schema and reviewed migration SQL.
+*.prisma text eol=lf
+*.sql    text eol=lf
+
+# Environment templates: .env.example and apps/web/.env.local.example.
+# Real environment files are never committed.
+*.example text eol=lf
+
+# Extensionless dotfiles, which no wildcard above reaches.
+.editorconfig   text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+.npmrc          text eol=lf
+.nvmrc          text eol=lf
+.prettierignore text eol=lf
