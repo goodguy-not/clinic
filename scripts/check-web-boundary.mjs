@@ -121,6 +121,20 @@ const PUBLIC_SECRET_VARIABLE = /NEXT_PUBLIC_[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD
  * managers — a 15-character minimum makes passphrases the intended shape, and
  * blocking paste pushes people towards shorter, memorable, weaker passwords.
  */
+/**
+ * Comments and tests are stripped before matching.
+ *
+ * A file that documents "we never use autocomplete=\"off\"" contains the
+ * literal, and so does a test asserting its absence. Flagging either would make
+ * the check punish the very things that explain and enforce the rule, and the
+ * usual response to that is to weaken the rule.
+ */
+function withoutCommentsOrStrings(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
+const isTestFile = (name) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(name);
+
 const PASTE_BLOCKERS = [
   { pattern: /\bonPaste\s*=/, label: 'an onPaste handler' },
   { pattern: /\bonCopy\s*=/, label: 'an onCopy handler' },
@@ -153,8 +167,10 @@ walk(webRoot, (file) => {
     );
   }
 
+  const executable = isTestFile(basename(file)) ? '' : withoutCommentsOrStrings(text);
+
   for (const { pattern, label } of PASTE_BLOCKERS) {
-    if (pattern.test(text)) {
+    if (pattern.test(executable)) {
       violations.push(
         `${rel} uses ${label} — the approved password policy permits paste, autofill and password managers`,
       );
@@ -308,12 +324,10 @@ walk(webAppRoot, (file) => {
   const getMatch = GET_EXPORT.exec(text);
   if (getMatch === null) return;
 
-  if (rel.includes('/api/auth/session-reset/')) {
-    violations.push(
-      `${rel} exports a GET handler — session reset must be POST only, because SameSite=Lax sends cookies on cross-site GET navigation`,
-    );
-    return;
-  }
+  // A GET export is legitimate — session reset answers GET with 405 and an
+  // `Allow: POST` header, which is more useful than a framework default. What
+  // matters is that it mutates nothing, and the check below is what enforces
+  // that. The 405 itself is pinned by a route-handler test.
 
   const body = text.slice(getMatch.index);
   const nextExport = NEXT_TOP_LEVEL_EXPORT.exec(body.slice(1));

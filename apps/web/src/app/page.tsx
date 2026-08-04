@@ -1,27 +1,43 @@
-import { fetchApiLiveness } from '@/server/api-client';
+import Link from 'next/link';
+import { requireSession } from '@/server/auth-session';
+import { readCsrfCookie } from '@/server/auth-session';
+import { COPY } from '@/server/copy-fa';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Foundation status page.
+ * The signed-in landing page.
  *
- * A Server Component calling the server-only NestJS client directly, which is
- * the intended path for reads (CLAUDE.md: "Server Components may call a
- * server-only NestJS client directly"). Carries no marketing or clinical copy —
- * approved Persian content is owner-provided in the public-site milestone.
+ * Protected: `requireSession` redirects an anonymous or stale visitor to
+ * `/session-expired`, and anyone owing a password change to
+ * `/change-password`. Sign-out is a form post, not a link — clearing a session
+ * cookie is a state change and must not happen on a GET.
  */
 export default async function Home() {
-  const api = await fetchApiLiveness();
+  const user = await requireSession();
+  const csrfToken = (await readCsrfCookie()) ?? '';
+  const canManageStaff = user.permissions.includes('user.read');
 
   return (
     <main>
-      <h1>Clinic Platform</h1>
-      <dl>
-        <dt>وب</dt>
-        <dd>سالم</dd>
-        <dt>ای‌پی‌آی</dt>
-        <dd>{api.ok ? `سالم (${api.data.service})` : 'در دسترس نیست'}</dd>
-      </dl>
+      <h1>{user.displayName}</h1>
+      <p dir="ltr">{user.username}</p>
+
+      <ul>
+        {canManageStaff ? (
+          <li>
+            <Link href="/staff">{COPY.staffTitle}</Link>
+          </li>
+        ) : null}
+        <li>
+          <Link href="/change-password">{COPY.changePasswordTitle}</Link>
+        </li>
+      </ul>
+
+      <form method="post" action="/api/auth/logout">
+        <input type="hidden" name="csrfToken" value={csrfToken} />
+        <button type="submit">{COPY.signOut}</button>
+      </form>
     </main>
   );
 }

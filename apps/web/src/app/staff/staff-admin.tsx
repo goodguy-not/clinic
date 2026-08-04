@@ -1,0 +1,156 @@
+import type { StaffUser } from '@clinic/contracts';
+import { COPY } from '@/server/copy-fa';
+
+/**
+ * Manager-only staff administration, as a pure presentational component.
+ *
+ * Every action is an ordinary form post to an explicit Route Handler, so the
+ * surface works without JavaScript and every state change carries the CSRF pair
+ * and passes the Origin check.
+ *
+ * Temporary passwords never appear here. Creating a user and resetting a
+ * password return their one-time value in the body of the POST response, so it
+ * never enters a URL, browser history, storage or any analytics.
+ */
+function ActionForm({
+  action,
+  csrfToken,
+  fields,
+  label,
+}: {
+  action: string;
+  csrfToken: string;
+  fields: Record<string, string>;
+  label: string;
+}) {
+  return (
+    <form method="post" action={action} className="inline-action">
+      <input type="hidden" name="csrfToken" value={csrfToken} />
+      {Object.entries(fields).map(([name, value]) => (
+        <input key={name} type="hidden" name={name} value={value} />
+      ))}
+      <button type="submit">{label}</button>
+    </form>
+  );
+}
+
+export function StaffAdmin({
+  users,
+  csrfToken,
+  errorMessage,
+  currentUserId,
+}: {
+  users: readonly StaffUser[];
+  csrfToken: string;
+  errorMessage: string | null;
+  currentUserId: string;
+}) {
+  return (
+    <main>
+      <h1>{COPY.staffTitle}</h1>
+
+      {errorMessage === null ? null : (
+        <p role="alert" className="error">
+          {errorMessage}
+        </p>
+      )}
+
+      <section>
+        <h2>{COPY.staffCreateTitle}</h2>
+        <form method="post" action="/api/staff/create">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <p>
+            <label htmlFor="new-username">{COPY.username}</label>
+            <input id="new-username" name="username" type="text" required dir="ltr" />
+          </p>
+          <p>
+            <label htmlFor="new-display-name">{COPY.displayName}</label>
+            <input id="new-display-name" name="displayName" type="text" required />
+          </p>
+          <p>
+            <label htmlFor="new-role">{COPY.role}</label>
+            <select id="new-role" name="role" defaultValue="RECEPTIONIST">
+              <option value="RECEPTIONIST">{COPY.roleReceptionist}</option>
+              <option value="MANAGER">{COPY.roleManager}</option>
+            </select>
+          </p>
+          <button type="submit">{COPY.create}</button>
+        </form>
+      </section>
+
+      <section>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">{COPY.username}</th>
+              <th scope="col">{COPY.displayName}</th>
+              <th scope="col">{COPY.role}</th>
+              <th scope="col">{COPY.status}</th>
+              <th scope="col">{COPY.lockedUntil}</th>
+              <th scope="col">&nbsp;</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => {
+              const isSelf = user.id === currentUserId;
+
+              return (
+                <tr key={user.id}>
+                  <td dir="ltr">{user.username}</td>
+                  <td>{user.displayName}</td>
+                  <td>{user.role === 'MANAGER' ? COPY.roleManager : COPY.roleReceptionist}</td>
+                  <td>{user.status === 'ACTIVE' ? COPY.statusActive : COPY.statusDisabled}</td>
+                  <td dir="ltr">{user.lockedUntil ?? COPY.never}</td>
+                  <td>
+                    {/* Self-changes are refused by NestJS; hiding them here just
+                        avoids offering an action that cannot succeed. */}
+                    {isSelf ? null : (
+                      <>
+                        <ActionForm
+                          action="/api/staff/role"
+                          csrfToken={csrfToken}
+                          fields={{
+                            id: user.id,
+                            role: user.role === 'MANAGER' ? 'RECEPTIONIST' : 'MANAGER',
+                          }}
+                          label={user.role === 'MANAGER' ? COPY.makeReceptionist : COPY.makeManager}
+                        />
+                        <ActionForm
+                          action="/api/staff/status"
+                          csrfToken={csrfToken}
+                          fields={{
+                            id: user.id,
+                            status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
+                          }}
+                          label={user.status === 'ACTIVE' ? COPY.disable : COPY.enable}
+                        />
+                      </>
+                    )}
+                    <ActionForm
+                      action="/api/staff/password-reset"
+                      csrfToken={csrfToken}
+                      fields={{ id: user.id, username: user.username }}
+                      label={COPY.resetPassword}
+                    />
+                    <ActionForm
+                      action="/api/staff/unlock"
+                      csrfToken={csrfToken}
+                      fields={{ id: user.id }}
+                      label={COPY.unlock}
+                    />
+                    <ActionForm
+                      action="/api/staff/revoke-sessions"
+                      csrfToken={csrfToken}
+                      fields={{ id: user.id }}
+                      label={COPY.revokeSessions}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+    </main>
+  );
+}
