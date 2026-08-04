@@ -65,3 +65,43 @@ export const TEMPORARY_PASSWORD_LENGTH = 20;
 
 /** Presentation only. The stored and compared value is never grouped. */
 export const TEMPORARY_PASSWORD_DISPLAY_GROUP_SIZE = 5;
+
+// --- Lockout ----------------------------------------------------------------
+//
+// Five failures inside a fifteen-minute observation window lock the account for
+// fifteen minutes, and the lock clears itself. Per-account only: every
+// workstation in the clinic shares one NAT address, so a per-IP rule would lock
+// out the whole front desk at once.
+
+export const LOCKOUT_THRESHOLD = 5;
+export const LOCKOUT_WINDOW_MINUTES = 15;
+export const LOCKOUT_DURATION_MINUTES = 15;
+
+// --- Sessions ---------------------------------------------------------------
+
+export const SESSION_TOKEN_BYTES = 32;
+
+/** Rolling: renewed on activity, clamped so it can never pass the absolute cap. */
+export const SESSION_IDLE_MINUTES = 8 * 60;
+
+/** Fixed at creation and never extended. */
+export const SESSION_ABSOLUTE_MINUTES = 12 * 60;
+
+/**
+ * `last_seen_at` is rewritten at most once per this interval, so an active user
+ * costs one write every five minutes instead of one per request. The cost is
+ * that idle expiry is accurate to within the interval.
+ */
+export const SESSION_TOUCH_MINUTES = 5;
+
+/**
+ * Subtracted from the cookie lifetime PostgreSQL computes.
+ *
+ * A relative `Max-Age` starts counting when the browser receives the response,
+ * which is after PostgreSQL measured the remaining time, so the cookie would
+ * otherwise outlive the database expiry by roughly one round trip. This margin
+ * is hygiene, not the guarantee: the guarantee is that every request
+ * revalidates against `absolute_expires_at`, so a late cookie is simply
+ * unusable.
+ */
+export const COOKIE_MAX_AGE_SAFETY_MARGIN_SECONDS = 5;

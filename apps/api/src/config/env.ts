@@ -29,6 +29,21 @@ const envSchema = z.object({
       (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
       'must be a postgresql:// connection string',
     ),
+  /**
+   * The shared secret proving a request came from the Next.js server.
+   *
+   * Required with no default: a default would be a published credential, and an
+   * absent one must stop the process rather than silently disable the check.
+   * 32 characters is the floor for a value that is compared, not guessed.
+   */
+  INTERNAL_API_KEY: z.string().min(32, 'must be at least 32 characters'),
+  /**
+   * Owner-supplied clinic terms a password may not contain — clinic name, brand
+   * words, domain. Environmental rather than committed, because these are
+   * clinic-identifying strings that must not enter the repository. Unset means
+   * an empty list, which is the correct state before the owner supplies them.
+   */
+  PASSWORD_BLOCKED_TERMS: z.string().optional(),
 });
 
 export type ApiEnv = z.infer<typeof envSchema>;
