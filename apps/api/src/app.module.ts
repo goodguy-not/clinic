@@ -10,6 +10,7 @@ import { NoStoreInterceptor } from './common/no-store.interceptor';
 import { ConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { UsersModule } from './users/users.module';
 
 /**
  * Root of the modular monolith.
@@ -25,7 +26,7 @@ import { PrismaModule } from './prisma/prisma.module';
  * the only code that queries them.
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, HealthModule],
+  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, UsersModule, HealthModule],
   providers: [
     { provide: APP_GUARD, useClass: InternalKeyGuard },
     { provide: APP_GUARD, useClass: SessionGuard },

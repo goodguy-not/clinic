@@ -7,6 +7,8 @@ import { API_ENV } from '../src/config/config.module';
 import { PasswordService } from '../src/auth/password.service';
 import { SessionService } from '../src/auth/session.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { UsersService } from '../src/users/users.service';
+import type { RequestContext, ResolvedSession } from '../src/common/request-context';
 import { uuidv7 } from '../src/common/uuid';
 
 /**
@@ -43,8 +45,32 @@ export type Harness = {
   prisma: PrismaService;
   passwords: PasswordService;
   sessions: SessionService;
+  users: UsersService;
   close: () => Promise<void>;
 };
+
+/**
+ * A resolved session for driving services directly, past the guard chain.
+ *
+ * Used only where an invariant cannot be reached over HTTP — the last-manager
+ * rule, whose caller must be an active manager and therefore can never be the
+ * final one. Everything reachable through a request is tested through one.
+ */
+export function actorSession(userId: string, sessionId = uuidv7()): ResolvedSession {
+  return {
+    sessionId,
+    userId,
+    username: 'synthetic_actor',
+    displayName: 'Synthetic Actor',
+    role: 'MANAGER',
+    mustChangePassword: false,
+    permissions: [],
+  };
+}
+
+export function auditContext(): RequestContext {
+  return { requestId: uuidv7(), clientIp: null, userAgent: null, session: null };
+}
 
 export async function createHarness(): Promise<Harness> {
   const url = testDatabaseUrl();
@@ -69,6 +95,7 @@ export async function createHarness(): Promise<Harness> {
     prisma: app.get(PrismaService),
     passwords: app.get(PasswordService),
     sessions: app.get(SessionService),
+    users: app.get(UsersService),
     close: () => app.close(),
   };
 }

@@ -38,6 +38,20 @@ describe('assertAuditPayloadSafe', () => {
     expect(() => assertAuditPayloadSafe({ after: { [key]: 'value' } })).toThrow(AuditPayloadError);
   });
 
+  it('allows mustChangePassword when it is a boolean, and only then', () => {
+    // A flag about a password, not a password. The boolean requirement is what
+    // keeps the exemption from becoming a hole.
+    expect(() => assertAuditPayloadSafe({ after: { mustChangePassword: true } })).not.toThrow();
+    expect(() => assertAuditPayloadSafe({ after: { must_change_password: false } })).not.toThrow();
+
+    expect(() => assertAuditPayloadSafe({ after: { mustChangePassword: 'hunter2' } })).toThrow(
+      AuditPayloadError,
+    );
+    expect(() => assertAuditPayloadSafe({ after: { mustChangePassword: { a: 1 } } })).toThrow(
+      AuditPayloadError,
+    );
+  });
+
   it('matches keys regardless of separators or case', () => {
     expect(() => assertAuditPayloadSafe({ after: { 'PASSWORD-HASH': 'x' } })).toThrow(
       AuditPayloadError,

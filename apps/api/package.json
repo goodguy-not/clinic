@@ -11,7 +11,8 @@
     "test": "jest",
     "prisma:generate": "prisma generate",
     "postinstall": "prisma generate",
-    "test:int": "jest --config jest.integration.config.js"
+    "test:int": "jest --config jest.integration.config.js",
+    "cli": "node dist/cli/main.js"
   },
   "dependencies": {
     "@clinic/contracts": "workspace:*",

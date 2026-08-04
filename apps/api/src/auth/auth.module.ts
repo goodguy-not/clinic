@@ -7,13 +7,14 @@ import { SessionService } from './session.service';
 
 /**
  * `SessionService` is exported because the global `SessionGuard` is constructed
- * in the root injector and needs it. Nothing else outside this module resolves
- * sessions.
+ * in the root injector and needs it; `PasswordService` because staff
+ * administration and the recovery CLI must hash with the same Argon2
+ * configuration rather than their own.
  */
 @Module({
   imports: [AuditModule],
   controllers: [AuthController],
   providers: [AuthService, PasswordService, SessionService],
-  exports: [SessionService],
+  exports: [SessionService, PasswordService],
 })
 export class AuthModule {}

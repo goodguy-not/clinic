@@ -232,8 +232,10 @@ describe('guard chain (real PostgreSQL)', () => {
         }
       }
 
-      // /health, /health/db, /auth/login, /auth/logout, /auth/session, /auth/password
-      expect(routes).toBe(6);
+      // health: /health, /health/db
+      // auth:   login, logout, session, password
+      // users:  list, create, role, status, password-reset, unlock, sessions/revoke
+      expect(routes).toBe(13);
     });
   });
 });

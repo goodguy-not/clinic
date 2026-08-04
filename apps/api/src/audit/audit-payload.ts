@@ -42,6 +42,22 @@ const FORBIDDEN_KEY_SUBSTRINGS = [
   'salt',
 ] as const;
 
+/**
+ * Keys that contain a forbidden substring but carry no secret, permitted only
+ * when their value is a boolean.
+ *
+ * `mustChangePassword` is a flag about a password, not a password. Auditing a
+ * role or account change without it would lose information a reviewer wants,
+ * and renaming the field to dodge the substring check would be worse — the
+ * database column is `must_change_password`, and an audit payload that calls it
+ * something else is harder to trust, not easier.
+ *
+ * The boolean requirement is what keeps this narrow: the exemption cannot be
+ * used to smuggle a string through, because a string under this key is still
+ * rejected.
+ */
+const BOOLEAN_ONLY_ALLOWED_KEYS = new Set(['mustchangepassword']);
+
 /** Any Argon2 hash, whole or fragmentary, in any string value. */
 const ARGON2_MARKER = /\$argon2/i;
 
@@ -82,7 +98,10 @@ function checkValue(value: AuditJsonValue, path: string, depth: number): void {
   if (value !== null && typeof value === 'object') {
     for (const [key, nested] of Object.entries(value)) {
       const normalized = normalizeKey(key);
-      const forbidden = FORBIDDEN_KEY_SUBSTRINGS.find((needle) => normalized.includes(needle));
+      const exempt = BOOLEAN_ONLY_ALLOWED_KEYS.has(normalized) && typeof nested === 'boolean';
+      const forbidden = exempt
+        ? undefined
+        : FORBIDDEN_KEY_SUBSTRINGS.find((needle) => normalized.includes(needle));
 
       if (forbidden !== undefined) {
         throw new AuditPayloadError(
