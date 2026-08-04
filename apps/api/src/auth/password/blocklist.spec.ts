@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PASSWORD_MIN_CODE_POINTS } from '../auth-policy';
@@ -49,6 +50,17 @@ describe('committed common-password list', () => {
     for (const entry of commonPasswordBlocklist()) {
       expect(countCodePoints(entry)).toBeGreaterThanOrEqual(PASSWORD_MIN_CODE_POINTS);
     }
+  });
+
+  it('is byte-identical to the pinned SecLists residue', () => {
+    // The locale work added Persian rules alongside this file; it must not have
+    // edited, filtered or regenerated it. Freezing the digest and the entry
+    // count together catches a silent edit and a silent truncation.
+    const bytes = readFileSync(join(__dirname, 'common-passwords-min15.txt'));
+    const digest = createHash('sha256').update(bytes).digest('hex');
+
+    expect(digest).toBe('581b3ac586dc6eb92f9acf3bb7b4dfc472dc89ffcd4079ed120d239522c41712');
+    expect(commonPasswordBlocklist().size).toBe(10898);
   });
 
   it('contains no comment or blank line', () => {
@@ -116,12 +128,17 @@ describe('isShortRepeatedUnit', () => {
     ['abababababababab', 2],
     ['abcabcabcabcabc', 3],
     ['abcdabcdabcdabcd', 4],
+    ['abcdeabcdeabcde', 5],
+    ['salamsalamsalam', 5],
+    ['abcdefabcdefabcdef', 6],
+    ['azizamazizamazizam', 6],
   ])('detects %s (unit length %i)', (password: string) => {
     expect(isShortRepeatedUnit(password)).toBe(true);
   });
 
   it('ignores a unit longer than the threshold', () => {
-    expect(isShortRepeatedUnit('abcdeabcdeabcde')).toBe(false);
+    // The threshold is 6 code points; a seven-character unit is past it.
+    expect(isShortRepeatedUnit('abcdefgabcdefgabcdefg')).toBe(false);
   });
 
   it('ignores a non-repeating passphrase', () => {

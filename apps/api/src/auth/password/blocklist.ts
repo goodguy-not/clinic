@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { foldDigitSystems, PERSIAN_LAYOUT_ROWS } from './persian-layout';
 
 /**
  * Blocklist checks, run on the NFC-normalised, case-folded password.
@@ -69,54 +70,102 @@ export function containsUsername(foldedPassword: string, username: string): bool
 }
 
 /**
- * True when the whole string is a short unit repeated: `aaaa...`, `abababab...`,
- * `123123123...`.
+ * True when the WHOLE password is an exact repetition of a unit of 1 to 6 code
+ * points: `aaaa...`, `abababab...`, `salamsalamsalam`, `۱۲۳۱۲۳۱۲۳...`.
  *
- * `(s + s).indexOf(s, 1)` is the classic smallest-period trick: the index at
- * which `s` reappears in its own doubling is its period. A period shorter than
- * the string means the string repeats; a period of at most 4 means the unit is
- * short enough to be worthless.
+ * Raised from 4 to 6 for this locale. Common Finglish words — `salam`,
+ * `azizam`, `khoshgel` — are five and six characters, so a threshold of 4 let
+ * `salamsalamsalam` through while catching the equivalent three-letter pattern.
+ * The same change catches `abcdeabcdeabcde` in ASCII.
  *
- * Known limitation: this finds exact periods only, so a truncated repetition
- * such as `1231231231231231` (16 characters, period 3 with a remainder) is not
- * caught. A minimum-distinct-code-point rule would catch that class, but it is
- * a different policy than the one approved, so it is not implemented here.
+ * Measured in CODE POINTS, not UTF-16 units, matching how the length policy
+ * measures. Digits are folded first, so a unit repeated across numeral systems
+ * (`۱۲۳123۱۲۳123۱۲۳`) is recognised as the repetition it is.
+ *
+ * Only an exact whole-string repetition counts. A passphrase is not rejected
+ * merely because some short substring happens to appear more than once — the
+ * unit has to tile the entire password with no remainder.
+ *
+ * Known limitation, unchanged: a truncated repetition such as
+ * `1231231231231231` (16 code points, unit 3 with a remainder) is not caught.
+ * A minimum-distinct-code-point rule would catch that class, but it is a
+ * different policy than the one approved.
  */
-const MAX_REPEATED_UNIT_LENGTH = 4;
+const MAX_REPEATED_UNIT_LENGTH = 6;
 
 export function isShortRepeatedUnit(foldedPassword: string): boolean {
-  if (foldedPassword.length === 0) return false;
+  const codePoints = Array.from(foldDigitSystems(foldedPassword));
+  if (codePoints.length === 0) return false;
 
-  const period = (foldedPassword + foldedPassword).indexOf(foldedPassword, 1);
-  if (period <= 0 || period >= foldedPassword.length) return false;
+  for (let unitLength = 1; unitLength <= MAX_REPEATED_UNIT_LENGTH; unitLength += 1) {
+    // The unit must tile the password exactly, and the password must be more
+    // than one copy of it.
+    if (codePoints.length <= unitLength) break;
+    if (codePoints.length % unitLength !== 0) continue;
 
-  return period <= MAX_REPEATED_UNIT_LENGTH;
+    let tiles = true;
+    for (let index = unitLength; index < codePoints.length; index += 1) {
+      if (codePoints[index] !== codePoints[index % unitLength]) {
+        tiles = false;
+        break;
+      }
+    }
+
+    if (tiles) return true;
+  }
+
+  return false;
 }
 
 /**
- * Straight walks across a QWERTY keyboard or the alphabet, in either direction.
+ * Straight walks across a keyboard or the alphabet, in either direction.
  *
- * A password is a walk when it is a contiguous slice of one of these sequences.
- * The digit row is tripled so that wrap-around slices such as `123456789012345`
- * are covered.
+ * Matching is WHOLE-PASSWORD: the entire password must be a contiguous slice of
+ * a sequence. It is never substring matching, and for the Persian rows that
+ * distinction is load-bearing rather than stylistic. Slices of the Persian home
+ * row are real words — `سیب` (apple), `بلا`, `تنم`, `لات` are each three
+ * consecutive keys — so a substring rule would reject any passphrase containing
+ * "apple". They are all 3 code points against a 15 code-point minimum, so as
+ * whole passwords they are unreachable. If anyone ever changes this to
+ * substring matching, Persian breaks first and worst.
+ *
+ * Each sequence is repeated so that a walk which runs off the end of a row and
+ * continues from its start is still recognised — that is what someone typing
+ * across a short row actually does. Repetition is always of the SAME row; rows
+ * are never joined to each other (see `persian-layout.ts`).
  */
-const WALK_SEQUENCES: readonly string[] = [
-  '1234567890'.repeat(3),
+const WALK_REPEATS = 3;
+
+const LATIN_WALK_SEQUENCES: readonly string[] = [
+  '1234567890'.repeat(WALK_REPEATS),
   'qwertyuiopasdfghjklzxcvbnm',
   'qazwsxedcrfvtgbyhnujmikolp',
   'abcdefghijklmnopqrstuvwxyz',
 ];
 
+/**
+ * Each Persian row on its own, repeated for wrap-around.
+ *
+ * The rows are 8 to 12 keys and the minimum password is 15 code points, so a
+ * Persian walk is only expressible as a wrap: `ضصثقفغعهخحجچضصث` is the AD row
+ * typed through and begun again.
+ */
+const PERSIAN_WALK_SEQUENCES: readonly string[] = PERSIAN_LAYOUT_ROWS.map((row) =>
+  row.repeat(WALK_REPEATS),
+);
+
 function reverse(value: string): string {
   return Array.from(value).reverse().join('');
 }
 
-const WALK_HAYSTACKS: readonly string[] = WALK_SEQUENCES.flatMap((sequence) => [
-  sequence,
-  reverse(sequence),
-]);
+const WALK_HAYSTACKS: readonly string[] = [
+  ...LATIN_WALK_SEQUENCES,
+  ...PERSIAN_WALK_SEQUENCES,
+].flatMap((sequence) => [sequence, reverse(sequence)]);
 
 export function isKeyboardWalk(foldedPassword: string): boolean {
-  if (foldedPassword.length === 0) return false;
-  return WALK_HAYSTACKS.some((haystack) => haystack.includes(foldedPassword));
+  const candidate = foldDigitSystems(foldedPassword);
+  if (candidate.length === 0) return false;
+
+  return WALK_HAYSTACKS.some((haystack) => haystack.includes(candidate));
 }
