@@ -24,6 +24,18 @@ export const TEST_INTERNAL_KEY = 'test_only_internal_key_0123456789abcdef';
 /** Satisfies the 15-code-point minimum and trips no blocklist rule. */
 export const TEST_PASSWORD = 'quiet harbour lantern drift';
 
+/**
+ * Database names these tests are allowed to touch.
+ *
+ * An allowlist rather than a blocklist. Excluding `clinic_dev` by name would
+ * protect exactly one database and nothing else — a stray `DATABASE_URL`
+ * pointing at a pilot or production instance would sail straight through. These
+ * tests truncate every table and temporarily disable the audit triggers, so the
+ * question worth asking is "is this database disposable?", and only a name that
+ * says so counts as an answer.
+ */
+const DISPOSABLE_DATABASE = /_(?:test|ci)$/;
+
 export function testDatabaseUrl(): string {
   const url = process.env['DATABASE_URL'];
 
@@ -31,10 +43,20 @@ export function testDatabaseUrl(): string {
     throw new Error('DATABASE_URL must be set for integration tests');
   }
 
-  if (url.includes('/clinic_dev')) {
-    // clinic_dev is the developer's database. These tests truncate tables and
-    // temporarily disable audit triggers, neither of which belongs there.
-    throw new Error('Refusing to run integration tests against clinic_dev; use clinic_test');
+  let databaseName: string;
+
+  try {
+    databaseName = new URL(url).pathname.replace(/^\//, '');
+  } catch {
+    throw new Error('DATABASE_URL is not a valid connection string');
+  }
+
+  if (!DISPOSABLE_DATABASE.test(databaseName)) {
+    throw new Error(
+      `Refusing to run integration tests against "${databaseName}": these tests truncate every ` +
+        'table and disable audit triggers, so the database name must end in _test or _ci. ' +
+        'Use clinic_test locally.',
+    );
   }
 
   return url;

@@ -199,3 +199,101 @@ documented or tested away.
   every push.
 - **Revisit when:** CI exceeds roughly five minutes, a third deployable appears,
   or maintaining two runners causes real friction.
+
+---
+
+## 2026-08-04 — Product and usability priorities for internal surfaces
+
+**Status:** Accepted
+
+This product serves a pediatric rehabilitation clinic in Iran. Security and
+accounting correctness stay non-negotiable, and within that constraint
+implementation decisions must also prioritise real clinic usability.
+
+Internal manager and receptionist surfaces prioritise: fast, low-friction daily
+workflows; minimal clicks with a clear next action; readable Persian RTL
+layouts; responsive behaviour on desktop, tablet and mobile; accessible controls
+and useful keyboard navigation; clear prevention of and recovery from human
+error; correct Iranian date, time, number and toman presentation; calm,
+professional, uncluttered visuals; and predictable loading, empty, success and
+error states.
+
+Internal authentication and administration pages are **not** optimised for
+search engines and remain `noindex`.
+
+The future public website prioritises a different set: polished, trustworthy
+design for children and families; mobile-first responsive behaviour; performance
+and Core Web Vitals; technical and local SEO; unique titles, descriptions and
+structured data; clear service, clinic, therapist, contact and location
+information; and accessible content with obvious contact paths.
+
+- **Decision:** record these as governing principles for Milestone 2 onward, and
+  deliberately **do not** retrofit them onto the Milestone 1 pages.
+- **Alternatives:** redesign the Milestone 1 authentication and staff surfaces
+  now to meet them.
+- **Reason:** the Milestone 1 pages exist to prove an authentication and audit
+  boundary. They are reached rarely — sign in once a shift, change a password
+  twice a year, administer staff occasionally — so their usability ceiling is
+  low and the work would compete with milestones that carry daily traffic.
+  Recording the principles now means the surfaces that do carry that traffic are
+  designed against them from the first line rather than corrected later.
+- **Trade-off:** the current pages stay visibly plain, and someone reviewing
+  them may reasonably read that as neglect rather than scope.
+- **Assumptions:** no design system, brand assets or approved visual language
+  exists yet; all of it is owner-provided and arrives with the public-site
+  milestone.
+- **Revisit when:** the first surface with genuine daily traffic is specified —
+  appointments or the receptionist dashboard — or when owner-approved brand
+  assets arrive.
+
+---
+
+## 2026-08-04 — Endpoint access needs four kinds, not three
+
+**Status:** Accepted
+
+Authorization is deny-by-default: every route carries exactly one access
+classification, an unclassified route is rejected by the first guard, and a
+coverage test fails the build for any route that carries none.
+
+The approved design named three decorators — `PublicEndpoint`,
+`AuthenticatedOnly`, `RequirePermissions` — plus the rule that `/health` is the
+only route exempt from the internal key. Those cannot express `POST /auth/login`,
+which must be reachable without a session while still requiring the internal
+key, or `GET /health/db`, which reveals database state and should not be public.
+
+- **Decision:** add a fourth classification, `InternalOnly`: internal key
+  required, no session. It carries `/health/db` and `/auth/login`.
+- **Alternatives:** treat login as `PublicEndpoint` and exempt it from the key;
+  special-case the two paths inside the guard.
+- **Reason:** making login public would widen the internal-key exemption from
+  one route to two and put the authentication endpoint outside the private
+  network boundary. A path special-case inside a guard is invisible at the
+  route and cannot be enumerated by the coverage test.
+- **Trade-off:** four decorators to learn instead of three.
+- **Revisit when:** a route needs an access shape none of the four expresses.
+
+---
+
+## 2026-08-04 — Argon2 parameters are provisional until a pilot benchmark
+
+**Status:** Accepted
+
+Argon2id runs at `m = 19456 KiB, t = 2, p = 1` — the OWASP minimum — behind a
+four-way semaphore that bounds peak hashing memory at roughly 76 MiB.
+
+Measured at **~23 ms per verification** on the development machine, against the
+50–100 ms the approved plan assumed. That is not a defect: the parameters are
+the approved ones and the figure reflects fast hardware. It does mean the real
+cost on pilot hardware is unknown, and cost is the entire point of the algorithm.
+
+- **Decision:** keep the approved parameters; benchmark on the actual pilot host
+  and raise `t` if a verification lands materially under the intended cost.
+- **Alternatives:** raise `t` now on the strength of one measurement.
+- **Reason:** tuning against a development laptop optimises for the wrong
+  machine, and the encoded hash carries its own parameters, so raising them later
+  costs nothing — `needsRehash` upgrades each password transparently at its
+  owner's next successful sign-in.
+- **Trade-off:** until the benchmark runs, the deployed cost is a guess.
+- **Revisit when:** pilot hardware is chosen (Milestone 10), or the clinic moves
+  hosts.
