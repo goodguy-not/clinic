@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // CommonJS, deliberately. NestJS compiles to CommonJS and `require`s this
+    // package at runtime; Next.js consumes a CommonJS workspace dependency
+    // without any bundler configuration. One build serves both.
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "./dist",
+    "declaration": true,
+    "types": []
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

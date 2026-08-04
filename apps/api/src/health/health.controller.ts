@@ -1,6 +1,7 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { redactSecrets } from '../common/redact';
+import { InternalOnly, PublicEndpoint } from '../auth/decorators/endpoint-access';
 
 export type LivenessResponse = {
   status: 'ok';
@@ -21,8 +22,14 @@ export class HealthController {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Liveness. Deliberately does not touch the database. */
+  /**
+   * Liveness. The only route in the application exempt from the internal key,
+   * because a container orchestrator must be able to probe it without holding a
+   * secret, and it is also the only route exempt from `no-store` — it reveals
+   * nothing but process uptime.
+   */
   @Get()
+  @PublicEndpoint()
   liveness(): LivenessResponse {
     return {
       status: 'ok',
@@ -32,8 +39,13 @@ export class HealthController {
     };
   }
 
-  /** Readiness of the system of record. */
+  /**
+   * Readiness of the system of record. Requires the internal key: whether the
+   * database is reachable is information about internal infrastructure, not
+   * something to hand to anonymous callers.
+   */
   @Get('db')
+  @InternalOnly()
   async database(): Promise<DatabaseHealthResponse> {
     const startedAt = performance.now();
 

@@ -28,18 +28,24 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-    # DATABASE_URL is deliberately defined NOWHERE in this workflow — not at job
-    # level and not on any step. Nothing in the current pipeline connects to the
-    # database: `prisma generate` only reads the schema and emits client code, and
-    # no test opens a connection yet. Web lint, typecheck, test and build processes
-    # therefore cannot see a connection string (CLAUDE.md, Architecture boundary).
+    # DATABASE_URL is deliberately defined NOWHERE at job level, and never on a
+    # web step. Only the three steps that genuinely connect carry it, each in its
+    # own step-level `env:` block, so the web lint, typecheck, test and build
+    # processes cannot see a connection string (CLAUDE.md, Architecture
+    # boundary). `pnpm test` runs the unit suites only and needs no database.
     #
-    # When a milestone adds tests that genuinely connect, give DATABASE_URL to
-    # those steps only, scoped with a step-level `env:` block. Never job level.
+    # Every value here is synthetic and CI-only. Real secrets never appear in
+    # this file; production supplies its own.
     env:
       NODE_ENV: test
       API_PORT: 3001
       API_BASE_URL: http://localhost:3001
+      # Web server-side configuration. Required with no defaults, so a missing
+      # one fails the build rather than silently choosing.
+      DEPLOYMENT_MODE: non-production
+      INTERNAL_API_KEY: ci_only_synthetic_internal_key_0123456789
+      SESSION_COOKIE_SECRET: ci_only_synthetic_cookie_secret_0123456789
+      WEB_ALLOWED_ORIGINS: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v5
@@ -58,6 +64,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # --- checks that need no database -----------------------------------
       - name: Format check
         run: pnpm format:check
 
@@ -67,25 +74,89 @@ jobs:
       - name: Architecture boundary
         run: pnpm check:boundary
 
+      # @clinic/contracts is compiled to CommonJS + .d.ts and consumed by both
+      # applications, so its declarations must exist before anything typechecks
+      # against them. Nothing here connects to a database.
+      - name: Build contracts
+        run: pnpm build:contracts
+
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
+      - name: Unit tests
         run: pnpm test
 
       - name: Build
         run: pnpm build
 
-      # Proves the boundary holds in CI: the web build must succeed with no
-      # DATABASE_URL anywhere in its environment, and must fail without its own
-      # required variable.
-      - name: Web fails fast without API_BASE_URL
+      # --- database-backed verification -----------------------------------
+      #
+      # The service container is created fresh for every job, so `clinic_ci` is
+      # an empty database and `migrate deploy` proves the migration applies from
+      # nothing — the same thing a first production deploy will do.
+      - name: Apply migrations to a fresh database
+        run: pnpm --filter @clinic/api exec prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+
+      # `migrate status` catches an unapplied or failed migration. `migrate diff`
+      # catches a schema.prisma edit with no matching migration; it exits 2 when
+      # they disagree. Neither sees the hand-written CHECKs, triggers or the
+      # protected-row function — those are pinned by name in the integration
+      # suite's catalogue assertions instead.
+      - name: Migration status and drift
         run: |
-          if pnpm --filter @clinic/web build > /tmp/web-noenv.log 2>&1; then
-            echo "FAIL: web build succeeded without API_BASE_URL"
+          pnpm --filter @clinic/api exec prisma migrate status
+          pnpm --filter @clinic/api exec prisma migrate diff \
+            --from-schema-datamodel prisma/schema.prisma \
+            --to-schema-datasource prisma/schema.prisma \
+            --exit-code
+        env:
+          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+
+      # These truncate every table and temporarily disable the audit triggers,
+      # which is why the harness refuses any database whose name does not end in
+      # _test or _ci.
+      - name: PostgreSQL integration tests
+        run: pnpm test:int
+        env:
+          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+
+      # --- negative checks --------------------------------------------------
+      #
+      # Proves the boundary holds in CI: the web build must succeed with no
+      # DATABASE_URL anywhere in its environment, and must fail without each of
+      # its own required variables. A default for any of these would be a
+      # published credential or a silently weakened cookie.
+      - name: Web fails fast without each required variable
+        run: |
+          set -u
+          fail_without() {
+            local name="$1"
+            if env "$name=" pnpm --filter @clinic/web build > /tmp/web-noenv.log 2>&1; then
+              echo "FAIL: web build succeeded without $name"
+              exit 1
+            fi
+            grep -q "Invalid web environment configuration" /tmp/web-noenv.log
+            grep -q "$name" /tmp/web-noenv.log
+            echo "OK: web build refused to start without $name"
+          }
+
+          fail_without API_BASE_URL
+          fail_without DEPLOYMENT_MODE
+          fail_without INTERNAL_API_KEY
+          fail_without SESSION_COOKIE_SECRET
+          fail_without WEB_ALLOWED_ORIGINS
+
+      # The harness must refuse a non-disposable database by name, not merely
+      # avoid one by convention.
+      - name: Integration harness refuses a non-disposable database
+        run: |
+          if pnpm test:int > /tmp/int-guard.log 2>&1; then
+            echo "FAIL: integration tests ran against clinic_dev"
             exit 1
           fi
-          grep -q "Invalid web environment configuration" /tmp/web-noenv.log
-          echo "OK: web build refused to start without API_BASE_URL"
+          grep -q "must end in _test or _ci" /tmp/int-guard.log
+          echo "OK: harness refused clinic_dev"
         env:
-          API_BASE_URL: ''
+          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_dev?schema=public

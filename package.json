@@ -15,11 +15,13 @@
     "test": "pnpm -r test",
     "build": "pnpm -r build",
     "check:boundary": "node scripts/check-web-boundary.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm check:boundary && pnpm typecheck && pnpm test && pnpm build",
+    "build:contracts": "pnpm --filter @clinic/contracts build",
+    "check": "pnpm format:check && pnpm lint && pnpm check:boundary && pnpm build:contracts && pnpm typecheck && pnpm test && pnpm build",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "dev:api": "pnpm --filter @clinic/api start:dev",
-    "dev:web": "pnpm --filter @clinic/web dev"
+    "dev:web": "pnpm --filter @clinic/web dev",
+    "test:int": "pnpm --filter @clinic/api test:int"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

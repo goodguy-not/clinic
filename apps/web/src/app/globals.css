@@ -1,3 +1,9 @@
+/*
+ * Minimal RTL form styling. There is deliberately no design system in
+ * Milestone 1 — brand assets, fonts and approved visual language arrive with
+ * the public-site milestone.
+ */
+
 :root {
   color-scheme: light dark;
 }
@@ -16,4 +22,65 @@ body {
     Tahoma,
     sans-serif;
   line-height: 1.7;
+}
+
+main {
+  max-width: 60rem;
+  margin-inline: auto;
+}
+
+label {
+  display: block;
+  margin-block-end: 0.25rem;
+  font-weight: 600;
+}
+
+input[type='text'],
+input[type='password'],
+select {
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.5rem;
+  font: inherit;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block-start: 1rem;
+}
+
+th,
+td {
+  padding: 0.5rem;
+  border-block-end: 1px solid;
+  text-align: start;
+  vertical-align: top;
+}
+
+/* Action buttons sit side by side inside a table cell. */
+.inline-action {
+  display: inline-block;
+  margin-inline-end: 0.25rem;
+  margin-block-end: 0.25rem;
+}
+
+.error {
+  font-weight: 600;
+  padding: 0.75rem;
+  border: 1px solid;
+  border-radius: 0.25rem;
+}
+
+.notice,
+.guidance {
+  padding: 0.75rem;
+  border: 1px solid;
+  border-radius: 0.25rem;
 }
