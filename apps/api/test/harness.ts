@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { API_ENV } from '../src/config/config.module';
@@ -178,7 +178,25 @@ export type SeedUserOptions = {
 
 export type SeededUser = { id: string; username: string; password: string };
 
-/** Creates a synthetic account with a real Argon2 hash. */
+/**
+ * Creates a synthetic account with a real Argon2 hash.
+ *
+ * Written with raw SQL so every timestamp comes from `transaction_timestamp()`
+ * — the same clock production writes with — rather than from Node.
+ *
+ * This is not a style preference. Prisma fills `@default(now())` in the query
+ * engine, on the client, while `UsersService` and `AuthService` write
+ * `password_updated_at` with `transaction_timestamp()` in PostgreSQL. A fixture
+ * seeded through the client and then compared against a value written by the
+ * server is comparing two clocks, and any skew between the Node host and the
+ * database — which a Docker suspend and resume reliably produces — makes an
+ * assertion like "the reset moved the timestamp forward" fail for a reason that
+ * has nothing to do with the code under test.
+ *
+ * One clock, and it is the database's. Nothing about production expiry or
+ * session semantics changes here; the authority was always PostgreSQL, and this
+ * makes the test setup agree with it.
+ */
 export async function seedUser(
   harness: Harness,
   options: SeedUserOptions = {},
@@ -187,19 +205,25 @@ export async function seedUser(
   const password = options.password ?? TEST_PASSWORD;
   const passwordHash = await harness.passwords.hash(password);
   const id = uuidv7();
+  const status = options.status ?? 'ACTIVE';
 
-  await harness.prisma.appUser.create({
-    data: {
-      id,
-      username,
-      displayName: options.displayName ?? 'Synthetic Tester',
-      role: options.role ?? 'RECEPTIONIST',
-      status: options.status ?? 'ACTIVE',
-      passwordHash,
-      mustChangePassword: options.mustChangePassword ?? false,
-      ...(options.status === 'DISABLED' ? { disabledAt: new Date() } : {}),
-    },
-  });
+  await harness.prisma.$executeRaw`
+    INSERT INTO app_user (
+      id, username, display_name, role, status, password_hash,
+      password_updated_at, must_change_password, disabled_at, created_at
+    ) VALUES (
+      ${id}::uuid,
+      ${username},
+      ${options.displayName ?? 'Synthetic Tester'},
+      ${options.role ?? 'RECEPTIONIST'}::user_role,
+      ${status}::user_status,
+      ${passwordHash},
+      transaction_timestamp(),
+      ${options.mustChangePassword ?? false},
+      ${status === 'DISABLED' ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
+      transaction_timestamp()
+    )
+  `;
 
   return { id, username, password };
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { createTariffRequestSchema } from '@clinic/contracts';
 import { tariffFormToRequest } from './catalog-forms';
 import { jalaliToIsoDate } from './jalali';
-import { serverToday } from './today';
 
 /**
  * Branch-specific payload construction for the tariff form.
@@ -254,18 +253,5 @@ describe('dates', () => {
     if (!result.ok) return;
     expect(String(result.payload['effectiveStart'])).not.toContain('T');
     expect(String(result.payload['effectiveStart'])).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-});
-
-describe('serverToday', () => {
-  it('formats from UTC components, never local ones', () => {
-    // 23:30 UTC is already the next day in Tehran. The server-side answer must
-    // be the UTC calendar day, deterministically, wherever the process runs.
-    expect(serverToday(new Date('2026-08-05T23:30:00.000Z'))).toBe('2026-08-05');
-    expect(serverToday(new Date('2026-01-01T00:00:00.000Z'))).toBe('2026-01-01');
-  });
-
-  it('produces a value the state comparison can use directly', () => {
-    expect(serverToday()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

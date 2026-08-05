@@ -8,7 +8,7 @@ import {
 } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
-import { serverToday } from '@/server/today';
+import { clinicToday } from '@/server/clinic-time';
 import { TariffList } from './tariff-list';
 
 export const dynamic = 'force-dynamic';
@@ -50,9 +50,10 @@ export default async function TariffsPage({
       tariffs={tariffs.ok ? tariffs.data.tariffs : []}
       services={services.ok ? services.data.services : []}
       therapists={therapists.ok ? therapists.data.therapists : []}
-      // Computed on the server: a browser clock that is a day out would
-      // describe a tariff as current when it is not.
-      today={serverToday()}
+      // The clinic's own date, computed on the server. A browser clock that is
+      // a day out — or a server running in UTC — would describe a tariff as
+      // current when it is not.
+      today={clinicToday()}
       csrfToken={(await readCsrfCookie()) ?? ''}
       errorMessage={errorMessage}
       {...(voidTariffId === undefined ? {} : { voidTariffId })}
