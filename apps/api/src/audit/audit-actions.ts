@@ -33,11 +33,41 @@ export const AUDIT_ACTIONS = [
   'user.role_changed',
   'user.status_changed',
   'user.unlocked',
+
+  // Clinic reference data. Endpoints arrive in the vertical slices that follow
+  // this checkpoint; the vocabulary is fixed here for the same reason as above.
+  'therapist.created',
+  'therapist.updated',
+  'therapist.status_changed',
+  'service.created',
+  'service.updated',
+  'service.status_changed',
+  'room.created',
+  'room.updated',
+  'room.status_changed',
+  // A tariff is never edited. A correction voids the row and writes a new one,
+  // so a price change is two audited facts — the value that stopped applying
+  // and the value that replaced it — rather than one entry that has to be read
+  // as a diff.
+  'tariff.created',
+  'tariff.voided',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
-/** Entity types currently written. Matches the `entity_type` format CHECK. */
-export const AUDIT_ENTITY_TYPES = ['app_user', 'user_session'] as const;
+/**
+ * Entity types currently written. Matches the `entity_type` format CHECK.
+ *
+ * These are table names, and deliberately so: an audit row names the row it
+ * describes, and `entity_id` has no foreign key to enforce that pairing.
+ */
+export const AUDIT_ENTITY_TYPES = [
+  'app_user',
+  'user_session',
+  'therapist',
+  'service',
+  'room',
+  'tariff',
+] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

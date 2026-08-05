@@ -132,15 +132,38 @@ export async function createHarness(): Promise<Harness> {
  * deployment closes with a separate, non-owner runtime role. Tests that prove
  * the triggers work run WITHOUT this helper.
  */
+const PROTECTED_TABLES = ['audit_log', 'app_user', 'therapist', 'service', 'room', 'tariff'];
+
+/**
+ * Truncated in one statement so foreign keys between them never dictate an
+ * order. The join tables cascade from their parents and the reference-data
+ * tables all cascade from `app_user`, but naming them explicitly keeps the
+ * intent visible rather than relying on the cascade to reach everything.
+ */
+const TRUNCATED_TABLES = [
+  'audit_log',
+  'user_session',
+  'tariff',
+  'therapist_service',
+  'room_service',
+  'service_duration',
+  'therapist',
+  'room',
+  'service',
+  'app_user',
+];
+
 export async function resetDatabase(prisma: PrismaClient | PrismaService): Promise<void> {
-  await prisma.$executeRawUnsafe('ALTER TABLE audit_log DISABLE TRIGGER USER');
-  await prisma.$executeRawUnsafe('ALTER TABLE app_user DISABLE TRIGGER USER');
+  for (const table of PROTECTED_TABLES) {
+    await prisma.$executeRawUnsafe(`ALTER TABLE ${table} DISABLE TRIGGER USER`);
+  }
 
   try {
-    await prisma.$executeRawUnsafe('TRUNCATE audit_log, user_session, app_user CASCADE');
+    await prisma.$executeRawUnsafe(`TRUNCATE ${TRUNCATED_TABLES.join(', ')} CASCADE`);
   } finally {
-    await prisma.$executeRawUnsafe('ALTER TABLE app_user ENABLE TRIGGER USER');
-    await prisma.$executeRawUnsafe('ALTER TABLE audit_log ENABLE TRIGGER USER');
+    for (const table of [...PROTECTED_TABLES].reverse()) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE TRIGGER USER`);
+    }
   }
 }
 
