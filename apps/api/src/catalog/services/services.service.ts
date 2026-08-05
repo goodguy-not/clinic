@@ -1,0 +1,335 @@
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import type {
+  CatalogStatus,
+  CreateServiceRequest,
+  Service,
+  UpdateServiceRequest,
+} from '@clinic/contracts';
+import { AuditService } from '../../audit/audit.service';
+import { AppError } from '../../common/app-error';
+import { isForeignKeyViolation, isUniqueViolation } from '../../common/pg-error';
+import type { RequestContext, ResolvedSession } from '../../common/request-context';
+import { uuidv7 } from '../../common/uuid';
+import { PrismaService } from '../../prisma/prisma.service';
+import { actorContext, canonicalOptionalText, canonicalText } from '../catalog-support';
+
+/**
+ * Clinic services and the session lengths each may be booked for.
+ *
+ * Two invariants shape every method:
+ *
+ *  1. A service row is never deleted. Deactivation is `status = INACTIVE`, and
+ *     the database refuses a DELETE outright.
+ *  2. Every state change and its audit row share one transaction, so a rolled
+ *     back write cannot leave an audit entry claiming it happened.
+ */
+
+type ServiceRow = {
+  id: string;
+  name: string;
+  public_description: string | null;
+  is_public: boolean;
+  status: CatalogStatus;
+  deactivated_at: Date | null;
+  created_at: Date;
+  durations: number[];
+};
+
+/**
+ * The projection every response is built from.
+ *
+ * Durations are aggregated in the same statement rather than fetched per row:
+ * a list of services would otherwise issue one query per service, and the
+ * ordering has to be deterministic for responses to be comparable.
+ */
+const SERVICE_COLUMNS = Prisma.sql`
+  s.id,
+  s.name,
+  s.public_description,
+  s.is_public,
+  s.status::text AS status,
+  s.deactivated_at,
+  s.created_at,
+  COALESCE(
+    (
+      SELECT array_agg(d.duration_minutes ORDER BY d.duration_minutes)
+      FROM service_duration d
+      WHERE d.service_id = s.id
+    ),
+    ARRAY[]::int[]
+  ) AS durations
+`;
+
+@Injectable()
+export class ServicesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  async list(): Promise<Service[]> {
+    const rows = await this.prisma.$queryRaw<ServiceRow[]>`
+      SELECT ${SERVICE_COLUMNS} FROM service s ORDER BY s.name ASC
+    `;
+
+    return rows.map(toService);
+  }
+
+  async get(id: string): Promise<Service> {
+    const rows = await this.prisma.$queryRaw<ServiceRow[]>`
+      SELECT ${SERVICE_COLUMNS} FROM service s WHERE s.id = ${id}::uuid
+    `;
+
+    const row = rows[0];
+    if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
+    return toService(row);
+  }
+
+  async create(
+    input: CreateServiceRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<Service> {
+    const id = uuidv7();
+    const name = canonicalText(input.name);
+    const publicDescription = canonicalOptionalText(input.publicDescription);
+    const durations = normalizeDurations(input.allowedDurationsMinutes);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      try {
+        await tx.$executeRaw`
+          INSERT INTO service (
+            id, name, public_description, is_public, status, created_at, created_by_user_id
+          ) VALUES (
+            ${id}::uuid, ${name}, ${publicDescription}, ${input.isPublic},
+            'ACTIVE'::catalog_status, transaction_timestamp(), ${actor.userId}::uuid
+          )
+        `;
+      } catch (error) {
+        // Caught rather than pre-checked: a SELECT-then-INSERT would let two
+        // concurrent creations both pass. The unique index is the authority.
+        if (isUniqueViolation(error)) throw new AppError('SERVICE_NAME_TAKEN');
+        throw error;
+      }
+
+      await this.insertDurations(tx, id, durations);
+
+      const row = await this.readForUpdate(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'service.created',
+        entityType: 'service',
+        entityId: id,
+        after: {
+          name: row.name,
+          publicDescription: row.public_description,
+          isPublic: row.is_public,
+          status: row.status,
+          allowedDurationsMinutes: row.durations,
+        },
+      });
+
+      return row;
+    });
+
+    return toService(created);
+  }
+
+  async update(
+    id: string,
+    input: UpdateServiceRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<Service> {
+    const name = canonicalText(input.name);
+    const publicDescription = canonicalOptionalText(input.publicDescription);
+    const durations = normalizeDurations(input.allowedDurationsMinutes);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const before = await this.lock(tx, id);
+
+      try {
+        await tx.$executeRaw`
+          UPDATE service
+          SET name = ${name}, public_description = ${publicDescription}, is_public = ${input.isPublic}
+          WHERE id = ${id}::uuid
+        `;
+      } catch (error) {
+        if (isUniqueViolation(error)) throw new AppError('SERVICE_NAME_TAKEN');
+        throw error;
+      }
+
+      await this.replaceDurations(tx, id, before.durations, durations);
+
+      const after = await this.readForUpdate(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'service.updated',
+        entityType: 'service',
+        entityId: id,
+        before: {
+          name: before.name,
+          publicDescription: before.public_description,
+          isPublic: before.is_public,
+          allowedDurationsMinutes: before.durations,
+        },
+        after: {
+          name: after.name,
+          publicDescription: after.public_description,
+          isPublic: after.is_public,
+          allowedDurationsMinutes: after.durations,
+        },
+      });
+
+      return after;
+    });
+
+    return toService(updated);
+  }
+
+  async changeStatus(
+    id: string,
+    status: CatalogStatus,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<Service> {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const before = await this.lock(tx, id);
+
+      // Already in the requested state: return it unchanged rather than writing
+      // an audit row for a change that did not happen. Makes the endpoint
+      // idempotent and keeps the trail free of entries whose before and after
+      // are identical.
+      if (before.status === status) return before;
+
+      // `transaction_timestamp()` rather than a value from Node: it is constant
+      // for the whole transaction, so this timestamp and the `occurred_at` of
+      // the audit row below are provably the same instant. A `new Date()` here
+      // would be a second clock that can disagree.
+      if (status === 'INACTIVE') {
+        await tx.$executeRaw`
+          UPDATE service
+          SET status = 'INACTIVE'::catalog_status, deactivated_at = transaction_timestamp()
+          WHERE id = ${id}::uuid
+        `;
+      } else {
+        // Reactivation clears the timestamp; the CHECK constraint requires the
+        // two to agree, so a stale value here would fail the write.
+        await tx.$executeRaw`
+          UPDATE service
+          SET status = 'ACTIVE'::catalog_status, deactivated_at = NULL
+          WHERE id = ${id}::uuid
+        `;
+      }
+
+      const after = await this.readForUpdate(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'service.status_changed',
+        entityType: 'service',
+        entityId: id,
+        before: { status: before.status },
+        after: { status: after.status },
+      });
+
+      return after;
+    });
+
+    return toService(updated);
+  }
+
+  private async insertDurations(
+    tx: Prisma.TransactionClient,
+    serviceId: string,
+    durations: number[],
+  ): Promise<void> {
+    for (const minutes of durations) {
+      await tx.$executeRaw`
+        INSERT INTO service_duration (id, service_id, duration_minutes)
+        VALUES (${uuidv7()}::uuid, ${serviceId}::uuid, ${minutes})
+      `;
+    }
+  }
+
+  /**
+   * Applies the difference rather than deleting everything and reinserting.
+   *
+   * A wholesale replace would delete rows a tariff still references and fail on
+   * every update that touched an unrelated field. Only genuinely removed
+   * durations are deleted, so an edit that keeps a priced duration succeeds.
+   */
+  private async replaceDurations(
+    tx: Prisma.TransactionClient,
+    serviceId: string,
+    before: number[],
+    after: number[],
+  ): Promise<void> {
+    const removed = before.filter((minutes) => !after.includes(minutes));
+    const added = after.filter((minutes) => !before.includes(minutes));
+
+    if (removed.length > 0) {
+      try {
+        await tx.$executeRaw`
+          DELETE FROM service_duration
+          WHERE service_id = ${serviceId}::uuid
+            AND duration_minutes IN (${Prisma.join(removed)})
+        `;
+      } catch (error) {
+        // `tariff_service_id_duration_minutes_fkey` is ON DELETE RESTRICT: a
+        // duration that any tariff prices — including a voided one, which is
+        // history and keeps its references — cannot be withdrawn. The whole
+        // transaction rolls back, audit row included.
+        if (isForeignKeyViolation(error)) throw new AppError('SERVICE_DURATION_IN_USE');
+        throw error;
+      }
+    }
+
+    await this.insertDurations(tx, serviceId, added);
+  }
+
+  /**
+   * Locks the row for the rest of the transaction.
+   *
+   * Two concurrent updates would otherwise each read the current durations,
+   * compute a diff against them and write conflicting sets. The lock serialises
+   * them so the second sees the first's result.
+   */
+  private async lock(tx: Prisma.TransactionClient, id: string): Promise<ServiceRow> {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM service WHERE id = ${id}::uuid FOR UPDATE
+    `;
+
+    if (locked[0] === undefined) throw new AppError('SERVICE_NOT_FOUND');
+
+    return this.readForUpdate(tx, id);
+  }
+
+  private async readForUpdate(tx: Prisma.TransactionClient, id: string): Promise<ServiceRow> {
+    const rows = await tx.$queryRaw<ServiceRow[]>`
+      SELECT ${SERVICE_COLUMNS} FROM service s WHERE s.id = ${id}::uuid
+    `;
+
+    const row = rows[0];
+    if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
+    return row;
+  }
+}
+
+/** Deduplicated and ordered, so two spellings of the same set behave the same. */
+function normalizeDurations(durations: number[]): number[] {
+  return [...new Set(durations)].sort((a, b) => a - b);
+}
+
+export function toService(row: ServiceRow): Service {
+  return {
+    id: row.id,
+    name: row.name,
+    publicDescription: row.public_description,
+    isPublic: row.is_public,
+    status: row.status,
+    deactivatedAt: row.deactivated_at === null ? null : row.deactivated_at.toISOString(),
+    allowedDurationsMinutes: row.durations,
+    createdAt: row.created_at.toISOString(),
+  };
+}

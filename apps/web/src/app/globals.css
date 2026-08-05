@@ -1,8 +1,22 @@
 /*
- * Minimal RTL form styling. There is deliberately no design system in
- * Milestone 1 — brand assets, fonts and approved visual language arrive with
- * the public-site milestone.
+ * Minimal RTL form styling, plus Tailwind.
+ *
+ * Tailwind arrives in Milestone 2 as a utility layer for the reference-data
+ * screens, which need consistent responsive and accessible layout across
+ * several similar forms and tables. It is build-time only: no component
+ * library, no client runtime, and every page stays a Server Component.
+ *
+ * The element styles below are Milestone 1's and are deliberately left alone.
+ * They keep the existing authentication and staff pages looking exactly as
+ * they did, so adopting Tailwind is additive rather than a silent restyle of
+ * surfaces nobody asked to change.
+ *
+ * Write layout with logical properties and Tailwind's logical utilities —
+ * `ms-*`/`me-*`, `ps-*`/`pe-*`, `text-start`/`text-end` — never `left`/`right`.
+ * The document is `dir="rtl"`, and physical directions do not flip with it.
  */
+
+@import 'tailwindcss';
 
 :root {
   color-scheme: light dark;

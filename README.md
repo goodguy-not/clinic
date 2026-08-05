@@ -313,6 +313,192 @@ committed file carries the full provenance header, the source checksum and the e
 reproducible filter command, and is refreshed only by a reviewed pull request. It is never
 fetched at build or run time, and there is no online breached-password lookup.
 
+## Clinic reference data (Milestone 2)
+
+Therapists, services, rooms and effective-dated tariffs — the data every later milestone
+prices and schedules against. All of it is **manager-only**; a receptionist holds no catalog
+permission and receives `403` on every route and page.
+
+### Scope, and what is deliberately absent
+
+Built: services with allowed durations, rooms with optional service restrictions, therapists
+with supported services, and tariffs with `PAID`/`FREE` pricing, effective dating, overlap
+prevention, resolution and void-and-replace correction.
+
+Not built, and each for a stated reason:
+
+| Absent                                                     | Why                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Availability** (recurring windows, dated exceptions)     | Nothing consumes it until appointment booking exists. Deferred to Milestone 4, where real conflict rules will shape it.                                                                                            |
+| **Therapist login**                                        | Therapist access is a separately approved decision that has not been made (PROJECT_SPEC.md 4). A therapist here is a record staff manage; there is no username, password or session, and no relation to `AppUser`. |
+| **Therapist settlement percentage**                        | Effective-dated and snapshotted per session (Milestone 8). A plain column now would be the wrong shape and would invite writing one.                                                                               |
+| **Family-specific tariffs**                                | Families arrive in Milestone 3. The column is additive when they do.                                                                                                                                               |
+| **Receptionist catalog access**                            | No receptionist workflow reads this data yet. Milestone 4 grants the specific `.read` permissions the booking screen actually needs — a one-line change to `ROLE_PERMISSIONS`.                                     |
+| Duplicate-warning workflows, near-duplicate name detection | Approved for families (Milestone 3), not for catalog entities.                                                                                                                                                     |
+
+Real clinic data — actual service names, room names, therapists, prices — is owner-provided
+(PROJECT_SPEC.md 15, 17). Nothing is seeded, and no realistic-looking clinic data appears in
+code, fixtures or tests.
+
+### Services
+
+Name, public description, allowed durations, and an active/inactive status. `isPublic` is
+recorded now and read by nothing until the public-site milestone.
+
+A duration that any tariff has ever priced **cannot be withdrawn** — including one priced by a
+voided tariff, because a voided tariff is history and history keeps its references. The
+`tariff_service_id_duration_minutes_fkey` foreign key is `ON DELETE RESTRICT`, and the attempt
+surfaces as `SERVICE_DURATION_IN_USE` rather than a raw constraint error. Deactivate the
+service instead.
+
+### Rooms
+
+Name, status, and an allow-list of services. **An empty list means unrestricted** — the
+common case. That asymmetry is why the form asks the question outright ("قابل استفاده برای
+همهٔ خدمات" versus "محدود به خدمات انتخاب‌شده") rather than letting an untouched multi-select
+mean "any service": the two are identical in the data, so the interface has to be what
+distinguishes them.
+
+A restriction naming a service that is later deactivated is **kept**. It is configuration
+somebody entered, and reactivating the service must not require restoring a decision nobody
+reversed.
+
+### Therapists
+
+Full name, specialty, status, and supported services. Names are **not unique**: two real
+people may share a name and a specialty, and refusing the second would be refusing a person.
+
+Supported services behave like room restrictions — replaced atomically with the therapist
+update and its audit row, and never silently dropped when a service is deactivated. The edit
+form keeps an inactive service listed, checked, and marked «خدمت غیرفعال».
+
+### Tariffs
+
+A price for one `(service, duration)`, either for a specific therapist or general
+(`therapistId = NULL`), over an inclusive effective date range.
+
+**Resolution** takes a service date and returns the applicable price. A therapist-specific
+tariff wins over a general one for the same date; a miss is `TARIFF_MISSING`, a visible error
+rather than a silent zero (PROJECT_SPEC.md 5). The service date is always the caller's — never
+today — so a session in Mordad is priced by the tariff in force in Mordad, even if the service
+or therapist has since been deactivated.
+
+**Overlap** is prevented by two partial `EXCLUDE` constraints, not by reading before writing.
+Two live general tariffs may not overlap for the same service and duration; two live
+therapist-specific ones may not overlap for the same service, duration and therapist. A
+general and a therapist-specific tariff may cover the same range — that is what makes
+precedence possible. Concurrent overlapping inserts produce exactly one success and one
+`TARIFF_OVERLAP`.
+
+**Immutability.** A tariff is written once. The `tariff_enforce_immutability` trigger permits
+exactly one transition — active to voided — and refuses every other change, including
+unvoiding and rewriting a void reason. There is no update endpoint and no delete endpoint. A
+correction voids the row and inserts a replacement in one transaction, producing two
+independently inspectable audit rows (`tariff.voided`, then `tariff.created`). A replacement
+must price the same service, duration and therapist scope; changing what is priced is a new
+tariff, not a correction (`TARIFF_SCOPE_MISMATCH`). The price _mode_ may legitimately change
+between `PAID` and `FREE` — that corrects what the price is, not what is priced.
+
+### Paid and intentionally free
+
+`priceMode` is explicit and is **never inferred from a zero amount**.
+
+- `PAID` — a real price above zero, at most 1,000,000,000 toman (a fat-finger guard, not a
+  modelled ceiling), and no free reason.
+- `FREE` — exactly zero, a stated `freeReason`, and a request-only `confirmFreePrice: true`.
+
+The clinic runs genuinely free programmes — complimentary screening, introductory
+consultations — and that is a different fact from an ordinarily paid service discounted to
+nothing for one family. The first is a `FREE` tariff; the second stays `PAID` and belongs to
+the later discount model, which preserves the original price.
+
+The confirmation is a deliberate speed bump: creating a free programme has to be something
+somebody chose, not something they reached by leaving a field blank. It is **never persisted
+and never audited** — there is no such column, and it appears in no audit payload.
+
+**A `FREE` tariff says what the family pays and nothing else.** Whether the therapist is
+compensated for a complimentary session, and whether the clinic absorbs the cost, is an
+independent settlement decision (Milestone 8) and must not be inferred from this value.
+
+### Dates, money and the clinic timezone
+
+| Concern         | At rest                                           | Over the API                | In the interface                                   |
+| --------------- | ------------------------------------------------- | --------------------------- | -------------------------------------------------- |
+| Effective dates | PostgreSQL `DATE` (Gregorian, no time, no offset) | strict `YYYY-MM-DD` strings | Jalali, via server-rendered year/month/day selects |
+| Money           | `BIGINT`, integer toman                           | decimal strings             | Persian digits, `٬` grouping, `تومان`              |
+
+A date never crosses as a JavaScript timestamp, and money never crosses as a number — JSON has
+no integer type, and a value above 2^53 would lose precision silently. `apps/api/src/common/
+iso-date.ts` converts through UTC components only; local getters would shift the calendar day
+either side of midnight depending on where the process runs.
+
+The Jalali control is **not** `<input type="date">`: that widget is Gregorian in every browser,
+and labelling it as Jalali would show one calendar while submitting another. Conversion happens
+in the Route Handler, before the shared contract sees anything.
+
+**The clinic business timezone is `Asia/Tehran`**, a constant in
+`apps/web/src/server/clinic-time.ts`. It is used only to classify a tariff for display as
+current, future or expired — never to resolve a price. Tehran is UTC+03:30 with no DST, so its
+date rolls over at 20:30 UTC; using UTC or the server's local zone would mislabel a tariff for
+three and a half hours of every day.
+
+### Permissions
+
+Fifteen catalog permissions, all held by `MANAGER` and none by `RECEPTIONIST`:
+
+`therapist.read|create|update|update_status`, `service.read|create|update|update_status`,
+`room.read|create|update|update_status`, `tariff.read|create|void`.
+
+Voiding is separate from creating: correcting a price already in force is a different
+authority from setting one, and later milestones may grant them differently.
+
+### Endpoints
+
+```text
+GET    /catalog/services            GET    /catalog/rooms
+GET    /catalog/services/:id        GET    /catalog/rooms/:id
+POST   /catalog/services            POST   /catalog/rooms
+PATCH  /catalog/services/:id        PATCH  /catalog/rooms/:id
+PATCH  /catalog/services/:id/status PATCH  /catalog/rooms/:id/status
+
+GET    /catalog/therapists          GET    /catalog/tariffs
+GET    /catalog/therapists/:id      GET    /catalog/tariff-resolution
+POST   /catalog/therapists          GET    /catalog/tariffs/:id
+PATCH  /catalog/therapists/:id      POST   /catalog/tariffs
+PATCH  /catalog/therapists/:id/status POST /catalog/tariffs/:id/void
+```
+
+No delete route exists on any of them. `/catalog/tariff-resolution` is deliberately not nested
+under `/catalog/tariffs/`, where it would share a space with `/catalog/tariffs/:id` and depend
+on route declaration order.
+
+### Persian pages
+
+`/services`, `/rooms`, `/therapists`, `/tariffs` — plus `new` and `[id]/edit` for the first
+three, and `/tariffs/new?supersedes=<id>` for a tariff correction. There is no tariff edit page,
+because there is no such thing as editing a tariff.
+
+Server Components throughout, **zero client JavaScript**, ordinary form posts to one Route
+Handler per state change, and redirect-with-error-code for failures. Tailwind CSS v4 provides
+the utilities; there is no component toolkit and no client runtime.
+
+### Database objects
+
+Seven tables — `therapist`, `service`, `service_duration`, `room`, `therapist_service`,
+`room_service`, `tariff` — with two enums (`catalog_status`, `tariff_price_mode`).
+
+The reviewed migration hand-writes what Prisma cannot express: 17 CHECK and EXCLUDE
+constraints, 8 no-delete/no-truncate triggers, and the tariff immutability trigger. Every one
+is pinned by name in `catalog-schema.int-spec.ts`, because `prisma migrate diff` does not see
+CHECK constraints or triggers and would let one disappear silently.
+
+`created_by_user_id` is `NOT NULL` on all four entity tables: there is no anonymous or system
+path that creates clinic reference data.
+
+The overlap constraints need the **`btree_gist`** extension, which the migration creates. It
+requires extension-creation privilege — available in the dev and CI containers, and worth
+confirming on any managed host before the pilot.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the

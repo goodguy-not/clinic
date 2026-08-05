@@ -297,3 +297,249 @@ cost on pilot hardware is unknown, and cost is the entire point of the algorithm
 - **Trade-off:** until the benchmark runs, the deployed cost is a guess.
 - **Revisit when:** pilot hardware is chosen (Milestone 10), or the clinic moves
   hosts.
+
+---
+
+## 2026-08-06 — Milestone 2 scope: reference data without availability
+
+**Status:** Accepted
+
+PROJECT_SPEC.md 16 names "therapists, services, rooms, availability, tariffs"
+for Milestone 2. Availability is deferred to Milestone 4; the other four are
+implemented.
+
+- **Alternatives:** build the recurring-window and dated-exception model now.
+- **Reason:** nothing consumes availability until appointment booking exists, so
+  it would be built against imagined conflict rules rather than real ones. The
+  four entities that later milestones genuinely depend on are complete.
+- **Trade-off:** Milestone 4 begins with one more data model to design.
+- **Revisit when:** Milestone 4 starts.
+
+---
+
+## 2026-08-06 — Receptionist holds no catalog permission in Milestone 2
+
+**Status:** Accepted
+
+All fifteen catalog permissions belong to `MANAGER`. `RECEPTIONIST` stays empty,
+as in Milestone 1, and receives 403 on every catalog route and page.
+
+- **Alternatives:** grant read-only catalog access now.
+- **Reason:** no receptionist workflow reads this data yet. PROJECT_SPEC.md 4
+  bars them from global tariff changes and grants them nothing here.
+- **Trade-off:** a receptionist cannot look up a price before Milestone 4.
+- **Revisit when:** Milestone 4 — grant the specific `.read` permissions the
+  booking screen needs, a one-line change to `ROLE_PERMISSIONS`.
+
+---
+
+## 2026-08-06 — Therapist is reference data, not an account
+
+**Status:** Accepted
+
+The `therapist` table carries name, specialty, status and supported services.
+There is no username, password, session or relation to `AppUser`, and no
+settlement percentage.
+
+- **Reason:** therapist login is separately approved and has not been
+  (PROJECT_SPEC.md 4). Settlement percentages must be effective-dated and
+  snapshotted per completed session, so a column here would be the wrong shape
+  and would invite writing one.
+- **Trade-off:** `createdBy` names the manager who entered the record, which
+  reads like an account link and is not one.
+- **Revisit when:** therapist access is approved, or Milestone 8 defines
+  settlement.
+
+Therapist names are deliberately not unique: two real people may share a name
+and a specialty. No duplicate-warning workflow exists — that is approved for
+families (Milestone 3), not for catalog entities.
+
+---
+
+## 2026-08-06 — Explicit PAID and FREE tariff modes
+
+**Status:** Accepted
+
+`priceMode` is stored explicitly and is never inferred from `price_toman = 0`.
+`PAID` requires a price above zero and no reason; `FREE` requires exactly zero,
+a stated reason, and a request-only `confirmFreePrice: true` that is never
+persisted or audited.
+
+- **Alternatives:** treat a zero price as free.
+- **Reason:** the clinic runs genuinely free programmes, and that is a different
+  fact from an ordinarily paid service discounted to nothing for one family. The
+  first is a `FREE` tariff; the second stays `PAID` and belongs to the later
+  discount model, which preserves the original price. Inferring from the amount
+  would merge two facts that must stay distinct in reports and in history.
+- **Trade-off:** one more column and a confirmation step in the form.
+- **Revisit when:** never expected; the distinction is the point.
+
+**A FREE tariff does not determine therapist compensation.** It states what the
+family pays. Whether a therapist is paid for a complimentary session, and
+whether the clinic absorbs the cost, is an independent decision and must not be
+inferred from this column. Resolve it in Milestone 8.
+
+---
+
+## 2026-08-06 — Tariffs are corrected by void-and-replace, enforced in PostgreSQL
+
+**Status:** Accepted
+
+A tariff is immutable once written. The `tariff_enforce_immutability` trigger
+permits exactly one transition — active to voided — and refuses every other
+change, including unvoiding and rewriting a void reason. There is no update or
+delete endpoint. A correction voids the row and inserts a replacement in one
+transaction, writing `tariff.voided` and `tariff.created` as two audit rows.
+
+Overlap is prevented by two partial `EXCLUDE USING GIST` constraints rather than
+by reading before writing, so two simultaneous requests cannot both succeed. A
+general and a therapist-specific tariff may share a date range, which is what
+makes resolution precedence possible.
+
+- **Alternatives:** in-place update with an audit row.
+- **Reason:** PROJECT_SPEC.md 5 requires that changing a tariff never changes
+  historical charges and that corrections are auditable adjustments rather than
+  silent overwrites. Enforcing it in the database means a future endpoint, a
+  data-fix script or a psql session cannot rewrite a price that was already
+  applied.
+- **Trade-off:** more rows over time; every read filters `voided_at IS NULL`.
+- **Revisit when:** never expected.
+
+Requires the `btree_gist` extension, created by the migration. Confirm
+extension-creation privilege on any managed production host.
+
+---
+
+## 2026-08-06 — Service durations and catalog associations preserve history
+
+**Status:** Accepted
+
+A duration any tariff has ever priced cannot be withdrawn, including one priced
+by a voided tariff; the attempt surfaces as `SERVICE_DURATION_IN_USE`. Room
+service restrictions and therapist supported-service associations are never
+silently removed when a service is deactivated, and inactive services stay
+listed and selected in the editing forms.
+
+- **Reason:** a price that applied on a past date must stay readable, and
+  configuration somebody entered is a decision — dropping it silently would mean
+  reactivating a service does not restore a choice nobody reversed.
+- **Trade-off:** a service cannot be tidied up once priced; deactivation is the
+  route.
+- **Revisit when:** never expected.
+
+---
+
+## 2026-08-06 — Date-only Gregorian storage, Jalali display, Asia/Tehran business date
+
+**Status:** Accepted
+
+Effective dates are PostgreSQL `DATE` and cross every contract as strict
+`YYYY-MM-DD` Gregorian strings, never JavaScript timestamps. The web tier
+converts to and from Jalali at its own edge, using a server-rendered
+year/month/day control rather than `input type=date`, which is Gregorian in
+every browser.
+
+The clinic business timezone is **`Asia/Tehran`**, a constant in
+`apps/web/src/server/clinic-time.ts`.
+
+- **Alternatives:** UTC as the business date; a required environment variable
+  for the timezone.
+- **Reason:** Tehran is UTC+03:30 with no DST, so its calendar date rolls over
+  at 20:30 UTC — using UTC would mislabel a tariff as current, future or expired
+  for three and a half hours of every day. A constant beats a variable for a
+  single-clinic product: one less thing to get wrong in a deployment, and the
+  correct value is already known.
+- **Trade-off:** multi-clinic operation would need the value to become
+  configuration.
+- **Revisit when:** multi-clinic or multi-timezone support is approved.
+
+This helper classifies tariffs for display only. Tariff resolution uses the
+caller-supplied service date and never "today": a session is priced by the day
+it happened.
+
+---
+
+## 2026-08-06 — Tailwind CSS v4, CSS-first, no component toolkit
+
+**Status:** Accepted
+
+`apps/web` uses Tailwind CSS v4 via `@tailwindcss/postcss` and a
+`@import "tailwindcss"` line in `globals.css`. There is deliberately **no
+`tailwind.config.ts`**: v4 configures in CSS, and a JavaScript config file is the
+legacy path.
+
+No component library, no headless primitives, and no Client Components. A small
+set of hand-written pieces in `apps/web/src/components/ui.tsx` covers the shapes
+used across four or more screens.
+
+- **Alternatives:** continue hand-written CSS; adopt a fuller toolkit.
+- **Reason:** four entities of CRUD needed consistent responsive and accessible
+  layout, and utilities solve that at build time without a client runtime. A
+  component toolkit would be a larger dependency surface and would arrive before
+  the public-site milestone sets the real visual language.
+- **Trade-off:** one dev dependency; the first departure from Milestone 1's
+  zero-framework baseline.
+- **Revisit when:** Milestone 4 needs genuinely interactive widgets, or
+  owner-approved brand assets arrive.
+
+---
+
+## 2026-08-06 — Accepted implementation deviations from the Milestone 2 plan
+
+**Status:** Accepted
+
+Four deviations were found during implementation and are kept deliberately.
+
+**The `ServiceDuration` composite key is a declared Prisma relation, not
+hand-written SQL.** The plan expected hand-written SQL. Written that way,
+`prisma migrate diff --exit-code` returned 2 on every run: unlike CHECK
+constraints and triggers, Prisma _does_ see foreign keys, so a hand-written one
+reads as permanent schema drift and fails CI. `serviceId` participates in two
+relations at once and Prisma accepts it, so the key lives in the datamodel and
+drift is zero.
+
+**Service and therapist rows are locked `FOR SHARE`, not `FOR UPDATE`, during
+tariff creation.** A share lock still conflicts with the `UPDATE` a deactivation
+performs — which is the requirement — while letting two unrelated tariff
+creations for the same service proceed together. `FOR UPDATE` would serialise
+all pricing work per service for no additional safety. Lock order is documented
+and consistent: service, then therapist, then tariff.
+
+**Three error codes are web-local rather than shared contract codes.**
+`API_UNREACHABLE`, `TARIFF_BRANCH_CONTRADICTORY` and `TARIFF_DATE_INVALID` live
+in `apps/web/src/server/errors-fa.ts`. NestJS cannot raise any of them: it never
+sees an unbuilt payload or a Jalali date, and it cannot report its own absence.
+They are covered by the same translation-coverage test as contract codes.
+
+**An inverted effective range is caught by the contract, not the database.**
+Both dates are individually valid, so nothing else would catch an end before its
+start; it reached PostgreSQL, failed `tariff_effective_range_chk` and surfaced
+as an internal error. A refinement mirroring that CHECK makes it an ordinary
+validation failure.
+
+---
+
+## 2026-08-06 — Integration fixtures read the database clock
+
+**Status:** Accepted
+
+`seedUser` writes `password_updated_at`, `created_at` and `disabled_at` with
+`transaction_timestamp()` in raw SQL, rather than relying on Prisma's
+`@default(now())`.
+
+- **Reason:** Prisma fills `@default(now())` in the query engine, on the client,
+  while `UsersService` and `AuthService` write those columns with
+  `transaction_timestamp()` in PostgreSQL. A fixture seeded through the client
+  and compared against a server-written value is comparing two clocks, and any
+  skew between the Node host and the database — which a Docker suspend and
+  resume reliably produces — fails the password-reset assertion for a reason
+  unrelated to the code under test.
+- **Alternatives:** widen the assertion; add a tolerance; sleep.
+- **Trade-off:** the fixture is raw SQL rather than a Prisma call, so a schema
+  change touches it.
+- **Revisit when:** never expected.
+
+No production behaviour changed. PostgreSQL was always the authority for expiry
+and security timestamps; the fixture now agrees with it.
+`harness-clock.int-spec.ts` asserts the property directly rather than waiting
+for a clock to drift on somebody's machine.

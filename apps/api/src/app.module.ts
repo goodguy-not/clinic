@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { CatalogModule } from './catalog/catalog.module';
 import { InternalKeyGuard } from './auth/guards/internal-key.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { SessionGuard } from './auth/guards/session.guard';
@@ -26,7 +27,15 @@ import { UsersModule } from './users/users.module';
  * the only code that queries them.
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, UsersModule, HealthModule],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    AuditModule,
+    AuthModule,
+    UsersModule,
+    CatalogModule,
+    HealthModule,
+  ],
   providers: [
     { provide: APP_GUARD, useClass: InternalKeyGuard },
     { provide: APP_GUARD, useClass: SessionGuard },

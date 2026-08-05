@@ -1,10 +1,17 @@
 // Milestone 1 — authentication and audit foundation.
+// Milestone 2 — clinic reference data: therapists, services, rooms, tariffs.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
-// indexes, functions and triggers — are hand-written inside the generated
-// migration SQL and pinned by tests that assert each object exists by name.
-// Reading this file alone therefore understates what the database enforces;
-// read the migration alongside it.
+// indexes, exclusion constraints, composite foreign keys, functions and
+// triggers — are hand-written inside the generated migration SQL and pinned by
+// tests that assert each object exists by name. Reading this file alone
+// therefore understates what the database enforces; read the migration
+// alongside it.
+//
+// That understatement is largest around `Tariff`. Nothing here shows that a
+// tariff is immutable after insert, that two tariffs may not cover the same
+// service, duration and therapist on overlapping dates, or that a free tariff
+// must carry a reason. All three are enforced, in SQL.
 
 datasource db {
   provider = "postgresql"
@@ -47,6 +54,40 @@ enum AuditActorType {
   @@map("audit_actor_type")
 }
 
+/// Lifecycle of a catalog record. Shared by therapists, services and rooms:
+/// the three have identical lifecycles, and three near-identical enums would
+/// be three places to change when that stops being true.
+///
+/// There is no `DELETED`. Records with history are deactivated, never deleted
+/// (PROJECT_SPEC.md 5), and the migration adds triggers so the database
+/// refuses a DELETE regardless of what the application asks for.
+enum CatalogStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("catalog_status")
+}
+
+/// Whether a tariff's family-facing price is a real charge or an intentional
+/// zero.
+///
+/// Explicit, never inferred from `price_toman = 0`. The clinic runs genuinely
+/// free programmes — complimentary screening, introductory consultations — and
+/// that is a different fact from an ordinarily paid service discounted to
+/// nothing for one family. The first is a FREE tariff; the second stays a PAID
+/// tariff and is handled by the later discount model, which preserves the
+/// original price.
+///
+/// A FREE tariff states what the family pays and nothing else. What the
+/// therapist is paid for a complimentary session is an independent settlement
+/// decision and must not be inferred from this column.
+enum TariffPriceMode {
+  PAID
+  FREE
+
+  @@map("tariff_price_mode")
+}
+
 /// Staff accounts. Manager-created only; there is no self-registration.
 ///
 /// User rows are permanent historical records: account creation is audited and
@@ -79,6 +120,11 @@ model AppUser {
   createdUsers AppUser[]     @relation("AppUserCreatedBy")
   sessions     UserSession[]
   auditEntries AuditLog[]
+
+  createdTherapists Therapist[]
+  createdServices   Service[]
+  createdRooms      Room[]
+  createdTariffs    Tariff[]
 
   @@map("app_user")
 }
@@ -141,4 +187,204 @@ model AuditLog {
   @@index([requestId])
   @@index([sessionId])
   @@map("audit_log")
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 2 — clinic reference data.
+//
+// Every row here carries `createdByUserId` as a NOT NULL foreign key. There is
+// no anonymous or system path that creates catalog data: it is entered by a
+// signed-in manager, and the row names them. `onDelete: Restrict` is belt and
+// braces — `app_user` already refuses deletion outright.
+//
+// None of these tables has `updatedAt`. `audit_log` is the authoritative change
+// history, and a second, application-clock timestamp would be a quieter and
+// less trustworthy copy of it.
+// ---------------------------------------------------------------------------
+
+/// A therapist as clinic reference data.
+///
+/// Not an account. Therapist login is a later, separately approved decision
+/// (PROJECT_SPEC.md 4), so there is no relation to `AppUser`, no credentials
+/// and no session. `createdBy` names the manager who entered the record, which
+/// is a different fact entirely.
+///
+/// There is deliberately no share or settlement percentage. PROJECT_SPEC.md 5
+/// calls that rule "later" and 16 assigns it to the settlement milestone, where
+/// it must be effective-dated and snapshotted onto each completed session — a
+/// plain column here would be the wrong shape and would invite writing one.
+///
+/// Deactivation is `status = INACTIVE`; the migration adds BEFORE DELETE and
+/// BEFORE TRUNCATE triggers so the database refuses removal.
+model Therapist {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  fullName        String        @map("full_name")
+  specialty       String
+  status          CatalogStatus @default(ACTIVE)
+  deactivatedAt   DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+
+  createdBy         AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supportedServices TherapistService[]
+  tariffs           Tariff[]
+
+  @@index([status])
+  @@map("therapist")
+}
+
+/// A clinic service, and the session lengths it may be booked for.
+///
+/// `isPublic` and `publicDescription` are recorded here and read by nothing in
+/// this milestone; the public website is a later one. They live on the service
+/// because that is where the fact belongs.
+model Service {
+  id                String        @id @default(uuid(7)) @db.Uuid
+  name              String        @unique
+  publicDescription String?       @map("public_description")
+  isPublic          Boolean       @default(false) @map("is_public")
+  status            CatalogStatus @default(ACTIVE)
+  deactivatedAt     DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId   String        @map("created_by_user_id") @db.Uuid
+
+  createdBy        AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  durations        ServiceDuration[]
+  therapists       TherapistService[]
+  roomRestrictions RoomService[]
+  tariffs          Tariff[]
+
+  @@index([status])
+  @@map("service")
+}
+
+/// One session length a service may be booked for, in whole minutes.
+///
+/// The `@@unique` is load-bearing beyond preventing duplicates: it is the
+/// target of a hand-written composite foreign key from `tariff`, which is what
+/// makes "a tariff may only price a duration this service actually offers" a
+/// database guarantee rather than a service-layer check.
+///
+/// That same foreign key is ON DELETE RESTRICT, so a duration cannot be
+/// withdrawn while any tariff still prices it — including a voided one. A
+/// duration that was ever priced stays a valid historical reference.
+model ServiceDuration {
+  id              String @id @default(uuid(7)) @db.Uuid
+  serviceId       String @map("service_id") @db.Uuid
+  durationMinutes Int    @map("duration_minutes")
+
+  service Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tariffs Tariff[] @relation("TariffServiceDuration")
+
+  @@unique([serviceId, durationMinutes])
+  @@map("service_duration")
+}
+
+/// A treatment room.
+model Room {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  name            String        @unique
+  status          CatalogStatus @default(ACTIVE)
+  deactivatedAt   DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+
+  createdBy       AppUser       @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  allowedServices RoomService[]
+
+  @@index([status])
+  @@map("room")
+}
+
+/// Services a therapist supports.
+///
+/// Current configuration, not history: the change is recorded in `audit_log`
+/// under `therapist.updated`, so these rows may be replaced freely and cascade
+/// with their parents.
+model TherapistService {
+  therapistId String @map("therapist_id") @db.Uuid
+  serviceId   String @map("service_id") @db.Uuid
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([therapistId, serviceId])
+  @@index([serviceId])
+  @@map("therapist_service")
+}
+
+/// Allow-list of services a room is restricted to. No rows means unrestricted,
+/// which is the common case and the one that needs no data entry.
+model RoomService {
+  roomId    String @map("room_id") @db.Uuid
+  serviceId String @map("service_id") @db.Uuid
+
+  room    Room    @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([roomId, serviceId])
+  @@index([serviceId])
+  @@map("room_service")
+}
+
+/// An effective-dated price.
+///
+/// `therapistId` is NULL for a general tariff — one applying to any therapist
+/// providing this service and duration. A therapist-specific tariff takes
+/// precedence over a general one for the same date.
+///
+/// IMMUTABLE AFTER INSERT. A correction voids the row and inserts a
+/// replacement rather than editing values in place, so the price that applied
+/// on a past date stays readable exactly as it was applied. This is enforced by
+/// the `tariff_enforce_immutability` trigger, which permits exactly one
+/// transition — active to voided — and refuses every other change, including
+/// unvoiding. The service layer is not the only thing standing between a bug
+/// and rewritten financial history.
+///
+/// `priceMode` is explicit and never inferred from `price_toman = 0`; see the
+/// `TariffPriceMode` comment. `price_toman` is integer toman in BIGINT
+/// (DECISION_LOG, 2026-08-02 — Money unit) and crosses the API as a decimal
+/// string, never a JavaScript number.
+///
+/// `effectiveStart`/`effectiveEnd` are DATE: a calendar day with no time and no
+/// offset. A NULL `effectiveEnd` means open-ended. They cross the API as
+/// `YYYY-MM-DD` strings — see `src/common/iso-date.ts` for why a `Date` must
+/// not escape.
+///
+/// Family-specific pricing (PROJECT_SPEC.md 5) is absent because families do
+/// not exist yet. It arrives as an additive nullable column, not a reshape.
+///
+/// NOTE: the (serviceId, durationMinutes) -> ServiceDuration composite foreign
+/// key is hand-written in the migration, not declared here, because `serviceId`
+/// already participates in the single-column relation to `Service` above.
+model Tariff {
+  id                 String          @id @default(uuid(7)) @db.Uuid
+  serviceId          String          @map("service_id") @db.Uuid
+  durationMinutes    Int             @map("duration_minutes")
+  therapistId        String?         @map("therapist_id") @db.Uuid
+  priceMode          TariffPriceMode @map("price_mode")
+  priceToman         BigInt          @map("price_toman")
+  freeReason         String?         @map("free_reason")
+  effectiveStart     DateTime        @map("effective_start") @db.Date
+  effectiveEnd       DateTime?       @map("effective_end") @db.Date
+  voidedAt           DateTime?       @map("voided_at") @db.Timestamptz
+  voidReason         String?         @map("void_reason")
+  supersedesTariffId String?         @map("supersedes_tariff_id") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId    String          @map("created_by_user_id") @db.Uuid
+
+  service          Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceDuration  ServiceDuration @relation("TariffServiceDuration", fields: [serviceId, durationMinutes], references: [serviceId, durationMinutes], onDelete: Restrict, onUpdate: Cascade)
+  therapist        Therapist?      @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersedesTariff Tariff?         @relation("TariffSupersedes", fields: [supersedesTariffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersededBy     Tariff[]        @relation("TariffSupersedes")
+  createdBy        AppUser         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The resolution lookup: service and duration are always known, therapist
+  /// may be. Effective dates are filtered after this narrowing, so they are not
+  /// part of the index.
+  @@index([serviceId, durationMinutes, therapistId])
+  @@index([therapistId])
+  @@index([supersedesTariffId])
+  @@map("tariff")
 }

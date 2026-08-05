@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@clinic/contracts": "workspace:*",
+    "jalaali-js": "2.0.0",
     "next": "16.2.12",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -19,9 +20,11 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
   }

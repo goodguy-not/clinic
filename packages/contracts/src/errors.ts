@@ -26,6 +26,32 @@ export const ERROR_CODES = [
   'USER_USERNAME_TAKEN',
   'USER_SELF_MODIFICATION_FORBIDDEN',
   'USER_LAST_MANAGER',
+
+  // Clinic reference data.
+  'THERAPIST_NOT_FOUND',
+  'SERVICE_NOT_FOUND',
+  'ROOM_NOT_FOUND',
+  'TARIFF_NOT_FOUND',
+  'SERVICE_NAME_TAKEN',
+  'ROOM_NAME_TAKEN',
+  // A tariff may only price a duration its service actually offers, and a
+  // duration may not be withdrawn while a tariff still prices it. Both are the
+  // same foreign key seen from opposite ends, and they are separate codes
+  // because they are separate mistakes with separate fixes.
+  'TARIFF_DURATION_NOT_ALLOWED',
+  'SERVICE_DURATION_IN_USE',
+  'TARIFF_OVERLAP',
+  'TARIFF_ALREADY_VOIDED',
+  'TARIFF_SCOPE_MISMATCH',
+  // Pricing something the clinic no longer offers is almost always a mistake.
+  // Resolution of a past date is unaffected: history does not stop being true
+  // when a service is retired.
+  'SERVICE_INACTIVE',
+  'THERAPIST_INACTIVE',
+  // No tariff covers the requested service date. A visible error rather than a
+  // silent zero (PROJECT_SPEC.md 5).
+  'TARIFF_MISSING',
+
   'INTERNAL_ERROR',
 ] as const;
 

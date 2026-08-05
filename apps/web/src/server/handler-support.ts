@@ -1,8 +1,9 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { ERROR_CODES, type ErrorCode } from '@clinic/contracts';
+import { ERROR_CODES } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 import { cookieConfig } from './cookie-config';
+import { WEB_ONLY_ERROR_CODES, type DisplayableCode } from './errors-fa';
 import { csrfCopiesMatch, verifyCsrfToken, type CsrfBinding } from './csrf';
 import { assertBrowserWriteAllowed, OriginRejectedError } from './origin';
 import { verifySessionCookie } from './session-cookie';
@@ -59,6 +60,37 @@ export async function readBody(request: Request): Promise<SubmittedBody> {
   return body;
 }
 
+/**
+ * Reads a form submission, keeping every value of a repeated field.
+ *
+ * `readBody` collapses repeats to the last value, which is right for the fields
+ * it was written for and wrong for a `<select multiple>`: a manager selecting
+ * three services would have two of them silently dropped. This returns both
+ * views of the same submission, so a handler can use the flat one for ordinary
+ * fields and the list for the multi-valued one.
+ *
+ * Separate from `readBody` rather than a change to it: the request body can
+ * only be consumed once, and every existing handler is correct as written.
+ */
+export async function readBodyWithLists(
+  request: Request,
+): Promise<{ body: SubmittedBody; lists: Record<string, string[]> }> {
+  const form = await request.formData().catch(() => null);
+  if (form === null) return { body: {}, lists: {} };
+
+  const body: SubmittedBody = {};
+  const lists: Record<string, string[]> = {};
+
+  for (const [key, value] of form.entries()) {
+    if (typeof value !== 'string') continue;
+
+    body[key] = value;
+    (lists[key] ??= []).push(value);
+  }
+
+  return { body, lists };
+}
+
 export function sessionTokenFrom(request: NextRequest): string | null {
   const { SESSION_COOKIE_SECRET } = loadServerEnv();
 
@@ -102,7 +134,7 @@ export function guardStateChanging(
 export function failureRedirect(
   request: NextRequest,
   path: `/${string}`,
-  code: ErrorCode | 'API_UNREACHABLE',
+  code: DisplayableCode,
 ): NextResponse {
   const target = new URL(path, new URL(request.url).origin);
   target.searchParams.set('error', code);
@@ -110,10 +142,13 @@ export function failureRedirect(
   return applySecurityHeaders(NextResponse.redirect(target, 303));
 }
 
-export function isKnownErrorCode(value: string | null): value is ErrorCode | 'API_UNREACHABLE' {
+export function isKnownErrorCode(value: string | null): value is DisplayableCode {
   if (value === null) return false;
 
-  return value === 'API_UNREACHABLE' || (ERROR_CODES as readonly string[]).includes(value);
+  return (
+    (WEB_ONLY_ERROR_CODES as readonly string[]).includes(value) ||
+    (ERROR_CODES as readonly string[]).includes(value)
+  );
 }
 
 /** Origin and CSRF failures never redirect: they are not user mistakes to explain. */
