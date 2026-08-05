@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createRoomRequestSchema, createServiceRequestSchema } from '@clinic/contracts';
-import { roomFormToRequest, serviceFormToRequest } from './catalog-forms';
+import {
+  createRoomRequestSchema,
+  createServiceRequestSchema,
+  createTherapistRequestSchema,
+} from '@clinic/contracts';
+import { roomFormToRequest, serviceFormToRequest, therapistFormToRequest } from './catalog-forms';
 import { parseNumberList, toWesternDigits } from './numerals-fa';
 
 /**
@@ -136,5 +140,64 @@ describe('room form', () => {
     );
 
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe('therapist form', () => {
+  const idA = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+  const idB = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c';
+  const base = { fullName: 'Synthetic Therapist', specialty: 'Synthetic Specialty' };
+
+  it('sends an empty list when no service is ticked', () => {
+    // Unlike a room, there is no unrestricted/restricted distinction to
+    // disambiguate: none ticked simply means none assigned, which is valid.
+    const result = therapistFormToRequest(base, []);
+
+    expect(result['supportedServiceIds']).toEqual([]);
+    expect(createTherapistRequestSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('sends every ticked service', () => {
+    const result = therapistFormToRequest(base, [idA, idB]);
+
+    expect(result['supportedServiceIds']).toEqual([idA, idB]);
+    expect(createTherapistRequestSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('leaves trimming of the name and specialty to the contract', () => {
+    const parsed = createTherapistRequestSchema.safeParse(
+      therapistFormToRequest({ fullName: '  Padded  ', specialty: '  Specialty  ' }, []),
+    );
+
+    expect(parsed.success && parsed.data.fullName).toBe('Padded');
+    expect(parsed.success && parsed.data.specialty).toBe('Specialty');
+  });
+
+  it.each([
+    ['fullName', { ...base, fullName: '   ' }],
+    ['specialty', { ...base, specialty: '' }],
+  ])('fails validation when %s is blank', (_field, body) => {
+    expect(createTherapistRequestSchema.safeParse(therapistFormToRequest(body, [])).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects a ticked value that is not a uuid', () => {
+    const parsed = createTherapistRequestSchema.safeParse(
+      therapistFormToRequest(base, ['not-a-uuid']),
+    );
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it('carries no credential or settlement field into the request', () => {
+    const result = therapistFormToRequest(
+      { ...base, password: 'x'.repeat(20), sharePercentage: '60' },
+      [],
+    );
+
+    // The mapper names the approved fields explicitly, so an extra submitted
+    // field cannot reach the API even before the strict contract rejects it.
+    expect(Object.keys(result).sort()).toEqual(['fullName', 'specialty', 'supportedServiceIds']);
   });
 });

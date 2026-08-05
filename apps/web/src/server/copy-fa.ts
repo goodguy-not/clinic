@@ -138,6 +138,31 @@ export const COPY = {
   roomNoServicesAvailable:
     'هنوز خدمتی ثبت نشده است، بنابراین محدود کردن اتاق ممکن نیست. ابتدا یک خدمت اضافه کنید.',
 
+  therapistsTitle: 'درمانگران',
+  therapistsDescription: 'درمانگران درمانگاه و خدماتی که هر کدام ارائه می‌دهند.',
+  therapistNewTitle: 'افزودن درمانگر',
+  therapistEditTitle: 'ویرایش درمانگر',
+  therapistFullNameLabel: 'نام و نام خانوادگی',
+  therapistFullNameHelp:
+    'فاصله‌های ابتدا و انتها حذف می‌شود. تکراری بودن نام مانعی ندارد؛ ممکن است دو نفر هم‌نام باشند.',
+  therapistSpecialtyLabel: 'تخصص',
+  therapistSpecialtyHelp: 'مثال: گفتاردرمانی، کاردرمانی.',
+  therapistEmpty: 'هنوز درمانگری ثبت نشده است.',
+  therapistAddAction: 'افزودن درمانگر',
+
+  /**
+   * Zero assigned services is a normal state for a newly entered therapist, so
+   * the list says so plainly instead of leaving the row looking incomplete.
+   */
+  therapistServicesLegend: 'خدمات قابل ارائه توسط این درمانگر',
+  therapistServicesHelp:
+    'انتخاب خدمت اختیاری است و می‌توانید بعداً آن را تکمیل کنید. هر خدمت را که این درمانگر ارائه می‌دهد علامت بزنید.',
+  therapistServicesValue: 'خدمات',
+  therapistNoServices: 'خدمتی برای این درمانگر ثبت نشده است.',
+  therapistNoServicesAvailable:
+    'هنوز خدمتی ثبت نشده است. می‌توانید درمانگر را بدون خدمت ذخیره کنید و بعداً خدمات را اضافه کنید.',
+  serviceInactiveBadge: 'خدمت غیرفعال',
+
   activate: 'فعال کردن',
   deactivate: 'غیرفعال کردن',
   statusInactive: 'غیرفعال',

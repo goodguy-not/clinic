@@ -279,6 +279,7 @@ export function ChoiceOption({
   value,
   label,
   description,
+  badge,
   type = 'radio',
   defaultChecked = false,
 }: {
@@ -287,6 +288,13 @@ export function ChoiceOption({
   value: string;
   label: string;
   description?: string;
+  /**
+   * Optional marker beside the label — used to show that a listed service is
+   * inactive. The option stays selectable and stays checked: an existing
+   * association is a decision somebody made, and hiding or clearing it would
+   * discard that silently.
+   */
+  badge?: ReactNode;
   type?: 'radio' | 'checkbox';
   defaultChecked?: boolean;
 }) {
@@ -301,7 +309,10 @@ export function ChoiceOption({
         className={`mt-1 size-4 shrink-0 ${FOCUS_RING}`}
       />
       <label htmlFor={id} className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-slate-900">{label}</span>
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-900">{label}</span>
+          {badge}
+        </span>
         {description !== undefined ? (
           <span className="text-xs text-slate-600">{description}</span>
         ) : null}

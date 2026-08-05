@@ -11,11 +11,14 @@ import {
   serviceListResponseSchema,
   serviceResponseSchema,
   sessionResponseSchema,
+  therapistListResponseSchema,
+  therapistResponseSchema,
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
   type CreateRoomRequest,
   type CreateServiceRequest,
+  type CreateTherapistRequest,
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
@@ -28,8 +31,11 @@ import {
   type ServiceListResponse,
   type ServiceResponse,
   type SessionResponse,
+  type TherapistListResponse,
+  type TherapistResponse,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
+  type UpdateTherapistRequest,
   type UserListResponse,
   type UserResponse,
   type UserRole,
@@ -279,6 +285,44 @@ export const api = {
     call(`/catalog/rooms/${encodeURIComponent(id)}/status`, 'PATCH', roomResponseSchema, context, {
       status,
     }),
+
+  listTherapists: (context: CallerContext): Promise<ApiResult<TherapistListResponse>> =>
+    call('/catalog/therapists', 'GET', therapistListResponseSchema, context),
+
+  getTherapist: (id: string, context: CallerContext): Promise<ApiResult<TherapistResponse>> =>
+    call(`/catalog/therapists/${encodeURIComponent(id)}`, 'GET', therapistResponseSchema, context),
+
+  createTherapist: (
+    body: CreateTherapistRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistResponse>> =>
+    call('/catalog/therapists', 'POST', therapistResponseSchema, context, body),
+
+  updateTherapist: (
+    id: string,
+    body: UpdateTherapistRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}`,
+      'PATCH',
+      therapistResponseSchema,
+      context,
+      body,
+    ),
+
+  changeTherapistStatus: (
+    id: string,
+    status: CatalogStatus,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      therapistResponseSchema,
+      context,
+      { status },
+    ),
 };
 
 export type ApiLiveness = {

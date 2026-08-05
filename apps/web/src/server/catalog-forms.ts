@@ -51,3 +51,22 @@ export function roomFormToRequest(
     allowedServiceIds: restricted ? selectedServiceIds : [],
   };
 }
+
+/**
+ * Builds the therapist request from the form's service checkboxes.
+ *
+ * Unlike a room, a therapist has no unrestricted/restricted distinction to
+ * disambiguate: an empty set simply means no services are assigned yet, which
+ * is a valid and common state for a newly entered record. Checked boxes are
+ * therefore taken at face value, and none checked sends an empty array.
+ */
+export function therapistFormToRequest(
+  body: SubmittedBody,
+  selectedServiceIds: string[],
+): Record<string, unknown> {
+  return {
+    fullName: body['fullName'] ?? '',
+    specialty: body['specialty'] ?? '',
+    supportedServiceIds: selectedServiceIds,
+  };
+}
