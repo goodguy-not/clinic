@@ -19,6 +19,35 @@
 const PERSIAN_ZERO = 0x06f0;
 const ARABIC_ZERO = 0x0660;
 
+/** The Persian thousands separator (U+066C), not the ASCII comma. */
+const PERSIAN_THOUSANDS_SEPARATOR = '٬';
+
+/**
+ * Rewrites ASCII digits as Persian ones, for display only.
+ *
+ * Never applied to a value on its way to the API: identifiers, amounts and
+ * dates all cross that boundary in ASCII.
+ */
+export function toPersianDigits(value: string): string {
+  return value.replace(/\d/g, (digit) => String.fromCodePoint(PERSIAN_ZERO + Number(digit)));
+}
+
+/**
+ * Formats an integer-toman amount for reading: Persian digits, grouped in
+ * threes, with the unit.
+ *
+ * Takes the decimal string the API returns rather than a number, because the
+ * value is a `BIGINT` and converting it to a JavaScript number to format it
+ * would reintroduce exactly the precision loss the string exists to avoid.
+ */
+export function formatToman(amountToman: string): string {
+  if (!/^\d+$/.test(amountToman)) return amountToman;
+
+  const grouped = amountToman.replace(/\B(?=(\d{3})+(?!\d))/g, PERSIAN_THOUSANDS_SEPARATOR);
+
+  return `${toPersianDigits(grouped)} تومان`;
+}
+
 /** Rewrites Persian and Arabic-Indic digits as ASCII, leaving everything else alone. */
 export function toWesternDigits(value: string): string {
   return [...value]

@@ -8,10 +8,26 @@ import { COPY } from './copy-fa';
  * translation fails the build rather than reaching a user as an English string
  * or an empty box.
  *
- * `API_UNREACHABLE` is the web tier's own code for "NestJS did not answer"; it
- * is not part of the contract because NestJS cannot report its own absence.
+ * Three codes are the web tier's own and are deliberately not in the contract,
+ * because NestJS cannot raise any of them:
+ *
+ *  - `API_UNREACHABLE` — NestJS did not answer, so it cannot report its own
+ *    absence.
+ *  - `TARIFF_BRANCH_CONTRADICTORY` — the paid and free halves of a form
+ *    disagree. The API never sees such a request: the handler refuses to build
+ *    a payload from it.
+ *  - `TARIFF_DATE_INVALID` — a Jalali date that is not a real day. The API only
+ *    ever receives Gregorian ISO strings, so this failure exists only here.
  */
-export type DisplayableCode = ErrorCode | 'API_UNREACHABLE';
+export const WEB_ONLY_ERROR_CODES = [
+  'API_UNREACHABLE',
+  'TARIFF_BRANCH_CONTRADICTORY',
+  'TARIFF_DATE_INVALID',
+] as const;
+
+export type WebOnlyErrorCode = (typeof WEB_ONLY_ERROR_CODES)[number];
+
+export type DisplayableCode = ErrorCode | WebOnlyErrorCode;
 
 const MESSAGES: Record<DisplayableCode, string> = {
   // Deliberately identical for unknown username, wrong password, locked and
@@ -50,6 +66,10 @@ const MESSAGES: Record<DisplayableCode, string> = {
   SERVICE_INACTIVE: 'این خدمت غیرفعال است.',
   THERAPIST_INACTIVE: 'این درمانگر غیرفعال است.',
   TARIFF_MISSING: 'برای این خدمت، مدت‌زمان و تاریخ، تعرفه‌ای ثبت نشده است.',
+  /** Raised by the tariff form when the two price branches disagree. */
+  TARIFF_BRANCH_CONTRADICTORY:
+    'نوع تعرفه با اطلاعات واردشده هم‌خوانی ندارد. برای تعرفهٔ پرداختی فقط مبلغ و برای تعرفهٔ رایگان فقط دلیل را پر کنید.',
+  TARIFF_DATE_INVALID: 'تاریخ واردشده معتبر نیست.',
 
   INTERNAL_ERROR: 'خطای داخلی رخ داد. اگر تکرار شد با پشتیبانی فنی تماس بگیرید.',
   API_UNREACHABLE: 'سامانه در دسترس نیست. کمی بعد دوباره تلاش کنید.',
@@ -60,4 +80,7 @@ export function persianMessage(code: DisplayableCode): string {
 }
 
 /** Exposed so the coverage test can assert against the contract's own list. */
-export const TRANSLATED_CODES: readonly DisplayableCode[] = [...ERROR_CODES, 'API_UNREACHABLE'];
+export const TRANSLATED_CODES: readonly DisplayableCode[] = [
+  ...ERROR_CODES,
+  ...WEB_ONLY_ERROR_CODES,
+];

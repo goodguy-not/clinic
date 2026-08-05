@@ -55,8 +55,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(20);
-    expect(stateChangingHandlers.length).toBe(19);
+    expect(handlers.length).toBe(22);
+    expect(stateChangingHandlers.length).toBe(21);
   });
 
   it('exposes no catch-all route', () => {
@@ -83,6 +83,10 @@ describe('route handler inventory', () => {
       '/api/catalog/services/create',
       '/api/catalog/services/status',
       '/api/catalog/services/update',
+      // No update handler for tariffs, deliberately: they are immutable, so a
+      // correction voids and replaces rather than editing.
+      '/api/catalog/tariffs/create',
+      '/api/catalog/tariffs/void',
       '/api/catalog/therapists/create',
       '/api/catalog/therapists/status',
       '/api/catalog/therapists/update',

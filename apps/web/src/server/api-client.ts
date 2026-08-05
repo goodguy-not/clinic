@@ -11,6 +11,8 @@ import {
   serviceListResponseSchema,
   serviceResponseSchema,
   sessionResponseSchema,
+  tariffListResponseSchema,
+  tariffResponseSchema,
   therapistListResponseSchema,
   therapistResponseSchema,
   userListResponseSchema,
@@ -18,6 +20,7 @@ import {
   type CatalogStatus,
   type CreateRoomRequest,
   type CreateServiceRequest,
+  type CreateTariffRequest,
   type CreateTherapistRequest,
   type CreateUserRequest,
   type CreateUserResponse,
@@ -31,6 +34,9 @@ import {
   type ServiceListResponse,
   type ServiceResponse,
   type SessionResponse,
+  type TariffListQuery,
+  type TariffListResponse,
+  type TariffResponse,
   type TherapistListResponse,
   type TherapistResponse,
   type UpdateRoomRequest,
@@ -323,6 +329,40 @@ export const api = {
       context,
       { status },
     ),
+
+  listTariffs: (
+    query: TariffListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<TariffListResponse>> => {
+    const search = new URLSearchParams();
+    if (query.serviceId !== undefined) search.set('serviceId', query.serviceId);
+    if (query.scope !== undefined) search.set('scope', query.scope);
+    if (query.therapistId !== undefined) search.set('therapistId', query.therapistId);
+    if (query.onDate !== undefined) search.set('onDate', query.onDate);
+    if (query.includeVoided === true) search.set('includeVoided', 'true');
+
+    const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+
+    return call(`/catalog/tariffs${suffix}`, 'GET', tariffListResponseSchema, context);
+  },
+
+  getTariff: (id: string, context: CallerContext): Promise<ApiResult<TariffResponse>> =>
+    call(`/catalog/tariffs/${encodeURIComponent(id)}`, 'GET', tariffResponseSchema, context),
+
+  createTariff: (
+    body: CreateTariffRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TariffResponse>> =>
+    call('/catalog/tariffs', 'POST', tariffResponseSchema, context, body),
+
+  voidTariff: (
+    id: string,
+    reason: string,
+    context: CallerContext,
+  ): Promise<ApiResult<TariffResponse>> =>
+    call(`/catalog/tariffs/${encodeURIComponent(id)}/void`, 'POST', tariffResponseSchema, context, {
+      reason,
+    }),
 };
 
 export type ApiLiveness = {

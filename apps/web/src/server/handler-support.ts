@@ -1,8 +1,9 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { ERROR_CODES, type ErrorCode } from '@clinic/contracts';
+import { ERROR_CODES } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 import { cookieConfig } from './cookie-config';
+import { WEB_ONLY_ERROR_CODES, type DisplayableCode } from './errors-fa';
 import { csrfCopiesMatch, verifyCsrfToken, type CsrfBinding } from './csrf';
 import { assertBrowserWriteAllowed, OriginRejectedError } from './origin';
 import { verifySessionCookie } from './session-cookie';
@@ -133,7 +134,7 @@ export function guardStateChanging(
 export function failureRedirect(
   request: NextRequest,
   path: `/${string}`,
-  code: ErrorCode | 'API_UNREACHABLE',
+  code: DisplayableCode,
 ): NextResponse {
   const target = new URL(path, new URL(request.url).origin);
   target.searchParams.set('error', code);
@@ -141,10 +142,13 @@ export function failureRedirect(
   return applySecurityHeaders(NextResponse.redirect(target, 303));
 }
 
-export function isKnownErrorCode(value: string | null): value is ErrorCode | 'API_UNREACHABLE' {
+export function isKnownErrorCode(value: string | null): value is DisplayableCode {
   if (value === null) return false;
 
-  return value === 'API_UNREACHABLE' || (ERROR_CODES as readonly string[]).includes(value);
+  return (
+    (WEB_ONLY_ERROR_CODES as readonly string[]).includes(value) ||
+    (ERROR_CODES as readonly string[]).includes(value)
+  );
 }
 
 /** Origin and CSRF failures never redirect: they are not user mistakes to explain. */

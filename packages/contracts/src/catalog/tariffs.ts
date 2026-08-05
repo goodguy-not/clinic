@@ -113,10 +113,22 @@ export const createFreeTariffRequestSchema = tariffScopeFields.extend({
   confirmFreePrice: z.literal(true),
 });
 
-export const createTariffRequestSchema = z.discriminatedUnion('priceMode', [
-  createPaidTariffRequestSchema,
-  createFreeTariffRequestSchema,
-]);
+/**
+ * The refinement mirrors `tariff_effective_range_chk`.
+ *
+ * Both dates are individually valid, so nothing else here would catch an end
+ * before its start — it would reach PostgreSQL, fail the CHECK, and surface as
+ * an internal error rather than as the ordinary input mistake it is.
+ *
+ * String comparison is exact for `YYYY-MM-DD`: the format is fixed-width and
+ * lexicographic order is chronological order, so no parsing is needed.
+ */
+export const createTariffRequestSchema = z
+  .discriminatedUnion('priceMode', [createPaidTariffRequestSchema, createFreeTariffRequestSchema])
+  .refine(
+    (value) => value.effectiveEnd == null || value.effectiveEnd >= value.effectiveStart,
+    'the effective end must not be before the effective start',
+  );
 
 export type CreateTariffRequest = z.infer<typeof createTariffRequestSchema>;
 
@@ -154,6 +166,32 @@ export const resolveTariffResponseSchema = z.strictObject({
 });
 
 export type ResolveTariffResponse = z.infer<typeof resolveTariffResponseSchema>;
+
+/**
+ * List filters.
+ *
+ * Deliberately narrow: enough to find the tariffs for one service, or one
+ * therapist's, or the ones that applied on a date. Anything broader would be
+ * reporting, which is a later milestone with its own approved shape.
+ *
+ * `scope` distinguishes the two kinds of tariff, which a therapist id alone
+ * cannot: absent means "either", `general` means the fallback tariffs that
+ * apply to any therapist, and `therapist` narrows to `therapistId`.
+ *
+ * Voided rows are excluded unless asked for, so the ordinary reading of the
+ * list is "what is in force" rather than a history that has to be filtered by
+ * eye.
+ */
+export const tariffListQuerySchema = z.strictObject({
+  serviceId: z.uuid().optional(),
+  scope: z.enum(['general', 'therapist']).optional(),
+  therapistId: z.uuid().optional(),
+  /** Keeps only tariffs whose effective range contains this date. */
+  onDate: isoDateSchema.optional(),
+  includeVoided: z.coerce.boolean().optional(),
+});
+
+export type TariffListQuery = z.infer<typeof tariffListQuerySchema>;
 
 export const tariffResponseSchema = z.strictObject({ tariff: tariffSchema });
 

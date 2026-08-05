@@ -163,6 +163,77 @@ export const COPY = {
     'هنوز خدمتی ثبت نشده است. می‌توانید درمانگر را بدون خدمت ذخیره کنید و بعداً خدمات را اضافه کنید.',
   serviceInactiveBadge: 'خدمت غیرفعال',
 
+  tariffsTitle: 'تعرفه‌ها',
+  tariffsDescription: 'قیمت هر خدمت و مدت‌زمان، با بازهٔ زمانی اعتبار.',
+  tariffNewTitle: 'افزودن تعرفه',
+  tariffCorrectTitle: 'اصلاح تعرفه',
+  tariffEmpty: 'هنوز تعرفه‌ای ثبت نشده است.',
+  tariffAddAction: 'افزودن تعرفه',
+
+  tariffServiceDurationLabel: 'خدمت و مدت‌زمان',
+  tariffServiceDurationHelp:
+    'فهرست فقط ترکیب‌های معتبر خدمت و مدت‌زمان را نشان می‌دهد. خدمات غیرفعال و خدماتی که مدت‌زمانی ندارند در فهرست نمی‌آیند.',
+  tariffNoServiceDurations:
+    'برای ثبت تعرفه، ابتدا باید خدمتی فعال با دست‌کم یک مدت‌زمان تعریف شده باشد.',
+
+  tariffScopeLegend: 'دامنهٔ تعرفه',
+  tariffScopeGeneralLabel: 'عمومی (همهٔ درمانگران)',
+  tariffScopeGeneralDescription:
+    'این قیمت برای هر درمانگری که این خدمت را ارائه می‌دهد به کار می‌رود، مگر آنکه تعرفهٔ اختصاصی همان درمانگر ثبت شده باشد.',
+  tariffScopeTherapistLabel: 'اختصاصی یک درمانگر',
+  tariffScopeTherapistDescription:
+    'این قیمت فقط برای درمانگر انتخاب‌شده به کار می‌رود و بر تعرفهٔ عمومی اولویت دارد.',
+  tariffTherapistLabel: 'درمانگر',
+  tariffTherapistHelp: 'فقط درمانگران فعال قابل انتخاب‌اند.',
+
+  tariffPriceModeLegend: 'نوع تعرفه',
+  tariffPaidLabel: 'پرداختی',
+  tariffPaidDescription: 'خانواده برای این جلسه مبلغ مشخصی می‌پردازد.',
+  tariffFreeLabel: 'رایگان',
+  tariffFreeDescription:
+    'یک برنامهٔ رایگان درمانگاه، مانند غربالگری یا مشاورهٔ اولیه. این گزینه برای تخفیف یک خانوادهٔ خاص نیست.',
+  tariffPriceLabel: 'مبلغ (تومان)',
+  tariffPriceHelp:
+    'عدد را بدون جداکننده وارد کنید. مبلغ باید بیشتر از صفر باشد؛ برای برنامهٔ رایگان گزینهٔ «رایگان» را انتخاب کنید.',
+  tariffFreeReasonLabel: 'دلیل رایگان بودن',
+  tariffFreeReasonHelp: 'مثال: کمپین غربالگری رایگان.',
+
+  /** The confirmation exists so a free programme is always a deliberate choice. */
+  tariffFreeConfirmLabel:
+    'تأیید می‌کنم این یک برنامهٔ رایگان درمانگاه است، نه تخفیف برای یک خانوادهٔ خاص.',
+
+  tariffEffectiveStartLabel: 'شروع اعتبار',
+  tariffEffectiveEndLabel: 'پایان اعتبار (اختیاری)',
+  tariffEffectiveEndHelp: 'اگر خالی بماند، این تعرفه تا زمان ثبت تعرفهٔ جایگزین معتبر است.',
+  tariffDateYear: 'سال',
+  tariffDateMonth: 'ماه',
+  tariffDateDay: 'روز',
+  tariffDateNotSet: '—',
+
+  tariffFreeBadge: 'رایگان',
+  tariffStateCurrent: 'در حال اجرا',
+  tariffStateFuture: 'آینده',
+  tariffStateExpired: 'منقضی',
+  tariffStateVoided: 'ابطال‌شده',
+  tariffScopeGeneralBadge: 'عمومی',
+  tariffPeriodLabel: 'بازهٔ اعتبار',
+  tariffVoidedAtLabel: 'ابطال در',
+  tariffVoidReasonLabel: 'دلیل ابطال',
+
+  tariffVoidAction: 'ابطال',
+  tariffCorrectAction: 'ثبت اصلاحیه',
+  tariffVoidReasonLabelInput: 'دلیل ابطال',
+  tariffVoidReasonHelp: 'دلیل ابطال در تاریخچه ثبت می‌شود و قابل تغییر نیست.',
+  tariffVoidConfirmTitle: 'ابطال تعرفه',
+  tariffVoidContextHelp:
+    'پیش از ابطال، خدمت، مدت‌زمان و دامنهٔ تعرفه را بررسی کنید. تعرفهٔ ابطال‌شده دیگر برای قیمت‌گذاری استفاده نمی‌شود، اما در تاریخچه باقی می‌ماند.',
+
+  /** Shown on the correction form, where scope is fixed by the tariff being replaced. */
+  tariffSupersedeNotice:
+    'این فرم جایگزین یک تعرفهٔ موجود است. خدمت، مدت‌زمان و دامنهٔ آن قابل تغییر نیست؛ برای قیمتی با دامنهٔ متفاوت، تعرفهٔ جدید ثبت کنید.',
+  tariffImmutableNotice:
+    'تعرفهٔ ثبت‌شده قابل ویرایش نیست. برای تغییر قیمت، تعرفهٔ فعلی را ابطال کنید و اصلاحیه ثبت کنید تا قیمت گذشته دست‌نخورده بماند.',
+
   activate: 'فعال کردن',
   deactivate: 'غیرفعال کردن',
   statusInactive: 'غیرفعال',

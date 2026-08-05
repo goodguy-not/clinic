@@ -105,6 +105,9 @@ importers:
       '@clinic/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      jalaali-js:
+        specifier: 2.0.0
+        version: 2.0.0
       next:
         specifier: 16.2.12
         version: 16.2.12(@babel/core@7.29.7(supports-color@8.1.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -2657,6 +2660,10 @@ packages:
 
   jackspeak@3.4.3:
     resolution: {integrity: sha512-OGlZQpz2yfahA/Rd1Y8Cd9SIEsqvXkLVoSw/cgwhnhFMDbsQFeZYoJJ7bIZBS9BcamUW96asq/npPWugM+RQBw==}
+
+  jalaali-js@2.0.0:
+    resolution: {integrity: sha512-HkWlwO3KxuYwERP1jsn+5M+QA+EKpIJ+zGesLee5VJNn2d2Melue0uQIvd9C/0QYFR7XVWvfF/uiNEz9Jbr9Hw==}
+    engines: {node: '>=20'}
 
   jest-changed-files@30.4.1:
     resolution: {integrity: sha512-IuctmYrxi21iOSOaIXpJWalHyPAsVv0GeBHKDn8C1CA4W5htHn7INL+wdnL4Bo0+olEndvAFkmb++tIQJG+vvg==}
@@ -6659,6 +6666,8 @@ snapshots:
       '@isaacs/cliui': 8.0.2
     optionalDependencies:
       '@pkgjs/parseargs': 0.11.0
+
+  jalaali-js@2.0.0: {}
 
   jest-changed-files@30.4.1:
     dependencies:
