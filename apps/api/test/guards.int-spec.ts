@@ -232,10 +232,12 @@ describe('guard chain (real PostgreSQL)', () => {
         }
       }
 
-      // health: /health, /health/db
-      // auth:   login, logout, session, password
-      // users:  list, create, role, status, password-reset, unlock, sessions/revoke
-      expect(routes).toBe(13);
+      // health:   /health, /health/db
+      // auth:     login, logout, session, password
+      // users:    list, create, role, status, password-reset, unlock, sessions/revoke
+      // services: list, read, create, update, status
+      // rooms:    list, read, create, update, status
+      expect(routes).toBe(23);
     });
   });
 });

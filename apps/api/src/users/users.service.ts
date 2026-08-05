@@ -13,6 +13,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
+import { isUniqueViolation } from '../common/pg-error';
 import { uuidv7 } from '../common/uuid';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PasswordService } from '../auth/password.service';
@@ -442,21 +443,6 @@ export class UsersService {
       userAgent: context.userAgent,
     };
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    // P2002 is the typed unique-constraint error the query builder raises.
-    if (error.code === 'P2002') return true;
-
-    // Raw SQL raises P2010 instead and carries the SQLSTATE in `meta.code`, so
-    // checking only for P2002 and returning early would miss every duplicate on
-    // this path — which is exactly what an integration test caught.
-    const meta = error.meta as { code?: string } | undefined;
-    if (meta?.code === '23505') return true;
-  }
-
-  return error instanceof Error && error.message.includes('23505');
 }
 
 export function toStaffUser(row: StaffUserRow): StaffUser {

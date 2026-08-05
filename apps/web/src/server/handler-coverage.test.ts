@@ -55,8 +55,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(11);
-    expect(stateChangingHandlers.length).toBe(10);
+    expect(handlers.length).toBe(17);
+    expect(stateChangingHandlers.length).toBe(16);
   });
 
   it('exposes no catch-all route', () => {
@@ -75,6 +75,14 @@ describe('route handler inventory', () => {
       '/api/auth/logout',
       '/api/auth/password',
       '/api/auth/session-reset',
+      // One handler per state change, never a resource-shaped catch-all: the
+      // BFF stays a list of named operations.
+      '/api/catalog/rooms/create',
+      '/api/catalog/rooms/status',
+      '/api/catalog/rooms/update',
+      '/api/catalog/services/create',
+      '/api/catalog/services/status',
+      '/api/catalog/services/update',
       '/api/health',
       '/api/staff/create',
       '/api/staff/password-reset',

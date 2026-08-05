@@ -6,9 +6,16 @@ import {
   loginResponseSchema,
   passwordResetResponseSchema,
   revokeSessionsResponseSchema,
+  roomListResponseSchema,
+  roomResponseSchema,
+  serviceListResponseSchema,
+  serviceResponseSchema,
   sessionResponseSchema,
   userListResponseSchema,
   userResponseSchema,
+  type CatalogStatus,
+  type CreateRoomRequest,
+  type CreateServiceRequest,
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
@@ -16,7 +23,13 @@ import {
   type LoginResponse,
   type PasswordResetResponse,
   type RevokeSessionsResponse,
+  type RoomListResponse,
+  type RoomResponse,
+  type ServiceListResponse,
+  type ServiceResponse,
   type SessionResponse,
+  type UpdateRoomRequest,
+  type UpdateServiceRequest,
   type UserListResponse,
   type UserResponse,
   type UserRole,
@@ -197,6 +210,75 @@ export const api = {
       revokeSessionsResponseSchema,
       context,
     ),
+
+  // --- clinic reference data -------------------------------------------------
+  //
+  // One typed method per endpoint, listed by hand. There is no generic
+  // `request(path)` here on purpose: a caller cannot reach a route this object
+  // does not name, so the BFF cannot drift into a proxy.
+
+  listServices: (context: CallerContext): Promise<ApiResult<ServiceListResponse>> =>
+    call('/catalog/services', 'GET', serviceListResponseSchema, context),
+
+  getService: (id: string, context: CallerContext): Promise<ApiResult<ServiceResponse>> =>
+    call(`/catalog/services/${encodeURIComponent(id)}`, 'GET', serviceResponseSchema, context),
+
+  createService: (
+    body: CreateServiceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServiceResponse>> =>
+    call('/catalog/services', 'POST', serviceResponseSchema, context, body),
+
+  updateService: (
+    id: string,
+    body: UpdateServiceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServiceResponse>> =>
+    call(
+      `/catalog/services/${encodeURIComponent(id)}`,
+      'PATCH',
+      serviceResponseSchema,
+      context,
+      body,
+    ),
+
+  changeServiceStatus: (
+    id: string,
+    status: CatalogStatus,
+    context: CallerContext,
+  ): Promise<ApiResult<ServiceResponse>> =>
+    call(
+      `/catalog/services/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      serviceResponseSchema,
+      context,
+      { status },
+    ),
+
+  listRooms: (context: CallerContext): Promise<ApiResult<RoomListResponse>> =>
+    call('/catalog/rooms', 'GET', roomListResponseSchema, context),
+
+  getRoom: (id: string, context: CallerContext): Promise<ApiResult<RoomResponse>> =>
+    call(`/catalog/rooms/${encodeURIComponent(id)}`, 'GET', roomResponseSchema, context),
+
+  createRoom: (body: CreateRoomRequest, context: CallerContext): Promise<ApiResult<RoomResponse>> =>
+    call('/catalog/rooms', 'POST', roomResponseSchema, context, body),
+
+  updateRoom: (
+    id: string,
+    body: UpdateRoomRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<RoomResponse>> =>
+    call(`/catalog/rooms/${encodeURIComponent(id)}`, 'PATCH', roomResponseSchema, context, body),
+
+  changeRoomStatus: (
+    id: string,
+    status: CatalogStatus,
+    context: CallerContext,
+  ): Promise<ApiResult<RoomResponse>> =>
+    call(`/catalog/rooms/${encodeURIComponent(id)}/status`, 'PATCH', roomResponseSchema, context, {
+      status,
+    }),
 };
 
 export type ApiLiveness = {

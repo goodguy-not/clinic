@@ -59,6 +59,37 @@ export async function readBody(request: Request): Promise<SubmittedBody> {
   return body;
 }
 
+/**
+ * Reads a form submission, keeping every value of a repeated field.
+ *
+ * `readBody` collapses repeats to the last value, which is right for the fields
+ * it was written for and wrong for a `<select multiple>`: a manager selecting
+ * three services would have two of them silently dropped. This returns both
+ * views of the same submission, so a handler can use the flat one for ordinary
+ * fields and the list for the multi-valued one.
+ *
+ * Separate from `readBody` rather than a change to it: the request body can
+ * only be consumed once, and every existing handler is correct as written.
+ */
+export async function readBodyWithLists(
+  request: Request,
+): Promise<{ body: SubmittedBody; lists: Record<string, string[]> }> {
+  const form = await request.formData().catch(() => null);
+  if (form === null) return { body: {}, lists: {} };
+
+  const body: SubmittedBody = {};
+  const lists: Record<string, string[]> = {};
+
+  for (const [key, value] of form.entries()) {
+    if (typeof value !== 'string') continue;
+
+    body[key] = value;
+    (lists[key] ??= []).push(value);
+  }
+
+  return { body, lists };
+}
+
 export function sessionTokenFrom(request: NextRequest): string | null {
   const { SESSION_COOKIE_SECRET } = loadServerEnv();
 
