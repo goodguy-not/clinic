@@ -132,7 +132,16 @@ export async function createHarness(): Promise<Harness> {
  * deployment closes with a separate, non-owner runtime role. Tests that prove
  * the triggers work run WITHOUT this helper.
  */
-const PROTECTED_TABLES = ['audit_log', 'app_user', 'therapist', 'service', 'room', 'tariff'];
+const PROTECTED_TABLES = [
+  'audit_log',
+  'app_user',
+  'therapist',
+  'service',
+  'room',
+  'tariff',
+  'family',
+  'child',
+];
 
 /**
  * Truncated in one statement so foreign keys between them never dictate an
@@ -150,6 +159,15 @@ const TRUNCATED_TABLES = [
   'therapist',
   'room',
   'service',
+  // Milestone 3, listed dependents-first: a draft may point at a child, a child
+  // and a guardian belong to a family, and all three name the user who created
+  // them. `registration_draft` is deliberately absent from PROTECTED_TABLES —
+  // it carries no delete or truncate trigger, because a draft is transient
+  // workflow state that is meant to be consumed and physically removed.
+  'registration_draft',
+  'child',
+  'guardian',
+  'family',
   'app_user',
 ];
 

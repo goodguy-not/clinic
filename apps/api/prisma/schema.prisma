@@ -1,5 +1,7 @@
 // Milestone 1 — authentication and audit foundation.
 // Milestone 2 — clinic reference data: therapists, services, rooms, tariffs.
+// Milestone 3 — families, guardians, children, and the transient registration
+//               draft that carries a submission across a duplicate warning.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
 // indexes, exclusion constraints, composite foreign keys, functions and
@@ -88,6 +90,72 @@ enum TariffPriceMode {
   @@map("tariff_price_mode")
 }
 
+/// Lifecycle of a family or child record.
+///
+/// Deliberately separate from `catalog_status` despite carrying the same two
+/// values. A family is not clinic reference data, and the two lifecycles are
+/// likely to diverge: a discharged family may one day need a state a treatment
+/// room never will. Two structurally identical enums is the cost; merging them
+/// under a neutral name stays available if by Milestone 5 they have not
+/// diverged.
+///
+/// There is no `DELETED` and no `ARCHIVED`. Records with history are
+/// deactivated (PROJECT_SPEC.md 5), the database refuses a `DELETE` outright,
+/// and "archived" means inactive until some report treats the two differently.
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("record_status")
+}
+
+/// How a guardian is related to the children in the family.
+///
+/// A closed list rather than free text, so a report can group by it and so the
+/// receptionist answering the phone knows who they are speaking to. `OTHER`
+/// carries a required short note, which keeps it from becoming a black hole.
+///
+/// This is deliberately not a custody or legal-guardianship model. It records
+/// who to call. `GUARDIAN` means a caring adult who is not a parent or a
+/// grandparent, and implies nothing about legal status.
+enum GuardianRelationship {
+  MOTHER
+  FATHER
+  GRANDMOTHER
+  GRANDFATHER
+  GUARDIAN
+  OTHER
+
+  @@map("guardian_relationship")
+}
+
+/// Recorded sex of a child.
+///
+/// `UNSPECIFIED` is a real value and the default, not a missing one: a
+/// phone-call registration should never stall on it, and a nullable column
+/// would make "not asked yet" indistinguishable from a bug.
+enum ChildSex {
+  FEMALE
+  MALE
+  UNSPECIFIED
+
+  @@map("child_sex")
+}
+
+/// What a registration draft is holding.
+///
+/// The draft is addressed by an opaque token and consumed exactly once, so the
+/// purpose decides which contract validates its payload on the way out and
+/// which write the confirmation performs.
+enum DraftPurpose {
+  FAMILY_CREATE
+  FAMILY_UPDATE
+  CHILD_CREATE
+  CHILD_UPDATE
+
+  @@map("draft_purpose")
+}
+
 /// Staff accounts. Manager-created only; there is no self-registration.
 ///
 /// User rows are permanent historical records: account creation is audited and
@@ -125,6 +193,10 @@ model AppUser {
   createdServices   Service[]
   createdRooms      Room[]
   createdTariffs    Tariff[]
+
+  createdFamilies    Family[]
+  createdChildren    Child[]
+  registrationDrafts RegistrationDraft[]
 
   @@map("app_user")
 }
@@ -387,4 +459,230 @@ model Tariff {
   @@index([therapistId])
   @@index([supersedesTariffId])
   @@map("tariff")
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 3 — families, guardians, children.
+//
+// The first personal data this system stores. Three rules run through all of it.
+//
+// ON CLOCKS: as in Milestones 1 and 2, PostgreSQL owns every domain timestamp.
+// `@default(now())` renders as `DEFAULT CURRENT_TIMESTAMP`, PostgreSQL's exact
+// synonym for `transaction_timestamp()`, and the services write these columns
+// with `transaction_timestamp()` explicitly in raw SQL. Nothing here obliges a
+// future service to pass a JavaScript Date: `created_at`, `deactivated_at` and
+// a draft's `created_at` and `expires_at` all come from the transaction clock,
+// so a state change and its audit row are provably the same instant and no skew
+// between the Node host and the database can appear.
+//
+// ON SEARCH: every `search_*` column is `fa_normalize()` applied to the column
+// beside it, computed inside the INSERT rather than by the application, and
+// pinned by a CHECK. One implementation, used identically for what is stored and
+// for what is searched. The original text is never rewritten — the folding lives
+// only in the derived key.
+//
+// ON IDENTIFIERS: a national identifier and a phone number are stored in full
+// here and nowhere else. `audit_log` receives them masked to their last four
+// digits, which `audit_log_masked_identifiers_chk` enforces in the database.
+//
+// As in Milestone 2, reading this file alone understates what the database
+// enforces: the CHECKs, partial unique indexes, functions and triggers are
+// hand-written in the migration and pinned by name in an integration test.
+// ---------------------------------------------------------------------------
+
+/// A family: the clinic's account unit, and the anchor every search resolves to.
+///
+/// It carries the surname used as the account's label and nothing else
+/// identifying. Every phone number belongs to a named guardian, because "whose
+/// number is this?" is the question a receptionist actually has when the phone
+/// rings, and a pair of unattributed columns cannot answer it.
+///
+/// A family has ONE OR MORE guardians, and that is a service invariant rather
+/// than a database one. PostgreSQL enforces "at most one primary contact" (a
+/// partial unique index) and "the primary is reachable" (a CHECK); "at least one
+/// guardian exists" is guaranteed by the contract's `min(1)` and by the fact
+/// that guardians are only ever replaced wholesale by a request that must itself
+/// carry one.
+///
+/// A family has ZERO OR MORE children. Registration is two requests, so an
+/// interrupted workflow legitimately leaves a family with none. Nothing here
+/// claims otherwise.
+///
+/// Deactivation is `status = INACTIVE`; the migration adds BEFORE DELETE and
+/// BEFORE TRUNCATE triggers so the database refuses removal.
+model Family {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  familyName       String       @map("family_name")
+  /// `fa_normalize(family_name)`, written in the same statement and pinned by
+  /// `family_search_name_chk`.
+  searchFamilyName String       @map("search_family_name")
+  address          String?
+  /// Non-clinical. Clinical records are excluded from the product entirely
+  /// (PROJECT_SPEC.md 2), and the interface labels this field accordingly.
+  note             String?
+  status           RecordStatus @default(ACTIVE)
+  deactivatedAt    DateTime?    @map("deactivated_at") @db.Timestamptz
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId  String       @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  guardians Guardian[]
+  children  Child[]
+  drafts    RegistrationDraft[]
+
+  @@index([status])
+  @@index([searchFamilyName])
+  @@map("family")
+}
+
+/// A guardian: who to call, and nothing more.
+///
+/// Not a subject of care, not an account, and not a legal record. There is no
+/// relation to `AppUser`, no credentials and no session — a guardian is a
+/// contact staff manage, exactly as a therapist is a record staff manage.
+///
+/// These rows are CURRENT CONFIGURATION, not history. They are replaced
+/// wholesale with their family inside one transaction, the change is recorded in
+/// `audit_log` under `family.updated` as an ordered list of values, and nothing
+/// references a guardian id. They therefore cascade with their family and carry
+/// no no-delete trigger, exactly like `therapist_service` and `room_service`.
+model Guardian {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  familyId         String               @map("family_id") @db.Uuid
+  fullName         String               @map("full_name")
+  searchFullName   String               @map("search_full_name")
+  relationship     GuardianRelationship
+  /// Required when the relationship is `OTHER`, forbidden otherwise.
+  relationshipNote String?              @map("relationship_note")
+  /// Canonical national form, digits only. Never unique: two families
+  /// legitimately share a father's mobile, and a shared number is a duplicate
+  /// signal, never a constraint.
+  mobile           String?
+  landline         String?
+  isPrimaryContact Boolean              @map("is_primary_contact")
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([familyId])
+  @@index([searchFullName])
+  @@index([mobile])
+  @@index([landline])
+  @@map("guardian")
+}
+
+/// A child: the person treated, and the subject every future session charge will
+/// name.
+///
+/// Given and family name are separate fields. Two children in one family sharing
+/// a given name and a birth date is a duplicate; two children in different
+/// families sharing a given name is a coincidence, and telling those apart needs
+/// the parts kept apart.
+///
+/// A CHILD BELONGS PERMANENTLY TO ONE FAMILY. `family_id` is listed in
+/// `child_enforce_identity_immutability`, so an ordinary UPDATE — or a psql
+/// session — cannot move a child between families. Reassignment rewrites who
+/// owes for every session that child has ever had; it must be a designed,
+/// audited repair operation belonging to the milestone that owns financial
+/// history, not a side effect of an edit form.
+///
+/// `fileNumber` is server-assigned from `child_file_number_seq` and immutable.
+/// The sequence is deliberately NOT attached as a column default: Prisma sees a
+/// default and the datamodel would then have to describe it, so the service
+/// calls `nextval()` explicitly in its INSERT and drift stays zero.
+model Child {
+  id                    String       @id @default(uuid(7)) @db.Uuid
+  familyId              String       @map("family_id") @db.Uuid
+  firstName             String       @map("first_name")
+  lastName              String       @map("last_name")
+  searchFirstName       String       @map("search_first_name")
+  searchLastName        String       @map("search_last_name")
+  /// A calendar day with no time and no offset. A future date is refused by the
+  /// service against `clinic_date()`, which is Asia/Tehran and `STABLE` — and
+  /// therefore not something a CHECK can express.
+  birthDate             DateTime     @map("birth_date") @db.Date
+  fileNumber            String       @unique @map("file_number")
+  /// A number from the clinic's paper files. Independently unique where present,
+  /// so both numbering schemes coexist rather than competing for one column.
+  legacyPaperFileNumber String?      @map("legacy_paper_file_number")
+  /// Optional. The strongest duplicate signal available, and unique where
+  /// present — a national identifier names exactly one person. Stored in full
+  /// here and masked everywhere it is copied.
+  nationalId            String?      @map("national_id")
+  sex                   ChildSex     @default(UNSPECIFIED)
+  referralSource        String?      @map("referral_source")
+  /// Non-clinical, as on `Family`.
+  note                  String?
+  status                RecordStatus @default(ACTIVE)
+  deactivatedAt         DateTime?    @map("deactivated_at") @db.Timestamptz
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId       String       @map("created_by_user_id") @db.Uuid
+
+  /// `Restrict` rather than `Cascade`: a child is a permanent historical record,
+  /// and a family cannot be deleted in any case.
+  family    Family              @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  drafts    RegistrationDraft[]
+
+  @@index([familyId])
+  @@index([status])
+  @@index([searchLastName, searchFirstName])
+  @@map("child")
+}
+
+/// A registration draft: what somebody typed, held by the server while they
+/// decide whether the family they are registering already exists.
+///
+/// TRANSIENT WORKFLOW STATE, not a domain record. It is deleted on confirmation
+/// or discard, expires in ten minutes, is never audited, and carries no
+/// append-only or no-delete protection — deletion is how it is meant to end.
+/// There is deliberately no draft audit action and no `registration_draft`
+/// entity type.
+///
+/// It exists because a duplicate is only detectable after a submission and a
+/// Route Handler cannot render a page, so something must hold the typed values
+/// across the confirmation step. That something is a row here rather than a
+/// cookie: a signed cookie gives integrity, not confidentiality, and a family
+/// with an address, a note and several guardians can exceed practical cookie
+/// size limits — failing intermittently, and only for the largest records.
+///
+/// Only the SHA-256 hash of the token is stored, exactly as `user_session` does,
+/// so a leaked backup yields nothing replayable.
+///
+/// `sessionId` carries NO foreign key, for the same reason `audit_log.sessionId`
+/// does not: expired sessions must stay purgeable. It is still mandatory — a
+/// draft is always created inside a signed-in session, and that binding is half
+/// of what makes one usable only by the person who created it.
+///
+/// `expiresAt` has no default. The service writes
+/// `transaction_timestamp() + interval '10 minutes'`, from the same PostgreSQL
+/// transaction clock as `created_at`, so the two can never disagree and no
+/// JavaScript clock is involved.
+model RegistrationDraft {
+  id                String       @id @default(uuid(7)) @db.Uuid
+  tokenHash         Bytes        @unique @map("token_hash")
+  purpose           DraftPurpose
+  createdByUserId   String       @map("created_by_user_id") @db.Uuid
+  sessionId         String       @map("session_id") @db.Uuid
+  payload           Json         @db.JsonB
+  /// The candidates the user was shown, so a duplicate that appeared since can
+  /// be told apart from one they already dismissed.
+  shownCandidateIds String[]     @map("shown_candidate_ids") @db.Uuid
+  targetFamilyId    String?      @map("target_family_id") @db.Uuid
+  targetChildId     String?      @map("target_child_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt         DateTime     @map("expires_at") @db.Timestamptz
+
+  createdBy    AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  targetFamily Family? @relation(fields: [targetFamilyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  targetChild  Child?  @relation(fields: [targetChildId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// One live draft per user, per session, per purpose — not merely per user.
+  /// The same person working in two browsers holds two independent drafts, and
+  /// starting one must not silently destroy the other. Replacement within one
+  /// session is a single `INSERT … ON CONFLICT DO UPDATE`, so it is atomic and
+  /// the previous token stops working the instant it commits.
+  @@unique([createdByUserId, sessionId, purpose])
+  /// The key the opportunistic expiry sweep uses.
+  @@index([expiresAt])
+  @@map("registration_draft")
 }

@@ -175,16 +175,17 @@ describe('catalog schema objects', () => {
     }
   });
 
-  it('adds no table beyond the approved Milestone 2 scope', async () => {
+  it('adds no table beyond the approved scope', async () => {
     const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
     `;
     const tables = rows.map((row) => row.table_name).sort();
 
-    // Availability, families, appointments, ledger, payments and the public
-    // site are later milestones. Listing the whole set here makes an
-    // out-of-scope table fail a test rather than arrive unnoticed.
+    // Availability, appointments, ledger, payments and the public site are
+    // later milestones. Listing the whole set here makes an out-of-scope table
+    // fail a test rather than arrive unnoticed — which is exactly what it did
+    // when Milestone 3 added its four, so this list grew deliberately.
     expect(tables).toEqual(
       [
         '_prisma_migrations',
@@ -198,6 +199,11 @@ describe('catalog schema objects', () => {
         'therapist',
         'therapist_service',
         'user_session',
+        // Milestone 3.
+        'family',
+        'guardian',
+        'child',
+        'registration_draft',
       ].sort(),
     );
   });

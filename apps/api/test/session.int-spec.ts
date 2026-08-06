@@ -290,7 +290,9 @@ describe('sessions (real PostgreSQL)', () => {
 
       const before = sessionResponseSchema.parse((await getSession(token)).body);
       expect(before.user.role).toBe('RECEPTIONIST');
-      expect(before.user.permissions).toEqual([]);
+      // The family workflow, and specifically not user administration.
+      expect(before.user.permissions).toContain('family.read');
+      expect(before.user.permissions).not.toContain('user.create');
 
       await harness.prisma.$executeRaw`
         UPDATE app_user SET role = 'MANAGER' WHERE id = ${user.id}::uuid

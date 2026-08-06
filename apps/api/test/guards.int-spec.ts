@@ -99,10 +99,13 @@ describe('guard chain (real PostgreSQL)', () => {
       const body = sessionResponseSchema.parse(response.body);
 
       // Identity came from the opaque token alone. Every claim in the headers
-      // was discarded.
+      // was discarded — including the forged permission list, which named three
+      // permissions a receptionist genuinely does not hold.
       expect(body.user.role).toBe('RECEPTIONIST');
-      expect(body.user.permissions).toEqual([]);
       expect(body.user.id).not.toBe(manager.id);
+      expect(body.user.permissions).not.toContain('user.create');
+      expect(body.user.permissions).not.toContain('user.read');
+      expect(body.user.permissions).not.toContain('session.revoke_any');
     });
 
     it('cannot authenticate with identity headers and no session token', async () => {
@@ -118,7 +121,7 @@ describe('guard chain (real PostgreSQL)', () => {
   });
 
   describe('permission model', () => {
-    it('gives a receptionist no permissions and a manager the full set', async () => {
+    it('gives a receptionist the family workflow only, and a manager the full set', async () => {
       const receptionist = await signIn('RECEPTIONIST');
       const manager = await signIn('MANAGER');
 
@@ -137,9 +140,27 @@ describe('guard chain (real PostgreSQL)', () => {
         ).body,
       );
 
-      expect(asReceptionist.user.permissions).toEqual([]);
+      // Milestone 3 gave the receptionist their first permissions: the family
+      // and child workflow, and nothing else. Asserted as an exact list, so a
+      // permission leaking into that role fails here rather than in review.
+      expect([...asReceptionist.user.permissions].sort()).toEqual([
+        'child.create',
+        'child.read',
+        'child.update',
+        'child.update_status',
+        'family.create',
+        'family.read',
+        'family.update',
+        'family.update_status',
+      ]);
+
+      // Still no user administration, no session administration, no catalog.
+      for (const forbidden of ['user.read', 'user.create', 'session.revoke_any', 'tariff.read']) {
+        expect(asReceptionist.user.permissions).not.toContain(forbidden);
+      }
+
       expect(asManager.user.permissions).toEqual(
-        expect.arrayContaining(['user.read', 'user.create', 'session.revoke_any']),
+        expect.arrayContaining(['user.read', 'user.create', 'session.revoke_any', 'family.read']),
       );
     });
   });
