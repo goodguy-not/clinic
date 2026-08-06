@@ -22,3 +22,7 @@ export * from './catalog/therapists';
 export * from './catalog/services';
 export * from './catalog/rooms';
 export * from './catalog/tariffs';
+export * from './families/common';
+export * from './families/families';
+export * from './families/children';
+export * from './families/drafts';

@@ -43,3 +43,27 @@ describe('redactSecrets', () => {
     expect(result).toContain('localhost:5433');
   });
 });
+
+describe('registration draft tokens are bearer secrets', () => {
+  it('masks a draft token wherever it is assigned', () => {
+    // Anyone holding one can read the family details somebody typed and
+    // complete their registration. That it lives for ten minutes makes it
+    // short-lived, not harmless.
+    for (const line of [
+      'x-draft-token: Zm9vYmFyYmF6',
+      'draftToken="Zm9vYmFyYmF6"',
+      'draft_token=Zm9vYmFyYmF6',
+    ]) {
+      const redacted = redactSecrets(line);
+
+      expect(redacted).not.toContain('Zm9vYmFyYmF6');
+      expect(redacted).toContain('***');
+    }
+  });
+
+  it('leaves surrounding text intact', () => {
+    expect(redactSecrets('draft rejected for x-draft-token: abc123 at 12:00')).toBe(
+      'draft rejected for x-draft-token: *** at 12:00',
+    );
+  });
+});

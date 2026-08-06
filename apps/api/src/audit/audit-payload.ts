@@ -1,3 +1,8 @@
+import {
+  maskedLandlineSchema,
+  maskedMobileSchema,
+  maskedNationalIdSchema,
+} from '@clinic/contracts';
 import type { AuditJsonValue } from './audit.types';
 
 /**
@@ -58,6 +63,36 @@ const FORBIDDEN_KEY_SUBSTRINGS = [
  */
 const BOOLEAN_ONLY_ALLOWED_KEYS = new Set(['mustchangepassword']);
 
+/**
+ * Keys whose value must be `null` or an exactly masked identifier.
+ *
+ * `audit_log` is append-only and permanent, so a national identifier or a phone
+ * number copied into it becomes a second, undeletable store of that identifier
+ * — kept to answer a question that never needed the value itself. The last four
+ * digits are enough to confirm which number a row is about.
+ *
+ * The shapes are exact rather than "begins with an asterisk". Six asterisks and
+ * four digits cannot be produced by a ten-digit identifier, so a full value is
+ * structurally incapable of passing; a prefix rule would have let
+ * `*1234567890` through.
+ *
+ * Matched as substrings, like `FORBIDDEN_KEY_SUBSTRINGS` above and for the same
+ * reason: `mobile`, `primaryMobile`, `guardian_mobile` and `mobileNumber` are
+ * one rule, not four, and a call site cannot escape the check by renaming a
+ * field. `draftToken` needs no entry here — it is already refused outright by
+ * the `token` substring above, which is the correct treatment for a bearer
+ * credential.
+ *
+ * Order matters only in that the first match decides the expected shape; the
+ * four do not overlap in any way that changes the outcome.
+ */
+const MASKED_IDENTIFIER_KEYS = [
+  { needle: 'nationalid', schema: maskedNationalIdSchema, shape: '6 asterisks and 4 digits' },
+  { needle: 'mobile', schema: maskedMobileSchema, shape: '7 asterisks and 4 digits' },
+  { needle: 'landline', schema: maskedLandlineSchema, shape: '6 or 7 asterisks and 4 digits' },
+  { needle: 'phone', schema: maskedLandlineSchema, shape: '6 or 7 asterisks and 4 digits' },
+] as const;
+
 /** Any Argon2 hash, whole or fragmentary, in any string value. */
 const ARGON2_MARKER = /\$argon2/i;
 
@@ -103,15 +138,46 @@ function checkValue(value: AuditJsonValue, path: string, depth: number): void {
         ? undefined
         : FORBIDDEN_KEY_SUBSTRINGS.find((needle) => normalized.includes(needle));
 
+      const keyPath = path === '' ? key : `${path}.${key}`;
+
       if (forbidden !== undefined) {
         throw new AuditPayloadError(
           `Audit payload key "${key}" looks like secret material ("${forbidden}")`,
-          path === '' ? key : `${path}.${key}`,
+          keyPath,
         );
       }
 
-      checkValue(nested, path === '' ? key : `${path}.${key}`, depth + 1);
+      assertIdentifierMasked(key, normalized, nested, keyPath);
+
+      checkValue(nested, keyPath, depth + 1);
     }
+  }
+}
+
+/**
+ * `null` or the exact masked shape, and nothing else.
+ *
+ * A number under one of these keys is rejected along with everything else. It
+ * is either a bug or an identifier that lost its leading zero on the way to
+ * becoming one, and neither should reach a permanent record.
+ */
+function assertIdentifierMasked(
+  key: string,
+  normalized: string,
+  value: AuditJsonValue,
+  keyPath: string,
+): void {
+  const guarded = MASKED_IDENTIFIER_KEYS.find((entry) => normalized.includes(entry.needle));
+  if (guarded === undefined) return;
+
+  if (value === null) return;
+
+  if (typeof value !== 'string' || !guarded.schema.safeParse(value).success) {
+    throw new AuditPayloadError(
+      `Audit payload key "${key}" must be null or a masked identifier (${guarded.shape}); ` +
+        'build it with the mapper in src/families/audit-safe.ts',
+      keyPath,
+    );
   }
 }
 

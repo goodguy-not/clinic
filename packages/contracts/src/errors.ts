@@ -52,6 +52,32 @@ export const ERROR_CODES = [
   // silent zero (PROJECT_SPEC.md 5).
   'TARIFF_MISSING',
 
+  // Families and children.
+  'FAMILY_NOT_FOUND',
+  'CHILD_NOT_FOUND',
+  // A likely duplicate was found and has not been acknowledged. The details
+  // carry the candidates the user must look at and a draft token; the write did
+  // not happen. Names alone never produce this — only a shared guardian mobile,
+  // or the same name and birth date inside one family.
+  'FAMILY_POSSIBLE_DUPLICATE',
+  'CHILD_POSSIBLE_DUPLICATE',
+  // Hard uniqueness, with no override: a national identifier names exactly one
+  // person, and one paper file belongs to one child.
+  'CHILD_NATIONAL_ID_TAKEN',
+  'CHILD_LEGACY_FILE_NUMBER_TAKEN',
+  // Exactly one primary guardian, and that one reachable on a mobile or a
+  // landline.
+  'FAMILY_PRIMARY_GUARDIAN_INVALID',
+  'FAMILY_INACTIVE',
+  // Measured against the clinic's own calendar day in Asia/Tehran, never the
+  // server's.
+  'CHILD_BIRTH_DATE_IN_FUTURE',
+  // One code for missing, expired, already consumed, wrong user, wrong session
+  // and wrong purpose. A draft token is a bearer credential, and distinguishing
+  // those conditions would tell its holder which one they tripped — the same
+  // reasoning that makes AUTH_INVALID_CREDENTIALS cover four login failures.
+  'DRAFT_NOT_FOUND',
+
   'INTERNAL_ERROR',
 ] as const;
 

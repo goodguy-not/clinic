@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 const API_ROOT = join(__dirname, '..', 'app', 'api');
+const APP_ROOT = join(__dirname, '..', 'app');
 
 type Handler = { path: string; source: string; methods: string[] };
 
@@ -179,6 +180,73 @@ describe('no token or return URL enters a redirect', () => {
         /redirect\(\s*(?:body|params|searchParams)/,
       ]) {
         expect(handler.source).not.toMatch(pattern);
+      }
+    },
+  );
+});
+
+/**
+ * Server Actions are the other way a browser can reach server code, and the
+ * guards above do not apply to them: they are not `route.ts` files, so nothing
+ * in the enumeration over `/api` would ever see one. An action that skipped
+ * `requireSession` would be an unauthenticated endpoint that no existing test
+ * could notice.
+ *
+ * The list is empty today, which is the correct current state — the family
+ * search box will be the first entry. These assertions exist now so that the
+ * rule is in place before the file that needs it, rather than after.
+ */
+const USE_SERVER_DIRECTIVE = /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/.*\n\s*)*['"]use server['"]/;
+
+function collectSourceFiles(directory: string, found: string[] = []): string[] {
+  for (const entry of readdirSync(directory)) {
+    const full = join(directory, entry);
+
+    if (statSync(full).isDirectory()) collectSourceFiles(full, found);
+    else if (/\.tsx?$/.test(entry) && !/\.(?:test|spec)\.tsx?$/.test(entry)) found.push(full);
+  }
+
+  return found;
+}
+
+const serverActionModules = collectSourceFiles(APP_ROOT)
+  .map((path) => ({ path: path.split(sep).join('/'), source: readFileSync(path, 'utf8') }))
+  .filter((module) => USE_SERVER_DIRECTIVE.test(module.source));
+
+describe('every Server Action authorises for itself', () => {
+  it('enumerates the Server Action modules that exist', () => {
+    // Stated as an exact count for the same reason the handler count is: a file
+    // that stops being found must fail here rather than pass silently.
+    expect(serverActionModules).toHaveLength(0);
+  });
+
+  it.each(serverActionModules.map((module) => [module.path, module] as const))(
+    '%s resolves a session and names a permission',
+    (_path, module) => {
+      expect(module.source).toContain('requireSession');
+      expect(module.source).toMatch(/requirePermission:/);
+    },
+  );
+
+  it.each(serverActionModules.map((module) => [module.path, module] as const))(
+    '%s enforces strict Origin',
+    (_path, module) => {
+      // A Server Action receives no `Request`, so it reads the header itself.
+      // Reading is not a state change, but a check applied only to writes is a
+      // check somebody forgets to add to the first action that writes.
+      expect(module.source).toMatch(/assertOriginAllowed|assertBrowserWriteAllowed/);
+    },
+  );
+
+  it.each(serverActionModules.map((module) => [module.path, module] as const))(
+    '%s exports only async functions',
+    (_path, module) => {
+      // React rejects any other export at call time rather than at build time.
+      // `check-web-boundary.mjs` enforces this repository-wide; asserted here
+      // too because the failure is invisible until a form is submitted.
+      for (const line of module.source.split('\n')) {
+        if (!/^export\s/.test(line)) continue;
+        expect(line).toMatch(/^export\s+(?:async\s+function\s|type\s|interface\s)/);
       }
     },
   );

@@ -51,6 +51,23 @@ export const AUDIT_ACTIONS = [
   // as a diff.
   'tariff.created',
   'tariff.voided',
+
+  // Families and children. Every payload here passes through the masking
+  // mapper: a name change is the fact being recorded and is written in full,
+  // while a national identifier or a phone number is reduced to its last four
+  // digits before it reaches this table.
+  'family.created',
+  'family.updated',
+  'family.status_changed',
+  'child.created',
+  'child.updated',
+  'child.status_changed',
+  // A separate action rather than a flag inside the creation payload. "How
+  // often does somebody override the duplicate warning?" is a question the
+  // pilot will ask, and a key buried in JSON is not something you can count.
+  // It records the candidate ids and the rule names, never an identifier.
+  'family.duplicate_override',
+  'child.duplicate_override',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -68,6 +85,14 @@ export const AUDIT_ENTITY_TYPES = [
   'service',
   'room',
   'tariff',
+  'family',
+  'child',
+  // `guardian` is deliberately absent: guardians are replaced as a set with
+  // their family, so a guardian change is recorded inside `family.updated` as
+  // an ordered list of values, and no audit row ever names a guardian id.
+  //
+  // `registration_draft` is absent for a different reason: a draft is transient
+  // workflow state that is deleted within ten minutes, not a historical fact.
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

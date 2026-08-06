@@ -41,13 +41,23 @@ export function isOriginAllowed(origin: string | null, allowed: readonly string[
 }
 
 /**
+ * The check itself, against an `Origin` value the caller has already read.
+ *
+ * A Server Action never receives a `Request`: it reads headers through
+ * `headers()` from `next/headers`. Both entry points must apply the same
+ * allow-list, so the rule lives here once and the two callers differ only in
+ * where they got the header from.
+ */
+export function assertOriginAllowed(origin: string | null): void {
+  if (!isOriginAllowed(origin, allowedOrigins(loadServerEnv()))) {
+    throw new OriginRejectedError(origin);
+  }
+}
+
+/**
  * Called at the top of every state-changing Route Handler. A coverage test
  * enumerates the handlers and fails if one does not reference it.
  */
 export function assertBrowserWriteAllowed(request: Request): void {
-  const origin = request.headers.get('origin');
-
-  if (!isOriginAllowed(origin, allowedOrigins(loadServerEnv()))) {
-    throw new OriginRejectedError(origin);
-  }
+  assertOriginAllowed(request.headers.get('origin'));
 }

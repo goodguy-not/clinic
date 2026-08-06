@@ -14,13 +14,24 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * contract without deciding its permissions is a compile error, which is the
  * point of keeping roles a code enum rather than data.
  *
- * A receptionist holds no permission in Milestone 1. Their access is the
- * self-service endpoints, which require authentication but no permission — not
- * an oversight, and a test asserts it stays empty.
+ * A receptionist held no permission at all through Milestones 1 and 2. From
+ * Milestone 3 they hold exactly the family and child workflow and nothing else:
+ * no user administration, no session administration, no catalog, no tariffs.
+ * A test asserts both halves of that — what they have, and what they still do
+ * not.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,
-  RECEPTIONIST: [],
+  RECEPTIONIST: [
+    'family.read',
+    'family.create',
+    'family.update',
+    'family.update_status',
+    'child.read',
+    'child.create',
+    'child.update',
+    'child.update_status',
+  ],
 };
 
 export function permissionsForRole(role: UserRole): readonly Permission[] {

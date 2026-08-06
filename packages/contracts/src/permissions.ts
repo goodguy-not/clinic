@@ -43,6 +43,24 @@ export const PERMISSIONS = [
   // effect is a different authority from setting one, and later milestones may
   // grant them differently.
   'tariff.void',
+
+  // Families and children. The first permissions a receptionist has ever held:
+  // PROJECT_SPEC.md 4 places family/child management with them and restricts
+  // them only on financial deletion, tariffs, corrections and security
+  // administration — none of which these are.
+  //
+  // `update_status` is deactivation and reactivation. It is granted to the
+  // receptionist deliberately: somebody who cannot deactivate a record entered
+  // by mistake will reuse it or leave it in the active list, and both are worse
+  // than an audited, reversible status change.
+  'family.read',
+  'family.create',
+  'family.update',
+  'family.update_status',
+  'child.read',
+  'child.create',
+  'child.update',
+  'child.update_status',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

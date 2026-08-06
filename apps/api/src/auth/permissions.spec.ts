@@ -13,10 +13,38 @@ describe('role to permission map', () => {
     expect([...permissionsForRole('MANAGER')].sort()).toEqual([...PERMISSIONS].sort());
   });
 
-  it('gives a receptionist none', () => {
-    // Deliberate, not an oversight: a receptionist's access in Milestone 1 is
-    // the self-service endpoints, which need authentication but no permission.
-    expect(permissionsForRole('RECEPTIONIST')).toEqual([]);
+  it('gives a receptionist exactly the family and child workflow', () => {
+    // Stated as an exact list rather than a subset check: a permission
+    // accidentally added to this role must fail here, not pass quietly.
+    expect([...permissionsForRole('RECEPTIONIST')].sort()).toEqual(
+      [
+        'child.create',
+        'child.read',
+        'child.update',
+        'child.update_status',
+        'family.create',
+        'family.read',
+        'family.update',
+        'family.update_status',
+      ].sort(),
+    );
+  });
+
+  it('gives a receptionist no user, session, catalog, tariff or security permission', () => {
+    // The negative half. PROJECT_SPEC.md 4 bars a receptionist from global
+    // tariff changes and from security administration, and no receptionist
+    // workflow reads catalog data before Milestone 4.
+    const granted = permissionsForRole('RECEPTIONIST');
+
+    for (const permission of granted) {
+      expect(permission).toMatch(/^(?:family|child)\./);
+    }
+
+    for (const forbidden of PERMISSIONS.filter(
+      (permission) => !/^(?:family|child)\./.test(permission),
+    )) {
+      expect(granted).not.toContain(forbidden);
+    }
   });
 
   it('names only permissions that exist in the contract', () => {

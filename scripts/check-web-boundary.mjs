@@ -23,6 +23,8 @@
  *   8. apps/web does not block paste, copy or autofill.
  *   9. Password-policy internals stay behind the reviewed helper.
  *  10. No route handler mutates cookies on GET.
+ *  11. Client Components stay off the server surface and stay allow-listed.
+ *  12. A "use server" module exports nothing but async functions.
  *
  * Exits non-zero with a readable report on any violation.
  */
@@ -340,6 +342,96 @@ walk(webAppRoot, (file) => {
   }
 });
 
+// --- 11. Client Components stay inert, and stay counted ----------------------
+//
+// The product is Server Components throughout. A Client Component is permitted
+// only where an interaction genuinely cannot be expressed without one, and each
+// is named here so that adding a second is a visible diff in review rather than
+// a quiet drift back towards a client-rendered application.
+//
+// The import ban is the security half. `server-only` already makes most of
+// these a build error; stating them here means the rule is legible without
+// running a build, and covers `@/env`, whose values include the internal API
+// key and the cookie signing secret.
+//
+// EMPTY IS THE CURRENT, CORRECT STATE. The family search box is the first
+// entry this list will take: a search term must not reach a URL, so it has to
+// be posted, and a Server Action's return value is readable only through
+// `useActionState`, which is a client hook. That chain was verified against
+// Next 16.2.12 and React 19.2.8 before it was relied upon.
+const CLIENT_COMPONENT_ALLOWLIST = [];
+
+const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];
+const CLIENT_FORBIDDEN_IMPORT_PREFIXES = ['@/server/'];
+
+const USE_CLIENT_DIRECTIVE = /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/.*\n\s*)*['"]use client['"]/;
+const USE_SERVER_DIRECTIVE = /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/.*\n\s*)*['"]use server['"]/;
+
+walk(join(webRoot, 'src'), (file) => {
+  if (!shouldScan(file)) return;
+
+  const text = readFileSync(file, 'utf8');
+  if (!USE_CLIENT_DIRECTIVE.test(text)) return;
+
+  const rel = toRepoPath(file);
+  const relToWeb = relative(webRoot, file).split(sep).join('/');
+
+  if (!CLIENT_COMPONENT_ALLOWLIST.includes(relToWeb)) {
+    violations.push(
+      `${rel} is a Client Component that is not in CLIENT_COMPONENT_ALLOWLIST in ` +
+        'scripts/check-web-boundary.mjs — every one is a deliberate exception and must be named',
+    );
+  }
+
+  for (const name of CLIENT_FORBIDDEN_IMPORTS) {
+    if (importPatternFor(name).test(text)) {
+      violations.push(`${rel} is a Client Component importing "${name}" — server-only code`);
+    }
+  }
+
+  for (const prefix of CLIENT_FORBIDDEN_IMPORT_PREFIXES) {
+    if (
+      new RegExp(String.raw`(?:from\s*|require\s*\(\s*|import\s*\(\s*)['"]${prefix}`).test(text)
+    ) {
+      violations.push(
+        `${rel} is a Client Component importing from "${prefix}" — the server helpers hold the ` +
+          'session token, the internal key and the cookie secret',
+      );
+    }
+  }
+});
+
+// --- 12. a "use server" module exports only async functions ------------------
+//
+// React refuses any other export from a `"use server"` file, and it refuses it
+// at call time rather than at build time: the page renders, the build passes,
+// and the first form submission fails with `A "use server" file can only export
+// async functions, found object`. A constant sitting beside an action is an easy
+// and entirely reasonable-looking mistake to make, so it is worth catching here
+// instead of in production.
+//
+// Type-only exports are erased before React sees the module and are permitted.
+const ALLOWED_SERVER_EXPORT = /^export\s+(?:async\s+function\s|type\s|interface\s)/;
+
+walk(join(webRoot, 'src'), (file) => {
+  if (!shouldScan(file)) return;
+
+  const text = readFileSync(file, 'utf8');
+  if (!USE_SERVER_DIRECTIVE.test(text)) return;
+
+  const rel = toRepoPath(file);
+
+  for (const line of withoutCommentsOrStrings(text).split('\n')) {
+    if (!/^export\s/.test(line)) continue;
+    if (ALLOWED_SERVER_EXPORT.test(line)) continue;
+
+    violations.push(
+      `${rel} is a "use server" module with a non-async-function export (${line.trim()}) — ` +
+        'React rejects it at call time, not at build time; move constants and types to a sibling module',
+    );
+  }
+});
+
 // --- report ------------------------------------------------------------------
 if (violations.length > 0) {
   console.error('Architecture boundary check FAILED:\n');
@@ -360,3 +452,7 @@ console.log('  - no NEXT_PUBLIC_ variable under apps/web names a secret');
 console.log('  - apps/web blocks neither paste, copy nor autofill');
 console.log('  - password policy stays behind validatePassword()');
 console.log('  - no route handler mutates cookies on GET');
+console.log(
+  `  - every Client Component is allow-listed (${String(CLIENT_COMPONENT_ALLOWLIST.length)}) and imports no server-only module`,
+);
+console.log('  - every "use server" module exports only async functions');

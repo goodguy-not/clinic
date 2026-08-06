@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DRAFT_PURPOSES,
+  DUPLICATE_RULES,
   ERROR_CODES,
+  NOTICE_CODES,
   PERMISSIONS,
   USER_ROLES,
+  duplicateCandidateSchema,
+  familySearchRequestSchema,
   loginResponseSchema,
   sessionResponseSchema,
 } from '@clinic/contracts';
@@ -67,5 +72,61 @@ describe('@clinic/contracts (bundler consumption)', () => {
 
     for (const code of ERROR_CODES) expect(persian.test(code)).toBe(false);
     for (const permission of PERMISSIONS) expect(persian.test(permission)).toBe(false);
+  });
+});
+
+describe('Milestone 3 contracts from the bundler side', () => {
+  it('exposes the family permissions the interface renders against', () => {
+    // The web tier decides what to show from the resolved permission list, so
+    // the names have to be enumerable here even though the authoritative
+    // role map lives in apps/api and nowhere else.
+    expect([...PERMISSIONS]).toContain('family.read');
+    expect([...PERMISSIONS]).toContain('child.create');
+  });
+
+  it('exposes the notice codes the `?notice=` parameter is validated against', () => {
+    expect([...NOTICE_CODES]).toEqual(['SIMILAR_FAMILY_EXISTS', 'SIMILAR_CHILD_EXISTS']);
+  });
+
+  it('rejects a duplicate candidate carrying a full identifier', () => {
+    // The strict schema is the mechanism: a full number serialised into a
+    // candidate fails to parse in `api-client.ts` rather than reaching a page.
+    const candidate = {
+      familyId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      childId: null,
+      rule: 'FAMILY_DUPLICATE_MOBILE',
+      blocking: true,
+      familyName: 'خانوادهٔ آزمایشی',
+      primaryGuardianName: 'سرپرست آزمایشی',
+      maskedMobile: '*******4567',
+      maskedLandline: null,
+      childNames: [],
+    };
+
+    expect(duplicateCandidateSchema.safeParse(candidate).success).toBe(true);
+    expect(
+      duplicateCandidateSchema.safeParse({ ...candidate, maskedMobile: '09121234567' }).success,
+    ).toBe(false);
+    expect(
+      duplicateCandidateSchema.safeParse({ ...candidate, maskedMobile: '*09121234567' }).success,
+    ).toBe(false);
+  });
+
+  it('keeps the search term out of a query-shaped contract', () => {
+    // The request is a JSON body, so `includeInactive` is a real boolean rather
+    // than a coerced string. If this ever became a query contract, the coercion
+    // would be the first sign.
+    expect(familySearchRequestSchema.safeParse({ q: 'رضایی' }).success).toBe(true);
+    expect(familySearchRequestSchema.safeParse({}).success).toBe(true);
+    expect(familySearchRequestSchema.safeParse({ includeInactive: 'true' }).success).toBe(false);
+    expect(familySearchRequestSchema.safeParse({ q: 'a' }).success).toBe(false);
+  });
+
+  it('contains no Persian text in the new contracts either', () => {
+    // Same rule as the rest of the package: NestJS speaks codes, the web tier
+    // owns every Persian string.
+    const source = JSON.stringify([NOTICE_CODES, DRAFT_PURPOSES, DUPLICATE_RULES]);
+
+    expect(source).not.toMatch(/[؀-ۿ]/);
   });
 });

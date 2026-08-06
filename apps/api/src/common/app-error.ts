@@ -59,6 +59,25 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // caller that treats "no tariff" as "no charge" would be silently wrong.
   TARIFF_MISSING: 404,
 
+  FAMILY_NOT_FOUND: 404,
+  CHILD_NOT_FOUND: 404,
+  // 409: the request is well formed and the caller may legitimately want it,
+  // but it conflicts with a record that already exists. The body carries the
+  // candidates and a draft token so the caller can look and decide.
+  FAMILY_POSSIBLE_DUPLICATE: 409,
+  CHILD_POSSIBLE_DUPLICATE: 409,
+  CHILD_NATIONAL_ID_TAKEN: 409,
+  CHILD_LEGACY_FILE_NUMBER_TAKEN: 409,
+  // 422 rather than 409: nothing conflicts, the submitted shape is just not one
+  // the domain permits.
+  FAMILY_PRIMARY_GUARDIAN_INVALID: 422,
+  FAMILY_INACTIVE: 422,
+  CHILD_BIRTH_DATE_IN_FUTURE: 422,
+  // 404 for missing, expired, consumed, wrong user, wrong session and wrong
+  // purpose alike. A draft token is a bearer credential; distinguishing those
+  // would tell its holder which condition they tripped.
+  DRAFT_NOT_FOUND: 404,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -98,6 +117,18 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   SERVICE_INACTIVE: 'The service is inactive',
   THERAPIST_INACTIVE: 'The therapist is inactive',
   TARIFF_MISSING: 'No tariff applies to this service, duration and date',
+
+  FAMILY_NOT_FOUND: 'Family not found',
+  CHILD_NOT_FOUND: 'Child not found',
+  FAMILY_POSSIBLE_DUPLICATE: 'A similar family already exists and has not been acknowledged',
+  CHILD_POSSIBLE_DUPLICATE: 'A similar child already exists and has not been acknowledged',
+  CHILD_NATIONAL_ID_TAKEN: 'Another child already has this national identifier',
+  CHILD_LEGACY_FILE_NUMBER_TAKEN: 'Another child already has this paper file number',
+  FAMILY_PRIMARY_GUARDIAN_INVALID:
+    'Exactly one guardian must be the primary contact, with a mobile or a landline',
+  FAMILY_INACTIVE: 'The family is inactive',
+  CHILD_BIRTH_DATE_IN_FUTURE: 'The birth date is after the current date at the clinic',
+  DRAFT_NOT_FOUND: 'Registration draft not found or no longer valid',
 
   INTERNAL_ERROR: 'Internal error',
 };

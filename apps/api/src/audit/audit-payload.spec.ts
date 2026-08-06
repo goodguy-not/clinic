@@ -103,3 +103,102 @@ describe('assertAuditPayloadSafe', () => {
     expect(() => assertAuditPayloadSafe({ after: { passwordHash: 'x' } })).toThrow();
   });
 });
+
+describe('identifier masking guard', () => {
+  it('accepts null, so absence stays distinguishable from a masked value', () => {
+    expect(() =>
+      assertAuditPayloadSafe({ after: { nationalId: null, mobile: null, landline: null } }),
+    ).not.toThrow();
+  });
+
+  it('accepts exactly the masked shapes and nothing else', () => {
+    expect(() =>
+      assertAuditPayloadSafe({
+        after: { nationalId: '******7891', mobile: '*******4567', landline: '******4567' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a full identifier under a guarded key', () => {
+    const payloads: Record<string, string>[] = [
+      { nationalId: '1234567891' },
+      { mobile: '09121234567' },
+      { landline: '02112345678' },
+      { phone: '02112345678' },
+    ];
+
+    for (const payload of payloads) {
+      expect(() => assertAuditPayloadSafe({ after: payload })).toThrow(AuditPayloadError);
+    }
+  });
+
+  it('rejects a value that merely begins with an asterisk', () => {
+    // The exact shape is the point. A "starts with a mask character" rule would
+    // have accepted this, and it carries the whole identifier.
+    expect(() => assertAuditPayloadSafe({ after: { nationalId: '*1234567891' } })).toThrow(
+      AuditPayloadError,
+    );
+    expect(() => assertAuditPayloadSafe({ after: { mobile: '*09121234567' } })).toThrow(
+      AuditPayloadError,
+    );
+  });
+
+  it('rejects the wrong mask width for the key', () => {
+    // A national identifier is ten digits, so six asterisks; a mobile is
+    // eleven, so seven. Swapping them would mean the mapper and the guard
+    // disagree about what was masked.
+    expect(() => assertAuditPayloadSafe({ after: { nationalId: '*******7891' } })).toThrow(
+      AuditPayloadError,
+    );
+    expect(() => assertAuditPayloadSafe({ after: { mobile: '******4567' } })).toThrow(
+      AuditPayloadError,
+    );
+  });
+
+  it('rejects a non-string value, which is a lost leading zero or a bug', () => {
+    expect(() => assertAuditPayloadSafe({ after: { mobile: 9121234567 } })).toThrow(
+      AuditPayloadError,
+    );
+  });
+
+  it('applies at any depth and inside arrays', () => {
+    expect(() =>
+      assertAuditPayloadSafe({ after: { guardians: [{ mobile: '09121234567' }] } }),
+    ).toThrow(AuditPayloadError);
+
+    expect(() =>
+      assertAuditPayloadSafe({ before: { family: { guardians: [{ landline: '0341234567' }] } } }),
+    ).toThrow(AuditPayloadError);
+  });
+
+  it('catches renamed variants, because the match is a substring', () => {
+    for (const key of ['primaryMobile', 'guardian_mobile', 'mobileNumber', 'homePhone']) {
+      expect(() => assertAuditPayloadSafe({ after: { [key]: '09121234567' } })).toThrow(
+        AuditPayloadError,
+      );
+    }
+  });
+
+  it('names the offending path', () => {
+    try {
+      assertAuditPayloadSafe({ after: { guardians: [{ mobile: '09121234567' }] } });
+      throw new Error('should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuditPayloadError);
+      expect((error as AuditPayloadError).path).toBe('after.guardians[0].mobile');
+    }
+  });
+});
+
+describe('a draft token never reaches the audit trail', () => {
+  it('is refused outright, masked or not', () => {
+    // A registration-draft token is a bearer credential: anyone holding one can
+    // read what somebody typed and complete their registration. It is covered
+    // by the existing `token` substring rule, and this pins that it stays so.
+    for (const key of ['draftToken', 'draft_token', 'DraftToken']) {
+      expect(() => assertAuditPayloadSafe({ metadata: { [key]: 'abc' } })).toThrow(
+        AuditPayloadError,
+      );
+    }
+  });
+});

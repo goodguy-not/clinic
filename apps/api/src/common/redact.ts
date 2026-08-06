@@ -26,9 +26,17 @@ const ARGON2_HASH =
 /** Any remaining `$argon2...` fragment, including a truncated or malformed one. */
 const ARGON2_FRAGMENT = /\$argon2[a-z]*\$[^\s"']*/gi;
 
-/** Header-ish or JSON-ish assignments of a named secret. */
+/**
+ * Header-ish or JSON-ish assignments of a named secret.
+ *
+ * `x-draft-token` and `draftToken` are here for the same reason `x-session-id`
+ * is: a registration-draft token is a bearer credential. Anyone holding one can
+ * read the family details somebody typed and complete their registration, so it
+ * is a secret in every sense that matters, even though the row it addresses
+ * lives for ten minutes.
+ */
 const NAMED_SECRET_ASSIGNMENT =
-  /\b(x-internal-key|x-session-id|internal[_-]?key|session[_-]?token|api[_-]?key|authorization|cookie|password)\b(\s*[:=]\s*)("?)([^\s",;}]+)\3/gi;
+  /\b(x-internal-key|x-session-id|x-draft-token|internal[_-]?key|session[_-]?token|draft[_-]?token|api[_-]?key|authorization|cookie|password)\b(\s*[:=]\s*)("?)([^\s",;}]+)\3/gi;
 
 export function redactSecrets(text: string): string {
   return text
