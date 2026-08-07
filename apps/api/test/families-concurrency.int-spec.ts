@@ -1,7 +1,18 @@
 import { createHash } from 'node:crypto';
 import { duplicateBlockedDetailsSchema } from '@clinic/contracts';
 import { createHarness, resetDatabase, type Harness } from './harness';
-import { createFamily, familyPayload, guardian, seedFamily, signIn } from './families-support';
+import {
+  blockOn,
+  childPayload,
+  confirmRegistration,
+  createChild,
+  createFamily,
+  discardDraft,
+  familyPayload,
+  guardian,
+  seedFamily,
+  signIn,
+} from './families-support';
 
 /**
  * What happens when two receptionists register at the same moment.
@@ -323,3 +334,214 @@ async function signInSameUser(harness: Harness, existingToken: string): Promise<
 
   return loginResponseSchema.parse(response.body).sessionToken;
 }
+
+/**
+ * The child half of the matrix, and the draft races that decide who wins a
+ * one-time consumption.
+ *
+ * Same discipline as above: fire together, assert the invariant that must hold
+ * in either order, and use `pg_stat_activity` when a block has to be proved
+ * rather than hoped for.
+ */
+describe('child and draft concurrency (real PostgreSQL)', () => {
+  let harness: Harness;
+  let token: string;
+  let familyId: string;
+
+  beforeAll(async () => {
+    harness = await createHarness();
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(harness.prisma);
+    token = (await signIn(harness, 'RECEPTIONIST')).token;
+    familyId = await seedFamily(harness, token, familyPayload());
+  });
+
+  /** Polls until a backend is provably waiting on a lock. */
+  async function waitUntilLockWait(count = 1): Promise<void> {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const rows = await harness.prisma.$queryRaw<{ blocked: bigint }[]>`
+        SELECT count(*) AS blocked FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND state = 'active'
+      `;
+
+      if (Number(rows[0]?.blocked ?? 0) >= count) return;
+
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    throw new Error('No request ever blocked on a lock');
+  }
+
+  describe('two registrations of the same child', () => {
+    it('produces exactly one 201 and one 409', async () => {
+      const [first, second] = await Promise.all([
+        createChild(harness, token, familyId, childPayload()),
+        createChild(harness, token, familyId, childPayload()),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([201, 409]);
+
+      const blocked = first.status === 409 ? first : second;
+      expect(blocked.body.error.code).toBe('CHILD_POSSIBLE_DUPLICATE');
+
+      expect(await harness.prisma.child.count()).toBe(1);
+      expect(await harness.prisma.auditLog.count({ where: { action: 'child.created' } })).toBe(1);
+      expect(await harness.prisma.registrationDraft.count()).toBe(1);
+    }, 30000);
+
+    it('holds across Persian spelling variants of the same name', async () => {
+      // The key is derived from the NORMALISED name, so the Arabic and Persian
+      // spellings take the same lock and one of them waits.
+      const [first, second] = await Promise.all([
+        createChild(harness, token, familyId, childPayload({ firstName: 'علي' })),
+        createChild(harness, token, familyId, childPayload({ firstName: 'علی' })),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([201, 409]);
+      expect(await harness.prisma.child.count()).toBe(1);
+    }, 30000);
+
+    it('really does block on the identity key', async () => {
+      const key = await harness.prisma.$queryRaw<{ key: bigint }[]>`
+        SELECT hashtextextended(
+          'child-identity:' || ${familyId}::text || ':' || fa_normalize('علی')
+            || ':' || fa_normalize('رضایی') || ':' || '2020-03-21'::date::text, 0
+        ) AS key
+      `;
+
+      let inFlight!: Promise<{ status: number }>;
+
+      await harness.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key[0]?.key}::bigint)`;
+
+        inFlight = createChild(harness, token, familyId, childPayload()).then((r) => r);
+
+        await waitUntilLockWait();
+      });
+
+      expect((await inFlight).status).toBe(201);
+    }, 30000);
+
+    it('lets two different children register at the same time', async () => {
+      const [first, second] = await Promise.all([
+        createChild(harness, token, familyId, childPayload({ firstName: 'علی' })),
+        createChild(harness, token, familyId, childPayload({ firstName: 'زهرا' })),
+      ]);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(await harness.prisma.child.count()).toBe(2);
+    }, 30000);
+
+    it('gives concurrent registrations distinct file numbers', async () => {
+      const results = await Promise.all([
+        createChild(harness, token, familyId, childPayload({ firstName: 'الف' })),
+        createChild(harness, token, familyId, childPayload({ firstName: 'ب' })),
+        createChild(harness, token, familyId, childPayload({ firstName: 'پ' })),
+      ]);
+
+      for (const response of results) expect(response.status).toBe(201);
+
+      const numbers = (await harness.prisma.child.findMany({ select: { fileNumber: true } })).map(
+        (row) => row.fileNumber,
+      );
+
+      // No gap-free claim: a rolled-back transaction legitimately burns one.
+      expect(new Set(numbers).size).toBe(3);
+    }, 30000);
+  });
+
+  describe('one draft, two terminal actions', () => {
+    it('lets exactly one confirmation consume the token', async () => {
+      // The family seeded in beforeEach already holds this mobile, so this
+      // registration is blocked by it.
+      const { draftToken, candidateIds } = await blockOn(
+        harness,
+        token,
+        familyPayload({ familyName: 'ب' }, [guardian({ mobile: '09121234567' })]),
+      );
+
+      const [first, second] = await Promise.all([
+        confirmRegistration(harness, token, draftToken, candidateIds),
+        confirmRegistration(harness, token, draftToken, candidateIds),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([201, 404]);
+
+      const loser = first.status === 404 ? first : second;
+      expect(loser.body.error.code).toBe('DRAFT_NOT_FOUND');
+
+      expect(await harness.prisma.registrationDraft.count()).toBe(0);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'family.duplicate_override' } }),
+      ).toBe(1);
+    }, 30000);
+
+    it('lets exactly one of confirm and discard win', async () => {
+      // The family seeded in beforeEach already holds this mobile, so this
+      // registration is blocked by it.
+      const { draftToken, candidateIds } = await blockOn(
+        harness,
+        token,
+        familyPayload({ familyName: 'ب' }, [guardian({ mobile: '09121234567' })]),
+      );
+
+      const familiesBefore = await harness.prisma.family.count();
+
+      const [confirmed, discarded] = await Promise.all([
+        confirmRegistration(harness, token, draftToken, candidateIds),
+        discardDraft(harness, token, draftToken),
+      ]);
+
+      const outcomes = [confirmed.status, discarded.status].sort();
+      // Either the confirmation won (201 + 404) or the discard did (204 + 404).
+      expect([
+        [201, 404],
+        [204, 404],
+      ]).toContainEqual(outcomes);
+
+      expect(await harness.prisma.registrationDraft.count()).toBe(0);
+      expect(await harness.prisma.family.count()).toBe(
+        confirmed.status === 201 ? familiesBefore + 1 : familiesBefore,
+      );
+    }, 30000);
+
+    it('never lets an old token spend a replaced draft', async () => {
+      const first = await blockOn(
+        harness,
+        token,
+        familyPayload({ familyName: 'اول' }, [guardian({ mobile: '09121234567' })]),
+      );
+      const second = await blockOn(
+        harness,
+        token,
+        familyPayload({ familyName: 'دوم' }, [guardian({ mobile: '09121234567' })]),
+      );
+
+      // Replacement is one ON CONFLICT DO UPDATE, so the first token's hash is
+      // gone the instant it commits.
+      const stale = await confirmRegistration(harness, token, first.draftToken, first.candidateIds);
+      expect(stale.status).toBe(404);
+
+      const current = await confirmRegistration(
+        harness,
+        token,
+        second.draftToken,
+        second.candidateIds,
+      );
+      expect(current.status).toBe(201);
+
+      // The payload written is the second one, never the first.
+      const created = await harness.prisma.family.findFirstOrThrow({
+        where: { familyName: { in: ['اول', 'دوم'] } },
+      });
+      expect(created.familyName).toBe('دوم');
+    }, 30000);
+  });
+});

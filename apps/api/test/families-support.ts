@@ -273,3 +273,167 @@ export async function deactivateFamily(harness: Harness, familyId: string): Prom
     WHERE id = ${familyId}::uuid
   `;
 }
+
+// --- children ---------------------------------------------------------------
+
+export function childPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    firstName: 'علی',
+    lastName: 'رضایی',
+    birthDate: '2020-03-21',
+    sex: 'UNSPECIFIED',
+    nationalId: null,
+    legacyPaperFileNumber: null,
+    referralSource: null,
+    note: null,
+    ...overrides,
+  };
+}
+
+export function createChild(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/families/${familyId}/children`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function getChild(harness: Harness, token: string, id: string): request.Test {
+  return request(harness.app.getHttpServer()).get(`/children/${id}`).set(asUser(token));
+}
+
+export function updateChild(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/children/${id}`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function setChildStatus(
+  harness: Harness,
+  token: string,
+  id: string,
+  status: 'ACTIVE' | 'INACTIVE',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/children/${id}/status`)
+    .set(asUser(token))
+    .send({ status });
+}
+
+export function updateFamily(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/families/${id}`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function setFamilyStatus(
+  harness: Harness,
+  token: string,
+  id: string,
+  status: 'ACTIVE' | 'INACTIVE',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/families/${id}/status`)
+    .set(asUser(token))
+    .send({ status });
+}
+
+export function confirmFamilyUpdate(
+  harness: Harness,
+  token: string,
+  draftToken: string,
+  acknowledgedDuplicateIds: readonly string[],
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/families/confirm-update')
+    .set(withDraft(token, draftToken))
+    .send({ acknowledgedDuplicateIds: [...acknowledgedDuplicateIds] });
+}
+
+export function confirmChildRegistration(
+  harness: Harness,
+  token: string,
+  draftToken: string,
+  acknowledgedDuplicateIds: readonly string[],
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/children/confirm-registration')
+    .set(withDraft(token, draftToken))
+    .send({ acknowledgedDuplicateIds: [...acknowledgedDuplicateIds] });
+}
+
+export function confirmChildUpdate(
+  harness: Harness,
+  token: string,
+  draftToken: string,
+  acknowledgedDuplicateIds: readonly string[],
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/children/confirm-update')
+    .set(withDraft(token, draftToken))
+    .send({ acknowledgedDuplicateIds: [...acknowledgedDuplicateIds] });
+}
+
+/** Registers a child through the endpoint and returns its id, failing loudly otherwise. */
+export async function seedChildViaApi(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  body: Record<string, unknown>,
+): Promise<string> {
+  const response = await createChild(harness, token, familyId, body);
+
+  if (response.status !== 201) {
+    throw new Error(
+      `Expected 201 registering a child, got ${String(response.status)} ` +
+        `(${String(response.body?.error?.code ?? 'no code')})`,
+    );
+  }
+
+  return response.body.child.id as string;
+}
+
+/** Blocks a child registration and returns the draft token plus blocking ids. */
+export async function blockOnChild(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  body: Record<string, unknown>,
+): Promise<{ draftToken: string; candidateIds: string[] }> {
+  const response = await createChild(harness, token, familyId, body);
+
+  if (response.status !== 409) {
+    throw new Error(
+      `Expected a 409 child duplicate block, got ${String(response.status)} ` +
+        `(${String(response.body?.error?.code ?? 'no code')})`,
+    );
+  }
+
+  const details = response.body.error.details as {
+    draftToken: string;
+    candidates: { familyId: string; childId: string | null; blocking: boolean }[];
+  };
+
+  return {
+    draftToken: details.draftToken,
+    candidateIds: details.candidates
+      .filter((candidate) => candidate.blocking)
+      .map((candidate) => candidate.childId ?? candidate.familyId),
+  };
+}

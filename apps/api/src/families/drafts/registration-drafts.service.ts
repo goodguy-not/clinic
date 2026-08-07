@@ -2,7 +2,9 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  createChildRequestSchema,
   createFamilyRequestSchema,
+  type CreateChildRequest,
   type CreateFamilyRequest,
   type DraftPurpose,
   type RegistrationDraftResponse,
@@ -38,16 +40,15 @@ import { blockingRuleFor, describeShownCandidates } from '../duplicate-detection
  * holder which one they tripped — the same reasoning that makes
  * `AUTH_INVALID_CREDENTIALS` cover four different login failures.
  *
- * CHECKPOINT D SCOPE. The lifecycle below is generic across every
- * `DraftPurpose`, but only `FAMILY_CREATE` has a confirmation route, because
- * only family creation has a domain operation to confirm. The update and child
- * routes arrive with the mutations they would perform.
+ * The lifecycle is generic across every `DraftPurpose`. Each confirmation route
+ * lives on the controller that owns the write it performs, and supplies its own
+ * purpose, so a token minted for one flow can never be spent on another.
  */
 
 /** How long somebody has to decide. Measured by PostgreSQL, never by Node. */
 const DRAFT_TTL = Prisma.sql`interval '10 minutes'`;
 
-type DraftRow = {
+export type DraftRow = {
   id: string;
   purpose: DraftPurpose;
   created_by_user_id: string;
@@ -71,8 +72,8 @@ export class RegistrationDraftsService {
   // --- creation -------------------------------------------------------------
 
   /**
-   * Creates the draft for a blocked family creation, replacing any the same
-   * person already holds in the same session for the same purpose.
+   * Creates a draft, replacing any the same person already holds in the same
+   * session for the same purpose.
    *
    * Called only AFTER the detection transaction has committed. A draft is never
    * written in the same transaction as a domain insert: the whole point is that
@@ -85,12 +86,19 @@ export class RegistrationDraftsService {
    *
    * The uniqueness key is (user, SESSION, purpose) rather than (user, purpose):
    * somebody working in two browsers holds two independent drafts, and starting
-   * one must not silently destroy the other.
+   * one must not silently destroy the other. Four purposes therefore means up to
+   * four live drafts per session, each independently addressable.
+   *
+   * The target columns are constrained by `registration_draft_target_chk`, so a
+   * purpose and its targets cannot disagree even if this method is called wrongly.
    */
-  async createFamilyCreateDraft(input: {
-    payload: CreateFamilyRequest;
+  async createDraft(input: {
+    purpose: DraftPurpose;
+    payload: unknown;
     shownCandidateIds: readonly string[];
     actor: ResolvedSession;
+    targetFamilyId?: string | null;
+    targetChildId?: string | null;
   }): Promise<{ token: string; expiresAt: string }> {
     // 32 bytes from the system CSPRNG, base64url so it survives a cookie and a
     // header without encoding. The value exists in memory and in the response
@@ -107,13 +115,13 @@ export class RegistrationDraftsService {
         ) VALUES (
           ${uuidv7()}::uuid,
           ${hashToken(token)},
-          'FAMILY_CREATE'::draft_purpose,
+          ${input.purpose}::draft_purpose,
           ${input.actor.userId}::uuid,
           ${input.actor.sessionId}::uuid,
           ${JSON.stringify(input.payload)}::jsonb,
           ${[...input.shownCandidateIds]}::uuid[],
-          NULL,
-          NULL,
+          ${input.targetFamilyId ?? null}::uuid,
+          ${input.targetChildId ?? null}::uuid,
           transaction_timestamp(),
           -- Both timestamps from the same PostgreSQL transaction clock, so they
           -- can never disagree and no JavaScript clock is involved.
@@ -166,7 +174,7 @@ export class RegistrationDraftsService {
     await this.sweepExpired();
 
     const draft = await this.findValid(this.prisma, token, actor);
-    const payload = parseFamilyCreatePayload(draft);
+    const isChild = draft.purpose === 'CHILD_CREATE' || draft.purpose === 'CHILD_UPDATE';
 
     // The stored ids are the blocking candidates and nothing else, so the rule
     // follows from the draft's purpose. Nothing about a candidate's current data
@@ -183,8 +191,10 @@ export class RegistrationDraftsService {
       expiresAt: draft.expires_at.toISOString(),
       targetFamilyId: draft.target_family_id,
       targetChildId: draft.target_child_id,
-      family: payload,
-      child: null,
+      // Exactly one of the two is populated, decided by the purpose. Both are
+      // re-validated against the current contract on the way out.
+      family: isChild ? null : this.parseFamilyPayload(draft, draft.purpose),
+      child: isChild ? this.parseChildPayload(draft, draft.purpose) : null,
       candidates,
     };
   }
@@ -238,6 +248,33 @@ export class RegistrationDraftsService {
     `;
 
     return this.assertUsable(rows[0], actor, purpose);
+  }
+
+  /**
+   * Re-validates a stored family payload against the CURRENT shared contract.
+   *
+   * A draft can outlive a deployment. If the contract has tightened since the
+   * row was written, the stored payload is no longer something this system is
+   * willing to insert, and `DRAFT_NOT_FOUND` is the honest answer: from the
+   * caller's point of view it is the same situation as an expired draft.
+   */
+  parseFamilyPayload(draft: DraftRow, purpose: DraftPurpose): CreateFamilyRequest {
+    if (draft.purpose !== purpose) throw new AppError('DRAFT_NOT_FOUND');
+
+    const parsed = createFamilyRequestSchema.safeParse(draft.payload);
+    if (!parsed.success) throw new AppError('DRAFT_NOT_FOUND');
+
+    return parsed.data;
+  }
+
+  /** The child half of the same rule. */
+  parseChildPayload(draft: DraftRow, purpose: DraftPurpose): CreateChildRequest {
+    if (draft.purpose !== purpose) throw new AppError('DRAFT_NOT_FOUND');
+
+    const parsed = createChildRequestSchema.safeParse(draft.payload);
+    if (!parsed.success) throw new AppError('DRAFT_NOT_FOUND');
+
+    return parsed.data;
   }
 
   /** Deletes the row. Physical removal is how a draft ends. */
@@ -361,24 +398,3 @@ function equalIds(left: string, right: string): boolean {
 
   return timingSafeEqual(a, b);
 }
-
-/**
- * Re-validates the stored payload against the CURRENT shared contract.
- *
- * A draft can outlive a deployment. If the contract has tightened since the row
- * was written — a new required field, a stricter phone shape — the stored
- * payload is no longer something this system is willing to insert, and the
- * honest answer is that the draft is unusable. `DRAFT_NOT_FOUND` rather than a
- * validation error, because from the caller's point of view it is the same
- * situation as an expired one: type it again.
- */
-function parseFamilyCreatePayload(draft: DraftRow): CreateFamilyRequest {
-  if (draft.purpose !== 'FAMILY_CREATE') throw new AppError('DRAFT_NOT_FOUND');
-
-  const parsed = createFamilyRequestSchema.safeParse(draft.payload);
-  if (!parsed.success) throw new AppError('DRAFT_NOT_FOUND');
-
-  return parsed.data;
-}
-
-export { parseFamilyCreatePayload };

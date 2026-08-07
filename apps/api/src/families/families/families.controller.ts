@@ -1,14 +1,18 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import {
   confirmDraftRequestSchema,
   createFamilyRequestSchema,
   familySearchRequestSchema,
+  updateFamilyRequestSchema,
+  updateRecordStatusRequestSchema,
   type ConfirmDraftRequest,
   type CreateFamilyRequest,
   type FamilyDetailResponse,
   type FamilyListResponse,
   type FamilySearchRequest,
   type FamilyWriteResponse,
+  type UpdateFamilyRequest,
+  type UpdateRecordStatusRequest,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../../auth/decorators/endpoint-access';
 import { Ctx, CurrentSession } from '../../auth/decorators/request.decorators';
@@ -24,16 +28,16 @@ import { FamiliesService } from './families.service';
  * every permission named here; nobody else holds any of them, and an anonymous
  * request never gets past the session guard.
  *
- * CHECKPOINT C SCOPE: search, detail and registration. There is no PATCH, no
- * PUT and no DELETE — update and status change are Checkpoint D, and a family is
- * deactivated rather than deleted in any case.
+ * There is no DELETE and there will not be one: a family holds the balance and
+ * is named by every charge from Milestone 5 onward, so it is deactivated rather
+ * than removed and the database refuses a `DELETE` outright.
  *
- * ROUTE ORDER MATTERS. `POST /families/search` is declared before nothing that
- * could shadow it, and cannot be shadowed: the only other `POST /families…`
- * route is the collection root, and `search` is a literal segment where `:id`
- * never appears on a POST. `GET /families/:id` is a different method entirely.
- * The literal is spelled out rather than nested under an id for the same reason
- * `/catalog/tariff-resolution` sits outside `/catalog/tariffs/`.
+ * ROUTE SHAPES. `search`, `confirm-registration` and `confirm-update` are
+ * literal segments on POST, and no `POST /families/:id` route exists, so none of
+ * them can be shadowed by a parameter. They are spelled out rather than nested
+ * under an id for the same reason `/catalog/tariff-resolution` sits outside
+ * `/catalog/tariffs/` — and in the confirmation cases because there is no id
+ * yet: the family being created does not exist.
  */
 @Controller('families')
 export class FamiliesController {
@@ -64,16 +68,61 @@ export class FamiliesController {
   }
 
   /**
-   * Registers a family and its guardians.
+   * Edits a family and replaces its guardian set.
    *
-   * Returns 201, or 409 `FAMILY_POSSIBLE_DUPLICATE` carrying masked candidates
-   * and a registration-draft token when an active family already answers on one
-   * of the submitted mobile numbers.
-   *
-   * No child is included. Registration is two steps — the family, then the first
-   * child — because one request carrying both would produce two duplicate
-   * verdicts in one response.
+   * The whole guardian list is submitted, not a delta: a guardian is current
+   * configuration rather than history, and replacing the set is how the interface
+   * expresses "these are the people to call now".
    */
+  @Patch(':id')
+  @RequirePermissions('family.update')
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(updateFamilyRequestSchema)) body: UpdateFamilyRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<FamilyWriteResponse> {
+    return this.families.update(id, body, session, context);
+  }
+
+  /**
+   * Consumes a `FAMILY_UPDATE` draft and applies the edit it was holding.
+   *
+   * 200, not the 201 a POST defaults to: this completes an edit to a family that
+   * already exists. The method is a POST because the token travels in a header
+   * and the body carries an acknowledgement, not because anything is created.
+   */
+  @Post('confirm-update')
+  @HttpCode(200)
+  @RequirePermissions('family.update')
+  async confirmUpdate(
+    @DraftToken() token: string,
+    @Body(new ZodBodyPipe(confirmDraftRequestSchema)) body: ConfirmDraftRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<FamilyWriteResponse> {
+    return this.families.confirmUpdate(token, body.acknowledgedDuplicateIds, session, context);
+  }
+
+  /**
+   * Activates or deactivates a family.
+   *
+   * Separate from `update` because it is a different decision with a different
+   * permission, and must not happen as a side effect of correcting an address.
+   * There is no delete: a family with history is deactivated, and the database
+   * refuses a `DELETE` regardless.
+   */
+  @Patch(':id/status')
+  @RequirePermissions('family.update_status')
+  async changeStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(updateRecordStatusRequestSchema)) body: UpdateRecordStatusRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<FamilyDetailResponse> {
+    return this.families.changeStatus(id, body.status, session, context);
+  }
+
   /**
    * Completes a registration that was refused as a possible duplicate.
    *

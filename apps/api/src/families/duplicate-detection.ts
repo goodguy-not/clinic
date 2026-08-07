@@ -1,5 +1,10 @@
 import { Prisma } from '@prisma/client';
-import type { DraftPurpose, DuplicateCandidate, DuplicateRule } from '@clinic/contracts';
+import type {
+  DraftPurpose,
+  DuplicateCandidate,
+  DuplicateRule,
+  NoticeCode,
+} from '@clinic/contracts';
 import { BLOCKING_DUPLICATE_RULES } from '@clinic/contracts';
 import { maskIdentifier } from './audit-safe';
 
@@ -55,6 +60,8 @@ export type FamilyDuplicateQuery = {
 
 type CandidateRow = {
   family_id: string;
+  /** Present only for a child candidate; a family candidate names no child. */
+  child_id?: string | null;
   family_name: string;
   primary_guardian_name: string | null;
   primary_mobile: string | null;
@@ -102,6 +109,127 @@ export async function acquireFamilyMobileLocks(
   }
 
   return keys.map((row) => row.key);
+}
+
+/** Namespaces the child half of the advisory key space. */
+const CHILD_IDENTITY_LOCK_NAMESPACE = 'child-identity:';
+
+/** Who a child is, for the purposes of "have we registered them already?". */
+export type ChildIdentity = {
+  readonly familyId: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly birthDate: string;
+  /** Set on an update, so a child is never its own duplicate. */
+  readonly excludeChildId?: string | null;
+};
+
+/**
+ * Acquires the single advisory lock guarding one child's identity.
+ *
+ * The key is derived from the family, the NORMALISED names and the birth date,
+ * so two registrations of «علي» and «علی» on the same day in the same family
+ * take the same lock and one of them waits. Normalisation happens in PostgreSQL
+ * — the same `fa_normalize` that produced the stored columns — because a second
+ * implementation in Node would have to agree with the first forever, and the day
+ * it stopped agreeing the two writers would take different locks and the
+ * mechanism would fail open.
+ *
+ * One key, so there is no ordering to get wrong. As with the family class, a
+ * 64-bit collision costs only unnecessary serialisation: the authoritative
+ * answer is the SQL recomputation performed under the lock.
+ */
+export async function acquireChildIdentityLock(
+  tx: Prisma.TransactionClient,
+  identity: ChildIdentity,
+): Promise<bigint> {
+  const rows = await tx.$queryRaw<{ key: bigint }[]>`
+    SELECT hashtextextended(
+      ${CHILD_IDENTITY_LOCK_NAMESPACE}
+        || ${identity.familyId}::text || ':'
+        || fa_normalize(${identity.firstName}) || ':'
+        || fa_normalize(${identity.lastName}) || ':'
+        || ${identity.birthDate}::date::text,
+      0
+    ) AS key
+  `;
+
+  const key = rows[0]?.key;
+  if (key === undefined) throw new Error('Child identity advisory key could not be derived');
+
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${key}::bigint)`;
+
+  return key;
+}
+
+/**
+ * Finds children worth showing before this one is registered.
+ *
+ * MUST be called with `acquireChildIdentityLock` already held.
+ *
+ * The blocking rule is narrow on purpose: same family, same normalised name,
+ * same birth date. Inside one family that combination is a re-entry rather than
+ * a coincidence — a family does not have two children of the same name born on
+ * the same day.
+ *
+ * Across families it is a coincidence, and a common one: «علی رضایی» born in
+ * Farvardin exists many times over in a country of eighty million. So the
+ * cross-family match warns and never refuses.
+ */
+export async function findChildDuplicateCandidates(
+  tx: Prisma.TransactionClient,
+  identity: ChildIdentity,
+): Promise<DuplicateCandidate[]> {
+  const exclude = identity.excludeChildId ?? null;
+
+  const rows = await tx.$queryRaw<CandidateRow[]>`
+    WITH submitted AS (
+      SELECT
+        fa_normalize(${identity.firstName}) AS first_name,
+        fa_normalize(${identity.lastName})  AS last_name,
+        ${identity.birthDate}::date         AS birth_date
+    ),
+    hits AS (
+      SELECT c.id AS child_id, c.family_id,
+             CASE WHEN c.family_id = ${identity.familyId}::uuid
+                  THEN 'CHILD_DUPLICATE_IN_FAMILY'
+                  ELSE 'SIMILAR_CHILD_IN_OTHER_FAMILY'
+             END AS rule
+      FROM child c
+      JOIN family f ON f.id = c.family_id
+      CROSS JOIN submitted s
+      WHERE f.status = 'ACTIVE'
+        AND c.status = 'ACTIVE'
+        AND c.search_first_name = s.first_name
+        AND c.search_last_name  = s.last_name
+        AND c.birth_date        = s.birth_date
+        AND (${exclude}::uuid IS NULL OR c.id <> ${exclude}::uuid)
+    )
+    SELECT
+      h.family_id,
+      h.child_id,
+      f.family_name,
+      h.rule::text AS rule,
+      p.full_name AS primary_guardian_name,
+      p.mobile    AS primary_mobile,
+      p.landline  AS primary_landline,
+      coalesce(
+        (SELECT array_agg(c.first_name || ' ' || c.last_name ORDER BY c.last_name, c.first_name)
+           FROM child c WHERE c.family_id = h.family_id),
+        ARRAY[]::text[]
+      ) AS child_names
+    FROM hits h
+    JOIN family f ON f.id = h.family_id
+    LEFT JOIN LATERAL (
+      SELECT g.full_name, g.mobile, g.landline
+      FROM guardian g
+      WHERE g.family_id = h.family_id AND g.is_primary_contact
+      LIMIT 1
+    ) p ON true
+    ORDER BY h.rule, f.family_name, h.child_id
+  `;
+
+  return rows.map(toCandidate);
 }
 
 /**
@@ -283,7 +411,7 @@ export async function describeShownCandidates(
 function toCandidate(row: CandidateRow): DuplicateCandidate {
   return {
     familyId: row.family_id,
-    childId: null,
+    childId: row.child_id ?? null,
     rule: row.rule,
     blocking: BLOCKING_DUPLICATE_RULES.includes(row.rule),
     familyName: row.family_name,
@@ -310,7 +438,18 @@ export function blockingCandidates(
  * reads it to guess which is which.
  */
 export function blockingCandidateIds(candidates: readonly DuplicateCandidate[]): string[] {
-  return [...new Set(blockingCandidates(candidates).map((candidate) => candidate.familyId))];
+  return [...new Set(blockingCandidates(candidates).map(acknowledgementId))];
+}
+
+/**
+ * The id somebody acknowledges when they say "this is somebody else".
+ *
+ * A child candidate names the child, because that is the record being compared —
+ * two siblings are not interchangeable, and acknowledging the family would be
+ * acknowledging the wrong thing. A family candidate names the family.
+ */
+export function acknowledgementId(candidate: DuplicateCandidate): string {
+  return candidate.childId ?? candidate.familyId;
 }
 
 /**
@@ -335,6 +474,7 @@ export function blockingRuleFor(purpose: DraftPurpose): DuplicateRule {
  */
 export function nonBlockingNotices(
   candidates: readonly DuplicateCandidate[],
-): 'SIMILAR_FAMILY_EXISTS'[] {
-  return candidates.some((candidate) => !candidate.blocking) ? ['SIMILAR_FAMILY_EXISTS'] : [];
+  notice: NoticeCode = 'SIMILAR_FAMILY_EXISTS',
+): NoticeCode[] {
+  return candidates.some((candidate) => !candidate.blocking) ? [notice] : [];
 }

@@ -1,4 +1,6 @@
 import type {
+  Child,
+  ChildSex,
   ChildSummary,
   Family,
   FamilySummary,
@@ -85,6 +87,36 @@ export function toGuardianSummary(row: GuardianRow): GuardianSummary {
     relationship: row.relationship,
     mobile: row.mobile,
     landline: row.landline,
+  };
+}
+
+/** Every column a full child response needs. The `search_*` pair is not among them. */
+export type ChildFullRow = ChildRow & {
+  legacy_paper_file_number: string | null;
+  national_id: string | null;
+  sex: ChildSex;
+  referral_source: string | null;
+  note: string | null;
+  deactivated_at: Date | null;
+  created_at: Date;
+};
+
+export function toChild(row: ChildFullRow): Child {
+  return {
+    id: row.id,
+    familyId: row.family_id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    birthDate: row.birth_date,
+    fileNumber: row.file_number,
+    legacyPaperFileNumber: row.legacy_paper_file_number,
+    nationalId: row.national_id,
+    sex: row.sex,
+    referralSource: row.referral_source,
+    note: row.note,
+    status: row.status,
+    deactivatedAt: row.deactivated_at === null ? null : row.deactivated_at.toISOString(),
+    createdAt: row.created_at.toISOString(),
   };
 }
 

@@ -8,6 +8,8 @@ import type {
   FamilySearchRequest,
   FamilyWriteResponse,
   NoticeCode,
+  RecordStatus,
+  UpdateFamilyRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
@@ -16,10 +18,7 @@ import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext } from '../../catalog/catalog-support';
 import { auditSafeDuplicateOverride, auditSafeFamily } from '../audit-safe';
-import {
-  parseFamilyCreatePayload,
-  RegistrationDraftsService,
-} from '../drafts/registration-drafts.service';
+import { RegistrationDraftsService } from '../drafts/registration-drafts.service';
 import {
   acquireFamilyMobileLocks,
   blockingCandidateIds,
@@ -43,10 +42,12 @@ import {
 } from '../family-support';
 
 /**
- * Families: search, detail and registration.
+ * Families: search, detail, registration, editing and deactivation.
  *
- * CHECKPOINT C SCOPE. Update, status change and every child operation are later
- * checkpoints, and there is deliberately no method for them here.
+ * Every write follows the same shape — take the locks, recompute duplicates,
+ * decide, then write and audit inside the one transaction — and the plain route
+ * and its confirmation route share the writer, so the two can never drift apart
+ * in what they check or what they record.
  */
 
 /**
@@ -279,7 +280,7 @@ export class FamiliesService {
     try {
       outcome = await this.prisma.$transaction(async (tx) => {
         const draft = await this.drafts.lockForConsumption(tx, token, actor, 'FAMILY_CREATE');
-        const input = parseFamilyCreatePayload(draft);
+        const input = this.drafts.parseFamilyPayload(draft, 'FAMILY_CREATE');
 
         // Consumed here, inside the transaction. If anything below refuses, the
         // rollback un-deletes it and the typed values survive.
@@ -345,6 +346,280 @@ export class FamiliesService {
       guardians: orderGuardians(outcome.guardians).map(toGuardian),
       children: [],
       nonBlockingWarnings: outcome.warnings,
+    };
+  }
+
+  /**
+   * Edits a family and replaces its guardian set.
+   *
+   * Guardians are replaced wholesale rather than diffed. They carry no history
+   * of their own — the change is recorded in `audit_log` under `family.updated`
+   * as an ordered list of values — and nothing references a guardian id, so
+   * there is no RESTRICT to work around. Both statements are in one transaction,
+   * so a rejected guardian leaves the previous set intact rather than a
+   * half-applied one.
+   *
+   * An INACTIVE family may still be edited. Deactivation takes a record out of
+   * the daily list; it does not make it uncorrectable, and refusing to fix a
+   * misspelled name on a discharged family would be a rule with no purpose.
+   */
+  async update(
+    id: string,
+    input: UpdateFamilyRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<FamilyWriteResponse> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const before = await this.lockFamily(tx, id);
+      const mobiles = presentValues(input.guardians.map((guardian) => guardian.mobile));
+
+      await acquireFamilyMobileLocks(tx, mobiles);
+
+      const candidates = await findFamilyDuplicateCandidates(tx, {
+        familyName: input.familyName,
+        guardianNames: unique(input.guardians.map((guardian) => guardian.fullName)),
+        mobiles,
+        landlines: presentValues(input.guardians.map((guardian) => guardian.landline)),
+        // A family is never its own duplicate.
+        excludeFamilyId: id,
+      });
+
+      if (blockingCandidates(candidates).length > 0) {
+        return { kind: 'blocked' as const, candidates };
+      }
+
+      const written = await this.writeFamilyUpdate(tx, id, input, actor, context, before);
+
+      return {
+        kind: 'updated' as const,
+        ...written,
+        warnings: nonBlockingNotices(candidates),
+      };
+    });
+
+    if (outcome.kind === 'blocked') {
+      const draft = await this.drafts.createDraft({
+        purpose: 'FAMILY_UPDATE',
+        payload: input,
+        shownCandidateIds: blockingCandidateIds(outcome.candidates),
+        actor,
+        targetFamilyId: id,
+      });
+
+      throw new AppError('FAMILY_POSSIBLE_DUPLICATE', {
+        candidates: outcome.candidates,
+        draftToken: draft.token,
+        draftExpiresAt: draft.expiresAt,
+      });
+    }
+
+    return this.respondWithChildren(outcome.family, outcome.guardians, outcome.warnings);
+  }
+
+  /** Consumes a `FAMILY_UPDATE` draft and applies the edit it was holding. */
+  async confirmUpdate(
+    token: string,
+    acknowledgedDuplicateIds: readonly string[],
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<FamilyWriteResponse> {
+    const acknowledged = new Set(acknowledgedDuplicateIds);
+
+    let outcome: { family: FamilyRow; guardians: GuardianRow[]; warnings: NoticeCode[] };
+
+    try {
+      outcome = await this.prisma.$transaction(async (tx) => {
+        const draft = await this.drafts.lockForConsumption(tx, token, actor, 'FAMILY_UPDATE');
+        const input = this.drafts.parseFamilyPayload(draft, 'FAMILY_UPDATE');
+
+        const familyId = draft.target_family_id;
+        if (familyId === null) throw new AppError('DRAFT_NOT_FOUND');
+
+        await this.drafts.consume(tx, draft.id);
+
+        // Draft, then family, then advisory keys — the global order.
+        const before = await this.lockFamily(tx, familyId);
+        const mobiles = presentValues(input.guardians.map((guardian) => guardian.mobile));
+
+        await acquireFamilyMobileLocks(tx, mobiles);
+
+        const candidates = await findFamilyDuplicateCandidates(tx, {
+          familyName: input.familyName,
+          guardianNames: unique(input.guardians.map((guardian) => guardian.fullName)),
+          mobiles,
+          landlines: presentValues(input.guardians.map((guardian) => guardian.landline)),
+          excludeFamilyId: familyId,
+        });
+
+        const blocking = blockingCandidates(candidates);
+        if (blocking.some((candidate) => !acknowledged.has(candidate.familyId))) {
+          throw new ConfirmationBlocked(candidates);
+        }
+
+        const written = await this.writeFamilyUpdate(tx, familyId, input, actor, context, before);
+
+        if (blocking.length > 0) {
+          await this.audit.record(tx, actorContext(actor, context), {
+            action: 'family.duplicate_override',
+            entityType: 'family',
+            entityId: familyId,
+            metadata: auditSafeDuplicateOverride({
+              acknowledgedIds: blocking.map((candidate) => candidate.familyId),
+              rules: blocking.map((candidate) => candidate.rule),
+            }),
+          });
+        }
+
+        return { ...written, warnings: nonBlockingNotices(candidates) };
+      });
+    } catch (error) {
+      if (error instanceof ConfirmationBlocked) {
+        return this.refuseConfirmation(error.candidates, token, actor);
+      }
+      throw error;
+    }
+
+    return this.respondWithChildren(outcome.family, outcome.guardians, outcome.warnings);
+  }
+
+  /**
+   * Activates or deactivates a family.
+   *
+   * Deliberately does NOT cascade to children. A child of an inactive family
+   * keeps its own status, so reactivating the family restores exactly the state
+   * it had rather than a state this method invented; the appointment milestone
+   * refuses to book against an inactive family regardless.
+   */
+  async changeStatus(
+    id: string,
+    status: RecordStatus,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<FamilyDetailResponse> {
+    await this.prisma.$transaction(async (tx) => {
+      const before = await this.lockFamily(tx, id);
+
+      // Already in the requested state: return it unchanged rather than writing
+      // an audit row whose before and after are identical.
+      if (before.status === status) return;
+
+      await tx.$executeRaw`
+        UPDATE family SET
+          status = ${status}::record_status,
+          deactivated_at = ${
+            status === 'INACTIVE' ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`
+          }
+        WHERE id = ${id}::uuid
+      `;
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'family.status_changed',
+        entityType: 'family',
+        entityId: id,
+        before: { status: before.status },
+        after: { status },
+      });
+    });
+
+    return this.get(id);
+  }
+
+  /**
+   * The one place a family edit is written.
+   *
+   * Shared by the plain route and the confirmation route, for the same reason
+   * `insertFamily` is: two implementations would eventually disagree about a
+   * column or an audit payload, and the confirmation path is the one nobody
+   * exercises by hand.
+   */
+  private async writeFamilyUpdate(
+    tx: Prisma.TransactionClient,
+    id: string,
+    input: UpdateFamilyRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+    before: FamilyRow,
+  ): Promise<{ family: FamilyRow; guardians: GuardianRow[] }> {
+    const beforeGuardians = await this.readGuardians(tx, id);
+
+    await tx.$executeRaw`
+      UPDATE family SET
+        family_name = ${input.familyName},
+        search_family_name = fa_normalize(${input.familyName}),
+        address = ${input.address},
+        note = ${input.note}
+      WHERE id = ${id}::uuid
+    `;
+
+    await tx.$executeRaw`DELETE FROM guardian WHERE family_id = ${id}::uuid`;
+
+    for (const guardian of input.guardians) {
+      await tx.$executeRaw`
+        INSERT INTO guardian (
+          id, family_id, full_name, search_full_name, relationship,
+          relationship_note, mobile, landline, is_primary_contact
+        ) VALUES (
+          ${uuidv7()}::uuid, ${id}::uuid, ${guardian.fullName},
+          fa_normalize(${guardian.fullName}),
+          ${guardian.relationship}::guardian_relationship,
+          ${guardian.relationshipNote}, ${guardian.mobile}, ${guardian.landline},
+          ${guardian.isPrimaryContact}
+        )
+      `;
+    }
+
+    const [family, guardians] = await Promise.all([
+      this.readFamily(tx, id),
+      this.readGuardians(tx, id),
+    ]);
+
+    await this.audit.record(tx, actorContext(actor, context), {
+      action: 'family.updated',
+      entityType: 'family',
+      entityId: id,
+      before: auditSafeFamily({
+        familyName: before.family_name,
+        address: before.address,
+        note: before.note,
+        guardians: beforeGuardians.map(toGuardian),
+      }),
+      after: auditSafeFamily({
+        familyName: family.family_name,
+        address: family.address,
+        note: family.note,
+        guardians: guardians.map(toGuardian),
+      }),
+    });
+
+    return { family, guardians };
+  }
+
+  /** Locks a family row for the rest of the transaction. */
+  private async lockFamily(tx: Prisma.TransactionClient, id: string): Promise<FamilyRow> {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM family WHERE id = ${id}::uuid FOR UPDATE
+    `;
+
+    if (locked[0] === undefined) throw new AppError('FAMILY_NOT_FOUND');
+
+    return this.readFamily(tx, id);
+  }
+
+  /** An update response carries the family's children; a registration has none. */
+  private async respondWithChildren(
+    family: FamilyRow,
+    guardians: GuardianRow[],
+    warnings: NoticeCode[],
+  ): Promise<FamilyWriteResponse> {
+    const children = await this.prisma.$queryRaw<ChildRow[]>`
+      SELECT ${CHILD_COLUMNS} FROM child c WHERE c.family_id = ${family.id}::uuid
+    `;
+
+    return {
+      family: toFamily(family),
+      guardians: orderGuardians(guardians).map(toGuardian),
+      children: orderChildren(children).map(toChildSummary),
+      nonBlockingWarnings: warnings,
     };
   }
 
@@ -469,7 +744,8 @@ export class FamiliesService {
     input: CreateFamilyRequest,
     actor: ResolvedSession,
   ): Promise<never> {
-    const draft = await this.drafts.createFamilyCreateDraft({
+    const draft = await this.drafts.createDraft({
+      purpose: 'FAMILY_CREATE',
       payload: input,
       shownCandidateIds: blockingCandidateIds(candidates),
       actor,

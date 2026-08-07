@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { ChildrenController } from './children/children.controller';
+import { ChildrenService } from './children/children.service';
 import { RegistrationDraftsController } from './drafts/registration-drafts.controller';
 import { RegistrationDraftsService } from './drafts/registration-drafts.service';
 import { FamiliesController } from './families/families.controller';
@@ -14,26 +16,24 @@ import { FamiliesService } from './families/families.service';
  * transaction as the state change it records — a draft being the one exception,
  * and deliberately so: it is transient workflow state, not a historical fact.
  *
- * CHECKPOINT D SCOPE. Implemented: family search, detail and registration; the
- * duplicate-detection engine and its advisory locks; and the complete
- * registration-draft lifecycle — create-or-replace, resolve, discard and
- * one-time consumption through confirmation.
+ * Fifteen routes: family search, detail, registration, editing and status;
+ * child registration, detail, editing and status; the four confirmation routes
+ * that complete a write refused as a possible duplicate; and the two that
+ * resolve or discard a draft.
  *
- * The draft service is generic across every `DraftPurpose`, but only
- * `FAMILY_CREATE` has a confirmation route. A confirmation route exists to
- * perform a domain write, and the writes the other three would perform —
- * family update, child creation, child update — do not exist yet. Routes that
- * cannot do their job would be dead surface carrying a real permission.
+ * The draft service is generic across every `DraftPurpose`, and each
+ * confirmation route lives on the controller that owns the write it performs —
+ * so a token minted for one flow can never be spent on another, and no route
+ * exists that could not do its job.
  *
- * Still to come:
- *
- *  - family update and status change, and `POST /families/confirm-update`;
- *  - `ChildrenService` and every child route, with their two confirm routes.
+ * Neither `family` nor `child` has a delete route, and neither will: both are
+ * named by session charges from Milestone 5 onward, so history is preserved
+ * through deactivation and the database refuses a `DELETE` outright.
  */
 @Module({
   imports: [AuditModule],
-  controllers: [FamiliesController, RegistrationDraftsController],
-  providers: [FamiliesService, RegistrationDraftsService],
-  exports: [FamiliesService],
+  controllers: [FamiliesController, ChildrenController, RegistrationDraftsController],
+  providers: [FamiliesService, ChildrenService, RegistrationDraftsService],
+  exports: [FamiliesService, ChildrenService],
 })
 export class FamiliesModule {}

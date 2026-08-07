@@ -85,15 +85,17 @@ describe('families (real PostgreSQL)', () => {
       }
     });
 
-    it('exposes no update, status or delete route', async () => {
+    it('exposes no delete or replace route', async () => {
+      // A family holds the balance and is named by every charge from Milestone 5
+      // onward, so it is deactivated rather than removed. `PATCH` exists;
+      // `PUT` and `DELETE` do not, and never will.
       const { token } = await signIn(harness, 'MANAGER');
       const id = await seedFamily(harness, token, familyPayload());
 
       const calls = [
-        () => request(server()).patch(`/families/${id}`).set(asUser(token)).send({}),
         () => request(server()).put(`/families/${id}`).set(asUser(token)).send({}),
         () => request(server()).delete(`/families/${id}`).set(asUser(token)),
-        () => request(server()).patch(`/families/${id}/status`).set(asUser(token)).send({}),
+        () => request(server()).delete('/families').set(asUser(token)),
       ];
 
       for (const call of calls) {
