@@ -40,7 +40,17 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
       this.logger.error(`[${requestId}] ${message}`, stack);
     }
 
+    // Set here as well as in `NoStoreInterceptor`, because guards run *before*
+    // interceptors: a 401 or 403 from the guard chain never reaches the
+    // interceptor, so without this a rejection would be the one response on the
+    // whole surface that a proxy could cache.
+    //
+    // `details` is deliberately never logged. A duplicate rejection carries a
+    // registration-draft token in its details, and that token is bearer-secret
+    // material: it crosses to the web tier once and appears in no log line.
+    // Only `message` and `stack` are logged, and only above 500.
     response.status(status).setHeader('cache-control', 'no-store');
+    response.setHeader('referrer-policy', 'no-referrer');
     response.json(envelope);
   }
 
