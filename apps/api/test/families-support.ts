@@ -16,8 +16,12 @@ export const asUser = (token: string) => internalHeaders({ 'x-session-id': token
 export async function signIn(
   harness: Harness,
   role: 'MANAGER' | 'RECEPTIONIST' = 'RECEPTIONIST',
+  options: { mustChangePassword?: boolean } = {},
 ): Promise<{ id: string; token: string }> {
-  const user = await seedUser(harness, { role });
+  const user = await seedUser(harness, {
+    role,
+    mustChangePassword: options.mustChangePassword ?? false,
+  });
   const response = await request(harness.app.getHttpServer())
     .post('/auth/login')
     .set(internalHeaders())

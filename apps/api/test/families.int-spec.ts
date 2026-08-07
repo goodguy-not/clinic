@@ -365,6 +365,27 @@ describe('families (real PostgreSQL)', () => {
         expect(response.headers['referrer-policy']).toBe('no-referrer');
       }
     });
+
+    it('sets no-store on a 403 guard rejection, same as any other response', async () => {
+      // No role is missing a family permission today — a receptionist holds the
+      // full family/child workflow, same as a manager (`guards.int-spec.ts`,
+      // "permission model") — so there is no *reachable* 403 here that comes
+      // from `PermissionsGuard` without inventing a role the production model
+      // does not have. `SessionGuard` genuinely refuses this surface for a real,
+      // shipped reason instead: a signed-in user who still owes a password
+      // change gets `AUTH_PASSWORD_CHANGE_REQUIRED` on every route except the
+      // few that clear it, and family/child/draft routes carry no
+      // `@AllowWhilePasswordChangePending` exemption. That is a genuine 403
+      // guard rejection on this exact surface, reachable by any account.
+      const { token } = await signIn(harness, 'RECEPTIONIST', { mustChangePassword: true });
+
+      const response = await searchFamilies(harness, token, {});
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('AUTH_PASSWORD_CHANGE_REQUIRED');
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['referrer-policy']).toBe('no-referrer');
+    });
   });
 
   describe('operational logs', () => {

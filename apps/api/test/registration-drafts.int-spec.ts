@@ -566,6 +566,22 @@ describe('registration drafts (real PostgreSQL)', () => {
       }
     });
 
+    it('sets no-store on a 403 guard rejection, same as any other response', async () => {
+      // See the equivalent test in `families.int-spec.ts` for why this, and not
+      // an invented permission gap, is the legitimate 403 on this surface: both
+      // roles carry `family.read`, so `SessionGuard`'s forced-password-change
+      // rejection is the real, reachable one.
+      const { draftToken } = await blockedDraft();
+      const blocked = await signIn(harness, 'RECEPTIONIST', { mustChangePassword: true });
+
+      const response = await resolveDraft(harness, blocked.token, draftToken);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('AUTH_PASSWORD_CHANGE_REQUIRED');
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['referrer-policy']).toBe('no-referrer');
+    });
+
     it('refuses a receptionist nothing and an anonymous caller everything', async () => {
       const { draftToken } = await blockedDraft();
 

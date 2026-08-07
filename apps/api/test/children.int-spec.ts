@@ -445,5 +445,23 @@ describe('children (real PostgreSQL)', () => {
         expect(response.headers['referrer-policy']).toBe('no-referrer');
       }
     });
+
+    it('sets no-store on a 403 guard rejection, same as any other response', async () => {
+      // See the equivalent test in `families.int-spec.ts` for why this is the
+      // legitimate 403 on this surface: both roles hold every child permission,
+      // so a forced password change — `AUTH_PASSWORD_CHANGE_REQUIRED`, which
+      // `SessionGuard` raises for any account with no exemption on this route —
+      // is the real, reachable rejection, not a permission gap invented for the
+      // test.
+      const childId = await seedChildViaApi(harness, token, familyId, childPayload());
+      const blocked = await signIn(harness, 'RECEPTIONIST', { mustChangePassword: true });
+
+      const response = await getChild(harness, blocked.token, childId);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('AUTH_PASSWORD_CHANGE_REQUIRED');
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['referrer-policy']).toBe('no-referrer');
+    });
   });
 });
