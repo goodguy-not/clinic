@@ -260,8 +260,9 @@ describe('guard chain (real PostgreSQL)', () => {
       // rooms:      list, read, create, update, status
       // therapists: list, read, create, update, status
       // tariffs:    list, resolution, read, create, void
-      // families:   search, read, create
-      expect(routes).toBe(36);
+      // families:   search, read, create, confirm-registration
+      // drafts:     current, discard
+      expect(routes).toBe(39);
     });
   });
 });

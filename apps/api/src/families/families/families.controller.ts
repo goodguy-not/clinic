@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import {
+  confirmDraftRequestSchema,
   createFamilyRequestSchema,
   familySearchRequestSchema,
+  type ConfirmDraftRequest,
   type CreateFamilyRequest,
   type FamilyDetailResponse,
   type FamilyListResponse,
@@ -12,6 +14,7 @@ import { RequirePermissions } from '../../auth/decorators/endpoint-access';
 import { Ctx, CurrentSession } from '../../auth/decorators/request.decorators';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { ZodBodyPipe } from '../../common/zod-validation.pipe';
+import { DraftToken } from '../drafts/draft-token.decorator';
 import { FamiliesService } from './families.service';
 
 /**
@@ -71,6 +74,36 @@ export class FamiliesController {
    * child — because one request carrying both would produce two duplicate
    * verdicts in one response.
    */
+  /**
+   * Completes a registration that was refused as a possible duplicate.
+   *
+   * The body carries the acknowledgement and nothing else: the family and its
+   * guardians come out of the server-side draft named by `x-draft-token`, so the
+   * personal data somebody typed is never asked for twice and never has to
+   * survive a round trip through the browser.
+   *
+   * A literal segment, and deliberately not `POST /families/:id/confirm` — there
+   * is no id yet, because the family this creates does not exist.
+   *
+   * `family.create`, not `family.read`: this writes.
+   */
+  @Post('confirm-registration')
+  @HttpCode(201)
+  @RequirePermissions('family.create')
+  async confirmRegistration(
+    @DraftToken() token: string,
+    @Body(new ZodBodyPipe(confirmDraftRequestSchema)) body: ConfirmDraftRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<FamilyWriteResponse> {
+    return this.families.confirmRegistration(
+      token,
+      body.acknowledgedDuplicateIds,
+      session,
+      context,
+    );
+  }
+
   @Post()
   @HttpCode(201)
   @RequirePermissions('family.create')

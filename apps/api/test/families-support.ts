@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { loginResponseSchema } from '@clinic/contracts';
 import { internalHeaders, seedUser, TEST_PASSWORD, type Harness } from './harness';
@@ -145,7 +146,126 @@ export async function seedChild(
   return rows[0]?.id ?? '';
 }
 
-/** Deactivates a family directly; there is no status endpoint until Checkpoint D. */
+// --- registration drafts ----------------------------------------------------
+
+export const withDraft = (token: string, draftToken: string) =>
+  internalHeaders({ 'x-session-id': token, 'x-draft-token': draftToken });
+
+export function resolveDraft(harness: Harness, token: string, draftToken: string): request.Test {
+  return request(harness.app.getHttpServer())
+    .get('/registration-drafts/current')
+    .set(withDraft(token, draftToken));
+}
+
+export function discardDraft(harness: Harness, token: string, draftToken: string): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/registration-drafts/discard')
+    .set(withDraft(token, draftToken));
+}
+
+export function confirmRegistration(
+  harness: Harness,
+  token: string,
+  draftToken: string,
+  acknowledgedDuplicateIds: readonly string[],
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/families/confirm-registration')
+    .set(withDraft(token, draftToken))
+    .send({ acknowledgedDuplicateIds: [...acknowledgedDuplicateIds] });
+}
+
+/**
+ * Registers a family, expects the duplicate block, and returns the draft token
+ * plus the candidate ids the caller was shown.
+ */
+export async function blockOn(
+  harness: Harness,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<{ draftToken: string; candidateIds: string[] }> {
+  const response = await createFamily(harness, token, body);
+
+  if (response.status !== 409) {
+    throw new Error(
+      `Expected a 409 duplicate block, got ${String(response.status)} ` +
+        `(${String(response.body?.error?.code ?? 'no code')})`,
+    );
+  }
+
+  const details = response.body.error.details as {
+    draftToken: string;
+    candidates: { familyId: string; blocking: boolean }[];
+  };
+
+  return {
+    draftToken: details.draftToken,
+    candidateIds: details.candidates
+      .filter((candidate) => candidate.blocking)
+      .map((candidate) => candidate.familyId),
+  };
+}
+
+/**
+ * Ages a draft past its expiry by moving its timestamps backwards.
+ *
+ * The alternative is waiting ten minutes. Both columns move together so
+ * `registration_draft_expiry_chk` still holds.
+ */
+export async function expireDraft(harness: Harness, draftToken: string): Promise<void> {
+  const hash = createHash('sha256').update(draftToken).digest();
+
+  await harness.prisma.$executeRaw`
+    UPDATE registration_draft
+    SET created_at = transaction_timestamp() - interval '20 minutes',
+        expires_at = transaction_timestamp() - interval '10 minutes'
+    WHERE token_hash = ${hash}
+  `;
+}
+
+/**
+ * Inserts a family and one guardian directly.
+ *
+ * Needed to stage "a new duplicate appeared while somebody was deciding": going
+ * through the endpoint would itself be blocked by the family already there,
+ * which is the very situation being set up.
+ */
+export async function insertFamilyDirect(
+  harness: Harness,
+  actorId: string,
+  familyName: string,
+  mobile: string | null,
+  /** Defaults to a landline only when there is no mobile, so the row stays reachable. */
+  landline?: string | null,
+): Promise<string> {
+  const rows = await harness.prisma.$queryRaw<{ id: string }[]>`
+    INSERT INTO family (
+      id, family_name, search_family_name, address, note, status,
+      deactivated_at, created_at, created_by_user_id
+    ) VALUES (
+      gen_random_uuid(), ${familyName}, fa_normalize(${familyName}), NULL, NULL,
+      'ACTIVE'::record_status, NULL, transaction_timestamp(), ${actorId}::uuid
+    )
+    RETURNING id
+  `;
+
+  const familyId = rows[0]?.id ?? '';
+
+  await harness.prisma.$executeRaw`
+    INSERT INTO guardian (
+      id, family_id, full_name, search_full_name, relationship,
+      relationship_note, mobile, landline, is_primary_contact
+    ) VALUES (
+      gen_random_uuid(), ${familyId}::uuid, 'سرپرست تازه', fa_normalize('سرپرست تازه'),
+      'MOTHER'::guardian_relationship, NULL, ${mobile},
+      ${landline ?? (mobile === null ? '02112345678' : null)}, true
+    )
+  `;
+
+  return familyId;
+}
+
+/** Deactivates a family directly; there is no status endpoint until Checkpoint E. */
 export async function deactivateFamily(harness: Harness, familyId: string): Promise<void> {
   await harness.prisma.$executeRaw`
     UPDATE family

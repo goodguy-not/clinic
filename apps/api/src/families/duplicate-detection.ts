@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { DuplicateCandidate, DuplicateRule } from '@clinic/contracts';
+import type { DraftPurpose, DuplicateCandidate, DuplicateRule } from '@clinic/contracts';
 import { BLOCKING_DUPLICATE_RULES } from '@clinic/contracts';
 import { maskIdentifier } from './audit-safe';
 
@@ -205,6 +205,73 @@ export async function findFamilyDuplicateCandidates(
 }
 
 /**
+ * Describes families that were ALREADY shown to somebody, by id.
+ *
+ * This is presentation, not detection, and the difference matters. Opening or
+ * refreshing the confirmation screen must not re-run the authoritative check:
+ * that belongs to the confirm transaction, under the advisory locks, where the
+ * answer is acted on. A screen that quietly re-detected would mean the set
+ * somebody is looking at changes underneath them between one refresh and the
+ * next, and the acknowledgement they eventually send would be about a list that
+ * no longer exists.
+ *
+ * So the caller supplies the stored `shown_candidate_ids` and gets back exactly
+ * those families — no more, and none dropped. In particular:
+ *
+ *  - a family registered since the block is NOT surfaced here. It is discovered
+ *    by the confirm transaction, which is what refuses and re-arms the draft;
+ *  - a family deactivated since the block is still listed, because it is still
+ *    what somebody was shown. There is deliberately no `status = 'ACTIVE'`
+ *    filter, unlike the detection query above.
+ *
+ * THE RULE IS SUPPLIED, NOT RE-DERIVED. An earlier version classified each row
+ * by comparing that family's guardians against the payload, which meant a
+ * candidate whose mobile had since been edited was silently relabelled from a
+ * blocking duplicate to a soft warning — the stored confirmation state saying
+ * one thing and the screen saying another. What makes that unnecessary is that
+ * `shown_candidate_ids` holds only the BLOCKING candidates: membership is the
+ * semantic, so the rule follows from the draft's purpose and nothing about the
+ * candidate's current data can change it.
+ *
+ * The family's name, primary contact and children are still read live. Those
+ * are descriptive, not semantic — showing a stale name would help nobody
+ * recognise the family — and none of them decides whether a write is refused.
+ */
+export async function describeShownCandidates(
+  tx: Prisma.TransactionClient,
+  familyIds: readonly string[],
+  rule: DuplicateRule,
+): Promise<DuplicateCandidate[]> {
+  if (familyIds.length === 0) return [];
+
+  const rows = await tx.$queryRaw<CandidateRow[]>`
+    SELECT
+      f.id AS family_id,
+      f.family_name,
+      ${rule}::text AS rule,
+      p.full_name AS primary_guardian_name,
+      p.mobile    AS primary_mobile,
+      p.landline  AS primary_landline,
+      coalesce(
+        (SELECT array_agg(c.first_name || ' ' || c.last_name ORDER BY c.last_name, c.first_name)
+           FROM child c WHERE c.family_id = f.id),
+        ARRAY[]::text[]
+      ) AS child_names
+    FROM family f
+    LEFT JOIN LATERAL (
+      SELECT g.full_name, g.mobile, g.landline
+      FROM guardian g
+      WHERE g.family_id = f.id AND g.is_primary_contact
+      LIMIT 1
+    ) p ON true
+    WHERE f.id = ANY (${[...familyIds]}::uuid[])
+    ORDER BY f.family_name, f.id
+  `;
+
+  return rows.map(toCandidate);
+}
+
+/**
  * A candidate as it leaves the server.
  *
  * Enough to recognise a family — its name, who answers the phone, the last four
@@ -231,6 +298,31 @@ export function blockingCandidates(
   candidates: readonly DuplicateCandidate[],
 ): DuplicateCandidate[] {
   return candidates.filter((candidate) => candidate.blocking);
+}
+
+/**
+ * The ids a draft must remember: the blocking candidates, and only those.
+ *
+ * Soft warnings are informational and are shown once, in the response that
+ * reported them. They are not part of the confirmation state, because
+ * acknowledgement is only ever about candidates that actually refuse a write —
+ * so storing them would put two kinds of thing in one list and force whatever
+ * reads it to guess which is which.
+ */
+export function blockingCandidateIds(candidates: readonly DuplicateCandidate[]): string[] {
+  return [...new Set(blockingCandidates(candidates).map((candidate) => candidate.familyId))];
+}
+
+/**
+ * Which rule refuses a write, for a given kind of draft.
+ *
+ * A property of the purpose rather than of any particular candidate, which is
+ * what lets a stored id be presented without re-examining the family behind it.
+ */
+export function blockingRuleFor(purpose: DraftPurpose): DuplicateRule {
+  return purpose === 'CHILD_CREATE' || purpose === 'CHILD_UPDATE'
+    ? 'CHILD_DUPLICATE_IN_FAMILY'
+    : 'FAMILY_DUPLICATE_MOBILE';
 }
 
 /**

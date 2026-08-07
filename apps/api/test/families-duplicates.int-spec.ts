@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 import { duplicateBlockedDetailsSchema, familyWriteResponseSchema } from '@clinic/contracts';
 import { createHarness, resetDatabase, type Harness } from './harness';
 import {
+  blockOn,
+  confirmRegistration,
   createFamily,
   deactivateFamily,
   familyPayload,
   guardian,
+  insertFamilyDirect,
   seedFamily,
   signIn,
 } from './families-support';
@@ -379,5 +382,285 @@ describe('family duplicates (real PostgreSQL)', () => {
         expect(row.action).not.toMatch(/draft/i);
       }
     });
+  });
+});
+
+/**
+ * Completing a registration that was refused.
+ *
+ * The interesting cases here are all about time passing. Somebody was shown a
+ * list of possible duplicates, went away to think, and came back — and the
+ * clinic may have changed underneath them. The acknowledgement they send is a
+ * statement about what they were shown; it must never be treated as permission
+ * to skip what is true now.
+ */
+describe('family create confirmation (real PostgreSQL)', () => {
+  let harness: Harness;
+  let actorId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    harness = await createHarness();
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(harness.prisma);
+    const session = await signIn(harness, 'RECEPTIONIST');
+    actorId = session.id;
+    token = session.token;
+  });
+
+  const MOBILE = '09121234567';
+
+  async function blockedDraft(): Promise<{ draftToken: string; candidateIds: string[] }> {
+    await seedFamily(harness, token, familyPayload({ familyName: 'رضایی' }));
+
+    return blockOn(
+      harness,
+      token,
+      familyPayload({ familyName: 'احمدی' }, [guardian({ mobile: MOBILE })]),
+    );
+  }
+
+  describe('acknowledgement semantics', () => {
+    it('succeeds when every current blocking candidate is acknowledged', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      const response = await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      expect(response.status).toBe(201);
+      expect(familyWriteResponseSchema.parse(response.body).family.familyName).toBe('احمدی');
+    });
+
+    it('blocks again when the real candidate is not acknowledged', async () => {
+      const { draftToken } = await blockedDraft();
+
+      const response = await confirmRegistration(harness, token, draftToken, [
+        '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      ]);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('FAMILY_POSSIBLE_DUPLICATE');
+      expect(await harness.prisma.family.count()).toBe(1);
+    });
+
+    it('is not satisfied by extra irrelevant ids alone', async () => {
+      const { draftToken } = await blockedDraft();
+
+      // A padded list must not grant permission it does not contain.
+      const response = await confirmRegistration(harness, token, draftToken, [
+        '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+      ]);
+
+      expect(response.status).toBe(409);
+    });
+
+    it('tolerates extra ids alongside the real ones', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      const response = await confirmRegistration(harness, token, draftToken, [
+        ...candidateIds,
+        '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      ]);
+
+      // Every current candidate is present, so the extra one is simply noise.
+      expect(response.status).toBe(201);
+    });
+
+    it('blocks when only some of several candidates are acknowledged', async () => {
+      await seedFamily(harness, token, familyPayload({ familyName: 'رضایی' }));
+      const second = await insertFamilyDirect(harness, actorId, 'کریمی', '09129876543');
+
+      const { draftToken, candidateIds } = await blockOn(
+        harness,
+        token,
+        familyPayload({ familyName: 'احمدی' }, [
+          guardian({ fullName: 'یک', mobile: MOBILE, isPrimaryContact: true }),
+          guardian({ fullName: 'دو', mobile: '09129876543', isPrimaryContact: false }),
+        ]),
+      );
+
+      expect(candidateIds).toHaveLength(2);
+
+      const partial = await confirmRegistration(harness, token, draftToken, [second]);
+      expect(partial.status).toBe(409);
+
+      const full = await confirmRegistration(harness, token, draftToken, candidateIds);
+      expect(full.status).toBe(201);
+    });
+  });
+
+  describe('a duplicate that appeared while somebody was deciding', () => {
+    it('is recomputed, not taken from the draft, and is not silently bypassed', async () => {
+      // The case the whole design exists for. The stored candidate list names
+      // one family; by confirmation time there are two.
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      const appeared = await insertFamilyDirect(harness, actorId, 'تازه‌وارد', MOBILE);
+
+      const refused = await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.code).toBe('FAMILY_POSSIBLE_DUPLICATE');
+
+      const details = duplicateBlockedDetailsSchema.parse(refused.body.error.details);
+      const freshIds = details.candidates.filter((c) => c.blocking).map((c) => c.familyId);
+
+      expect(freshIds).toContain(appeared);
+      expect(freshIds).toHaveLength(2);
+
+      // Nothing was written.
+      expect(await harness.prisma.family.count()).toBe(2);
+      expect(await harness.prisma.auditLog.count({ where: { action: 'family.created' } })).toBe(1);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'family.duplicate_override' } }),
+      ).toBe(0);
+    });
+
+    it('keeps the draft, the same token, and refreshes its candidates and expiry', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+      const before = await harness.prisma.registrationDraft.findFirstOrThrow();
+
+      const appeared = await insertFamilyDirect(harness, actorId, 'تازه‌وارد', MOBILE);
+      const refused = await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      const details = duplicateBlockedDetailsSchema.parse(refused.body.error.details);
+
+      // The same bearer token, not a replacement: the caller already holds this
+      // one in a cookie, and two live tokens for one draft is one too many.
+      expect(details.draftToken).toBe(draftToken);
+
+      const after = await harness.prisma.registrationDraft.findFirstOrThrow();
+
+      expect(after.id).toBe(before.id);
+      expect(Buffer.from(after.tokenHash).equals(Buffer.from(before.tokenHash))).toBe(true);
+      expect([...after.shownCandidateIds].sort()).toEqual([...candidateIds, appeared].sort());
+      expect(after.expiresAt.getTime()).toBeGreaterThan(before.expiresAt.getTime());
+      // The typed values survived the refusal.
+      expect((after.payload as { familyName: string }).familyName).toBe('احمدی');
+    });
+
+    it('succeeds once the fresh candidate is acknowledged too', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+      const appeared = await insertFamilyDirect(harness, actorId, 'تازه‌وارد', MOBILE);
+
+      await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      const response = await confirmRegistration(harness, token, draftToken, [
+        ...candidateIds,
+        appeared,
+      ]);
+
+      expect(response.status).toBe(201);
+      expect(await harness.prisma.family.count()).toBe(3);
+      expect(await harness.prisma.registrationDraft.count()).toBe(0);
+    });
+
+    it('does not let a stale id stand in for the new one', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+      const appeared = await insertFamilyDirect(harness, actorId, 'تازه‌وارد', MOBILE);
+
+      // Deactivating the original makes its id stale: still in the
+      // acknowledgement, no longer a blocking candidate.
+      await deactivateFamily(harness, candidateIds[0] ?? '');
+
+      const response = await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      expect(response.status).toBe(409);
+
+      const details = duplicateBlockedDetailsSchema.parse(response.body.error.details);
+      const freshIds = details.candidates.filter((c) => c.blocking).map((c) => c.familyId);
+
+      expect(freshIds).toEqual([appeared]);
+    });
+
+    it('writes no override row when every candidate has gone away', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      await deactivateFamily(harness, candidateIds[0] ?? '');
+
+      const response = await confirmRegistration(harness, token, draftToken, candidateIds);
+      expect(response.status).toBe(201);
+
+      // Nothing was overridden, so claiming an override would put a decision in
+      // the permanent record that nobody made.
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'family.duplicate_override' } }),
+      ).toBe(0);
+      expect(await harness.prisma.auditLog.count({ where: { action: 'family.created' } })).toBe(2);
+    });
+  });
+
+  describe('the override audit row', () => {
+    it('records candidate ids and rule names, and nothing else', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      await confirmRegistration(harness, token, draftToken, candidateIds);
+
+      const rows = await harness.prisma.auditLog.findMany({
+        where: { action: 'family.duplicate_override' },
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.metadata).toEqual({
+        acknowledgedIds: candidateIds,
+        rules: ['FAMILY_DUPLICATE_MOBILE'],
+      });
+
+      // No number, no address, no token — an id resolves to the family for
+      // anyone who needs it and to nothing for anyone who does not.
+      const dump = JSON.stringify(rows[0]);
+      expect(dump).not.toContain(MOBILE);
+      expect(dump).not.toContain(draftToken);
+      expect(rows[0]?.before).toBeNull();
+      expect(rows[0]?.after).toBeNull();
+    });
+
+    it('names the same family as the creation it accompanies', async () => {
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      const response = await confirmRegistration(harness, token, draftToken, candidateIds);
+      const created = familyWriteResponseSchema.parse(response.body).family.id;
+
+      const override = await harness.prisma.auditLog.findFirstOrThrow({
+        where: { action: 'family.duplicate_override' },
+      });
+
+      expect(override.entityId).toBe(created);
+      expect(override.entityType).toBe('family');
+      expect(await harness.prisma.auditLog.count({ where: { action: 'family.created' } })).toBe(2);
+    });
+  });
+
+  describe('one-time consumption under concurrency', () => {
+    it('lets exactly one of two simultaneous confirmations through', async () => {
+      // The draft row lock is what makes this deterministic: both reach
+      // SELECT ... FOR UPDATE, the second waits, and when it proceeds the row is
+      // gone. The wider confirm-versus-discard matrix belongs to the next
+      // checkpoint's concurrency suite; this is the one-time property itself.
+      const { draftToken, candidateIds } = await blockedDraft();
+
+      const [first, second] = await Promise.all([
+        confirmRegistration(harness, token, draftToken, candidateIds),
+        confirmRegistration(harness, token, draftToken, candidateIds),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([201, 404]);
+
+      const loser = first.status === 404 ? first : second;
+      expect(loser.body.error.code).toBe('DRAFT_NOT_FOUND');
+
+      expect(await harness.prisma.family.count()).toBe(2);
+      expect(await harness.prisma.registrationDraft.count()).toBe(0);
+      expect(await harness.prisma.auditLog.count({ where: { action: 'family.created' } })).toBe(2);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'family.duplicate_override' } }),
+      ).toBe(1);
+    }, 30000);
   });
 });
