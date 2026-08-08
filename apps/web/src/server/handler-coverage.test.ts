@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(22);
-    expect(stateChangingHandlers.length).toBe(21);
+    expect(handlers.length).toBe(33);
+    expect(stateChangingHandlers.length).toBe(32);
   });
 
   it('exposes no catch-all route', () => {
@@ -91,7 +91,25 @@ describe('route handler inventory', () => {
       '/api/catalog/therapists/create',
       '/api/catalog/therapists/status',
       '/api/catalog/therapists/update',
+      // Families and children. There is deliberately NO search handler: the
+      // term is personal data, so search is a Server Action that answers in
+      // the response to its own POST (`app/families/search-action.tsx`) — no
+      // redirect, so no URL and no cookie has to carry it. There is no
+      // `update` handler for a child's `familyId` either: it is immutable, and
+      // a genuine reassignment is a designed repair operation outside this
+      // milestone.
+      '/api/children/confirm-registration',
+      '/api/children/confirm-update',
+      '/api/children/create',
+      '/api/children/status',
+      '/api/children/update',
+      '/api/families/confirm-registration',
+      '/api/families/confirm-update',
+      '/api/families/create',
+      '/api/families/status',
+      '/api/families/update',
       '/api/health',
+      '/api/registration-drafts/discard',
       '/api/staff/create',
       '/api/staff/password-reset',
       '/api/staff/revoke-sessions',
@@ -192,9 +210,11 @@ describe('no token or return URL enters a redirect', () => {
  * `requireSession` would be an unauthenticated endpoint that no existing test
  * could notice.
  *
- * The list is empty today, which is the correct current state — the family
- * search box will be the first entry. These assertions exist now so that the
- * rule is in place before the file that needs it, rather than after.
+ * Family search is the first and only entry, exactly as anticipated. It is an
+ * action rather than a Route Handler because the term is personal data: an
+ * action answers in the response to its own POST, so — unlike a handler, which
+ * must redirect and therefore needs a URL or a cookie to carry state across the
+ * hop — there is nothing to leak in the first place.
  */
 const USE_SERVER_DIRECTIVE = /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/.*\n\s*)*['"]use server['"]/;
 
@@ -217,7 +237,7 @@ describe('every Server Action authorises for itself', () => {
   it('enumerates the Server Action modules that exist', () => {
     // Stated as an exact count for the same reason the handler count is: a file
     // that stops being found must fail here rather than pass silently.
-    expect(serverActionModules).toHaveLength(0);
+    expect(serverActionModules).toHaveLength(1);
   });
 
   it.each(serverActionModules.map((module) => [module.path, module] as const))(

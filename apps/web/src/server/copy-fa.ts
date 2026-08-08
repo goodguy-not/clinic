@@ -75,6 +75,7 @@ export const COPY = {
   save: 'ذخیره',
   cancel: 'انصراف',
   edit: 'ویرایش',
+  view: 'مشاهده',
   name: 'نام',
 
   servicesTitle: 'خدمات',
@@ -237,6 +238,92 @@ export const COPY = {
   activate: 'فعال کردن',
   deactivate: 'غیرفعال کردن',
   statusInactive: 'غیرفعال',
+
+  // --- families and children -------------------------------------------------
+
+  familiesTitle: 'خانواده‌ها',
+  familiesDescription: 'جست‌وجوی خانواده بر اساس نام، شمارهٔ تماس یا شمارهٔ پرونده.',
+  familySearchLabel: 'جست‌وجو',
+  familySearchHelp:
+    'نام سرپرست، نام کودک، شمارهٔ موبایل یا تلفن ثابت، یا شمارهٔ پرونده را وارد کنید.',
+  familySearchButton: 'جست‌وجو',
+  familySearchIncludeInactiveLabel: 'نمایش خانواده‌های غیرفعال هم',
+  familyAddAction: 'ثبت خانوادهٔ جدید',
+  familyEmpty: 'خانواده‌ای یافت نشد.',
+  familyRecentNotice: 'جدیدترین خانواده‌های ثبت‌شده نمایش داده می‌شود.',
+  familyTruncatedNotice:
+    'نتایج بیشتری وجود دارد؛ برای یافتن مورد موردنظر، جست‌وجوی دقیق‌تری انجام دهید.',
+  familyAwaitingFirstChild: 'هنوز کودکی برای این خانواده ثبت نشده است.',
+  familyGuardianCountLabel: 'سرپرست',
+  familyChildCountLabel: 'کودک',
+
+  familyAddressLabel: 'نشانی',
+  familyNoteLabel: 'یادداشت غیرپزشکی',
+  familyNoteHelp:
+    'این یادداشت غیرپزشکی است و بخشی از پروندهٔ درمانی نیست؛ به کودک یا خانواده اختصاص ندارید که جنبهٔ بالینی داشته باشد.',
+  familyGuardiansTitle: 'سرپرستان',
+  familyChildrenTitle: 'کودکان',
+  familyAddChildAction: 'افزودن کودک',
+  familyPrimaryContactBadge: 'تماس اصلی',
+  familyDeactivateWarning:
+    'غیرفعال کردن خانواده، کودکان آن را غیرفعال نمی‌کند و می‌توانید در هر زمان دوباره فعالش کنید.',
+
+  familyNewTitle: 'ثبت خانوادهٔ جدید',
+  familyEditTitle: 'ویرایش خانواده',
+  familyNameLabel: 'نام خانواده (نام خانوادگی)',
+  familyNameHelp: 'این نام به‌عنوان برچسب حساب خانواده استفاده می‌شود.',
+  familyAddressHelp: 'اختیاری.',
+  familyGuardiansLegend: 'سرپرستان',
+  familyGuardiansHelp:
+    'دست‌کم یک سرپرست لازم است. دقیقاً یکی از آن‌ها باید «تماس اصلی» باشد و شمارهٔ موبایل یا تلفن ثابت داشته باشد.',
+  guardianSlotLabel: 'سرپرست',
+  guardianFullNameLabel: 'نام و نام خانوادگی',
+  guardianRelationshipLabel: 'نسبت',
+  relationshipMother: 'مادر',
+  relationshipFather: 'پدر',
+  relationshipGrandmother: 'مادربزرگ',
+  relationshipGrandfather: 'پدربزرگ',
+  relationshipGuardian: 'سرپرست دیگر',
+  relationshipOther: 'سایر',
+  guardianRelationshipNoteLabel: 'توضیح نسبت',
+  guardianRelationshipNoteHelp: 'برای نسبت «سایر» پر کردن این فیلد لازم است.',
+  guardianMobileLabel: 'موبایل',
+  guardianLandlineLabel: 'تلفن ثابت',
+  guardianPrimaryLabel: 'تماس اصلی',
+  guardianPrimaryHelp:
+    'دقیقاً یک سرپرست را به‌عنوان تماس اصلی انتخاب کنید. تماس اصلی باید موبایل یا تلفن ثابت داشته باشد.',
+
+  childNewTitle: 'ثبت کودک جدید',
+  childEditTitle: 'ویرایش اطلاعات کودک',
+  childFirstNameLabel: 'نام',
+  childLastNameLabel: 'نام خانوادگی',
+  childBirthDateLabel: 'تاریخ تولد',
+  childSexLabel: 'جنسیت',
+  sexFemale: 'دختر',
+  sexMale: 'پسر',
+  sexUnspecified: 'نامشخص',
+  childNationalIdLabel: 'کد ملی',
+  childNationalIdHelp: 'اختیاری. برای نوزادی که هنوز کد ملی ندارد لازم نیست.',
+  childLegacyFileNumberLabel: 'شمارهٔ پروندهٔ کاغذی',
+  childLegacyFileNumberHelp:
+    'اختیاری. شمارهٔ پروندهٔ قدیمی این کودک در بایگانی کاغذی، در صورت وجود.',
+  childReferralSourceLabel: 'معرف',
+  childReferralSourceHelp: 'اختیاری. مثال: توصیهٔ آشنایان، جست‌وجوی اینترنتی.',
+  childFileNumberLabel: 'شمارهٔ پرونده',
+  childStatusLabel: 'وضعیت کودک',
+
+  duplicateTitle: 'بررسی موارد مشابه',
+  duplicateFamilyIntro:
+    'اطلاعاتی که وارد کردید با یک یا چند خانوادهٔ ثبت‌شده مشابهت دارد. هر مورد را بررسی کنید؛ اگر مطمئن هستید خانوادهٔ تکراری نیست، آن را تأیید کنید و دوباره ثبت را بزنید.',
+  duplicateChildIntro:
+    'اطلاعاتی که وارد کردید با یک کودک ثبت‌شده در همین خانواده مشابهت دارد. اگر مطمئن هستید فرد دیگری است، آن را تأیید کنید و دوباره ثبت را بزنید.',
+  duplicateAcknowledgeLabel: 'این مورد را بررسی کردم؛ رکورد متفاوتی است.',
+  duplicateConfirmAction: 'تأیید و ثبت',
+  duplicateDiscardAction: 'انصراف',
+  duplicateBlockingBadge: 'نیاز به بررسی',
+  duplicateInfoBadge: 'مشابه',
+  duplicateExpiredNotice: 'این درخواست دیگر معتبر نیست. اطلاعات را دوباره وارد کنید.',
+  duplicateChildrenInFamilyLabel: 'کودکان این خانواده',
 } as const;
 
 export type CopyKey = keyof typeof COPY;

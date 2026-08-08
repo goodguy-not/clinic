@@ -354,12 +354,20 @@ walk(webAppRoot, (file) => {
 // running a build, and covers `@/env`, whose values include the internal API
 // key and the cookie signing secret.
 //
-// EMPTY IS THE CURRENT, CORRECT STATE. The family search box is the first
-// entry this list will take: a search term must not reach a URL, so it has to
-// be posted, and a Server Action's return value is readable only through
-// `useActionState`, which is a client hook. That chain was verified against
-// Next 16.2.12 and React 19.2.8 before it was relied upon.
-const CLIENT_COMPONENT_ALLOWLIST = [];
+// The family search box is the entry this list was expected to take, and it is
+// the only one: a search term must not reach a URL, so it has to be posted, and
+// a Server Action's return value is readable only through `useActionState`,
+// which is a client hook. That chain was verified against Next 16.2.12 and
+// React 19.2.8 before it was relied upon.
+//
+// The component is deliberately inert: it owns the hook and renders the panel
+// from whatever the action returned. That does pull `FamilySearchPanel`,
+// `FamilyList` and the `COPY` strings they use into the client bundle, which is
+// accepted — they are UI text and markup. No secret can follow them, because
+// every module holding one declares `server-only` and would fail the build if
+// it were reachable from a Client Component; the import bans below are the
+// second, legible line of that same defence.
+const CLIENT_COMPONENT_ALLOWLIST = ['src/app/families/family-search.tsx'];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];
 const CLIENT_FORBIDDEN_IMPORT_PREFIXES = ['@/server/'];

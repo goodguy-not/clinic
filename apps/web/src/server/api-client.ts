@@ -18,6 +18,11 @@ import {
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
+  type ChildDetailResponse,
+  type ChildWriteResponse,
+  type ConfirmDraftRequest,
+  type CreateChildRequest,
+  type CreateFamilyRequest,
   type CreateRoomRequest,
   type CreateServiceRequest,
   type CreateTariffRequest,
@@ -25,9 +30,15 @@ import {
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
+  type FamilyDetailResponse,
+  type FamilyListResponse,
+  type FamilySearchRequest,
+  type FamilyWriteResponse,
   type LoginRequest,
   type LoginResponse,
   type PasswordResetResponse,
+  type RecordStatus,
+  type RegistrationDraftResponse,
   type RevokeSessionsResponse,
   type RoomListResponse,
   type RoomResponse,
@@ -39,6 +50,8 @@ import {
   type TariffResponse,
   type TherapistListResponse,
   type TherapistResponse,
+  type UpdateChildRequest,
+  type UpdateFamilyRequest,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
   type UpdateTherapistRequest,
@@ -46,6 +59,12 @@ import {
   type UserResponse,
   type UserRole,
   type UserStatus,
+  childDetailResponseSchema,
+  childWriteResponseSchema,
+  familyDetailResponseSchema,
+  familyListResponseSchema,
+  familyWriteResponseSchema,
+  registrationDraftResponseSchema,
 } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 
@@ -69,6 +88,13 @@ export type CallerContext = {
   sessionToken?: string;
   clientIp?: string | null;
   userAgent?: string | null;
+  /**
+   * The registration-draft token, read from this server's own `draft` cookie
+   * and forwarded as `x-draft-token`. Never taken from a browser-supplied
+   * value — see `CallerContext`'s own rule that this module builds every
+   * outbound header itself.
+   */
+  draftToken?: string;
 };
 
 export type ApiSuccess<T> = { ok: true; data: T; requestId: string };
@@ -77,6 +103,14 @@ export type ApiFailure = {
   code: ErrorCode | 'API_UNREACHABLE';
   status: number;
   requestId: string;
+  /**
+   * The envelope's `error.details`, unparsed. Populated only for the two
+   * codes that carry one — `FAMILY_POSSIBLE_DUPLICATE` and
+   * `CHILD_POSSIBLE_DUPLICATE` — so a caller can parse it against
+   * `duplicateBlockedDetailsSchema` and read the draft token out of it. Every
+   * other failure leaves this undefined.
+   */
+  details?: unknown;
 };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
@@ -103,6 +137,9 @@ function buildHeaders(context: CallerContext, requestId: string, hasBody: boolea
   }
   if (context.userAgent != null && context.userAgent !== '') {
     headers.set('x-client-user-agent', context.userAgent.slice(0, MAX_USER_AGENT_LENGTH));
+  }
+  if (context.draftToken !== undefined && context.draftToken !== '') {
+    headers.set('x-draft-token', context.draftToken);
   }
 
   return headers;
@@ -148,6 +185,9 @@ async function call<T>(
       code: envelope.success ? envelope.data.error.code : 'API_UNREACHABLE',
       status: response.status,
       requestId: envelope.success ? envelope.data.error.requestId : requestId,
+      ...(envelope.success && envelope.data.error.details !== undefined
+        ? { details: envelope.data.error.details }
+        : {}),
     };
   }
 
@@ -363,6 +403,117 @@ export const api = {
     call(`/catalog/tariffs/${encodeURIComponent(id)}/void`, 'POST', tariffResponseSchema, context, {
       reason,
     }),
+
+  // --- families and children --------------------------------------------------
+
+  /**
+   * A POST that reads. Mirrors `FamiliesController.search`: the term is
+   * personal data and must never travel as a query string.
+   */
+  searchFamilies: (
+    body: FamilySearchRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyListResponse>> =>
+    call('/families/search', 'POST', familyListResponseSchema, context, body),
+
+  getFamily: (id: string, context: CallerContext): Promise<ApiResult<FamilyDetailResponse>> =>
+    call(`/families/${encodeURIComponent(id)}`, 'GET', familyDetailResponseSchema, context),
+
+  createFamily: (
+    body: CreateFamilyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyWriteResponse>> =>
+    call('/families', 'POST', familyWriteResponseSchema, context, body),
+
+  updateFamily: (
+    id: string,
+    body: UpdateFamilyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyWriteResponse>> =>
+    call(`/families/${encodeURIComponent(id)}`, 'PATCH', familyWriteResponseSchema, context, body),
+
+  changeFamilyStatus: (
+    id: string,
+    status: RecordStatus,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyDetailResponse>> =>
+    call(
+      `/families/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      familyDetailResponseSchema,
+      context,
+      {
+        status,
+      },
+    ),
+
+  confirmFamilyRegistration: (
+    body: ConfirmDraftRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyWriteResponse>> =>
+    call('/families/confirm-registration', 'POST', familyWriteResponseSchema, context, body),
+
+  confirmFamilyUpdate: (
+    body: ConfirmDraftRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyWriteResponse>> =>
+    call('/families/confirm-update', 'POST', familyWriteResponseSchema, context, body),
+
+  getChild: (id: string, context: CallerContext): Promise<ApiResult<ChildDetailResponse>> =>
+    call(`/children/${encodeURIComponent(id)}`, 'GET', childDetailResponseSchema, context),
+
+  createChild: (
+    familyId: string,
+    body: CreateChildRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ChildWriteResponse>> =>
+    call(
+      `/families/${encodeURIComponent(familyId)}/children`,
+      'POST',
+      childWriteResponseSchema,
+      context,
+      body,
+    ),
+
+  updateChild: (
+    id: string,
+    body: UpdateChildRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ChildWriteResponse>> =>
+    call(`/children/${encodeURIComponent(id)}`, 'PATCH', childWriteResponseSchema, context, body),
+
+  changeChildStatus: (
+    id: string,
+    status: RecordStatus,
+    context: CallerContext,
+  ): Promise<ApiResult<ChildDetailResponse>> =>
+    call(
+      `/children/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      childDetailResponseSchema,
+      context,
+      {
+        status,
+      },
+    ),
+
+  confirmChildRegistration: (
+    body: ConfirmDraftRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ChildWriteResponse>> =>
+    call('/children/confirm-registration', 'POST', childWriteResponseSchema, context, body),
+
+  confirmChildUpdate: (
+    body: ConfirmDraftRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ChildWriteResponse>> =>
+    call('/children/confirm-update', 'POST', childWriteResponseSchema, context, body),
+
+  currentDraft: (context: CallerContext): Promise<ApiResult<RegistrationDraftResponse>> =>
+    call('/registration-drafts/current', 'GET', registrationDraftResponseSchema, context),
+
+  discardDraft: (context: CallerContext): Promise<ApiResult<void>> =>
+    call('/registration-drafts/discard', 'POST', { parse: () => undefined }, context),
 };
 
 export type ApiLiveness = {

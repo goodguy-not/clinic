@@ -21,6 +21,7 @@ export default async function Home() {
   const canManageRooms = user.permissions.includes('room.read');
   const canManageTherapists = user.permissions.includes('therapist.read');
   const canManageTariffs = user.permissions.includes('tariff.read');
+  const canManageFamilies = user.permissions.includes('family.read');
 
   return (
     <main>
@@ -56,6 +57,11 @@ export default async function Home() {
         {canManageTariffs ? (
           <li>
             <Link href="/tariffs">{COPY.tariffsTitle}</Link>
+          </li>
+        ) : null}
+        {canManageFamilies ? (
+          <li>
+            <Link href="/families">{COPY.familiesTitle}</Link>
           </li>
         ) : null}
         <li>

@@ -25,6 +25,13 @@ export type CookieAttributes = {
 export type CookieConfig = {
   readonly session: CookieAttributes;
   readonly csrf: CookieAttributes;
+  /**
+   * Holds a registration-draft token between the blocked write and the
+   * confirmation screen. Same reasoning as `session`: the token is
+   * bearer-secret material, so the browser never sees the value, only the
+   * opaque cookie (CLAUDE.md, Architecture boundary; families/drafts.ts).
+   */
+  readonly draft: CookieAttributes;
   readonly deploymentMode: 'production' | 'non-production';
 };
 
@@ -39,6 +46,13 @@ const PRODUCTION: CookieConfig = {
   },
   csrf: {
     name: '__Host-clinic_csrf',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+  },
+  draft: {
+    name: '__Host-clinic_draft',
     httpOnly: true,
     secure: true,
     sameSite: 'lax',
@@ -59,6 +73,13 @@ const NON_PRODUCTION: CookieConfig = {
   },
   csrf: {
     name: 'clinic_csrf_dev',
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax',
+    path: '/',
+  },
+  draft: {
+    name: 'clinic_draft_dev',
     httpOnly: true,
     secure: false,
     sameSite: 'lax',

@@ -24,9 +24,18 @@ loadServerEnv();
  * cached family page on a shared reception machine is readable by whoever sits
  * down next.
  *
- * `no-referrer` for the same reason it is set on every handler response: the
- * current path must not travel outward. There is nothing personal in these
- * paths beyond a record id, and there is no reason to send even that.
+ * `same-origin`, not `no-referrer`. The intent is unchanged — the current path
+ * must not travel to a third party — but `no-referrer` overcorrects. Every page
+ * here renders a plain `<form method="post">`, and per the Fetch standard
+ * (§3.1, "append a request `Origin` header"), a document served under
+ * `Referrer-Policy: no-referrer` makes the browser send `Origin: null` on the
+ * same-origin POST that form submits — not just an absent `Referer`. NestJS's
+ * strict Origin check (`origin.ts`) then correctly refuses it: `null` matches
+ * no configured origin. `same-origin` still sends nothing to any other origin —
+ * `Referer` or `Origin` — and is what a same-origin form actually needs to
+ * reach its own Route Handler at all. Verified against a real browser: with
+ * `no-referrer`, every write on these pages failed `AUTH_ORIGIN_REJECTED`
+ * before reaching NestJS.
  *
  * The NestJS side is already covered — `NoStoreInterceptor` is a global
  * interceptor exempting only `/health` — and Route Handlers are covered by
@@ -35,7 +44,7 @@ loadServerEnv();
  */
 const noStoreHeaders = [
   { key: 'Cache-Control', value: 'no-store' },
-  { key: 'Referrer-Policy', value: 'no-referrer' },
+  { key: 'Referrer-Policy', value: 'same-origin' },
 ];
 
 const nextConfig: NextConfig = {
