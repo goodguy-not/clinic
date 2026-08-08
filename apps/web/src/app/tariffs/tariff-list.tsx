@@ -1,6 +1,7 @@
 import type { Service, Tariff, Therapist } from '@clinic/contracts';
 import {
   Alert,
+  Badge,
   ButtonLink,
   EmptyState,
   Field,
@@ -132,9 +133,7 @@ export function TariffList({
                   <>
                     <StateBadge state={state} />
                     {tariff.priceMode === 'FREE' ? (
-                      <span className="inline-flex shrink-0 items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-900">
-                        {COPY.tariffFreeBadge}
-                      </span>
+                      <Badge tone="info">{COPY.tariffFreeBadge}</Badge>
                     ) : null}
                   </>
                 }
@@ -179,11 +178,11 @@ export function TariffList({
 }
 
 function StateBadge({ state }: { state: TariffState }) {
-  const styles: Record<TariffState, string> = {
-    current: 'bg-emerald-100 text-emerald-900',
-    future: 'bg-amber-100 text-amber-900',
-    expired: 'bg-slate-200 text-slate-700',
-    voided: 'bg-red-100 text-red-900',
+  const tones: Record<TariffState, 'success' | 'warning' | 'neutral' | 'danger'> = {
+    current: 'success',
+    future: 'warning',
+    expired: 'neutral',
+    voided: 'danger',
   };
 
   const labels: Record<TariffState, string> = {
@@ -193,13 +192,7 @@ function StateBadge({ state }: { state: TariffState }) {
     voided: COPY.tariffStateVoided,
   };
 
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[state]}`}
-    >
-      {labels[state]}
-    </span>
-  );
+  return <Badge tone={tones[state]}>{labels[state]}</Badge>;
 }
 
 function describeScope(

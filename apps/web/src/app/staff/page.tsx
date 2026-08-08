@@ -8,6 +8,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { StaffAdmin } from './staff-admin';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,11 +38,14 @@ export default async function StaffPage({
       : persianMessage(result.code);
 
   return (
-    <StaffAdmin
-      users={result.ok ? result.data.users : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={errorMessage}
-      currentUserId={user.id}
-    />
+    <>
+      <AppHeader />
+      <StaffAdmin
+        users={result.ok ? result.data.users : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={errorMessage}
+        currentUserId={user.id}
+      />
+    </>
   );
 }

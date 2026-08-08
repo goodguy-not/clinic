@@ -10,6 +10,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { TariffForm } from '../tariff-form';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,14 +57,17 @@ export default async function NewTariffPage({
   const therapistList = therapists.ok ? therapists.data.therapists : [];
 
   return (
-    <TariffForm
-      services={serviceList}
-      therapists={therapistList}
-      {...(supersedes === undefined ? {} : { supersedes })}
-      serviceNames={new Map(serviceList.map((service) => [service.id, service.name]))}
-      therapistNames={new Map(therapistList.map((t) => [t.id, t.fullName]))}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
-    />
+    <>
+      <AppHeader />
+      <TariffForm
+        services={serviceList}
+        therapists={therapistList}
+        {...(supersedes === undefined ? {} : { supersedes })}
+        serviceNames={new Map(serviceList.map((service) => [service.id, service.name]))}
+        therapistNames={new Map(therapistList.map((t) => [t.id, t.fullName]))}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
+      />
+    </>
   );
 }

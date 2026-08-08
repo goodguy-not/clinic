@@ -1,4 +1,17 @@
 import type { StaffUser } from '@clinic/contracts';
+import {
+  Alert,
+  Badge,
+  Field,
+  FormActions,
+  PageHeader,
+  PageShell,
+  Panel,
+  RecordItem,
+  RecordList,
+  StatusBadge,
+  SubmitButton,
+} from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 
 /**
@@ -17,19 +30,21 @@ function ActionForm({
   csrfToken,
   fields,
   label,
+  tone = 'secondary',
 }: {
   action: string;
   csrfToken: string;
   fields: Record<string, string>;
   label: string;
+  tone?: 'secondary' | 'danger';
 }) {
   return (
-    <form method="post" action={action} className="inline-action">
+    <form method="post" action={action}>
       <input type="hidden" name="csrfToken" value={csrfToken} />
       {Object.entries(fields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
-      <button type="submit">{label}</button>
+      <SubmitButton tone={tone}>{label}</SubmitButton>
     </form>
   );
 }
@@ -46,111 +61,126 @@ export function StaffAdmin({
   currentUserId: string;
 }) {
   return (
-    <main>
-      <h1>{COPY.staffTitle}</h1>
+    <PageShell>
+      <PageHeader title={COPY.staffTitle} />
 
-      {errorMessage === null ? null : (
-        <p role="alert" className="error">
-          {errorMessage}
-        </p>
-      )}
+      {errorMessage === null ? null : <Alert>{errorMessage}</Alert>}
 
-      <section>
-        <h2>{COPY.staffCreateTitle}</h2>
-        <form method="post" action="/api/staff/create">
+      <Panel title={COPY.staffCreateTitle}>
+        <form method="post" action="/api/staff/create" className="flex flex-col gap-4">
           <input type="hidden" name="csrfToken" value={csrfToken} />
-          <p>
-            <label htmlFor="new-username">{COPY.username}</label>
-            <input id="new-username" name="username" type="text" required dir="ltr" />
-          </p>
-          <p>
-            <label htmlFor="new-display-name">{COPY.displayName}</label>
-            <input id="new-display-name" name="displayName" type="text" required />
-          </p>
-          <p>
-            <label htmlFor="new-role">{COPY.role}</label>
-            <select id="new-role" name="role" defaultValue="RECEPTIONIST">
-              <option value="RECEPTIONIST">{COPY.roleReceptionist}</option>
-              <option value="MANAGER">{COPY.roleManager}</option>
-            </select>
-          </p>
-          <button type="submit">{COPY.create}</button>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field id="new-username" label={COPY.username} required>
+              {(props) => (
+                <input
+                  {...props}
+                  name="username"
+                  type="text"
+                  required
+                  dir="ltr"
+                  className={`${props.className} text-start`}
+                />
+              )}
+            </Field>
+            <Field id="new-display-name" label={COPY.displayName} required>
+              {(props) => <input {...props} name="displayName" type="text" required />}
+            </Field>
+            <Field id="new-role" label={COPY.role} required>
+              {(props) => (
+                <select {...props} name="role" defaultValue="RECEPTIONIST">
+                  <option value="RECEPTIONIST">{COPY.roleReceptionist}</option>
+                  <option value="MANAGER">{COPY.roleManager}</option>
+                </select>
+              )}
+            </Field>
+          </div>
+          <FormActions>
+            <SubmitButton>{COPY.create}</SubmitButton>
+          </FormActions>
         </form>
-      </section>
+      </Panel>
 
-      <section>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{COPY.username}</th>
-              <th scope="col">{COPY.displayName}</th>
-              <th scope="col">{COPY.role}</th>
-              <th scope="col">{COPY.status}</th>
-              <th scope="col">{COPY.lockedUntil}</th>
-              <th scope="col">&nbsp;</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => {
-              const isSelf = user.id === currentUserId;
+      <RecordList>
+        {users.map((user) => {
+          const isSelf = user.id === currentUserId;
+          const isActive = user.status === 'ACTIVE';
 
-              return (
-                <tr key={user.id}>
-                  <td dir="ltr">{user.username}</td>
-                  <td>{user.displayName}</td>
-                  <td>{user.role === 'MANAGER' ? COPY.roleManager : COPY.roleReceptionist}</td>
-                  <td>{user.status === 'ACTIVE' ? COPY.statusActive : COPY.statusDisabled}</td>
-                  <td dir="ltr">{user.lockedUntil ?? COPY.never}</td>
-                  <td>
-                    {/* Self-changes are refused by NestJS; hiding them here just
-                        avoids offering an action that cannot succeed. */}
-                    {isSelf ? null : (
-                      <>
-                        <ActionForm
-                          action="/api/staff/role"
-                          csrfToken={csrfToken}
-                          fields={{
-                            id: user.id,
-                            role: user.role === 'MANAGER' ? 'RECEPTIONIST' : 'MANAGER',
-                          }}
-                          label={user.role === 'MANAGER' ? COPY.makeReceptionist : COPY.makeManager}
-                        />
-                        <ActionForm
-                          action="/api/staff/status"
-                          csrfToken={csrfToken}
-                          fields={{
-                            id: user.id,
-                            status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
-                          }}
-                          label={user.status === 'ACTIVE' ? COPY.disable : COPY.enable}
-                        />
-                      </>
-                    )}
-                    <ActionForm
-                      action="/api/staff/password-reset"
-                      csrfToken={csrfToken}
-                      fields={{ id: user.id, username: user.username }}
-                      label={COPY.resetPassword}
-                    />
-                    <ActionForm
-                      action="/api/staff/unlock"
-                      csrfToken={csrfToken}
-                      fields={{ id: user.id }}
-                      label={COPY.unlock}
-                    />
-                    <ActionForm
-                      action="/api/staff/revoke-sessions"
-                      csrfToken={csrfToken}
-                      fields={{ id: user.id }}
-                      label={COPY.revokeSessions}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
-    </main>
+          return (
+            <RecordItem
+              key={user.id}
+              title={user.displayName}
+              badge={
+                <>
+                  <StatusBadge
+                    active={isActive}
+                    labels={[COPY.statusActive, COPY.statusDisabled]}
+                  />
+                  <Badge tone="info">
+                    {user.role === 'MANAGER' ? COPY.roleManager : COPY.roleReceptionist}
+                  </Badge>
+                </>
+              }
+              details={
+                <>
+                  <span dir="ltr" className="text-start">
+                    {user.username}
+                  </span>
+                  <span>
+                    {COPY.lockedUntil}: <span dir="ltr">{user.lockedUntil ?? COPY.never}</span>
+                  </span>
+                </>
+              }
+              actions={
+                <>
+                  {/* Self-changes are refused by NestJS; hiding them here just
+                      avoids offering an action that cannot succeed. */}
+                  {isSelf ? null : (
+                    <>
+                      <ActionForm
+                        action="/api/staff/role"
+                        csrfToken={csrfToken}
+                        fields={{
+                          id: user.id,
+                          role: user.role === 'MANAGER' ? 'RECEPTIONIST' : 'MANAGER',
+                        }}
+                        label={user.role === 'MANAGER' ? COPY.makeReceptionist : COPY.makeManager}
+                      />
+                      <ActionForm
+                        action="/api/staff/status"
+                        csrfToken={csrfToken}
+                        fields={{
+                          id: user.id,
+                          status: isActive ? 'DISABLED' : 'ACTIVE',
+                        }}
+                        label={isActive ? COPY.disable : COPY.enable}
+                        tone={isActive ? 'danger' : 'secondary'}
+                      />
+                    </>
+                  )}
+                  <ActionForm
+                    action="/api/staff/password-reset"
+                    csrfToken={csrfToken}
+                    fields={{ id: user.id, username: user.username }}
+                    label={COPY.resetPassword}
+                  />
+                  <ActionForm
+                    action="/api/staff/unlock"
+                    csrfToken={csrfToken}
+                    fields={{ id: user.id }}
+                    label={COPY.unlock}
+                  />
+                  <ActionForm
+                    action="/api/staff/revoke-sessions"
+                    csrfToken={csrfToken}
+                    fields={{ id: user.id }}
+                    label={COPY.revokeSessions}
+                  />
+                </>
+              }
+            />
+          );
+        })}
+      </RecordList>
+    </PageShell>
   );
 }

@@ -1,3 +1,4 @@
+import { Alert, AuthShell, Field, SubmitButton } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 
 /**
@@ -17,63 +18,68 @@ export function ChangePasswordForm({
   forced: boolean;
 }) {
   return (
-    <main>
-      <h1>{COPY.changePasswordTitle}</h1>
+    <AuthShell title={COPY.changePasswordTitle}>
+      {forced ? <Alert tone="info">{COPY.mustChangePassword}</Alert> : null}
 
-      {forced ? <p className="notice">{COPY.mustChangePassword}</p> : null}
+      {errorMessage === null ? null : <Alert>{errorMessage}</Alert>}
 
-      {errorMessage === null ? null : (
-        <p role="alert" className="error">
-          {errorMessage}
-        </p>
-      )}
-
-      <p id="password-guidance" className="guidance">
+      <p
+        id="password-guidance"
+        className="rounded-lg bg-slate-100 px-4 py-3 text-sm text-slate-700"
+      >
         {COPY.passwordGuidance}
       </p>
 
-      <form method="post" action="/api/auth/password">
+      <form method="post" action="/api/auth/password" className="flex flex-col gap-4">
         <input type="hidden" name="csrfToken" value={csrfToken} />
 
-        <p>
-          <label htmlFor="currentPassword">{COPY.currentPassword}</label>
-          <input
-            id="currentPassword"
-            name="currentPassword"
-            type="password"
-            autoComplete="current-password"
-            required
-            dir="ltr"
-          />
-        </p>
+        <Field id="currentPassword" label={COPY.currentPassword} required>
+          {(props) => (
+            <input
+              {...props}
+              name="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              required
+              dir="ltr"
+              className={`${props.className} text-start`}
+            />
+          )}
+        </Field>
 
-        <p>
-          <label htmlFor="newPassword">{COPY.newPassword}</label>
-          <input
-            id="newPassword"
-            name="newPassword"
-            type="password"
-            autoComplete="new-password"
-            aria-describedby="password-guidance"
-            required
-            dir="ltr"
-          />
-        </p>
+        <Field id="newPassword" label={COPY.newPassword} required>
+          {(props) => (
+            <input
+              {...props}
+              name="newPassword"
+              type="password"
+              autoComplete="new-password"
+              aria-describedby="password-guidance"
+              required
+              dir="ltr"
+              className={`${props.className} text-start`}
+            />
+          )}
+        </Field>
 
-        <p>
-          <label htmlFor="confirmPassword">{COPY.confirmNewPassword}</label>
-          <input
-            id="confirmPassword"
-            name="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            required
-            dir="ltr"
-          />
-        </p>
+        <Field id="confirmPassword" label={COPY.confirmNewPassword} required>
+          {(props) => (
+            <input
+              {...props}
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              required
+              dir="ltr"
+              className={`${props.className} text-start`}
+            />
+          )}
+        </Field>
 
-        <button type="submit">{COPY.changePasswordSubmit}</button>
+        <div className="flex flex-col pt-2">
+          <SubmitButton>{COPY.changePasswordSubmit}</SubmitButton>
+        </div>
       </form>
-    </main>
+    </AuthShell>
   );
 }

@@ -10,6 +10,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { ServiceForm } from '../../service-form';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,10 +40,13 @@ export default async function EditServicePage({
   const code = typeof rawError === 'string' ? rawError : null;
 
   return (
-    <ServiceForm
-      service={result.data.service}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
-    />
+    <>
+      <AppHeader />
+      <ServiceForm
+        service={result.data.service}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
+      />
+    </>
   );
 }

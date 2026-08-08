@@ -10,6 +10,7 @@ import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { clinicToday } from '@/server/clinic-time';
 import { TariffList } from './tariff-list';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,17 +47,20 @@ export default async function TariffsPage({
       : persianMessage(tariffs.code);
 
   return (
-    <TariffList
-      tariffs={tariffs.ok ? tariffs.data.tariffs : []}
-      services={services.ok ? services.data.services : []}
-      therapists={therapists.ok ? therapists.data.therapists : []}
-      // The clinic's own date, computed on the server. A browser clock that is
-      // a day out — or a server running in UTC — would describe a tariff as
-      // current when it is not.
-      today={clinicToday()}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={errorMessage}
-      {...(voidTariffId === undefined ? {} : { voidTariffId })}
-    />
+    <>
+      <AppHeader />
+      <TariffList
+        tariffs={tariffs.ok ? tariffs.data.tariffs : []}
+        services={services.ok ? services.data.services : []}
+        therapists={therapists.ok ? therapists.data.therapists : []}
+        // The clinic's own date, computed on the server. A browser clock that is
+        // a day out — or a server running in UTC — would describe a tariff as
+        // current when it is not.
+        today={clinicToday()}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={errorMessage}
+        {...(voidTariffId === undefined ? {} : { voidTariffId })}
+      />
+    </>
   );
 }

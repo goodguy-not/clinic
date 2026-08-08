@@ -1,12 +1,16 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { COPY } from '@/server/copy-fa';
+import { CONTROL_CLASS, FOCUS_RING } from './styles';
+
+export { CONTROL_CLASS, FOCUS_RING };
 
 /**
  * The small shared visual vocabulary for internal pages.
  *
  * Deliberately a handful of plain functions returning markup, not a design
  * system. Each exists because the same shape is needed on four or more of the
- * catalog screens; anything used once stays where it is used.
+ * internal screens; anything used once stays where it is used.
  *
  * Every piece here is a Server Component: no state, no handlers, no client
  * bundle. Spacing and alignment use logical properties (`ms`/`me`, `ps`/`pe`,
@@ -15,16 +19,46 @@ import type { ReactNode } from 'react';
  *
  * Mobile first: the base classes describe the narrow layout, and `sm:`/`md:`
  * widen it. A receptionist on a phone is the default case, not the fallback.
+ *
+ * Colour comes from the design tokens in `globals.css`: `brand-*` (calm
+ * clinical teal) for anything interactive, and the conventional semantic
+ * tones — emerald success, amber warning, red danger — for status.
  */
 
-/** Focus styling shared by every interactive element, so nothing is unreachable by keyboard. */
-const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
-
+/**
+ * The content column for authenticated surfaces. The persistent `AppHeader`
+ * (brand, navigation, user actions) is rendered beside it by each page, never
+ * inside it: presentational list/form components include `PageShell` and must
+ * stay synchronously renderable for the markup tests.
+ */
 export function PageShell({ children }: { children: ReactNode }) {
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="flex flex-col gap-6">{children}</div>
+    </main>
+  );
+}
+
+/**
+ * The frame for anonymous or account-focused surfaces (login, session-expired,
+ * change-password): no navigation, one calm centered card.
+ */
+export function AuthShell({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4 py-10">
+      <div className="mb-6 flex items-center justify-center gap-2">
+        <span
+          aria-hidden="true"
+          className="flex size-10 items-center justify-center rounded-xl bg-brand-700 text-lg font-bold text-white"
+        >
+          ک
+        </span>
+        <span className="text-lg font-bold text-brand-900">{COPY.appTitle}</span>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <h1 className="mb-5 text-center text-xl font-bold text-slate-900">{title}</h1>
+        <div className="flex flex-col gap-4">{children}</div>
+      </div>
     </main>
   );
 }
@@ -45,20 +79,23 @@ export function PageHeader({
   return (
     <header className="flex flex-col gap-3">
       {backHref !== undefined && backLabel !== undefined ? (
-        <Link
-          href={backHref}
-          className={`text-sm text-sky-800 underline underline-offset-4 hover:text-sky-950 ${FOCUS_RING} rounded-sm`}
-        >
-          {backLabel}
-        </Link>
+        <div>
+          <Link
+            href={backHref}
+            className={`inline-flex items-center gap-1 rounded-sm py-1 text-sm font-medium text-brand-800 underline-offset-4 hover:text-brand-950 hover:underline ${FOCUS_RING}`}
+          >
+            <span aria-hidden="true">→</span>
+            {backLabel}
+          </Link>
+        </div>
       ) : null}
 
       {/* Stacks on a phone and sits side by side once there is room. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold text-slate-900 sm:text-2xl">{title}</h1>
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{title}</h1>
           {description !== undefined ? (
-            <p className="text-sm text-slate-600">{description}</p>
+            <p className="max-w-prose text-sm text-slate-600">{description}</p>
           ) : null}
         </div>
         {action}
@@ -69,7 +106,7 @@ export function PageHeader({
 
 export function Panel({ children, title }: { children: ReactNode; title?: string }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       {title !== undefined ? (
         <h2 className="mb-4 text-base font-semibold text-slate-900">{title}</h2>
       ) : null}
@@ -93,12 +130,42 @@ export function Alert({
   const styles =
     tone === 'error'
       ? 'border-red-300 bg-red-50 text-red-900'
-      : 'border-sky-300 bg-sky-50 text-sky-900';
+      : 'border-brand-300 bg-brand-50 text-brand-900';
 
   return (
-    <p role="alert" className={`rounded-md border px-4 py-3 text-sm font-medium ${styles}`}>
+    <p role="alert" className={`rounded-lg border px-4 py-3 text-sm font-medium ${styles}`}>
       {children}
     </p>
+  );
+}
+
+/**
+ * A small status pill. Tones follow the semantic palette: `success` for
+ * active/current, `neutral` for inactive/expired, `warning` for pending or
+ * upcoming, `danger` for voided or blocking, `info` for neutral facts (for
+ * example a free tariff).
+ */
+export function Badge({
+  tone,
+  children,
+}: {
+  tone: 'success' | 'neutral' | 'warning' | 'danger' | 'info';
+  children: ReactNode;
+}) {
+  const styles = {
+    success: 'bg-emerald-100 text-emerald-900',
+    neutral: 'bg-slate-200 text-slate-700',
+    warning: 'bg-amber-100 text-amber-900',
+    danger: 'bg-red-100 text-red-900',
+    info: 'bg-brand-100 text-brand-900',
+  }[tone];
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${styles}`}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -106,20 +173,14 @@ export function StatusBadge({ active, labels }: { active: boolean; labels: [stri
   const [activeLabel, inactiveLabel] = labels;
 
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-        active ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'
-      }`}
-    >
-      {active ? activeLabel : inactiveLabel}
-    </span>
+    <Badge tone={active ? 'success' : 'neutral'}>{active ? activeLabel : inactiveLabel}</Badge>
   );
 }
 
 export function EmptyState({ message, action }: { message: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center">
-      <p className="text-sm text-slate-600">{message}</p>
+    <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
+      <p className="max-w-prose text-sm text-slate-600">{message}</p>
       {action}
     </div>
   );
@@ -148,11 +209,11 @@ export function RecordItem({
   actions?: ReactNode;
 }) {
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <li className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-slate-900">{title}</span>
+            <span className="font-semibold text-slate-900">{title}</span>
             {badge}
           </div>
           {details !== undefined ? (
@@ -167,11 +228,12 @@ export function RecordItem({
   );
 }
 
-const BUTTON_BASE = `inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors ${FOCUS_RING}`;
+const BUTTON_BASE = `inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${FOCUS_RING}`;
 
 const BUTTON_TONES = {
-  primary: 'bg-sky-700 text-white hover:bg-sky-800',
+  primary: 'bg-brand-700 text-white shadow-sm hover:bg-brand-800',
   secondary: 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50',
+  danger: 'border border-red-300 bg-white text-red-800 hover:bg-red-50',
 } as const;
 
 export function SubmitButton({
@@ -204,9 +266,6 @@ export function ButtonLink({
   );
 }
 
-const CONTROL =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder:text-slate-400';
-
 /**
  * Label, control and help text as one unit.
  *
@@ -231,13 +290,13 @@ export function Field({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium text-slate-900">
+      <label htmlFor={id} className="text-sm font-semibold text-slate-900">
         {label}
         {required ? <span className="ms-1 text-red-700">*</span> : null}
       </label>
       {children({
         id,
-        className: `${CONTROL} ${FOCUS_RING}`,
+        className: CONTROL_CLASS,
         ...(help !== undefined ? { describedBy: helpId } : {}),
       })}
       {help !== undefined ? (
@@ -266,7 +325,7 @@ export function ChoiceGroup({
 }) {
   return (
     <fieldset className="flex flex-col gap-2 border-0 p-0">
-      <legend className="mb-1 text-sm font-medium text-slate-900">{legend}</legend>
+      <legend className="mb-1 text-sm font-semibold text-slate-900">{legend}</legend>
       {help !== undefined ? <p className="mb-1 text-xs text-slate-600">{help}</p> : null}
       <div className="flex flex-col gap-2">{children}</div>
     </fieldset>
@@ -299,18 +358,18 @@ export function ChoiceOption({
   defaultChecked?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-2 rounded-md border border-slate-200 p-3">
+    <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3">
       <input
         id={id}
         name={name}
         value={value}
         type={type}
         defaultChecked={defaultChecked}
-        className={`mt-1 size-4 shrink-0 ${FOCUS_RING}`}
+        className={`mt-1 size-4 shrink-0 accent-brand-700 ${FOCUS_RING}`}
       />
       <label htmlFor={id} className="flex flex-col gap-0.5">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-900">{label}</span>
+          <span className="text-sm font-semibold text-slate-900">{label}</span>
           {badge}
         </span>
         {description !== undefined ? (

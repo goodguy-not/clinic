@@ -3,6 +3,7 @@ import { readCsrfCookie, requireSession } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { FamilyForm } from '../family-form';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,9 +21,12 @@ export default async function NewFamilyPage({
   const code = typeof rawError === 'string' ? rawError : null;
 
   return (
-    <FamilyForm
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
-    />
+    <>
+      <AppHeader />
+      <FamilyForm
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
+      />
+    </>
   );
 }

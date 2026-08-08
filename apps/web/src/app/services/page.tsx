@@ -9,6 +9,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { ServiceList } from './service-list';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,10 +42,13 @@ export default async function ServicesPage({
       : persianMessage(result.code);
 
   return (
-    <ServiceList
-      services={result.ok ? result.data.services : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={errorMessage}
-    />
+    <>
+      <AppHeader />
+      <ServiceList
+        services={result.ok ? result.data.services : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={errorMessage}
+      />
+    </>
   );
 }

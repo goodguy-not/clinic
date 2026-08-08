@@ -58,7 +58,7 @@ export function FamilyList({
             actions={
               <Link
                 href={`/families/${family.id}`}
-                className="text-sm text-sky-800 underline underline-offset-4 hover:text-sky-950"
+                className="text-sm text-brand-800 underline underline-offset-4 hover:text-brand-950"
               >
                 {COPY.view}
               </Link>

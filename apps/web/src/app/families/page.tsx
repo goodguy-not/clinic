@@ -7,6 +7,7 @@ import { isKnownNoticeCode, persianNotice } from '@/server/notices';
 import { Alert, ButtonLink, PageHeader, PageShell } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 import { FamilySearch } from './family-search';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,29 +45,32 @@ export default async function FamiliesPage({
       : persianMessage(result.code);
 
   return (
-    <PageShell>
-      <PageHeader
-        title={COPY.familiesTitle}
-        description={COPY.familiesDescription}
-        backHref="/"
-        backLabel={COPY.back}
-        action={<ButtonLink href="/families/new">{COPY.familyAddAction}</ButtonLink>}
-      />
+    <>
+      <AppHeader />
+      <PageShell>
+        <PageHeader
+          title={COPY.familiesTitle}
+          description={COPY.familiesDescription}
+          backHref="/"
+          backLabel={COPY.back}
+          action={<ButtonLink href="/families/new">{COPY.familyAddAction}</ButtonLink>}
+        />
 
-      {isKnownNoticeCode(noticeCode) ? (
-        <Alert tone="info">{persianNotice(noticeCode)}</Alert>
-      ) : null}
+        {isKnownNoticeCode(noticeCode) ? (
+          <Alert tone="info">{persianNotice(noticeCode)}</Alert>
+        ) : null}
 
-      <FamilySearch
-        initial={{
-          q: '',
-          includeInactive: false,
-          families: result.ok ? result.data.families : [],
-          truncated: result.ok ? result.data.truncated : false,
-          searched: false,
-          errorMessage,
-        }}
-      />
-    </PageShell>
+        <FamilySearch
+          initial={{
+            q: '',
+            includeInactive: false,
+            families: result.ok ? result.data.families : [],
+            truncated: result.ok ? result.data.truncated : false,
+            searched: false,
+            errorMessage,
+          }}
+        />
+      </PageShell>
+    </>
   );
 }

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import { api } from '@/server/api-client';
 import { readCsrfCookie, readSessionToken, requireSession } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 import { GUARDIAN_RELATIONSHIP_LABEL } from '../relationship-labels';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,136 +59,140 @@ export default async function FamilyDetailPage({
   const canUpdateChildStatus = user.permissions.includes('child.update_status');
 
   return (
-    <PageShell>
-      <PageHeader
-        title={family.familyName}
-        backHref="/families"
-        backLabel={COPY.back}
-        action={
-          canUpdate ? <ButtonLink href={`/families/${id}/edit`}>{COPY.edit}</ButtonLink> : undefined
-        }
-      />
+    <>
+      <AppHeader />
+      <PageShell>
+        <PageHeader
+          title={family.familyName}
+          backHref="/families"
+          backLabel={COPY.back}
+          action={
+            canUpdate ? (
+              <ButtonLink href={`/families/${id}/edit`}>{COPY.edit}</ButtonLink>
+            ) : undefined
+          }
+        />
 
-      {isKnownNoticeCode(noticeCode) ? (
-        <Alert tone="info">{persianNotice(noticeCode)}</Alert>
-      ) : null}
-      {isKnownErrorCode(errorCode) ? <Alert>{persianMessage(errorCode)}</Alert> : null}
-
-      <Panel>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge
-            active={family.status === 'ACTIVE'}
-            labels={[COPY.statusActive, COPY.statusInactive]}
-          />
-        </div>
-
-        {family.address !== null ? (
-          <p className="text-sm text-slate-700">
-            <span className="font-medium">{COPY.familyAddressLabel}:</span> {family.address}
-          </p>
+        {isKnownNoticeCode(noticeCode) ? (
+          <Alert tone="info">{persianNotice(noticeCode)}</Alert>
         ) : null}
+        {isKnownErrorCode(errorCode) ? <Alert>{persianMessage(errorCode)}</Alert> : null}
 
-        {family.note !== null ? (
-          <p className="text-sm text-slate-700">
-            <span className="font-medium">{COPY.familyNoteLabel}:</span> {family.note}
-          </p>
-        ) : null}
-
-        {canUpdateStatus ? (
-          <form method="post" action="/api/families/status" className="pt-1">
-            <input type="hidden" name="csrfToken" value={csrfToken} />
-            <input type="hidden" name="id" value={family.id} />
-            <input
-              type="hidden"
-              name="status"
-              value={family.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+        <Panel>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              active={family.status === 'ACTIVE'}
+              labels={[COPY.statusActive, COPY.statusInactive]}
             />
-            <SubmitButton tone="secondary">
-              {family.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
-            </SubmitButton>
-          </form>
-        ) : null}
-      </Panel>
+          </div>
 
-      <Panel title={COPY.familyGuardiansTitle}>
-        <RecordList>
-          {guardians.map((guardian) => (
-            <RecordItem
-              key={guardian.id}
-              title={guardian.fullName}
-              badge={
-                guardian.isPrimaryContact ? (
-                  <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-900">
-                    {COPY.familyPrimaryContactBadge}
-                  </span>
-                ) : undefined
-              }
-              details={
-                <>
-                  <span>{GUARDIAN_RELATIONSHIP_LABEL[guardian.relationship]}</span>
-                  <span dir="ltr" className="text-start">
-                    {[guardian.mobile, guardian.landline].filter((v) => v !== null).join(' — ')}
-                  </span>
-                </>
-              }
-            />
-          ))}
-        </RecordList>
-      </Panel>
+          {family.address !== null ? (
+            <p className="text-sm text-slate-700">
+              <span className="font-medium">{COPY.familyAddressLabel}:</span> {family.address}
+            </p>
+          ) : null}
 
-      <Panel title={COPY.familyChildrenTitle}>
-        {canCreateChild ? (
-          <ButtonLink href={`/families/${id}/children/new`}>{COPY.familyAddChildAction}</ButtonLink>
-        ) : null}
+          {family.note !== null ? (
+            <p className="text-sm text-slate-700">
+              <span className="font-medium">{COPY.familyNoteLabel}:</span> {family.note}
+            </p>
+          ) : null}
 
-        {children.length === 0 ? (
-          <EmptyState message={COPY.familyAwaitingFirstChild} />
-        ) : (
+          {canUpdateStatus ? (
+            <form method="post" action="/api/families/status" className="pt-1">
+              <input type="hidden" name="csrfToken" value={csrfToken} />
+              <input type="hidden" name="id" value={family.id} />
+              <input
+                type="hidden"
+                name="status"
+                value={family.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+              />
+              <SubmitButton tone="secondary">
+                {family.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
+              </SubmitButton>
+            </form>
+          ) : null}
+        </Panel>
+
+        <Panel title={COPY.familyGuardiansTitle}>
           <RecordList>
-            {children.map((child) => (
+            {guardians.map((guardian) => (
               <RecordItem
-                key={child.id}
-                title={`${child.firstName} ${child.lastName}`}
+                key={guardian.id}
+                title={guardian.fullName}
                 badge={
-                  <StatusBadge
-                    active={child.status === 'ACTIVE'}
-                    labels={[COPY.statusActive, COPY.statusInactive]}
-                  />
+                  guardian.isPrimaryContact ? (
+                    <span className="inline-flex items-center rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-medium text-brand-900">
+                      {COPY.familyPrimaryContactBadge}
+                    </span>
+                  ) : undefined
                 }
                 details={
-                  <span>
-                    {COPY.childFileNumberLabel}: {child.fileNumber}
-                  </span>
-                }
-                actions={
                   <>
-                    <Link
-                      href={`/children/${child.id}/edit`}
-                      className="text-sm text-sky-800 underline underline-offset-4 hover:text-sky-950"
-                    >
-                      {COPY.edit}
-                    </Link>
-                    {canUpdateChildStatus ? (
-                      <form method="post" action="/api/children/status">
-                        <input type="hidden" name="csrfToken" value={csrfToken} />
-                        <input type="hidden" name="id" value={child.id} />
-                        <input
-                          type="hidden"
-                          name="status"
-                          value={child.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
-                        />
-                        <SubmitButton tone="secondary">
-                          {child.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
-                        </SubmitButton>
-                      </form>
-                    ) : null}
+                    <span>{GUARDIAN_RELATIONSHIP_LABEL[guardian.relationship]}</span>
+                    <span dir="ltr" className="text-start">
+                      {[guardian.mobile, guardian.landline].filter((v) => v !== null).join(' — ')}
+                    </span>
                   </>
                 }
               />
             ))}
           </RecordList>
-        )}
-      </Panel>
-    </PageShell>
+        </Panel>
+
+        <Panel title={COPY.familyChildrenTitle}>
+          {canCreateChild ? (
+            <ButtonLink href={`/families/${id}/children/new`}>
+              {COPY.familyAddChildAction}
+            </ButtonLink>
+          ) : null}
+
+          {children.length === 0 ? (
+            <EmptyState message={COPY.familyAwaitingFirstChild} />
+          ) : (
+            <RecordList>
+              {children.map((child) => (
+                <RecordItem
+                  key={child.id}
+                  title={`${child.firstName} ${child.lastName}`}
+                  badge={
+                    <StatusBadge
+                      active={child.status === 'ACTIVE'}
+                      labels={[COPY.statusActive, COPY.statusInactive]}
+                    />
+                  }
+                  details={
+                    <span>
+                      {COPY.childFileNumberLabel}: {child.fileNumber}
+                    </span>
+                  }
+                  actions={
+                    <>
+                      <ButtonLink href={`/children/${child.id}/edit`} tone="secondary">
+                        {COPY.edit}
+                      </ButtonLink>
+                      {canUpdateChildStatus ? (
+                        <form method="post" action="/api/children/status">
+                          <input type="hidden" name="csrfToken" value={csrfToken} />
+                          <input type="hidden" name="id" value={child.id} />
+                          <input
+                            type="hidden"
+                            name="status"
+                            value={child.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+                          />
+                          <SubmitButton tone="secondary">
+                            {child.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
+                          </SubmitButton>
+                        </form>
+                      ) : null}
+                    </>
+                  }
+                />
+              ))}
+            </RecordList>
+          )}
+        </Panel>
+      </PageShell>
+    </>
   );
 }

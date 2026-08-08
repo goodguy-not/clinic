@@ -26,6 +26,10 @@ export const COPY = {
 
   // --- functional labels ----------------------------------------------------
 
+  appTitle: 'سامانه داخلی کلینیک',
+  menuLabel: 'منو',
+  homeWelcome: 'بخش موردنظر را انتخاب کنید.',
+
   loginTitle: 'ورود به سامانه',
   username: 'نام کاربری',
   password: 'رمز عبور',

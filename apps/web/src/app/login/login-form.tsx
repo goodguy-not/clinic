@@ -1,3 +1,4 @@
+import { Alert, AuthShell, Field, SubmitButton } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 
 /**
@@ -21,46 +22,46 @@ export function LoginForm({
   errorMessage: string | null;
 }) {
   return (
-    <main>
-      <h1>{COPY.loginTitle}</h1>
+    <AuthShell title={COPY.loginTitle}>
+      {errorMessage === null ? null : <Alert>{errorMessage}</Alert>}
 
-      {errorMessage === null ? null : (
-        <p role="alert" className="error">
-          {errorMessage}
-        </p>
-      )}
-
-      <form method="post" action="/api/auth/login">
+      <form method="post" action="/api/auth/login" className="flex flex-col gap-4">
         {/* Server-rendered half of the double-submit pair. The cookie holding
             the same value is HttpOnly, so script cannot read either copy. */}
         <input type="hidden" name="csrfToken" value={csrfToken} />
 
-        <p>
-          <label htmlFor="username">{COPY.username}</label>
-          <input
-            id="username"
-            name="username"
-            type="text"
-            autoComplete="username"
-            required
-            dir="ltr"
-          />
-        </p>
+        <Field id="username" label={COPY.username} required>
+          {(props) => (
+            <input
+              {...props}
+              name="username"
+              type="text"
+              autoComplete="username"
+              required
+              dir="ltr"
+              className={`${props.className} text-start`}
+            />
+          )}
+        </Field>
 
-        <p>
-          <label htmlFor="password">{COPY.password}</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            dir="ltr"
-          />
-        </p>
+        <Field id="password" label={COPY.password} required>
+          {(props) => (
+            <input
+              {...props}
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              dir="ltr"
+              className={`${props.className} text-start`}
+            />
+          )}
+        </Field>
 
-        <button type="submit">{COPY.signIn}</button>
+        <div className="flex flex-col pt-2">
+          <SubmitButton>{COPY.signIn}</SubmitButton>
+        </div>
       </form>
-    </main>
+    </AuthShell>
   );
 }

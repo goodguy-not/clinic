@@ -1,100 +1,63 @@
 /*
- * Minimal RTL form styling, plus Tailwind.
+ * Global styles for the internal clinic UI.
  *
- * Tailwind arrives in Milestone 2 as a utility layer for the reference-data
- * screens, which need consistent responsive and accessible layout across
- * several similar forms and tables. It is build-time only: no component
- * library, no client runtime, and every page stays a Server Component.
+ * Tailwind is a build-time utility layer only: no component library, no client
+ * runtime, and every page stays a Server Component. Design tokens live in the
+ * `@theme` block so every surface shares one palette and one typeface instead
+ * of picking stock colours per call site.
  *
- * The element styles below are Milestone 1's and are deliberately left alone.
- * They keep the existing authentication and staff pages looking exactly as
- * they did, so adopting Tailwind is additive rather than a silent restyle of
- * surfaces nobody asked to change.
- *
- * Write layout with logical properties and Tailwind's logical utilities —
- * `ms-*`/`me-*`, `ps-*`/`pe-*`, `text-start`/`text-end` — never `left`/`right`.
- * The document is `dir="rtl"`, and physical directions do not flip with it.
+ * The document is Persian and `dir="rtl"`. Write layout with logical
+ * properties and Tailwind's logical utilities — `ms-*`/`me-*`, `ps-*`/`pe-*`,
+ * `text-start`/`text-end` — never `left`/`right`; physical directions do not
+ * flip with the document direction.
  */
 
 @import 'tailwindcss';
 
-:root {
-  color-scheme: light dark;
+/*
+ * Vazirmatn is self-hosted (single variable file, wght 100–900) so the UI
+ * renders Persian text properly offline and without a third-party request.
+ */
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/Vazirmatn-var.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
 }
 
-* {
-  box-sizing: border-box;
+@theme {
+  --font-sans: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+
+  /*
+   * Brand ramp: a calm clinical teal. `--color-brand-*` is the single source
+   * for interactive/primary colour; semantic tones (success/warning/danger)
+   * keep Tailwind's emerald/amber/red so alerts and badges stay conventional.
+   */
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-300: #5eead4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #14b8a6;
+  --color-brand-600: #0d9488;
+  --color-brand-700: #0f766e;
+  --color-brand-800: #115e59;
+  --color-brand-900: #134e4a;
+  --color-brand-950: #042f2e;
+
+  /* App chrome: a light neutral canvas behind white panels. */
+  --color-canvas: #f8fafc;
+}
+
+html {
+  /* Comfortable for Persian text at small sizes. */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  margin: 0;
-  padding: 2rem;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Tahoma,
-    sans-serif;
-  line-height: 1.7;
-}
-
-main {
-  max-width: 60rem;
-  margin-inline: auto;
-}
-
-label {
-  display: block;
-  margin-block-end: 0.25rem;
-  font-weight: 600;
-}
-
-input[type='text'],
-input[type='password'],
-select {
-  width: 100%;
-  max-width: 24rem;
-  padding: 0.5rem;
-  font: inherit;
-}
-
-button {
-  padding: 0.5rem 1rem;
-  font: inherit;
-  cursor: pointer;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-block-start: 1rem;
-}
-
-th,
-td {
-  padding: 0.5rem;
-  border-block-end: 1px solid;
-  text-align: start;
-  vertical-align: top;
-}
-
-/* Action buttons sit side by side inside a table cell. */
-.inline-action {
-  display: inline-block;
-  margin-inline-end: 0.25rem;
-  margin-block-end: 0.25rem;
-}
-
-.error {
-  font-weight: 600;
-  padding: 0.75rem;
-  border: 1px solid;
-  border-radius: 0.25rem;
-}
-
-.notice,
-.guidance {
-  padding: 0.75rem;
-  border: 1px solid;
-  border-radius: 0.25rem;
+  background-color: var(--color-canvas);
+  color: var(--color-slate-800);
+  font-family: var(--font-sans);
+  line-height: 1.8;
 }

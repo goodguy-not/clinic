@@ -9,6 +9,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { RoomList } from './room-list';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,11 +40,14 @@ export default async function RoomsPage({
       : persianMessage(rooms.code);
 
   return (
-    <RoomList
-      rooms={rooms.ok ? rooms.data.rooms : []}
-      services={services.ok ? services.data.services : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={errorMessage}
-    />
+    <>
+      <AppHeader />
+      <RoomList
+        rooms={rooms.ok ? rooms.data.rooms : []}
+        services={services.ok ? services.data.services : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={errorMessage}
+      />
+    </>
   );
 }

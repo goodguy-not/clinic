@@ -244,13 +244,13 @@ export function TariffForm({
               )}
             </Field>
 
-            <div className="flex items-start gap-2 rounded-md border border-slate-200 p-3">
+            <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3">
               <input
                 id="confirmFreePrice"
                 name="confirmFreePrice"
                 type="checkbox"
                 value="true"
-                className="mt-1 size-4 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                className="mt-1 size-4 shrink-0 accent-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
               />
               <label htmlFor="confirmFreePrice" className="text-sm text-slate-900">
                 {COPY.tariffFreeConfirmLabel}

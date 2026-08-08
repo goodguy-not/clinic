@@ -1,3 +1,4 @@
+import { AuthShell, SubmitButton } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 
 export const dynamic = 'force-dynamic';
@@ -17,12 +18,14 @@ export const dynamic = 'force-dynamic';
  */
 export default function SessionExpiredPage() {
   return (
-    <main>
-      <h1>{COPY.sessionExpired}</h1>
+    <AuthShell title={COPY.appTitle}>
+      <p className="text-center text-sm text-slate-700">{COPY.sessionExpired}</p>
 
-      <form method="post" action="/api/auth/session-reset">
-        <button type="submit">{COPY.sessionExpiredButton}</button>
+      <form method="post" action="/api/auth/session-reset" className="flex flex-col gap-4">
+        <div className="flex flex-col pt-2">
+          <SubmitButton>{COPY.sessionExpiredButton}</SubmitButton>
+        </div>
       </form>
-    </main>
+    </AuthShell>
   );
 }

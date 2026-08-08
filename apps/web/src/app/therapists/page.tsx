@@ -9,6 +9,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { TherapistList } from './therapist-list';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,11 +44,14 @@ export default async function TherapistsPage({
       : persianMessage(therapists.code);
 
   return (
-    <TherapistList
-      therapists={therapists.ok ? therapists.data.therapists : []}
-      services={services.ok ? services.data.services : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={errorMessage}
-    />
+    <>
+      <AppHeader />
+      <TherapistList
+        therapists={therapists.ok ? therapists.data.therapists : []}
+        services={services.ok ? services.data.services : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={errorMessage}
+      />
+    </>
   );
 }

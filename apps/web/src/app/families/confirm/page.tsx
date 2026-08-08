@@ -4,8 +4,18 @@ import { api } from '@/server/api-client';
 import { readCsrfCookie, requireSession, readSessionToken } from '@/server/auth-session';
 import { readDraftToken } from '@/server/draft-cookie';
 import { persianMessage } from '@/server/errors-fa';
-import { Alert, ButtonLink, PageHeader, PageShell, Panel, SubmitButton } from '@/components/ui';
+import {
+  Alert,
+  Badge,
+  ButtonLink,
+  PageHeader,
+  PageShell,
+  Panel,
+  SubmitButton,
+} from '@/components/ui';
+import { FOCUS_RING } from '@/components/styles';
 import { COPY } from '@/server/copy-fa';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,11 +43,14 @@ export default async function ConfirmRegistrationPage() {
 
   if (draftToken === null) {
     return (
-      <PageShell>
-        <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
-        <Alert>{persianMessage('DRAFT_NOT_FOUND')}</Alert>
-        <ButtonLink href="/families">{COPY.back}</ButtonLink>
-      </PageShell>
+      <>
+        <AppHeader />
+        <PageShell>
+          <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
+          <Alert>{persianMessage('DRAFT_NOT_FOUND')}</Alert>
+          <ButtonLink href="/families">{COPY.back}</ButtonLink>
+        </PageShell>
+      </>
     );
   }
 
@@ -46,11 +59,14 @@ export default async function ConfirmRegistrationPage() {
 
   if (!result.ok) {
     return (
-      <PageShell>
-        <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
-        <Alert>{persianMessage(result.code)}</Alert>
-        <ButtonLink href="/families">{COPY.back}</ButtonLink>
-      </PageShell>
+      <>
+        <AppHeader />
+        <PageShell>
+          <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
+          <Alert>{persianMessage(result.code)}</Alert>
+          <ButtonLink href="/families">{COPY.back}</ButtonLink>
+        </PageShell>
+      </>
     );
   }
 
@@ -59,26 +75,29 @@ export default async function ConfirmRegistrationPage() {
   const csrfToken = (await readCsrfCookie()) ?? '';
 
   return (
-    <PageShell>
-      <PageHeader title={COPY.duplicateTitle} />
+    <>
+      <AppHeader />
+      <PageShell>
+        <PageHeader title={COPY.duplicateTitle} />
 
-      <Alert tone="info">{isChild ? COPY.duplicateChildIntro : COPY.duplicateFamilyIntro}</Alert>
+        <Alert tone="info">{isChild ? COPY.duplicateChildIntro : COPY.duplicateFamilyIntro}</Alert>
 
-      <form method="post" action={CONFIRM_ACTION[draft.purpose]} className="flex flex-col gap-4">
-        <input type="hidden" name="csrfToken" value={csrfToken} />
+        <form method="post" action={CONFIRM_ACTION[draft.purpose]} className="flex flex-col gap-4">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
 
-        {draft.candidates.map((candidate) => (
-          <CandidatePanel key={acknowledgementId(candidate)} candidate={candidate} />
-        ))}
+          {draft.candidates.map((candidate) => (
+            <CandidatePanel key={acknowledgementId(candidate)} candidate={candidate} />
+          ))}
 
-        <SubmitButton>{COPY.duplicateConfirmAction}</SubmitButton>
-      </form>
+          <SubmitButton>{COPY.duplicateConfirmAction}</SubmitButton>
+        </form>
 
-      <form method="post" action="/api/registration-drafts/discard">
-        <input type="hidden" name="csrfToken" value={csrfToken} />
-        <SubmitButton tone="secondary">{COPY.duplicateDiscardAction}</SubmitButton>
-      </form>
-    </PageShell>
+        <form method="post" action="/api/registration-drafts/discard">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <SubmitButton tone="secondary">{COPY.duplicateDiscardAction}</SubmitButton>
+        </form>
+      </PageShell>
+    </>
   );
 }
 
@@ -94,10 +113,8 @@ function CandidatePanel({ candidate }: { candidate: DuplicateCandidate }) {
     <Panel>
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-slate-900">{candidate.familyName}</span>
-          <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-900">
-            {COPY.duplicateBlockingBadge}
-          </span>
+          <span className="font-semibold text-slate-900">{candidate.familyName}</span>
+          <Badge tone="danger">{COPY.duplicateBlockingBadge}</Badge>
         </div>
 
         {candidate.primaryGuardianName !== null ? (
@@ -114,14 +131,17 @@ function CandidatePanel({ candidate }: { candidate: DuplicateCandidate }) {
           </p>
         ) : null}
 
-        <label htmlFor={checkboxId} className="mt-2 flex items-start gap-2 text-sm">
+        <label
+          htmlFor={checkboxId}
+          className="mt-2 flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm font-medium"
+        >
           <input
             id={checkboxId}
             type="checkbox"
             name="acknowledgedDuplicateIds"
             value={id}
             required
-            className="mt-1 size-4"
+            className={`mt-1 size-4 shrink-0 accent-brand-700 ${FOCUS_RING}`}
           />
           {COPY.duplicateAcknowledgeLabel}
         </label>

@@ -9,6 +9,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { RoomForm } from '../room-form';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +30,13 @@ export default async function NewRoomPage({
   const code = typeof rawError === 'string' ? rawError : null;
 
   return (
-    <RoomForm
-      services={services.ok ? services.data.services : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
-    />
+    <>
+      <AppHeader />
+      <RoomForm
+        services={services.ok ? services.data.services : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
+      />
+    </>
   );
 }

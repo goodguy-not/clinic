@@ -10,6 +10,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { TherapistForm } from '../../therapist-form';
+import { AppHeader } from '@/components/app-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,11 +45,14 @@ export default async function EditTherapistPage({
   const code = typeof rawError === 'string' ? rawError : null;
 
   return (
-    <TherapistForm
-      therapist={therapist.data.therapist}
-      services={services.ok ? services.data.services : []}
-      csrfToken={(await readCsrfCookie()) ?? ''}
-      errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
-    />
+    <>
+      <AppHeader />
+      <TherapistForm
+        therapist={therapist.data.therapist}
+        services={services.ok ? services.data.services : []}
+        csrfToken={(await readCsrfCookie()) ?? ''}
+        errorMessage={isKnownErrorCode(code) ? persianMessage(code) : null}
+      />
+    </>
   );
 }
