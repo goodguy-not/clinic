@@ -543,3 +543,219 @@ No production behaviour changed. PostgreSQL was always the authority for expiry
 and security timestamps; the fixture now agrees with it.
 `harness-clock.int-spec.ts` asserts the property directly rather than waiting
 for a clock to drift on somebody's machine.
+
+---
+
+## 2026-08-09 — Duplicate detection blocks on two rules and warns on three
+
+**Status:** Accepted
+
+Five duplicate rules exist. `FAMILY_DUPLICATE_MOBILE` and
+`CHILD_DUPLICATE_IN_FAMILY` refuse a write until a member of staff explicitly
+acknowledges the named candidate. `SIMILAR_FAMILY_NAME_AND_GUARDIAN`,
+`SIMILAR_CHILD_IN_OTHER_FAMILY` and `SHARED_LANDLINE` are informational: the
+write proceeds and the interface shows a notice.
+
+- **Alternatives:** block on every similarity; warn on everything and block on
+  nothing; make severity configurable per clinic.
+- **Reason:** two real families sharing a surname is ordinary in Iran, and
+  refusing them would be the exact failure this milestone exists to avoid —
+  staff work around a system that blocks legitimate work, and the workaround is
+  a worse record than the duplicate. A shared mobile number, by contrast, is
+  almost always the same family called twice. Severity is a property of the
+  rule, so both kinds live in one `DUPLICATE_RULES` list rather than being
+  implied by which code path evaluated them.
+- **Trade-off:** an informational rule can be ignored, so some duplicates will
+  be created. Search and the acknowledgement trail are how they are found later.
+- **Assumptions:** no merge operation exists yet, so a duplicate created today
+  is repaired by hand until the milestone that owns financial history.
+- **Revisit when:** pilot data shows either kind firing at a rate staff ignore,
+  or a merge operation makes blocking cheaper to recover from.
+
+---
+
+## 2026-08-09 — Blocking duplicate rules are recomputed under an advisory lock
+
+**Status:** Accepted
+
+Every blocking rule is recomputed in SQL while a transaction-scoped advisory
+lock is held on the value being compared, keyed by PostgreSQL's own
+`hashtextextended`. One global lock order applies with no exceptions:
+`registration_draft` → `family` → `child` → advisory keys, and within one
+advisory class keys are taken in ascending numeric order.
+
+- **Alternatives:** a unique index on mobile; read-then-write without a lock;
+  `SERIALIZABLE` isolation for these transactions.
+- **Reason:** a check that reads before it writes is not a check under
+  concurrency — two receptionists registering the same family at the same moment
+  both read "no duplicate" and both insert. A unique index cannot express the
+  rule, because the duplicate is only blocking against _active_ families and is
+  acknowledgeable. Sorting by derived key rather than by submitted value or
+  submission order is what makes deadlock impossible.
+- **Trade-off:** the 64-bit key space admits collisions, which cost unnecessary
+  serialisation between two unrelated writes. Never a wrong answer: the lock is
+  purely mutual exclusion and the authoritative decision is the SQL recomputation
+  performed under it.
+- **Assumptions:** key derivation stays in PostgreSQL. A second implementation
+  in Node would have to agree bit for bit forever, and the day it stopped
+  agreeing two writers would take different locks and the mechanism would fail
+  open silently.
+- **Revisit when:** a rule needs to compare something that is not a short text
+  value, or lock contention becomes measurable at clinic scale.
+
+---
+
+## 2026-08-09 — Interrupted registrations are held in a database row, not a cookie
+
+**Status:** Accepted
+
+`registration_draft` holds a submitted payload for ten minutes between a blocked
+write and its confirmation screen. The token is returned once in the `409` body
+and lives in the browser only as an HttpOnly cookie.
+
+- **Alternatives:** a signed cookie carrying the payload; re-posting the whole
+  form from a hidden field; server session memory.
+- **Reason:** a signed cookie gives integrity, not confidentiality, and a family
+  with an address, a note and six guardians can exceed practical cookie size
+  limits — failing intermittently, and only for the largest records. A row also
+  survives a second web process with nothing that process had to have seen.
+- **Trade-off:** a fourth table, and rows that must expire. Expiry is measured by
+  PostgreSQL, never by Node.
+- **Assumptions:** a draft is transient workflow state, not a domain record: it
+  is never audited (a permanent record of a submission never made), it carries no
+  no-delete trigger because deletion is how it ends, and neither payload nor
+  token is logged.
+- **Revisit when:** a workflow needs a draft to outlive one sitting, which would
+  make it a domain record and change every one of these properties.
+
+Every failure mode — missing, expired, consumed, wrong user, wrong session, wrong
+purpose — answers `DRAFT_NOT_FOUND`. A draft token is a bearer credential, and
+distinguishing them would tell its holder which condition they tripped.
+
+---
+
+## 2026-08-09 — Identifiers are masked in audit; names are not
+
+**Status:** Accepted
+
+National identifiers and phone numbers are reduced to their last four digits in
+every `audit_log` payload and every duplicate-candidate response. Names, notes
+and addresses are written in full.
+
+- **Alternatives:** mask everything; mask nothing; encrypt audit payloads.
+- **Reason:** `audit_log` is append-only and permanent, so a value copied into it
+  is a second, unbounded, undeletable store of that identifier — held to answer
+  "what changed, and who changed it?", which does not require the value itself.
+  A change to a name, by contrast, _is_ the fact being recorded, and masking it
+  would make the trail useless for the corrections it exists to explain.
+- **Trade-off:** an auditor cannot reconstruct a previous phone number from the
+  log alone. Four digits is enough to confirm a row refers to the number in front
+  of them.
+- **Assumptions:** the masked shapes stay exact rather than prefixed — six
+  asterisks and four digits is unsatisfiable by a ten-digit value — so a full
+  identifier can never masquerade as a masked one, which a "starts with an
+  asterisk" rule would have permitted.
+- **Revisit when:** a legal or regulatory requirement demands full identifiers in
+  the audit trail, which would need a retention and access decision first.
+
+Three independent layers enforce it: `audit-safe.ts` is the only place these
+payloads are built, `assertAuditPayloadSafe` throws on a malformed one, and
+`audit_log_masked_identifiers_chk` makes PostgreSQL refuse the row.
+
+---
+
+## 2026-08-09 — Family search is a POST, and a Server Action rather than a Route Handler
+
+**Status:** Accepted
+
+`POST /families/search` at the API boundary. In the web tier, search is a Server
+Action (`app/families/search-action.ts`), not a Route Handler.
+
+- **Alternatives:** `GET /families?q=`; a Route Handler that redirects with the
+  term in the query string; a Route Handler that stores the term in a cookie.
+- **Reason:** the term is a guardian's name, a child's name or a phone number.
+  A URL reaches browser history, a `Referer` header, and every access and proxy
+  log on the path. An action posts the term in a request body and answers in the
+  response to that same request — there is no redirect to carry state across, so
+  there is nothing to put in a query string and nothing to put in a cookie. The
+  term exists for one request and is then gone.
+- **Trade-off:** a search result cannot be linked to or bookmarked, and the back
+  button re-submits rather than replays. Both are acceptable for a screen whose
+  purpose is to find one family and open it.
+- **Revisit when:** a reporting surface needs shareable filtered views, which
+  would be non-personal filters and could use a URL.
+
+A Server Action is a browser-reachable endpoint no Route Handler guard covers,
+so it resolves its own session, names its own permission, and applies the same
+strict Origin allow-list on top of the Origin/Host equality Next.js already
+enforces. `handler-coverage.test.ts` enumerates every `'use server'` module and
+fails the build for one that does not.
+
+---
+
+## 2026-08-09 — One allow-listed Client Component, superseding the Milestone 2 "none"
+
+**Status:** Accepted — supersedes the "no Client Components" clause of
+2026-08-06 — Tailwind CSS v4, CSS-first, no component toolkit
+
+`apps/web/src/app/families/family-search.tsx` is the product's only Client
+Component. It is named in `CLIENT_COMPONENT_ALLOWLIST` in
+`scripts/check-web-boundary.mjs`, which fails the check for any file carrying
+`'use client'` that is not listed.
+
+- **Alternatives:** keep the zero-Client-Component rule and put the search term
+  in a URL; render search results on a separate page reached by redirect.
+- **Reason:** the term must not reach a URL (previous entry), which forces a
+  Server Action, and reading an action's return value requires `useActionState`,
+  which is a client hook. The component owns the hook and nothing else.
+- **Trade-off:** the presentational panel, the family list and their Persian
+  strings enter the client bundle. Accepted: they are UI text and markup. No
+  secret can follow them — every module holding one declares `server-only` and
+  would fail the build if it were reachable from a Client Component, and the
+  import bans in the boundary script are the second, legible line of that same
+  defence.
+- **Assumptions:** the state `useActionState` carries stays plain and
+  serialisable. A React element in it makes React silently drop progressive
+  enhancement and emit an inert `action="javascript:throw ..."` form — observed
+  against Next 16.2.12 before the shape was settled.
+- **Revisit when:** a second component wants the exemption. The allow-list makes
+  that a visible diff in review rather than quiet drift back towards a
+  client-rendered application.
+
+---
+
+## 2026-08-09 — Accepted implementation deviations from the Milestone 3 plan
+
+**Status:** Accepted
+
+Found during Checkpoint G and kept deliberately.
+
+**`Referrer-Policy` on family and child pages is `same-origin`, not
+`no-referrer`.** The intent was `no-referrer`. Per the Fetch standard, a document
+served under `no-referrer` makes the browser send `Origin: null` on a _same-origin_
+form POST — not merely an absent `Referer`. The strict Origin check then correctly
+refuses it, because `null` matches no configured origin. Verified against a real
+browser: with `no-referrer`, every write on these pages failed
+`AUTH_ORIGIN_REJECTED`. `same-origin` still sends nothing to any other origin and
+is what a same-origin form needs to reach its own Route Handler at all. Route
+Handler _responses_ keep `no-referrer`, where no form is being rendered.
+
+**`dynamic = 'force-dynamic'` was not sufficient for the privacy requirement.**
+It governs whether Next re-renders a page, which is a different question from
+whether a browser or proxy may keep a copy of the bytes. The `no-store` headers
+in `next.config.ts` are what actually answer it, and `next-config-headers.test.ts`
+now asserts both the header rules and that every family and child page is
+`force-dynamic` and `noindex`.
+
+**A `'use server'` module may export only async functions, and React enforces it
+at call time rather than build time.** A constant sitting beside an action renders
+fine, builds fine, and fails on the first form submission. `FamilySearchState`
+therefore lives in a sibling `search-state.ts`, and both
+`check-web-boundary.mjs` and `handler-coverage.test.ts` check the property
+repository-wide.
+
+**The application header resolves its own session rather than receiving it as a
+prop.** Pages render `AppHeader` beside `PageShell`, never inside it, so the
+presentational list and form components stay synchronously renderable for the
+markup tests. Navigation is rendered from the permission list NestJS resolved for
+that request, and sign-out is a form post rather than a link.

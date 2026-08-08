@@ -234,7 +234,9 @@ internet sign a staff member out. Session reset is therefore a POST reached from
 | `session.revoke_any`  |   yes   |      —       |
 
 A receptionist holds **no** permission in Milestone 1 — deliberate, not an oversight. Their
-access is the self-service endpoints, which need authentication but no permission.
+access is the self-service endpoints, which need authentication but no permission. That stays
+true through Milestone 2; Milestone 3 grants them the eight family and child permissions and
+nothing else (see [Families and children](#families-and-children-milestone-3)).
 
 Permission _names_ live in `@clinic/contracts` so the web tier can decide what to render.
 The authoritative role-to-permission map lives in `apps/api` and nowhere else.
@@ -478,9 +480,10 @@ on route declaration order.
 three, and `/tariffs/new?supersedes=<id>` for a tariff correction. There is no tariff edit page,
 because there is no such thing as editing a tariff.
 
-Server Components throughout, **zero client JavaScript**, ordinary form posts to one Route
-Handler per state change, and redirect-with-error-code for failures. Tailwind CSS v4 provides
-the utilities; there is no component toolkit and no client runtime.
+Server Components throughout, **zero client JavaScript on these pages**, ordinary form posts
+to one Route Handler per state change, and redirect-with-error-code for failures. Tailwind
+CSS v4 provides the utilities; there is no component toolkit and no client runtime. Milestone
+3 adds the product's single allow-listed Client Component, on the family search screen only.
 
 ### Database objects
 
@@ -498,6 +501,217 @@ path that creates clinic reference data.
 The overlap constraints need the **`btree_gist`** extension, which the migration creates. It
 requires extension-creation privilege — available in the dev and CI containers, and worth
 confirming on any managed host before the pilot.
+
+## Families and children (Milestone 3)
+
+The first receptionist workflow, and the first personal data in the product: families with
+their guardians, and the children who attend sessions. A family may have many children; the
+balance that arrives in a later milestone belongs to the family, and every charge will name
+the child (PROJECT_SPEC.md 5, 7).
+
+This is also the first milestone a **receptionist** can use. They hold exactly the eight
+family and child permissions and nothing else — no catalog, no tariffs, no user or session
+administration.
+
+### Scope, and what is deliberately absent
+
+Built: family registration with one to six guardians, child registration, search across
+family name, guardian name, child name, phone number and file number, duplicate detection
+with an explicit acknowledgement step, editing, and active/inactive status for both records.
+
+Not built, and each for a stated reason:
+
+| Absent                                          | Why                                                                                                                                                                                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Moving a child between families**             | It rewrites who owes for every session that child has ever had. A genuine reassignment is a designed, audited repair belonging to the milestone that owns financial history; until then PostgreSQL refuses it outright. |
+| **Deleting a family or child**                  | Final records are voided or adjusted, never physically deleted (CLAUDE.md). Deactivation is the operation; no-delete triggers enforce the rest.                                                                         |
+| **Merging two families found to be duplicates** | Merging moves children and, later, money. Same reason as reassignment: it belongs with financial history.                                                                                                               |
+| **Family-specific tariffs, ledgers, balances**  | Milestones 5 onward. Nothing here calculates money.                                                                                                                                                                     |
+| **Clinical records, diagnoses, therapy notes**  | Out of product scope entirely (CLAUDE.md, Product boundary).                                                                                                                                                            |
+
+No real clinic data appears anywhere. Every fixture, test and example name is synthetic
+(PROJECT_SPEC.md 17).
+
+### Families and guardians
+
+A family is a name, an optional address and note, a status, and one to six guardians.
+Exactly one guardian is the primary contact, enforced by a partial unique index rather than
+by application code. Guardians are current configuration, not history: an edit replaces the
+set wholesale and `audit_log` records them as values, exactly as Milestone 2 does for
+`therapist_service`.
+
+Mobile and landline numbers are validated as Iranian numbers by the contract. A national
+identifier (کد ملی) is optional everywhere it appears — requiring one would refuse a newborn
+who does not have one yet, and slow the phone-call path this milestone exists to protect —
+but when present its check digit is verified in the contract and its ten-digit shape is
+pinned by a `CHECK`.
+
+### Children
+
+First and last name, birth date, sex, optional national identifier, optional legacy paper
+file number, referral source, note and status.
+
+`file_number` is **generated**, never accepted from a request: it is
+`lpad(nextval('child_file_number_seq'), 5, '0')`, so nobody types it and nobody collides on
+it. It is quoted aloud, printed and written on a paper file, so a number that could change
+would not be an identifier — `child_enforce_identity_immutability` refuses any update to it,
+and to `id`, `family_id`, `created_at` and `created_by_user_id`, with the same SQLSTATE
+`23001` every other "the database refuses to rewrite this" failure raises.
+
+### Search
+
+`POST /families/search`, not `GET`. The term is a guardian's name, a child's name, a mobile
+number or a file number — personal data, which must not reach a URL, browser history, a
+`Referer` header or an access log.
+
+Matching runs over normalised copies of the searchable columns (`fa_normalize`, which folds
+Arabic/Persian letter variants, Persian and Arabic-Indic digits, and diacritics), so a name
+typed with a Farsi ی finds one stored with an Arabic ي. A digit query matches a phone number
+by suffix once it reaches four digits — shorter than that it returns most of the clinic — and
+matches a file number exactly. An empty query returns the 25 most recent registrations, which
+is the "I just registered them" path. Results cap at 50 with a `truncated` flag rather than
+paging.
+
+### Duplicate detection
+
+Five rules, of which two **block** a write until a member of staff explicitly acknowledges
+the candidate, and three are informational and never refuse anything:
+
+| Rule                               | Kind          | Fires when                                                    |
+| ---------------------------------- | ------------- | ------------------------------------------------------------- |
+| `FAMILY_DUPLICATE_MOBILE`          | blocking      | An active family already holds one of the submitted mobiles.  |
+| `CHILD_DUPLICATE_IN_FAMILY`        | blocking      | Same normalised name and identical birth date, in one family. |
+| `SIMILAR_FAMILY_NAME_AND_GUARDIAN` | informational | Matching family name and a matching guardian name.            |
+| `SIMILAR_CHILD_IN_OTHER_FAMILY`    | informational | Same name and birth date, in a different family.              |
+| `SHARED_LANDLINE`                  | informational | Another family lists the same landline.                       |
+
+Similarity alone is never a refusal. Two real families sharing a surname is ordinary, and
+blocking them is the exact failure this milestone is built to avoid; the informational rules
+return a `NoticeCode` alongside a write that succeeded.
+
+**Blocking rules are recomputed under a lock, not merely read.** A check that reads before it
+writes is not a check under concurrency: two receptionists registering the same family at the
+same moment both read "no duplicate" and both insert. Every blocking rule is therefore
+recomputed while a transaction-scoped advisory lock is held on the value being compared, with
+one global lock order — `registration_draft` → `family` → `child` → advisory keys, and
+ascending numeric key order within a class — so no two transactions can deadlock. Keys come
+from PostgreSQL's own `hashtextextended`; a second implementation in Node would have to agree
+bit for bit forever, and the day it stopped agreeing the mechanism would fail open.
+
+The candidates offered back carry a family name, who answers the phone and the **last four
+digits** of the number — enough to recognise a family, not a copy of an identifier in an
+error body that staff may never read.
+
+### Registration drafts
+
+A duplicate is only detectable after a submission, and a Route Handler cannot render a page,
+so something has to hold what was typed across the confirmation step. That something is a
+`registration_draft` row, not a cookie: a signed cookie gives integrity, not confidentiality,
+and a family with an address, a note and several guardians can exceed practical cookie size
+limits — failing intermittently, and only for the largest records.
+
+A draft is transient workflow state, not a domain record. It is never audited (auditing one
+would create a permanent record of a submission that was never made), it carries no
+no-delete or no-truncate trigger because deletion is how it ends, and neither its payload nor
+its token is ever logged. It expires after ten minutes, measured by PostgreSQL.
+
+Missing, expired, already consumed, wrong user, wrong session and wrong purpose all answer
+`DRAFT_NOT_FOUND`. A draft token is a bearer credential, and distinguishing those conditions
+would tell its holder which one they tripped — the same reasoning behind
+`AUTH_INVALID_CREDENTIALS`.
+
+The token reaches the browser exactly once, in the body of the `409`, and the web tier puts
+it straight into an **HttpOnly cookie**. It never appears in a form field, in the
+confirmation page's markup, or in a redirect target.
+
+### Audit and personal data
+
+`audit_log` is append-only and permanent, so anything copied into it is a second, unbounded,
+undeletable store of that value. National identifiers and phone numbers are therefore reduced
+to their last four digits — enough to confirm a row refers to the number in front of you, not
+enough to be a copy of it. Names, notes and addresses are written in full: a change to a name
+_is_ the fact being recorded.
+
+Three layers enforce it. `audit-safe.ts` is the only place a family or child payload is
+built; `assertAuditPayloadSafe` walks every payload and throws on an identifier that is
+neither `null` nor exactly masked; and `audit_log_masked_identifiers_chk` makes PostgreSQL
+refuse the row. The masked shapes are exact rather than prefixed — six asterisks and four
+digits is unsatisfiable by a ten-digit value — so a full identifier cannot masquerade as a
+masked one.
+
+### Permissions
+
+Eight permissions, held by both roles:
+
+`family.read|create|update|update_status`, `child.read|create|update|update_status`.
+
+A receptionist held no permission at all through Milestones 1 and 2. From here they hold
+exactly these and nothing else, and `permissions.spec.ts` asserts both halves — what they
+have, and what they still do not.
+
+### Endpoints
+
+```text
+POST   /families/search              POST   /families/:familyId/children
+GET    /families/:id                 GET    /children/:id
+POST   /families                     PATCH  /children/:id
+PATCH  /families/:id                 PATCH  /children/:id/status
+PATCH  /families/:id/status          POST   /children/confirm-registration
+POST   /families/confirm-registration POST  /children/confirm-update
+POST   /families/confirm-update
+
+GET    /registration-drafts/current
+POST   /registration-drafts/discard
+```
+
+Search is a `POST` because its body is personal data. There is no delete route on anything,
+and no route that changes a child's `familyId`. Each confirmation route lives on the
+controller that owns the write it completes and supplies its own `DraftPurpose`, so a token
+minted for one flow can never be spent on another.
+
+### Persian pages
+
+`/families`, `/families/new`, `/families/confirm`, `/families/[id]`, `/families/[id]/edit`,
+`/families/[id]/children/new`, `/children/[id]/edit`.
+
+Every one is `force-dynamic` and `noindex`, and every one carries `Cache-Control: no-store`
+from `next.config.ts` — a cached family page on a shared reception machine is readable by
+whoever sits down next. `Referrer-Policy` is `same-origin` rather than `no-referrer` on these
+pages; see the decision log entry of 2026-08-09 for why `no-referrer` silently breaks every
+form on them.
+
+These pages hold the product's **one Client Component**,
+`app/families/family-search.tsx`, whose entire job is to own `useActionState`. Family search
+is a Server Action rather than a Route Handler precisely so the term never needs a URL, a
+redirect or a cookie to survive — and reading an action's return value requires a client
+hook. It is named in `CLIENT_COMPONENT_ALLOWLIST` in `scripts/check-web-boundary.mjs`, so a
+second one is a visible diff in review rather than a quiet drift back towards a
+client-rendered application. Everything else remains a Server Component.
+
+`handler-coverage.test.ts` enumerates every `'use server'` module and fails the build for one
+that does not resolve a session and name a permission — a Server Action is a
+browser-reachable endpoint that no Route Handler guard covers.
+
+### Database objects
+
+Four tables — `family`, `guardian`, `child`, `registration_draft` — with four enums
+(`record_status`, `guardian_relationship`, `child_sex`, `draft_purpose`).
+
+The reviewed migration hand-writes 26 CHECK constraints, three partial unique indexes
+(`guardian_one_primary_per_family_uq`, `child_national_id_uq`,
+`child_legacy_paper_file_number_uq`), four no-delete/no-truncate triggers on `family` and
+`child`, the child identity immutability trigger, and four functions: `fa_normalize`,
+`search_like_escape`, `clinic_date` and `audit_identifiers_masked`. Every one is pinned by
+name in `families-schema.int-spec.ts`, because `prisma migrate diff` does not see CHECK
+constraints or triggers and would let one disappear silently.
+
+`guardian` and `registration_draft` deliberately carry no delete trigger, for different
+reasons: guardians are configuration replaced wholesale and recorded as audit values, and a
+draft is meant to be consumed and removed.
+
+As in both earlier migrations, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
+Closing that needs a runtime database role that does not own these tables, and remains a
+production hardening item.
 
 ## Environment variables
 
