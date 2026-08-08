@@ -61,6 +61,29 @@ export const PERMISSIONS = [
   'child.create',
   'child.update',
   'child.update_status',
+
+  // Appointments. The names only: which role holds which of these is decided in
+  // the checkpoint that builds the surface using it, not here. `ROLE_PERMISSIONS`
+  // in `apps/api` is unchanged by this checkpoint.
+  //
+  // Five verbs rather than one `appointment.write`, because they are five
+  // different authorities over the same row. Recording that a session happened
+  // is what will create a charge (PROJECT_SPEC.md 6) and cancelling deliberately
+  // creates none; treating those as one permission would make the no-show and
+  // correction policies, both still unresolved, impossible to express without a
+  // schema change.
+  'appointment.read',
+  'appointment.create',
+  'appointment.update',
+  'appointment.cancel',
+  'appointment.record_outcome',
+
+  // Therapist availability: recurring working windows and dated exceptions. A
+  // permission of its own rather than `therapist.update`, because a receptionist
+  // may plausibly maintain a schedule without being able to edit the therapist
+  // record itself.
+  'availability.read',
+  'availability.manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

@@ -68,6 +68,32 @@ export const AUDIT_ACTIONS = [
   // It records the candidate ids and the rule names, never an identifier.
   'family.duplicate_override',
   'child.duplicate_override',
+
+  // Appointments. Endpoints arrive in the checkpoints that follow this one; the
+  // vocabulary is fixed here for the same reason as above, so the audit
+  // contract does not change underneath them.
+  //
+  // Completion and cancellation are separate actions rather than one
+  // `appointment.status_changed`, unlike every catalog entity. A completion is
+  // what will create a session charge and a cancellation deliberately creates
+  // none. "How often is a session cancelled by the clinic?" is a question the
+  // pilot will ask, and an answer buried in a JSON diff is not something you can
+  // count.
+  'appointment.created',
+  'appointment.updated',
+  'appointment.completed',
+  'appointment.cancelled',
+  // Names a participant, not the booking: one child's own outcome, which is a
+  // separate fact from the booking's status. A no-show is recorded here, because
+  // a no-show is a seat's outcome and not a state of the booking — there is
+  // deliberately no `appointment.no_show_recorded`.
+  'appointment.attendance_recorded',
+  'appointment_series.created',
+  'appointment_series.updated',
+  // Availability is current configuration, so a change is one action carrying
+  // the windows as values — exactly how a guardian change is recorded inside
+  // `family.updated`.
+  'therapist_availability.updated',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -87,6 +113,17 @@ export const AUDIT_ENTITY_TYPES = [
   'tariff',
   'family',
   'child',
+  'appointment',
+  // Present, unlike `guardian`: a seat is not replaced wholesale with its
+  // booking. It carries its own attendance outcome, it will be named by a
+  // session charge, and an audit row therefore has to be able to name the seat
+  // rather than the appointment around it.
+  'appointment_participant',
+  'appointment_series',
+  // `therapist_availability` and `therapist_availability_exception` are
+  // deliberately absent, for the reason `guardian` is: they are current
+  // configuration replaced as a set, and the change is recorded against the
+  // existing `therapist` entity type as values rather than against a window id.
   // `guardian` is deliberately absent: guardians are replaced as a set with
   // their family, so a guardian change is recorded inside `family.updated` as
   // an ordered list of values, and no audit row ever names a guardian id.

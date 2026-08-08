@@ -141,6 +141,9 @@ const PROTECTED_TABLES = [
   'tariff',
   'family',
   'child',
+  'appointment',
+  'appointment_participant',
+  'appointment_series',
 ];
 
 /**
@@ -152,6 +155,15 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 4, dependents first: a seat names an appointment, an appointment
+  // names a series and reference data, and the two availability tables cascade
+  // from their therapist. Neither availability table is protected — both are
+  // current configuration, like `therapist_service`.
+  'appointment_participant',
+  'appointment',
+  'appointment_series',
+  'therapist_availability_exception',
+  'therapist_availability',
   'tariff',
   'therapist_service',
   'room_service',

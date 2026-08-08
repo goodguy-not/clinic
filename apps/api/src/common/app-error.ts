@@ -78,6 +78,28 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // would tell its holder which condition they tripped.
   DRAFT_NOT_FOUND: 404,
 
+  APPOINTMENT_NOT_FOUND: 404,
+  APPOINTMENT_SERIES_NOT_FOUND: 404,
+  APPOINTMENT_PARTICIPANT_NOT_FOUND: 404,
+  // 409: the request is well formed and the caller may legitimately want it, but
+  // the slot is taken. The resource that is busy is named by the code, so the
+  // caller knows which field to change.
+  APPOINTMENT_THERAPIST_CONFLICT: 409,
+  APPOINTMENT_ROOM_CONFLICT: 409,
+  APPOINTMENT_CHILD_CONFLICT: 409,
+  // 422: nothing conflicts, the submitted shape is just not one the domain
+  // permits.
+  APPOINTMENT_TIME_INVALID: 422,
+  APPOINTMENT_DURATION_NOT_ALLOWED: 422,
+  // 409: the row is in a state that does not allow this transition, which a
+  // retry against a re-read row may well resolve.
+  APPOINTMENT_TRANSITION_INVALID: 409,
+  APPOINTMENT_OUTSIDE_AVAILABILITY: 422,
+  RECURRENCE_RULE_INVALID: 422,
+  AVAILABILITY_WINDOW_INVALID: 422,
+  ROOM_INACTIVE: 422,
+  CHILD_INACTIVE: 422,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -129,6 +151,22 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   FAMILY_INACTIVE: 'The family is inactive',
   CHILD_BIRTH_DATE_IN_FUTURE: 'The birth date is after the current date at the clinic',
   DRAFT_NOT_FOUND: 'Registration draft not found or no longer valid',
+
+  APPOINTMENT_NOT_FOUND: 'Appointment not found',
+  APPOINTMENT_SERIES_NOT_FOUND: 'Appointment series not found',
+  APPOINTMENT_PARTICIPANT_NOT_FOUND: 'This child is not a participant in the appointment',
+  APPOINTMENT_THERAPIST_CONFLICT: 'The therapist already has an appointment in this time range',
+  APPOINTMENT_ROOM_CONFLICT: 'The room is already booked for this time range',
+  APPOINTMENT_CHILD_CONFLICT: 'The child already has an appointment in this time range',
+  APPOINTMENT_TIME_INVALID: 'The appointment start, end or duration is not a valid window',
+  APPOINTMENT_DURATION_NOT_ALLOWED: 'The service does not offer this session length',
+  APPOINTMENT_TRANSITION_INVALID:
+    'The current status of the appointment does not allow this change',
+  APPOINTMENT_OUTSIDE_AVAILABILITY: 'The therapist is not available in this time range',
+  RECURRENCE_RULE_INVALID: 'A series must state either an occurrence count or an end date',
+  AVAILABILITY_WINDOW_INVALID: 'The availability window is not a valid time range',
+  ROOM_INACTIVE: 'The room is inactive',
+  CHILD_INACTIVE: 'The child is inactive',
 
   INTERNAL_ERROR: 'Internal error',
 };

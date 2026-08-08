@@ -1,9 +1,15 @@
 import {
+  APPOINTMENT_STATUSES,
+  ATTENDANCE_OUTCOMES,
   ERROR_CODES,
   NOTICE_CODES,
   PERMISSIONS,
+  RECURRENCE_ENDS,
   USER_ROLES,
   USER_STATUSES,
+  appointmentParticipantSchema,
+  appointmentSchema,
+  clockTimeSchema,
   createChildRequestSchema,
   createFamilyRequestSchema,
   errorEnvelopeSchema,
@@ -13,6 +19,7 @@ import {
   loginRequestSchema,
   nationalIdSchema,
   usernameSchema,
+  weekdaySchema,
 } from '@clinic/contracts';
 
 /**
@@ -331,5 +338,125 @@ describe('Milestone 3 contracts', () => {
     expect(createChildRequestSchema.safeParse({ ...child, fileNumber: '10001' }).success).toBe(
       false,
     );
+  });
+});
+
+describe('Milestone 4 contracts', () => {
+  it('declares the appointment, recurrence and availability error codes', () => {
+    for (const code of [
+      'APPOINTMENT_NOT_FOUND',
+      'APPOINTMENT_SERIES_NOT_FOUND',
+      'APPOINTMENT_PARTICIPANT_NOT_FOUND',
+      'APPOINTMENT_THERAPIST_CONFLICT',
+      'APPOINTMENT_ROOM_CONFLICT',
+      'APPOINTMENT_CHILD_CONFLICT',
+      'APPOINTMENT_TIME_INVALID',
+      'APPOINTMENT_DURATION_NOT_ALLOWED',
+      'APPOINTMENT_TRANSITION_INVALID',
+      'APPOINTMENT_OUTSIDE_AVAILABILITY',
+      'RECURRENCE_RULE_INVALID',
+      'AVAILABILITY_WINDOW_INVALID',
+      'ROOM_INACTIVE',
+      'CHILD_INACTIVE',
+    ]) {
+      expect(ERROR_CODES).toContain(code);
+    }
+  });
+
+  it('names each conflicting resource separately', () => {
+    // One `APPOINTMENT_CONFLICT` would leave the receptionist guessing which of
+    // the therapist, the room or the child is busy, and therefore which field
+    // to change.
+    expect(ERROR_CODES).not.toContain('APPOINTMENT_CONFLICT');
+  });
+
+  it('adds the appointment and availability permission names only', () => {
+    const m4 = PERMISSIONS.filter((permission) =>
+      /^(?:appointment|availability)\./.test(permission),
+    );
+
+    expect([...m4].sort()).toEqual([
+      'appointment.cancel',
+      'appointment.create',
+      'appointment.read',
+      'appointment.record_outcome',
+      'appointment.update',
+      'availability.manage',
+      'availability.read',
+    ]);
+  });
+
+  it('carries no financial field on an appointment or a seat', () => {
+    // Pricing a session is Milestone 5's. A tariff, a price, a discount or a
+    // charge appearing on either shape would put an amount into the contract
+    // before the rules that produce it are approved.
+    const financial = /tariff|price|amount|toman|charge|discount|fee/i;
+
+    for (const shape of [appointmentSchema, appointmentParticipantSchema]) {
+      for (const field of Object.keys(shape.shape)) {
+        expect(field).not.toMatch(financial);
+      }
+    }
+  });
+
+  it('keeps the booking lifecycle and the seat attendance as two separate facts', () => {
+    // A seat carries no status, and a booking carries no attendance. Neither is
+    // derived from the other: a child may be absent from a session that took
+    // place.
+    expect(Object.keys(appointmentParticipantSchema.shape)).toContain('attendance');
+    expect(Object.keys(appointmentParticipantSchema.shape)).not.toContain('status');
+    expect(Object.keys(appointmentSchema.shape)).toContain('status');
+    expect(Object.keys(appointmentSchema.shape)).not.toContain('attendance');
+  });
+
+  it('does not carry the family on a seat, which the child already decides', () => {
+    expect(Object.keys(appointmentParticipantSchema.shape)).not.toContain('familyId');
+  });
+
+  it('gives the booking four lifecycle values and no more', () => {
+    expect([...APPOINTMENT_STATUSES]).toEqual([
+      'SCHEDULED',
+      'COMPLETED',
+      'CANCELLED_BY_FAMILY',
+      'CANCELLED_BY_CLINIC',
+    ]);
+
+    // A no-show is a seat's outcome, not a state of the booking: the room was
+    // held and the therapist waited. Voiding is not part of this lifecycle
+    // either — reversing a recorded financial fact belongs to Milestone 5.
+    expect(APPOINTMENT_STATUSES).not.toContain('NO_SHOW');
+    expect(APPOINTMENT_STATUSES).not.toContain('VOIDED');
+    expect(APPOINTMENT_STATUSES).not.toContain('RESCHEDULED');
+  });
+
+  it('puts the no-show on the seat, and declares no ABSENT', () => {
+    expect([...ATTENDANCE_OUTCOMES]).toEqual(['PENDING', 'ATTENDED', 'NO_SHOW']);
+    expect(ATTENDANCE_OUTCOMES).not.toContain('ABSENT');
+  });
+
+  it('numbers weekdays from Saturday, which is the shared product contract', () => {
+    // 0 is Saturday through 6 is Friday — the Iranian week — and deliberately
+    // not PostgreSQL's EXTRACT(DOW), which starts on Sunday. Other consumers of
+    // this package depend on this numbering, so it is pinned here as well as at
+    // the database boundary.
+    for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(weekdaySchema.safeParse(weekday).success).toBe(true);
+    }
+
+    expect(weekdaySchema.safeParse(7).success).toBe(false);
+    expect(weekdaySchema.safeParse(-1).success).toBe(false);
+    expect(weekdaySchema.safeParse(1.5).success).toBe(false);
+  });
+
+  it('bounds a series by an occurrence count or an end date, never both', () => {
+    expect([...RECURRENCE_ENDS]).toEqual(['OCCURRENCE_COUNT', 'END_DATE']);
+  });
+
+  it('accepts a wall-clock availability time and rejects an instant', () => {
+    expect(clockTimeSchema.safeParse('09:00').success).toBe(true);
+    expect(clockTimeSchema.safeParse('23:59').success).toBe(true);
+    expect(clockTimeSchema.safeParse('24:00').success).toBe(false);
+    // Not an instant: a working window is a time of day, not a moment.
+    expect(clockTimeSchema.safeParse('2026-09-01T09:00:00Z').success).toBe(false);
   });
 });

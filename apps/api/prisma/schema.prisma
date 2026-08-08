@@ -2,6 +2,8 @@
 // Milestone 2 — clinic reference data: therapists, services, rooms, tariffs.
 // Milestone 3 — families, guardians, children, and the transient registration
 //               draft that carries a submission across a duplicate warning.
+// Milestone 4 — appointments: the booking, the per-child seat in it, the
+//               recurrence series, and therapist availability.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
 // indexes, exclusion constraints, composite foreign keys, functions and
@@ -142,6 +144,58 @@ enum ChildSex {
   @@map("child_sex")
 }
 
+/// The lifecycle of an appointment as a booking.
+///
+/// Level one of the two-level model: this describes the SHARED BOOKING — one
+/// therapist, one room, one service, one time range — and says nothing about
+/// what any individual child did. That is the participant's `attendance`.
+///
+/// FOUR VALUES, AND NO MORE. A no-show is not a state of the booking: the room
+/// was held and the therapist waited, and the fact that somebody did not arrive
+/// belongs to the seat that was empty. It is `AttendanceOutcome.NO_SHOW`.
+///
+/// `SCHEDULED` and `COMPLETED` occupy the therapist and the room; both
+/// cancellations release them, which is what the two exclusion constraints in
+/// the migration are conditional on.
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED_BY_FAMILY
+  CANCELLED_BY_CLINIC
+
+  @@map("appointment_status")
+}
+
+/// What one child did with their seat.
+///
+/// Level two of the two-level model, and a separate fact from the booking's own
+/// lifecycle: a child may fail to arrive for a session that took place.
+///
+/// `PENDING` is a real value and the default, not a missing one: the
+/// receptionist dashboard's "unresolved outcomes" list is this value.
+///
+/// `NO_SHOW` is here rather than on the booking because it is a fact about one
+/// child. It creates no charge until the clinic approves a policy.
+enum AttendanceOutcome {
+  PENDING
+  ATTENDED
+  NO_SHOW
+
+  @@map("attendance_outcome")
+}
+
+/// How a recurring series is bounded.
+///
+/// PROJECT_SPEC.md 6 offers exactly two ways to bound a weekly pattern — a
+/// number of occurrences or a last date — and a series states one of them. An
+/// unbounded series would generate occurrences forever.
+enum RecurrenceEnd {
+  OCCURRENCE_COUNT
+  END_DATE
+
+  @@map("recurrence_end")
+}
+
 /// What a registration draft is holding.
 ///
 /// The draft is addressed by an opaque token and consumed exactly once, so the
@@ -197,6 +251,11 @@ model AppUser {
   createdFamilies    Family[]
   createdChildren    Child[]
   registrationDrafts RegistrationDraft[]
+
+  createdAppointments      Appointment[]
+  createdAppointmentSeries AppointmentSeries[]
+  createdAvailability      TherapistAvailability[]
+  createdAvailabilityExceptions TherapistAvailabilityException[]
 
   @@map("app_user")
 }
@@ -297,9 +356,12 @@ model Therapist {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String        @map("created_by_user_id") @db.Uuid
 
-  createdBy         AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  supportedServices TherapistService[]
-  tariffs           Tariff[]
+  createdBy            AppUser                         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supportedServices    TherapistService[]
+  tariffs              Tariff[]
+  appointments         Appointment[]
+  availability         TherapistAvailability[]
+  availabilityExceptions TherapistAvailabilityException[]
 
   @@index([status])
   @@map("therapist")
@@ -325,6 +387,7 @@ model Service {
   therapists       TherapistService[]
   roomRestrictions RoomService[]
   tariffs          Tariff[]
+  appointments     Appointment[]
 
   @@index([status])
   @@map("service")
@@ -345,8 +408,9 @@ model ServiceDuration {
   serviceId       String @map("service_id") @db.Uuid
   durationMinutes Int    @map("duration_minutes")
 
-  service Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  tariffs Tariff[] @relation("TariffServiceDuration")
+  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tariffs      Tariff[]      @relation("TariffServiceDuration")
+  appointments Appointment[] @relation("AppointmentServiceDuration")
 
   @@unique([serviceId, durationMinutes])
   @@map("service_duration")
@@ -363,6 +427,7 @@ model Room {
 
   createdBy       AppUser       @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   allowedServices RoomService[]
+  appointments    Appointment[]
 
   @@index([status])
   @@map("room")
@@ -619,9 +684,10 @@ model Child {
 
   /// `Restrict` rather than `Cascade`: a child is a permanent historical record,
   /// and a family cannot be deleted in any case.
-  family    Family              @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  drafts    RegistrationDraft[]
+  family           Family                   @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy        AppUser                  @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  drafts           RegistrationDraft[]
+  appointmentSeats AppointmentParticipant[]
 
   @@index([familyId])
   @@index([status])
@@ -685,4 +751,253 @@ model RegistrationDraft {
   /// The key the opportunistic expiry sweep uses.
   @@index([expiresAt])
   @@map("registration_draft")
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 4 — appointments.
+//
+// FIVE TABLES, STRUCTURE ONLY. `appointment` and `appointment_participant` are
+// the two-level spine (DECISION_LOG, 2026-08-02); `appointment_series` carries
+// a weekly recurrence; `therapist_availability` and
+// `therapist_availability_exception` carry recurring working windows plus dated
+// exceptions (PROJECT_SPEC.md 5).
+//
+// This checkpoint builds the SCHEMA for all five and the BEHAVIOUR of none.
+// There is no booking, no occurrence generation, no availability check and no
+// group-booking rule. The tables exist now so that the checkpoints that add
+// those behaviours do not each open with a migration, and so the spine is
+// settled before any history exists.
+//
+// NO FINANCIAL COLUMN APPEARS ANYWHERE HERE. There is no tariff reference, no
+// price snapshot, no tariff source, no charge, no discount and no amount of any
+// kind. Pricing a session is Milestone 5's, and a read-only tariff suggestion
+// arrives in a later checkpoint of this milestone as a lookup, not as stored
+// state.
+//
+// TWO FACTS, NOT ONE. `appointment.status` is the booking's lifecycle;
+// `appointment_participant.attendance` is what one child did. They are recorded
+// separately and neither is derived from the other — a child may be absent from
+// a session that took place.
+//
+// WHAT POSTGRESQL ENFORCES AND THIS FILE DOES NOT SHOW: the window arithmetic
+// (`ends_at = starts_at + duration_minutes`), therapist and room overlap as two
+// exclusion constraints, and the pairing of every outcome timestamp with its
+// status. Read the migration alongside this.
+//
+// WHAT POSTGRESQL DELIBERATELY DOES NOT ENFORCE: a child booked into two
+// overlapping sessions. The child is on the participant and the time is on the
+// appointment, so no single-row constraint can see both. It is recomputed in SQL
+// under a transaction-scoped advisory lock when a seat is written, exactly as
+// the blocking duplicate rules are (DECISION_LOG, 2026-08-09), and that belongs
+// to the booking checkpoint.
+//
+// ON CLOCKS: as in every earlier milestone, PostgreSQL owns the record's own
+// timestamps — `created_at` and the outcome timestamps come from
+// `transaction_timestamp()`. `starts_at` is different in kind: it is a time
+// somebody chose, supplied by the caller, and is the one timestamp here that is
+// not a clock reading.
+// ---------------------------------------------------------------------------
+
+/// A booking: one therapist, one room, one service, one time range.
+///
+/// `endsAt` is stored rather than computed so the exclusion constraints can
+/// range over it, and a CHECK requires it to equal
+/// `startsAt + durationMinutes`, so it is never a second fact that can disagree
+/// with the first.
+///
+/// `durationMinutes` carries a composite foreign key to `ServiceDuration`, so an
+/// appointment can only be booked for a session length the service actually
+/// offers — the same guarantee, and the same mechanism, as `Tariff`.
+///
+/// Each outcome timestamp is paired with exactly one status by a CHECK, so a
+/// `SCHEDULED` row cannot carry a cancellation and a cancelled one cannot lack a
+/// reason.
+///
+/// `seriesId` is null for a one-off appointment. Every occurrence of a recurring
+/// series is an ordinary row here and stays independently traceable
+/// (PROJECT_SPEC.md 6) — the series groups them, it does not own them.
+///
+/// Appointments are permanent historical records: a cancelled one stays visible
+/// in the appointment report. There is no delete endpoint and the migration adds
+/// BEFORE DELETE and BEFORE TRUNCATE triggers, exactly as for `family` and
+/// `child`. Provenance — `id`, `createdAt`, `createdByUserId` — is immutable by
+/// trigger.
+model Appointment {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  serviceId       String            @map("service_id") @db.Uuid
+  durationMinutes Int               @map("duration_minutes")
+  therapistId     String            @map("therapist_id") @db.Uuid
+  roomId          String            @map("room_id") @db.Uuid
+  /// The instant the session starts. Supplied by the caller, read by the clinic
+  /// in Asia/Tehran, and converted to Jalali by the web tier at its own edge.
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz
+  status          AppointmentStatus @default(SCHEDULED)
+  seriesId        String?           @map("series_id") @db.Uuid
+  /// Non-clinical, as on `Family` and `Child`.
+  note            String?
+
+  /// Each of these is required by exactly the status it names and forbidden by
+  /// every other one. There is no no-show timestamp: a no-show is one child's
+  /// outcome and lives on the seat.
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz
+  cancellationReason String?   @map("cancellation_reason")
+
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+
+  service         Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceDuration ServiceDuration    @relation("AppointmentServiceDuration", fields: [serviceId, durationMinutes], references: [serviceId, durationMinutes], onDelete: Restrict, onUpdate: Cascade)
+  therapist       Therapist          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  room            Room               @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  series          AppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  participants AppointmentParticipant[]
+
+  /// The day view: every appointment in a time range, whatever its status.
+  @@index([startsAt])
+  /// One therapist's or one room's day. The exclusion constraints build GIST
+  /// indexes on the same columns, but only over occupying statuses, so they
+  /// cannot answer "show me everything, including what was cancelled".
+  @@index([therapistId, startsAt])
+  @@index([roomId, startsAt])
+  @@index([serviceId])
+  /// "This and all future occurrences", which is a series operation.
+  @@index([seriesId, startsAt])
+  @@map("appointment")
+}
+
+/// One child's seat in a booking.
+///
+/// THE FAMILY IS REACHED THROUGH THE CHILD and is deliberately not repeated
+/// here. A child belongs permanently to one family — `child.family_id` is
+/// immutable by trigger — so a second copy could only ever be a way for the two
+/// to disagree about who was treated.
+///
+/// THERE IS NO PRICE ON THIS ROW. What a session costs the family is Milestone
+/// 5's, and inventing a column for it now would put an amount in the database
+/// before the rules that produce it are approved.
+///
+/// `attendance` is this seat's own outcome and is a separate fact from
+/// `appointment.status`. The rule that only an attended participant in a
+/// completed appointment may carry a primary session charge is enforced where
+/// charges are created, which is not this milestone.
+///
+/// "An individual appointment has exactly one participant" is a SERVICE
+/// invariant, not a database one, exactly as "a family has at least one
+/// guardian" is. A unique index on `appointmentId` would express it, and would
+/// also collapse this into a one-to-one relation and undo the two-level
+/// structure this milestone establishes.
+model AppointmentParticipant {
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  appointmentId        String            @map("appointment_id") @db.Uuid
+  childId              String            @map("child_id") @db.Uuid
+  attendance           AttendanceOutcome @default(PENDING)
+  attendanceRecordedAt DateTime?         @map("attendance_recorded_at") @db.Timestamptz
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  child       Child       @relation(fields: [childId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([appointmentId])
+  /// The key the child-conflict recomputation reads, joined to `appointment`
+  /// for the window. Also one child's session history.
+  @@index([childId])
+  @@map("appointment_participant")
+}
+
+/// A weekly recurring series.
+///
+/// The series is an IDENTITY AND A TERMINATION RULE, not a template. The pattern
+/// — therapist, room, service, duration, time of day — lives on the occurrences
+/// it generated, because PROJECT_SPEC.md 6 requires each occurrence to stay
+/// independently traceable and editable. Storing the pattern twice would let a
+/// series describe something none of its occurrences match.
+///
+/// `endMode` says which bound applies, and a CHECK requires exactly the matching
+/// column to be present. An unbounded series would generate occurrences forever.
+///
+/// `intervalWeeks` is 1 for every week and 2 for every second week. Weekly
+/// patterns are what PROJECT_SPEC.md 6 approves; nothing here expresses monthly
+/// or daily recurrence.
+model AppointmentSeries {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  intervalWeeks   Int           @default(1) @map("interval_weeks")
+  startsOn        DateTime      @map("starts_on") @db.Date
+  endMode         RecurrenceEnd @map("end_mode")
+  occurrenceCount Int?          @map("occurrence_count")
+  endsOn          DateTime?     @map("ends_on") @db.Date
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String        @map("created_by_user_id") @db.Uuid
+
+  createdBy    AppUser       @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointments Appointment[]
+
+  @@map("appointment_series")
+}
+
+/// A therapist's recurring working window on one weekday.
+///
+/// `weekday` is the clinic's own numbering: 0 is SATURDAY, 6 is Friday, because
+/// the Iranian week begins on Saturday and that is the order a schedule is read
+/// and printed in. It is the shared product contract (`weekdaySchema` in
+/// `@clinic/contracts`) and is deliberately NOT PostgreSQL's `EXTRACT(DOW)`,
+/// which begins on Sunday. Native DOW is translated at the boundary that reads
+/// an instant — `(EXTRACT(DOW FROM ts AT TIME ZONE 'Asia/Tehran')::int + 1) % 7`
+/// — and never stored.
+///
+/// `startTime` and `endTime` are wall-clock times in the clinic's timezone, not
+/// instants: "Saturdays, 09:00 to 13:00" is the fact being recorded, and it does
+/// not move when a particular date does.
+///
+/// Effective-dated, because a therapist's hours change and an appointment booked
+/// last month was legitimate against last month's hours. A NULL `effectiveTo` is
+/// open-ended, exactly as on `Tariff`.
+///
+/// Nothing in this milestone reads these rows. Whether an out-of-availability
+/// booking is blocked or allowed with a recorded override (PROJECT_SPEC.md 5) is
+/// the availability checkpoint's decision, and no column here presumes it.
+model TherapistAvailability {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  therapistId     String    @map("therapist_id") @db.Uuid
+  weekday         Int
+  startTime       DateTime  @map("start_time") @db.Time
+  endTime         DateTime  @map("end_time") @db.Time
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy AppUser   @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([therapistId, weekday])
+  @@map("therapist_availability")
+}
+
+/// A dated exception to the recurring windows: one day off, or one extra window.
+///
+/// `isAvailable = false` closes the whole day and carries no times. `true` adds
+/// a window outside the ordinary pattern and requires them. A CHECK pairs the
+/// two, so an exception cannot be half-stated.
+///
+/// Unlike the windows themselves these are single-day facts, so they carry a
+/// date rather than an effective range.
+model TherapistAvailabilityException {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  therapistId     String    @map("therapist_id") @db.Uuid
+  exceptionDate   DateTime  @map("exception_date") @db.Date
+  isAvailable     Boolean   @map("is_available")
+  startTime       DateTime? @map("start_time") @db.Time
+  endTime         DateTime? @map("end_time") @db.Time
+  reason          String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy AppUser   @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([therapistId, exceptionDate])
+  @@map("therapist_availability_exception")
 }

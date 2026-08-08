@@ -78,6 +78,44 @@ export const ERROR_CODES = [
   // reasoning that makes AUTH_INVALID_CREDENTIALS cover four login failures.
   'DRAFT_NOT_FOUND',
 
+  // Appointments. The vocabulary only: no endpoint raises any of these yet.
+  'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_SERIES_NOT_FOUND',
+  'APPOINTMENT_PARTICIPANT_NOT_FOUND',
+  // Three separate conflicts, never one `APPOINTMENT_CONFLICT`. Each names a
+  // different resource, each is resolved by changing a different field, and the
+  // interface has to say which one is busy for the receptionist to fix it
+  // without guessing. They are raised from three named PostgreSQL exclusion
+  // constraints, so the code is decided by which constraint fired rather than
+  // by a re-read that could disagree with it.
+  'APPOINTMENT_THERAPIST_CONFLICT',
+  'APPOINTMENT_ROOM_CONFLICT',
+  'APPOINTMENT_CHILD_CONFLICT',
+  // The start, end and duration do not describe one coherent window.
+  'APPOINTMENT_TIME_INVALID',
+  // The service does not offer this session length. Distinct from
+  // `TARIFF_DURATION_NOT_ALLOWED`, which is the same foreign key seen while
+  // pricing rather than while booking: different mistake, different fix.
+  'APPOINTMENT_DURATION_NOT_ALLOWED',
+  // The requested status change is not a permitted transition from the current
+  // one — completing a cancelled appointment, cancelling a completed one.
+  'APPOINTMENT_TRANSITION_INVALID',
+  // Booked outside the therapist's recurring windows, or on a day a dated
+  // exception closes. PROJECT_SPEC.md 5 requires this to be prevented or
+  // explicitly authorized; which of the two, and by whom, is the availability
+  // checkpoint's decision.
+  'APPOINTMENT_OUTSIDE_AVAILABILITY',
+  // A recurring series must state exactly one bound: a number of occurrences or
+  // a last date (PROJECT_SPEC.md 6).
+  'RECURRENCE_RULE_INVALID',
+  // A working window whose end is not after its start, or an exception that
+  // closes a day and carries times anyway.
+  'AVAILABILITY_WINDOW_INVALID',
+  // Booking something the clinic no longer offers. `SERVICE_INACTIVE` and
+  // `THERAPIST_INACTIVE` already exist for the other two.
+  'ROOM_INACTIVE',
+  'CHILD_INACTIVE',
+
   'INTERNAL_ERROR',
 ] as const;
 

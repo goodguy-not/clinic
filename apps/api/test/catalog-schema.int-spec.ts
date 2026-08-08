@@ -182,10 +182,11 @@ describe('catalog schema objects', () => {
     `;
     const tables = rows.map((row) => row.table_name).sort();
 
-    // Availability, appointments, ledger, payments and the public site are
-    // later milestones. Listing the whole set here makes an out-of-scope table
-    // fail a test rather than arrive unnoticed — which is exactly what it did
-    // when Milestone 3 added its four, so this list grew deliberately.
+    // The ledger, payments and the public site are later milestones. Listing
+    // the whole set here makes an out-of-scope table fail a test rather than
+    // arrive unnoticed — which is exactly what it did when Milestone 3 added
+    // its four and Milestone 4 its five, so this list grew deliberately both
+    // times.
     expect(tables).toEqual(
       [
         '_prisma_migrations',
@@ -204,6 +205,12 @@ describe('catalog schema objects', () => {
         'guardian',
         'child',
         'registration_draft',
+        // Milestone 4. Five tables and no more.
+        'appointment',
+        'appointment_participant',
+        'appointment_series',
+        'therapist_availability',
+        'therapist_availability_exception',
       ].sort(),
     );
   });
