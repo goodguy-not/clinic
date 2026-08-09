@@ -111,6 +111,17 @@ export const ERROR_CODES = [
   // A working window whose end is not after its start, or an exception that
   // closes a day and carries times anyway.
   'AVAILABILITY_WINDOW_INVALID',
+  // Two recurring windows describe the same weekday, the same hours and
+  // overlapping effective dates. Refused rather than merged: a therapist's week
+  // has one reading, and two rows stating the same hours would make "when does
+  // this window stop applying?" a question with two answers.
+  'AVAILABILITY_WINDOW_OVERLAP',
+  // Two dated exceptions collide on one date — two extra windows over the same
+  // hours, two closed days, or a closed day and an extra window on the same
+  // date, which is a contradiction rather than a refinement.
+  'AVAILABILITY_EXCEPTION_CONFLICT',
+  // The exception named does not exist, or belongs to a different therapist.
+  'AVAILABILITY_EXCEPTION_NOT_FOUND',
   // Booking something the clinic no longer offers. `SERVICE_INACTIVE` and
   // `THERAPIST_INACTIVE` already exist for the other two.
   'ROOM_INACTIVE',

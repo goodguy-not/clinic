@@ -104,9 +104,15 @@ export type AppointmentSeries = z.infer<typeof appointmentSeriesSchema>;
 /**
  * A therapist's recurring working window on one weekday.
  *
- * Effective-dated, because hours change and an appointment booked last month was
- * legitimate against last month's hours. A null `effectiveTo` is open-ended,
- * exactly as on a tariff.
+ * CURRENT CONFIGURATION, WITH NO EFFECTIVE DATING. A weekday and two wall-clock
+ * times, and the window applies whenever it is asked about. Hours change by
+ * editing the set, and what the set said before is history in `audit_log`.
+ *
+ * There is deliberately no `effectiveFrom` or `effectiveTo`. The columns existed
+ * on the table this shape mirrors and the availability migration drops them:
+ * effective-dated availability is not approved for this milestone, and a field
+ * kept for a capability that does not exist is one a caller will eventually try
+ * to use.
  */
 export const therapistAvailabilitySchema = z.strictObject({
   id: z.uuid(),
@@ -114,8 +120,6 @@ export const therapistAvailabilitySchema = z.strictObject({
   weekday: weekdaySchema,
   startTime: clockTimeSchema,
   endTime: clockTimeSchema,
-  effectiveFrom: isoDateSchema,
-  effectiveTo: isoDateSchema.nullable(),
   createdAt: z.iso.datetime(),
 });
 

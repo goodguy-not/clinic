@@ -1,6 +1,7 @@
 import {
   APPOINTMENT_STATUSES,
   ATTENDANCE_OUTCOMES,
+  AVAILABILITY_WINDOWS_MAX,
   ERROR_CODES,
   NOTICE_CODES,
   PERMISSIONS,
@@ -9,7 +10,9 @@ import {
   USER_STATUSES,
   appointmentParticipantSchema,
   appointmentSchema,
+  availabilityWindowInputSchema,
   clockTimeSchema,
+  createAvailabilityExceptionRequestSchema,
   createChildRequestSchema,
   createFamilyRequestSchema,
   errorEnvelopeSchema,
@@ -18,6 +21,8 @@ import {
   loginResponseSchema,
   loginRequestSchema,
   nationalIdSchema,
+  replaceAvailabilityWindowsRequestSchema,
+  resolvedAvailabilitySchema,
   usernameSchema,
   weekdaySchema,
 } from '@clinic/contracts';
@@ -450,6 +455,131 @@ describe('Milestone 4 contracts', () => {
 
   it('bounds a series by an occurrence count or an end date, never both', () => {
     expect([...RECURRENCE_ENDS]).toEqual(['OCCURRENCE_COUNT', 'END_DATE']);
+  });
+
+  describe('the availability contract', () => {
+    const windowInput = (overrides: Record<string, unknown> = {}) => ({
+      weekday: 0,
+      startTime: '09:00',
+      endTime: '13:00',
+      ...overrides,
+    });
+
+    it('declares the availability management error codes', () => {
+      for (const code of [
+        'AVAILABILITY_WINDOW_OVERLAP',
+        'AVAILABILITY_EXCEPTION_CONFLICT',
+        'AVAILABILITY_EXCEPTION_NOT_FOUND',
+      ]) {
+        expect(ERROR_CODES).toContain(code);
+      }
+    });
+
+    it('accepts a well-formed recurring window', () => {
+      expect(availabilityWindowInputSchema.safeParse(windowInput()).success).toBe(true);
+    });
+
+    it('rejects a window that ends before or when it starts', () => {
+      expect(
+        availabilityWindowInputSchema.safeParse(windowInput({ endTime: '08:00' })).success,
+      ).toBe(false);
+      expect(
+        availabilityWindowInputSchema.safeParse(windowInput({ endTime: '09:00' })).success,
+      ).toBe(false);
+    });
+
+    it('is a weekday and two times, with no effective dating of any kind', () => {
+      // Recurring availability is current configuration. A start or end date on
+      // a window would be effective-dated availability history, which is not
+      // approved and must not be expressible.
+      expect(Object.keys(availabilityWindowInputSchema.def.shape).sort()).toEqual([
+        'endTime',
+        'startTime',
+        'weekday',
+      ]);
+
+      for (const dated of ['effectiveFrom', 'effectiveTo', 'validFrom', 'validTo', 'startsOn']) {
+        expect(
+          availabilityWindowInputSchema.safeParse(windowInput({ [dated]: '2026-01-01' })).success,
+        ).toBe(false);
+      }
+    });
+
+    it('carries no id, because the set is replaced rather than edited row by row', () => {
+      expect(
+        availabilityWindowInputSchema.safeParse({
+          ...windowInput(),
+          id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        }).success,
+      ).toBe(false);
+    });
+
+    it('accepts an empty week, which clears a therapist’s standing hours', () => {
+      expect(replaceAvailabilityWindowsRequestSchema.safeParse({ windows: [] }).success).toBe(true);
+    });
+
+    it('refuses a submission beyond the weekly ceiling', () => {
+      const tooMany = Array.from({ length: AVAILABILITY_WINDOWS_MAX + 1 }, () => windowInput());
+
+      expect(replaceAvailabilityWindowsRequestSchema.safeParse({ windows: tooMany }).success).toBe(
+        false,
+      );
+    });
+
+    it('pairs a dated exception with exactly what its kind requires', () => {
+      const closed = { isAvailable: false, exceptionDate: '2026-09-01', reason: 'مرخصی' };
+      const open = {
+        isAvailable: true,
+        exceptionDate: '2026-09-01',
+        startTime: '16:00',
+        endTime: '19:00',
+        reason: null,
+      };
+
+      expect(createAvailabilityExceptionRequestSchema.safeParse(closed).success).toBe(true);
+      expect(createAvailabilityExceptionRequestSchema.safeParse(open).success).toBe(true);
+
+      // A closed day with times, and an extra window without them, are both
+      // half-stated facts that the database CHECK refuses as well.
+      expect(
+        createAvailabilityExceptionRequestSchema.safeParse({
+          ...closed,
+          startTime: '16:00',
+          endTime: '19:00',
+        }).success,
+      ).toBe(false);
+
+      expect(
+        createAvailabilityExceptionRequestSchema.safeParse({
+          isAvailable: true,
+          exceptionDate: '2026-09-01',
+          reason: null,
+        }).success,
+      ).toBe(false);
+    });
+
+    it('resolves a date to Saturday-first windows and never to stored rows', () => {
+      const resolved = {
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        date: '2026-09-01',
+        weekday: 3,
+        isClosed: false,
+        closedReason: null,
+        windows: [{ startTime: '09:00', endTime: '13:00' }],
+      };
+
+      expect(resolvedAvailabilitySchema.safeParse(resolved).success).toBe(true);
+
+      // The resolved answer carries no row identity: a caller must not be able
+      // to tell a recurring window from a dated one, because they are equally
+      // available time.
+      expect(
+        resolvedAvailabilitySchema.safeParse({
+          ...resolved,
+          windows: [{ startTime: '09:00', endTime: '13:00', source: 'recurring' }],
+        }).success,
+      ).toBe(false);
+    });
   });
 
   it('accepts a wall-clock availability time and rejects an instant', () => {

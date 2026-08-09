@@ -951,21 +951,28 @@ model AppointmentSeries {
 /// instants: "Saturdays, 09:00 to 13:00" is the fact being recorded, and it does
 /// not move when a particular date does.
 ///
-/// Effective-dated, because a therapist's hours change and an appointment booked
-/// last month was legitimate against last month's hours. A NULL `effectiveTo` is
-/// open-ended, exactly as on `Tariff`.
+/// CURRENT CONFIGURATION, NOT EFFECTIVE-DATED. A window is a weekday and two
+/// times; it applies whenever it is asked about. The rows are replaced as a set
+/// when a manager edits the schedule, and the set that was replaced is preserved
+/// in `audit_log` under `therapist_availability.updated` rather than in this
+/// table.
 ///
-/// Nothing in this milestone reads these rows. Whether an out-of-availability
-/// booking is blocked or allowed with a recorded override (PROJECT_SPEC.md 5) is
-/// the availability checkpoint's decision, and no column here presumes it.
+/// `effectiveFrom` and `effectiveTo` were created with this table for
+/// effective-dated hours and are DROPPED by the availability migration: that
+/// capability is not approved, and columns kept "in case" are how one arrives by
+/// accident. Dated facts live in `TherapistAvailabilityException`, which carries
+/// a single date rather than a range.
+///
+/// Two windows may not describe the same therapist's same weekday over
+/// overlapping hours: an EXCLUDE constraint in the availability migration
+/// refuses that, so one week has one reading. Two blocks on the same day — a
+/// morning and an evening — remain legitimate.
 model TherapistAvailability {
   id              String    @id @default(uuid(7)) @db.Uuid
   therapistId     String    @map("therapist_id") @db.Uuid
   weekday         Int
   startTime       DateTime  @map("start_time") @db.Time
   endTime         DateTime  @map("end_time") @db.Time
-  effectiveFrom   DateTime  @map("effective_from") @db.Date
-  effectiveTo     DateTime? @map("effective_to") @db.Date
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String    @map("created_by_user_id") @db.Uuid
 
@@ -983,7 +990,13 @@ model TherapistAvailability {
 /// two, so an exception cannot be half-stated.
 ///
 /// Unlike the windows themselves these are single-day facts, so they carry a
-/// date rather than an effective range.
+/// date rather than an effective range. They accumulate rather than being
+/// replaced: an exception is added and removed one at a time, and both are
+/// audited against the therapist.
+///
+/// One EXCLUDE constraint in the availability migration treats a closed day as
+/// the whole day, so a date cannot be closed twice, cannot carry two overlapping
+/// extra windows, and cannot be both closed and open.
 model TherapistAvailabilityException {
   id              String    @id @default(uuid(7)) @db.Uuid
   therapistId     String    @map("therapist_id") @db.Uuid

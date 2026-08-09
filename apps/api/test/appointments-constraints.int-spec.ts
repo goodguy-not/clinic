@@ -428,25 +428,24 @@ describe('appointment database constraints', () => {
   });
 
   describe('therapist availability', () => {
+    // A weekday and two times. The effective-dating columns this table was
+    // created with are dropped by the availability migration: recurring
+    // availability is current configuration, and that capability is not
+    // approved (see that migration for the reasoning).
     function createWindow(values: {
       weekday?: number;
       startTime?: string;
       endTime?: string;
-      effectiveFrom?: string;
-      effectiveTo?: string | null;
     }): Promise<unknown> {
       return harness.prisma.$executeRaw`
         INSERT INTO therapist_availability (
-          id, therapist_id, weekday, start_time, end_time,
-          effective_from, effective_to, created_by_user_id
+          id, therapist_id, weekday, start_time, end_time, created_by_user_id
         ) VALUES (
           ${uuidv7()}::uuid,
           ${therapistId}::uuid,
           ${values.weekday ?? 0},
           ${values.startTime ?? '09:00'}::time,
           ${values.endTime ?? '13:00'}::time,
-          ${values.effectiveFrom ?? '2026-01-01'}::date,
-          ${values.effectiveTo ?? null}::date,
           ${actorId}::uuid
         )
       `;
@@ -480,12 +479,28 @@ describe('appointment database constraints', () => {
       );
     });
 
-    it('refuses an effective range that ends before it starts', async () => {
-      await expectRejection(
-        createWindow({ effectiveFrom: '2026-06-01', effectiveTo: '2026-01-01' }),
-        CHECK_VIOLATION,
-        /therapist_availability_effective_range_chk/,
-      );
+    it('has no effective-dating column to state a range with', async () => {
+      // The availability migration drops `effective_from` and `effective_to`,
+      // and `therapist_availability_effective_range_chk` with them. A window is
+      // current configuration: it applies whenever it is asked about.
+      const columns = await harness.prisma.$queryRaw<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'therapist_availability'
+      `;
+
+      const names = columns.map((column) => column.column_name);
+
+      expect(names).not.toContain('effective_from');
+      expect(names).not.toContain('effective_to');
+      expect(names.sort()).toEqual([
+        'created_at',
+        'created_by_user_id',
+        'end_time',
+        'id',
+        'start_time',
+        'therapist_id',
+        'weekday',
+      ]);
     });
 
     it('accepts a closed day and an extra window, and refuses a half-stated exception', async () => {
@@ -550,10 +565,10 @@ describe('appointment database constraints', () => {
     it('lets an availability window be deleted, because it is configuration', async () => {
       await harness.prisma.$executeRaw`
         INSERT INTO therapist_availability (
-          id, therapist_id, weekday, start_time, end_time, effective_from, created_by_user_id
+          id, therapist_id, weekday, start_time, end_time, created_by_user_id
         ) VALUES (
           ${uuidv7()}::uuid, ${therapistId}::uuid, 6, '09:00'::time, '13:00'::time,
-          DATE '2026-01-01', ${actorId}::uuid
+          ${actorId}::uuid
         )
       `;
 

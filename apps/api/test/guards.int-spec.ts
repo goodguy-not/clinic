@@ -265,7 +265,9 @@ describe('guard chain (real PostgreSQL)', () => {
       // children:   create, confirm-registration, confirm-update, read,
       //             update, status
       // drafts:     current, discard
-      expect(routes).toBe(48);
+      // availability: windows list, windows replace, exceptions list,
+      //               exception add, exception remove, resolution
+      expect(routes).toBe(54);
     });
   });
 });

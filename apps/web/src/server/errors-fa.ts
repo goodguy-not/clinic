@@ -103,6 +103,9 @@ const MESSAGES: Record<DisplayableCode, string> = {
   APPOINTMENT_OUTSIDE_AVAILABILITY: 'درمانگر در این بازهٔ زمانی در دسترس نیست.',
   RECURRENCE_RULE_INVALID: 'برای نوبت تکرارشونده باید تعداد جلسه‌ها یا تاریخ پایان مشخص شود.',
   AVAILABILITY_WINDOW_INVALID: 'بازهٔ زمانی واردشده معتبر نیست.',
+  AVAILABILITY_WINDOW_OVERLAP: 'برای این روز هفته، بازهٔ کاری دیگری با همین ساعت‌ها ثبت شده است.',
+  AVAILABILITY_EXCEPTION_CONFLICT: 'برای این تاریخ، استثنای دیگری از قبل ثبت شده است.',
+  AVAILABILITY_EXCEPTION_NOT_FOUND: 'این استثنای تاریخ‌دار پیدا نشد.',
   ROOM_INACTIVE: 'این اتاق غیرفعال است.',
   CHILD_INACTIVE: 'این کودک غیرفعال است.',
 

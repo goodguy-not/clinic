@@ -106,9 +106,16 @@ describe('appointment schema objects', () => {
         'appointment_series_interval_chk',
         'therapist_availability_weekday_chk',
         'therapist_availability_window_chk',
-        'therapist_availability_effective_range_chk',
+        // `therapist_availability_effective_range_chk` is deliberately absent:
+        // the availability migration drops it along with the two columns it
+        // constrained, because effective-dated availability is not approved.
         'therapist_availability_exception_window_chk',
         'therapist_availability_exception_reason_chk',
+        // Added by the availability checkpoint: the product contract is `HH:MM`,
+        // so a stored second would make the row and the response disagree
+        // without either being wrong on its own.
+        'therapist_availability_time_precision_chk',
+        'therapist_availability_exception_time_precision_chk',
       ].sort(),
     );
   });

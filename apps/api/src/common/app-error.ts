@@ -97,6 +97,11 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   APPOINTMENT_OUTSIDE_AVAILABILITY: 422,
   RECURRENCE_RULE_INVALID: 422,
   AVAILABILITY_WINDOW_INVALID: 422,
+  // 409: the submission is well formed and conflicts with availability that is
+  // already recorded, which a corrected window or a removed exception resolves.
+  AVAILABILITY_WINDOW_OVERLAP: 409,
+  AVAILABILITY_EXCEPTION_CONFLICT: 409,
+  AVAILABILITY_EXCEPTION_NOT_FOUND: 404,
   ROOM_INACTIVE: 422,
   CHILD_INACTIVE: 422,
 
@@ -165,6 +170,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   APPOINTMENT_OUTSIDE_AVAILABILITY: 'The therapist is not available in this time range',
   RECURRENCE_RULE_INVALID: 'A series must state either an occurrence count or an end date',
   AVAILABILITY_WINDOW_INVALID: 'The availability window is not a valid time range',
+  AVAILABILITY_WINDOW_OVERLAP: 'Another working window already covers these hours on this weekday',
+  AVAILABILITY_EXCEPTION_CONFLICT: 'Another exception already covers this date',
+  AVAILABILITY_EXCEPTION_NOT_FOUND: 'Availability exception not found for this therapist',
   ROOM_INACTIVE: 'The room is inactive',
   CHILD_INACTIVE: 'The child is inactive',
 
