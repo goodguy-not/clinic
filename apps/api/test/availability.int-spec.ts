@@ -617,29 +617,37 @@ describe('therapist availability (real PostgreSQL)', () => {
   });
 
   describe('who may do this', () => {
-    it('refuses a receptionist every availability route', async () => {
+    it('lets a receptionist read availability and refuses every write', async () => {
       const manager = await signIn('MANAGER');
       const therapistId = await makeTherapist(manager.token);
       const { token } = await signIn('RECEPTIONIST');
 
-      // Availability is clinic configuration and belongs to the manager
-      // (PROJECT_SPEC.md 4). Which reads a booking screen grants a receptionist
-      // is the decision of the checkpoint that builds it.
-      const responses = await Promise.all([
+      // From the Milestone 4 booking checkpoint a receptionist holds
+      // `availability.read`: a booking screen has to show when a therapist works.
+      // Maintaining that schedule is `availability.manage` and stays with the
+      // manager (PROJECT_SPEC.md 4).
+      const reads = await Promise.all([
         request(server()).get(`/availability/therapists/${therapistId}/windows`).set(asUser(token)),
-        putWindows(token, therapistId, [window()]),
         request(server())
           .get(`/availability/therapists/${therapistId}/exceptions`)
           .set(asUser(token)),
+        resolve(token, therapistId, SATURDAY),
+      ]);
+
+      for (const response of reads) {
+        expect(response.status).toBe(200);
+      }
+
+      const writes = await Promise.all([
+        putWindows(token, therapistId, [window()]),
         postException(token, therapistId, {
           isAvailable: false,
           exceptionDate: SATURDAY,
           reason: null,
         }),
-        resolve(token, therapistId, SATURDAY),
       ]);
 
-      for (const response of responses) {
+      for (const response of writes) {
         expect(response.status).toBe(403);
         expect(response.body.error.code).toBe('AUTH_FORBIDDEN');
       }

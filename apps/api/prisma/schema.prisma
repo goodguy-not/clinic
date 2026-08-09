@@ -252,7 +252,8 @@ model AppUser {
   createdChildren    Child[]
   registrationDrafts RegistrationDraft[]
 
-  createdAppointments      Appointment[]
+  createdAppointments        Appointment[] @relation("AppointmentCreatedBy")
+  overriddenAppointments     Appointment[] @relation("AppointmentAvailabilityOverrideBy")
   createdAppointmentSeries AppointmentSeries[]
   createdAvailability      TherapistAvailability[]
   createdAvailabilityExceptions TherapistAvailabilityException[]
@@ -844,6 +845,15 @@ model Appointment {
   cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz
   cancellationReason String?   @map("cancellation_reason")
 
+  /// The one approved override: booking outside the therapist's availability
+  /// (PROJECT_SPEC.md 5). All three move together — a CHECK requires the reason,
+  /// the actor and the instant to be present or absent as one fact — so a
+  /// half-recorded override cannot exist. There is deliberately no equivalent for
+  /// a therapist, room or child conflict: those are hard blocks.
+  availabilityOverrideReason    String?   @map("availability_override_reason")
+  availabilityOverrideByUserId  String?   @map("availability_override_by_user_id") @db.Uuid
+  availabilityOverrideAt        DateTime? @map("availability_override_at") @db.Timestamptz
+
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String   @map("created_by_user_id") @db.Uuid
 
@@ -852,7 +862,11 @@ model Appointment {
   therapist       Therapist          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   room            Room               @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   series          AppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy       AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       AppUser            @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  /// Named relations, because `app_user` is now referenced twice from this table.
+  /// The names are Prisma's own bookkeeping and appear in no SQL: both foreign
+  /// keys are named after their column, exactly as they were before.
+  availabilityOverrideBy AppUser?    @relation("AppointmentAvailabilityOverrideBy", fields: [availabilityOverrideByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   participants AppointmentParticipant[]
 

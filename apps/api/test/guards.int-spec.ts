@@ -121,7 +121,7 @@ describe('guard chain (real PostgreSQL)', () => {
   });
 
   describe('permission model', () => {
-    it('gives a receptionist the family workflow only, and a manager the full set', async () => {
+    it('gives a receptionist the family, child and booking workflow, and a manager the full set', async () => {
       const receptionist = await signIn('RECEPTIONIST');
       const manager = await signIn('MANAGER');
 
@@ -140,10 +140,19 @@ describe('guard chain (real PostgreSQL)', () => {
         ).body,
       );
 
-      // Milestone 3 gave the receptionist their first permissions: the family
-      // and child workflow, and nothing else. Asserted as an exact list, so a
-      // permission leaking into that role fails here rather than in review.
+      // Milestone 3 gave the receptionist their first permissions and Milestone 4
+      // added the operational set: four catalog reads, availability read, and the
+      // diary — book, move, cancel, complete, and override availability with a
+      // recorded reason. Asserted as an exact list, so a permission leaking into
+      // that role fails here rather than in review.
       expect([...asReceptionist.user.permissions].sort()).toEqual([
+        'appointment.cancel',
+        'appointment.complete',
+        'appointment.create',
+        'appointment.override_availability',
+        'appointment.read',
+        'appointment.update',
+        'availability.read',
         'child.create',
         'child.read',
         'child.update',
@@ -152,10 +161,27 @@ describe('guard chain (real PostgreSQL)', () => {
         'family.read',
         'family.update',
         'family.update_status',
+        'room.read',
+        'service.read',
+        'tariff.read',
+        'therapist.read',
       ]);
 
-      // Still no user administration, no session administration, no catalog.
-      for (const forbidden of ['user.read', 'user.create', 'session.revoke_any', 'tariff.read']) {
+      // Still no user administration, no session administration, no catalog
+      // WRITE of any kind, no authority over the schedule itself, and nothing
+      // that reverses a recorded session.
+      for (const forbidden of [
+        'user.read',
+        'user.create',
+        'session.revoke_any',
+        'tariff.create',
+        'tariff.void',
+        'service.create',
+        'room.update',
+        'therapist.update_status',
+        'availability.manage',
+        'appointment.reopen',
+      ]) {
         expect(asReceptionist.user.permissions).not.toContain(forbidden);
       }
 
@@ -267,7 +293,8 @@ describe('guard chain (real PostgreSQL)', () => {
       // drafts:     current, discard
       // availability: windows list, windows replace, exceptions list,
       //               exception add, exception remove, resolution
-      expect(routes).toBe(54);
+      // appointments: create, read
+      expect(routes).toBe(56);
     });
   });
 });

@@ -62,21 +62,30 @@ export const PERMISSIONS = [
   'child.update',
   'child.update_status',
 
-  // Appointments. The names only: which role holds which of these is decided in
-  // the checkpoint that builds the surface using it, not here. `ROLE_PERMISSIONS`
-  // in `apps/api` is unchanged by this checkpoint.
-  //
-  // Five verbs rather than one `appointment.write`, because they are five
-  // different authorities over the same row. Recording that a session happened
-  // is what will create a charge (PROJECT_SPEC.md 6) and cancelling deliberately
-  // creates none; treating those as one permission would make the no-show and
+  // Appointments. Seven verbs rather than one `appointment.write`, because they
+  // are seven different authorities over the same row: completing a session is
+  // what will create the primary session charge (PROJECT_SPEC.md 6), cancelling
+  // deliberately creates none, and reversing a completion voids or offsets a
+  // financial record. Treating those as one permission would make the no-show and
   // correction policies, both still unresolved, impossible to express without a
   // schema change.
+  //
+  // The list is exactly the authorities this product grants. A name nobody
+  // reaches is not a placeholder for a future decision — it is vocabulary a
+  // reader has to interpret and a role map has to keep withholding.
   'appointment.read',
   'appointment.create',
   'appointment.update',
   'appointment.cancel',
-  'appointment.record_outcome',
+  'appointment.complete',
+  'appointment.reopen',
+  // Booking outside a therapist's availability (PROJECT_SPEC.md 5, "blocked or
+  // requires an authorized, recorded override"). A separate authority from
+  // `appointment.create` so the override stays a deliberate, separately grantable
+  // act with a recorded reason, rather than something every booking implies. It
+  // authorizes nothing else: no other conflict may be overridden, and no other
+  // rule reads this name.
+  'appointment.override_availability',
 
   // Therapist availability: recurring working windows and dated exceptions. A
   // permission of its own rather than `therapist.update`, because a receptionist

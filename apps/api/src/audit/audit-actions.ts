@@ -88,6 +88,17 @@ export const AUDIT_ACTIONS = [
   // a no-show is a seat's outcome and not a state of the booking — there is
   // deliberately no `appointment.no_show_recorded`.
   'appointment.attendance_recorded',
+  // There is deliberately no `appointment.availability_override`. Booking
+  // outside a therapist's hours is not a change of its own: it is a property of
+  // the create or move that carried it, and it is recorded in that row's
+  // `metadata` alongside the reason. A second action would describe one state
+  // change as two facts, and a reader reconstructing what happened would have to
+  // pair them up by entity id and timestamp.
+  //
+  // This is the opposite of the `family.duplicate_override` decision, and for a
+  // reason that distinguishes them: acknowledging a duplicate is a decision about
+  // a record that already exists, while an availability override qualifies the
+  // write being made in the same breath.
   'appointment_series.created',
   'appointment_series.updated',
   // Availability is current configuration, so a change is one action carrying

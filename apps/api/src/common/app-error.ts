@@ -104,6 +104,10 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   AVAILABILITY_EXCEPTION_NOT_FOUND: 404,
   ROOM_INACTIVE: 422,
   CHILD_INACTIVE: 422,
+  // 422 for both: nothing conflicts and nothing is missing, the combination is
+  // simply one the recorded configuration does not permit.
+  APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED: 422,
+  APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED: 422,
 
   INTERNAL_ERROR: 500,
 };
@@ -175,6 +179,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   AVAILABILITY_EXCEPTION_NOT_FOUND: 'Availability exception not found for this therapist',
   ROOM_INACTIVE: 'The room is inactive',
   CHILD_INACTIVE: 'The child is inactive',
+  APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED: 'The therapist does not provide this service',
+  APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED: 'The room is not allowed to host this service',
 
   INTERNAL_ERROR: 'Internal error',
 };

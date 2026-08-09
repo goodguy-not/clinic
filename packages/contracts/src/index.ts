@@ -29,3 +29,4 @@ export * from './families/drafts';
 export * from './appointments/common';
 export * from './appointments/appointments';
 export * from './appointments/availability';
+export * from './appointments/booking';

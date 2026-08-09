@@ -126,6 +126,13 @@ export const ERROR_CODES = [
   // `THERAPIST_INACTIVE` already exist for the other two.
   'ROOM_INACTIVE',
   'CHILD_INACTIVE',
+  // The two catalog compatibility rules, separate because they are separate
+  // mistakes with separate fixes: one is corrected by choosing another
+  // therapist, the other by choosing another room. Each is an allow-list that
+  // is enforced only when the clinic has recorded one — an empty list is
+  // "unrestricted", not "supports nothing".
+  'APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED',
+  'APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED',
 
   'INTERNAL_ERROR',
 ] as const;

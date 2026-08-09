@@ -78,12 +78,25 @@ describe('catalog rooms (real PostgreSQL)', () => {
 
   describe('authorization', () => {
     const routes: Array<[string, 'get' | 'post' | 'patch', string, object | undefined]> = [
-      ['list', 'get', '/catalog/rooms', undefined],
-      ['read', 'get', '/catalog/rooms/:id', undefined],
+      // Reading is granted to a receptionist from the booking checkpoint; every
+      // write below stays with the manager.
       ['create', 'post', '/catalog/rooms', { name: 'X', allowedServiceIds: [] }],
       ['update', 'patch', '/catalog/rooms/:id', { name: 'X', allowedServiceIds: [] }],
       ['status', 'patch', '/catalog/rooms/:id/status', { status: 'INACTIVE' }],
     ];
+
+    it('lets a receptionist read, which booking requires', async () => {
+      const manager = await signIn('MANAGER');
+      const created = await createRoom(manager.token);
+      const id = roomResponseSchema.parse(created.body).room.id;
+
+      const { token } = await signIn('RECEPTIONIST');
+
+      expect((await request(server()).get('/catalog/rooms').set(asUser(token))).status).toBe(200);
+      expect((await request(server()).get(`/catalog/rooms/${id}`).set(asUser(token))).status).toBe(
+        200,
+      );
+    });
 
     it.each(routes)('refuses a receptionist on %s', async (_label, method, path, body) => {
       const manager = await signIn('MANAGER');

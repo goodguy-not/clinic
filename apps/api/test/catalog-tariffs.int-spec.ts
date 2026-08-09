@@ -100,10 +100,23 @@ describe('catalog tariffs (real PostgreSQL)', () => {
     request(server()).post('/catalog/tariffs').set(asUser(token)).send(body);
 
   describe('authorization', () => {
+    it('lets a receptionist read a price, which the diary needs', async () => {
+      // PROJECT_SPEC.md 4 bars a receptionist from tariff CHANGES, not from
+      // looking one up. `tariff.create` and `tariff.void` below stay refused.
+      const manager = await signIn('MANAGER');
+      const serviceId = await makeService(manager.token);
+      const created = await createTariff(manager.token, paid(serviceId));
+      const id = tariffResponseSchema.parse(created.body).tariff.id;
+
+      const { token } = await signIn('RECEPTIONIST');
+
+      expect((await request(server()).get('/catalog/tariffs').set(asUser(token))).status).toBe(200);
+      expect(
+        (await request(server()).get(`/catalog/tariffs/${id}`).set(asUser(token))).status,
+      ).toBe(200);
+    });
+
     it.each([
-      ['list', 'get', '/catalog/tariffs', undefined],
-      ['resolution', 'get', '/catalog/tariff-resolution', undefined],
-      ['read', 'get', '/catalog/tariffs/:id', undefined],
       ['create', 'post', '/catalog/tariffs', {}],
       ['void', 'post', '/catalog/tariffs/:id/void', { reason: 'x' }],
     ] as Array<[string, 'get' | 'post', string, object | undefined]>)(

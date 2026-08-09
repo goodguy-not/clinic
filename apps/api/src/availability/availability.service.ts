@@ -364,7 +364,37 @@ export class AvailabilityService {
   async resolve(query: ResolveAvailabilityQuery): Promise<ResolvedAvailability> {
     await this.assertTherapistExists(query.therapistId);
 
-    const rows = await this.prisma.$queryRaw<
+    return this.resolveOn(this.prisma, query.therapistId, query.date);
+  }
+
+  /**
+   * The same answer, read on a caller's own transaction.
+   *
+   * The booking checkpoint needs the resolved day INSIDE the transaction that
+   * writes the appointment, against the same snapshot as its own locks — with a
+   * separate connection, a manager could close the day between the check and the
+   * insert and the booking would be written against hours that no longer exist.
+   *
+   * It is this method rather than a second query in that module deliberately:
+   * the precedence between a closed day and a dated window is one rule, and a
+   * second implementation of it would eventually disagree with this one. The
+   * therapist's existence is not re-checked here — the caller has already locked
+   * the row it is asking about.
+   */
+  resolveWithin(
+    tx: Prisma.TransactionClient,
+    therapistId: string,
+    date: string,
+  ): Promise<ResolvedAvailability> {
+    return this.resolveOn(tx, therapistId, date);
+  }
+
+  private async resolveOn(
+    client: PrismaService | Prisma.TransactionClient,
+    therapistId: string,
+    date: string,
+  ): Promise<ResolvedAvailability> {
+    const rows = await client.$queryRaw<
       {
         weekday: number;
         source: string;
@@ -373,36 +403,36 @@ export class AvailabilityService {
         reason: string | null;
       }[]
     >`
-      SELECT ${CLINIC_WEEKDAY(query.date)} AS weekday,
+      SELECT ${CLINIC_WEEKDAY(date)} AS weekday,
              'closed' AS source, '00:00' AS start_time, '00:00' AS end_time, reason
       FROM therapist_availability_exception
-      WHERE therapist_id = ${query.therapistId}::uuid
-        AND exception_date = ${query.date}::date
+      WHERE therapist_id = ${therapistId}::uuid
+        AND exception_date = ${date}::date
         AND is_available = false
 
       UNION ALL
 
-      SELECT ${CLINIC_WEEKDAY(query.date)} AS weekday,
+      SELECT ${CLINIC_WEEKDAY(date)} AS weekday,
              'exception' AS source,
              to_char(start_time, 'HH24:MI'), to_char(end_time, 'HH24:MI'), reason
       FROM therapist_availability_exception
-      WHERE therapist_id = ${query.therapistId}::uuid
-        AND exception_date = ${query.date}::date
+      WHERE therapist_id = ${therapistId}::uuid
+        AND exception_date = ${date}::date
         AND is_available = true
 
       UNION ALL
 
-      SELECT ${CLINIC_WEEKDAY(query.date)} AS weekday,
+      SELECT ${CLINIC_WEEKDAY(date)} AS weekday,
              'recurring' AS source,
              to_char(start_time, 'HH24:MI'), to_char(end_time, 'HH24:MI'), NULL
       FROM therapist_availability
-      WHERE therapist_id = ${query.therapistId}::uuid
-        AND weekday = ${CLINIC_WEEKDAY(query.date)}
+      WHERE therapist_id = ${therapistId}::uuid
+        AND weekday = ${CLINIC_WEEKDAY(date)}
     `;
 
     // Derived rather than read from the rows, so the answer is right on a day
     // with no availability of any kind, when the query returns nothing at all.
-    const weekday = clinicWeekday(query.date);
+    const weekday = clinicWeekday(date);
     const closed = rows.find((row) => row.source === 'closed');
 
     // The one precedence rule: a closure removes the recurring week from the
@@ -413,8 +443,8 @@ export class AvailabilityService {
     );
 
     return {
-      therapistId: query.therapistId,
-      date: query.date,
+      therapistId,
+      date,
       weekday,
       isClosed: closed !== undefined,
       closedReason: closed?.reason ?? null,

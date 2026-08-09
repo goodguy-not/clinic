@@ -108,6 +108,10 @@ const MESSAGES: Record<DisplayableCode, string> = {
   AVAILABILITY_EXCEPTION_NOT_FOUND: 'این استثنای تاریخ‌دار پیدا نشد.',
   ROOM_INACTIVE: 'این اتاق غیرفعال است.',
   CHILD_INACTIVE: 'این کودک غیرفعال است.',
+  // دو پیام جدا، چون راه اصلاحشان جداست: یکی با انتخاب درمانگر دیگر حل می‌شود و
+  // دیگری با انتخاب اتاق دیگر.
+  APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED: 'این درمانگر این خدمت را ارائه نمی‌دهد.',
+  APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED: 'این خدمت در این اتاق قابل ارائه نیست.',
 
   INTERNAL_ERROR: 'خطای داخلی رخ داد. اگر تکرار شد با پشتیبانی فنی تماس بگیرید.',
   API_UNREACHABLE: 'سامانه در دسترس نیست. کمی بعد دوباره تلاش کنید.',

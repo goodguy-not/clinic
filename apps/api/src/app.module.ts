@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { AvailabilityModule } from './availability/availability.module';
@@ -37,6 +38,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     CatalogModule,
     AvailabilityModule,
+    AppointmentsModule,
     FamiliesModule,
     HealthModule,
   ],

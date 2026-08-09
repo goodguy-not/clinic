@@ -12,6 +12,7 @@ import {
   appointmentSchema,
   availabilityWindowInputSchema,
   clockTimeSchema,
+  createAppointmentRequestSchema,
   createAvailabilityExceptionRequestSchema,
   createChildRequestSchema,
   createFamilyRequestSchema,
@@ -382,9 +383,11 @@ describe('Milestone 4 contracts', () => {
 
     expect([...m4].sort()).toEqual([
       'appointment.cancel',
+      'appointment.complete',
       'appointment.create',
+      'appointment.override_availability',
       'appointment.read',
-      'appointment.record_outcome',
+      'appointment.reopen',
       'appointment.update',
       'availability.manage',
       'availability.read',
@@ -579,6 +582,85 @@ describe('Milestone 4 contracts', () => {
           windows: [{ startTime: '09:00', endTime: '13:00', source: 'recurring' }],
         }).success,
       ).toBe(false);
+    });
+  });
+
+  describe('the booking contract', () => {
+    const booking = (overrides: Record<string, unknown> = {}) => ({
+      serviceId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      durationMinutes: 45,
+      therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+      roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+      childId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5e',
+      startsAt: '2026-09-05T06:30:00.000Z',
+      note: null,
+      availabilityOverrideReason: null,
+      ...overrides,
+    });
+
+    it('accepts a well-formed booking', () => {
+      expect(createAppointmentRequestSchema.safeParse(booking()).success).toBe(true);
+    });
+
+    it('books exactly one child, never a list', () => {
+      // An individual appointment has exactly one participant. A group booking
+      // is a different shape with rules none of which are approved, and an array
+      // here would be a guess at all of them.
+      expect(
+        createAppointmentRequestSchema.safeParse({
+          ...booking(),
+          childId: undefined,
+          childIds: ['0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5e'],
+        }).success,
+      ).toBe(false);
+    });
+
+    it('accepts no end, no status, no series and no price', () => {
+      // `endsAt` is `startsAt + durationMinutes` and the database says so; a
+      // status would let a create request reach a state a transition guards; a
+      // series would attach an occurrence to a pattern it does not match; and a
+      // price is Milestone 5's.
+      for (const extra of [
+        { endsAt: '2026-09-05T07:15:00.000Z' },
+        { status: 'COMPLETED' },
+        { seriesId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5f' },
+        { priceToman: '250000' },
+      ]) {
+        expect(createAppointmentRequestSchema.safeParse({ ...booking(), ...extra }).success).toBe(
+          false,
+        );
+      }
+    });
+
+    it('requires a non-empty reason when an override is claimed', () => {
+      // Null is "apply the rule". A blank string would be an override with no
+      // explanation, which is the flag this design rejects.
+      expect(
+        createAppointmentRequestSchema.safeParse(booking({ availabilityOverrideReason: '   ' }))
+          .success,
+      ).toBe(false);
+
+      expect(
+        createAppointmentRequestSchema.safeParse(
+          booking({ availabilityOverrideReason: 'جلسهٔ جبرانی با هماهنگی درمانگر' }),
+        ).success,
+      ).toBe(true);
+    });
+
+    it('offers no override for a therapist, room or child conflict', () => {
+      const fields = Object.keys(createAppointmentRequestSchema.shape);
+
+      expect(fields.filter((field) => /override/i.test(field))).toEqual([
+        'availabilityOverrideReason',
+      ]);
+    });
+
+    it('carries no financial field', () => {
+      const financial = /tariff|price|amount|toman|charge|discount|fee/i;
+
+      for (const field of Object.keys(createAppointmentRequestSchema.shape)) {
+        expect(field).not.toMatch(financial);
+      }
     });
   });
 

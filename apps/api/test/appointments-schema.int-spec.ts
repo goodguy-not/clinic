@@ -116,6 +116,11 @@ describe('appointment schema objects', () => {
         // without either being wrong on its own.
         'therapist_availability_time_precision_chk',
         'therapist_availability_exception_time_precision_chk',
+        // Added by the booking checkpoint. The override is one fact stated whole
+        // or not at all — a reason, an actor and an instant — and a start time
+        // is a minute, because the clinic's diary is not measured in seconds.
+        'appointment_availability_override_chk',
+        'appointment_starts_at_precision_chk',
       ].sort(),
     );
   });
@@ -336,6 +341,11 @@ describe('appointment schema objects', () => {
         expect(AUDIT_ACTIONS).toContain(action);
       }
 
+      // An availability override is a property of the create or move that
+      // carried it, recorded in that row's `metadata`. A second action would
+      // describe one state change as two facts.
+      expect(AUDIT_ACTIONS).not.toContain('appointment.availability_override');
+
       expect(AUDIT_ACTIONS).not.toContain('appointment.status_changed');
       // A no-show is recorded as one child's attendance, so there is no
       // booking-level action for it.
@@ -357,16 +367,18 @@ describe('appointment schema objects', () => {
   });
 
   describe('permission vocabulary', () => {
-    it('declares the seven appointment and availability permissions', () => {
+    it('declares the nine appointment and availability permissions', () => {
       expect(
         PERMISSIONS.filter((permission) =>
           /^(?:appointment|availability)\./.test(permission),
         ).sort(),
       ).toEqual([
         'appointment.cancel',
+        'appointment.complete',
         'appointment.create',
+        'appointment.override_availability',
         'appointment.read',
-        'appointment.record_outcome',
+        'appointment.reopen',
         'appointment.update',
         'availability.manage',
         'availability.read',
@@ -377,14 +389,28 @@ describe('appointment schema objects', () => {
       expect(PERMISSIONS).not.toContain('appointment.void');
     });
 
-    it('grants none of them to any role in this checkpoint', () => {
-      // A1 fixes the vocabulary; the grants belong to the checkpoints that build
-      // the surfaces using them. `ROLE_PERMISSIONS` is unchanged here, so the
-      // receptionist still holds exactly the Milestone 3 family and child set.
+    it('grants a receptionist the operational set, and nothing that reverses a record', () => {
+      // The vocabulary was fixed by the schema checkpoint; the grants belong to
+      // the checkpoints that build the surfaces using them. A receptionist runs
+      // the diary — booking, moving, cancelling, completing, and overriding
+      // availability with a recorded reason — and holds neither the authority to
+      // reverse a completion nor the schedule itself.
       const granted = permissionsForRole('RECEPTIONIST');
 
-      for (const permission of granted) {
-        expect(permission).toMatch(/^(?:family|child)\./);
+      for (const held of [
+        'appointment.read',
+        'appointment.create',
+        'appointment.update',
+        'appointment.cancel',
+        'appointment.complete',
+        'appointment.override_availability',
+        'availability.read',
+      ] as const) {
+        expect(granted).toContain(held);
+      }
+
+      for (const withheld of ['appointment.reopen', 'availability.manage'] as const) {
+        expect(granted).not.toContain(withheld);
       }
     });
   });

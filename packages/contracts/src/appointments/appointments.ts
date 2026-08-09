@@ -49,6 +49,18 @@ export const appointmentSchema = z.strictObject({
   completedAt: z.iso.datetime().nullable(),
   cancelledAt: z.iso.datetime().nullable(),
   cancellationReason: z.string().nullable(),
+  /**
+   * Why this booking was allowed to sit outside the therapist's availability,
+   * or null for the ordinary case.
+   *
+   * Not a flag: PROJECT_SPEC.md 5 permits an out-of-availability booking only
+   * as an authorized, RECORDED override, and a boolean would record that one
+   * happened without recording why. The actor and the instant are stored
+   * alongside it and are deliberately not exposed here — an interface needs to
+   * show that the rule was overridden and on what grounds; who did it is an
+   * audit question, answered by `audit_log`.
+   */
+  availabilityOverrideReason: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
 

@@ -76,8 +76,10 @@ describe('catalog therapists (real PostgreSQL)', () => {
 
   describe('authorization', () => {
     const routes: Array<[string, 'get' | 'post' | 'patch', string, object | undefined]> = [
-      ['list', 'get', '/catalog/therapists', undefined],
-      ['read', 'get', '/catalog/therapists/:id', undefined],
+      // Reading is no longer refused: from the Milestone 4 booking checkpoint a
+      // receptionist holds `therapist.read`, because somebody entering an
+      // appointment has to choose a therapist. Every WRITE stays with the
+      // manager, which is what this table now states.
       [
         'create',
         'post',
@@ -92,6 +94,21 @@ describe('catalog therapists (real PostgreSQL)', () => {
       ],
       ['status', 'patch', '/catalog/therapists/:id/status', { status: 'INACTIVE' }],
     ];
+
+    it('lets a receptionist read, which booking requires', async () => {
+      const manager = await signIn('MANAGER');
+      const created = await createTherapist(manager.token);
+      const id = therapistResponseSchema.parse(created.body).therapist.id;
+
+      const { token } = await signIn('RECEPTIONIST');
+
+      expect((await request(server()).get('/catalog/therapists').set(asUser(token))).status).toBe(
+        200,
+      );
+      expect(
+        (await request(server()).get(`/catalog/therapists/${id}`).set(asUser(token))).status,
+      ).toBe(200);
+    });
 
     it.each(routes)('refuses a receptionist on %s', async (_label, method, path, body) => {
       const manager = await signIn('MANAGER');
