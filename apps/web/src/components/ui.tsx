@@ -82,7 +82,7 @@ export function PageHeader({
         <div>
           <Link
             href={backHref}
-            className={`inline-flex items-center gap-1 rounded-sm py-1 text-sm font-medium text-brand-800 underline-offset-4 hover:text-brand-950 hover:underline ${FOCUS_RING}`}
+            className={`inline-flex min-h-11 items-center gap-1 rounded-sm py-1 text-sm font-medium text-brand-800 underline-offset-4 hover:text-brand-950 hover:underline ${FOCUS_RING}`}
           >
             <span aria-hidden="true">→</span>
             {backLabel}
@@ -228,7 +228,7 @@ export function RecordItem({
   );
 }
 
-const BUTTON_BASE = `inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${FOCUS_RING}`;
+const BUTTON_BASE = `inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${FOCUS_RING}`;
 
 const BUTTON_TONES = {
   primary: 'bg-brand-700 text-white shadow-sm hover:bg-brand-800',

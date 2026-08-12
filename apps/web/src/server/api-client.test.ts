@@ -185,3 +185,86 @@ describe('response handling', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('availability endpoints', () => {
+  const therapistId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
+  const exceptionId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61';
+
+  it('replaces the whole recurring set with PUT', async () => {
+    mockFetch(200, {
+      windows: [
+        {
+          id: exceptionId,
+          therapistId,
+          weekday: 0,
+          startTime: '09:00',
+          endTime: '13:00',
+          createdAt: '2026-08-13T00:00:00.000Z',
+        },
+      ],
+    });
+
+    await api.replaceAvailabilityWindows(
+      therapistId,
+      { windows: [{ weekday: 0, startTime: '09:00', endTime: '13:00' }] },
+      { sessionToken: 'verified-token' },
+    );
+
+    expect(captured[0]?.url).toContain(`/availability/therapists/${therapistId}/windows`);
+    expect(captured[0]?.init.method).toBe('PUT');
+    expect(JSON.parse(String(captured[0]?.init.body))).toEqual({
+      windows: [{ weekday: 0, startTime: '09:00', endTime: '13:00' }],
+    });
+  });
+
+  it('adds and removes dated exceptions through distinct methods', async () => {
+    mockFetch(201, {
+      exception: {
+        id: exceptionId,
+        therapistId,
+        exceptionDate: '2026-08-15',
+        isAvailable: false,
+        startTime: null,
+        endTime: null,
+        reason: 'مرخصی',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+    });
+    await api.addAvailabilityException(
+      therapistId,
+      { isAvailable: false, exceptionDate: '2026-08-15', reason: 'مرخصی' },
+      { sessionToken: 'verified-token' },
+    );
+    expect(captured[0]?.init.method).toBe('POST');
+
+    mockFetch(204, null);
+    await api.removeAvailabilityException(therapistId, exceptionId, {
+      sessionToken: 'verified-token',
+    });
+    expect(captured[1]?.url).toContain(`/exceptions/${exceptionId}`);
+    expect(captured[1]?.init.method).toBe('DELETE');
+  });
+
+  it('asks the API for the resolved answer rather than composing it in Web', async () => {
+    mockFetch(200, {
+      availability: {
+        therapistId,
+        date: '2026-08-15',
+        weekday: 0,
+        isClosed: true,
+        closedReason: 'مرخصی',
+        windows: [{ startTime: '15:00', endTime: '18:00' }],
+      },
+    });
+
+    await api.resolveAvailability(
+      { therapistId, date: '2026-08-15' },
+      { sessionToken: 'verified-token' },
+    );
+
+    expect(captured[0]?.url).toContain('/availability/resolution?');
+    expect(captured[0]?.url).toContain(`therapistId=${therapistId}`);
+    expect(captured[0]?.url).toContain('date=2026-08-15');
+    expect(captured[0]?.init.method).toBe('GET');
+  });
+});

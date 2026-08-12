@@ -94,6 +94,8 @@ const list = (overrides: Partial<Parameters<typeof TariffList>[0]> = {}) =>
       today: TODAY,
       csrfToken: CSRF,
       errorMessage: null,
+      canCreate: true,
+      canVoid: true,
       ...overrides,
     }),
   );
@@ -119,6 +121,14 @@ describe('tariff state', () => {
 });
 
 describe('tariff list', () => {
+  it('keeps prices readable but hides create, correction and void controls without write permissions', () => {
+    const markup = list({ canCreate: false, canVoid: false, voidTariffId: PAID.id });
+    expect(markup).toContain('۱۲۰٬۰۰۰ تومان');
+    expect(markup).not.toContain('/tariffs/new');
+    expect(markup).not.toContain(`/tariffs?void=${PAID.id}`);
+    expect(markup).not.toContain('action="/api/catalog/tariffs/void"');
+  });
+
   it('formats money with Persian digits and never as a raw number', () => {
     const markup = list();
 

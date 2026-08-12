@@ -17,6 +17,12 @@ import { TherapistList } from './therapists/therapist-list';
  */
 
 const CSRF = 'synthetic-csrf-token';
+const THERAPIST_PERMISSIONS = {
+  canCreate: true,
+  canUpdate: true,
+  canUpdateStatus: true,
+  canReadAvailability: true,
+} as const;
 
 const ACTIVE_SERVICE: Service = {
   id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
@@ -63,6 +69,7 @@ describe('therapist list', () => {
       services: [ACTIVE_SERVICE],
       csrfToken: CSRF,
       errorMessage: null,
+      ...THERAPIST_PERMISSIONS,
     }),
   );
 
@@ -86,6 +93,7 @@ describe('therapist list', () => {
         services: [ACTIVE_SERVICE],
         csrfToken: CSRF,
         errorMessage: null,
+        ...THERAPIST_PERMISSIONS,
       }),
     );
 
@@ -119,6 +127,7 @@ describe('therapist list', () => {
         services: [],
         csrfToken: CSRF,
         errorMessage: null,
+        ...THERAPIST_PERMISSIONS,
       }),
     );
 
@@ -133,6 +142,7 @@ describe('therapist list', () => {
         services: [],
         csrfToken: CSRF,
         errorMessage: 'خطای نمونه',
+        ...THERAPIST_PERMISSIONS,
       }),
     );
 
@@ -143,6 +153,26 @@ describe('therapist list', () => {
   it('exposes no delete control', () => {
     expect(markup).not.toContain('حذف');
     expect(markup).not.toMatch(/method="delete"/i);
+  });
+
+  it('keeps availability access but hides catalog writes for a receptionist', () => {
+    const readOnly = renderToStaticMarkup(
+      createElement(TherapistList, {
+        therapists: [THERAPIST],
+        services: [ACTIVE_SERVICE],
+        csrfToken: CSRF,
+        errorMessage: null,
+        canCreate: false,
+        canUpdate: false,
+        canUpdateStatus: false,
+        canReadAvailability: true,
+      }),
+    );
+
+    expect(readOnly).toContain(`/therapists/${THERAPIST.id}/availability`);
+    expect(readOnly).not.toContain('/therapists/new');
+    expect(readOnly).not.toContain('/therapists/status');
+    expect(readOnly).not.toContain('/edit');
   });
 });
 

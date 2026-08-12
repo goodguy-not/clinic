@@ -24,11 +24,19 @@ export function TherapistList({
   services,
   csrfToken,
   errorMessage,
+  canCreate,
+  canUpdate,
+  canUpdateStatus,
+  canReadAvailability,
 }: {
   therapists: Therapist[];
   services: Service[];
   csrfToken: string;
   errorMessage: string | null;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canUpdateStatus: boolean;
+  canReadAvailability: boolean;
 }) {
   // Names rather than ids: an id tells a manager nothing about what a therapist
   // actually does.
@@ -41,7 +49,11 @@ export function TherapistList({
         description={COPY.therapistsDescription}
         backHref="/"
         backLabel={COPY.back}
-        action={<ButtonLink href="/therapists/new">{COPY.therapistAddAction}</ButtonLink>}
+        action={
+          canCreate ? (
+            <ButtonLink href="/therapists/new">{COPY.therapistAddAction}</ButtonLink>
+          ) : undefined
+        }
       />
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
@@ -49,7 +61,11 @@ export function TherapistList({
       {therapists.length === 0 ? (
         <EmptyState
           message={COPY.therapistEmpty}
-          action={<ButtonLink href="/therapists/new">{COPY.therapistAddAction}</ButtonLink>}
+          action={
+            canCreate ? (
+              <ButtonLink href="/therapists/new">{COPY.therapistAddAction}</ButtonLink>
+            ) : undefined
+          }
         />
       ) : (
         <RecordList>
@@ -81,24 +97,38 @@ export function TherapistList({
                 </>
               }
               actions={
-                <>
-                  <ButtonLink href={`/therapists/${therapist.id}/edit`} tone="secondary">
-                    {COPY.edit}
-                  </ButtonLink>
+                canReadAvailability || canUpdate || canUpdateStatus ? (
+                  <>
+                    {canReadAvailability ? (
+                      <ButtonLink
+                        href={`/therapists/${therapist.id}/availability`}
+                        tone="secondary"
+                      >
+                        {COPY.availabilityViewAction}
+                      </ButtonLink>
+                    ) : null}
+                    {canUpdate ? (
+                      <ButtonLink href={`/therapists/${therapist.id}/edit`} tone="secondary">
+                        {COPY.edit}
+                      </ButtonLink>
+                    ) : null}
 
-                  <form method="post" action="/api/catalog/therapists/status">
-                    <input type="hidden" name="csrfToken" value={csrfToken} />
-                    <input type="hidden" name="id" value={therapist.id} />
-                    <input
-                      type="hidden"
-                      name="status"
-                      value={therapist.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
-                    />
-                    <SubmitButton tone="secondary">
-                      {therapist.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
-                    </SubmitButton>
-                  </form>
-                </>
+                    {canUpdateStatus ? (
+                      <form method="post" action="/api/catalog/therapists/status">
+                        <input type="hidden" name="csrfToken" value={csrfToken} />
+                        <input type="hidden" name="id" value={therapist.id} />
+                        <input
+                          type="hidden"
+                          name="status"
+                          value={therapist.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+                        />
+                        <SubmitButton tone="secondary">
+                          {therapist.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
+                        </SubmitButton>
+                      </form>
+                    ) : null}
+                  </>
+                ) : undefined
               }
             />
           ))}

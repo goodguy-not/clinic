@@ -19,6 +19,7 @@ import { ServiceList } from './services/service-list';
  */
 
 const CSRF = 'synthetic-csrf-token';
+const CATALOG_WRITE = { canCreate: true, canUpdate: true, canUpdateStatus: true } as const;
 
 const SERVICE: Service = {
   id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
@@ -55,6 +56,7 @@ describe('service list', () => {
       services: [SERVICE, INACTIVE_SERVICE],
       csrfToken: CSRF,
       errorMessage: null,
+      ...CATALOG_WRITE,
     }),
   );
 
@@ -87,7 +89,12 @@ describe('service list', () => {
 
   it('renders an empty state instead of a bare table', () => {
     const empty = renderToStaticMarkup(
-      createElement(ServiceList, { services: [], csrfToken: CSRF, errorMessage: null }),
+      createElement(ServiceList, {
+        services: [],
+        csrfToken: CSRF,
+        errorMessage: null,
+        ...CATALOG_WRITE,
+      }),
     );
 
     expect(empty).toContain('هنوز خدمتی ثبت نشده است');
@@ -100,6 +107,7 @@ describe('service list', () => {
         services: [],
         csrfToken: CSRF,
         errorMessage: 'خطای نمونه',
+        ...CATALOG_WRITE,
       }),
     );
 
@@ -168,6 +176,7 @@ describe('room list', () => {
         services: [SERVICE],
         csrfToken: CSRF,
         errorMessage: null,
+        ...CATALOG_WRITE,
       }),
     );
 
@@ -183,6 +192,7 @@ describe('room list', () => {
         services: [SERVICE],
         csrfToken: CSRF,
         errorMessage: null,
+        ...CATALOG_WRITE,
       }),
     );
 
@@ -196,11 +206,45 @@ describe('room list', () => {
         services: [],
         csrfToken: CSRF,
         errorMessage: null,
+        ...CATALOG_WRITE,
       }),
     );
 
     expect(markup).toContain('action="/api/catalog/rooms/status"');
     expect(markup).not.toContain('href="/api/catalog/rooms/status"');
+  });
+
+  it('keeps rows readable while hiding write controls without write permissions', () => {
+    const serviceMarkup = renderToStaticMarkup(
+      createElement(ServiceList, {
+        services: [SERVICE],
+        csrfToken: CSRF,
+        errorMessage: null,
+        canCreate: false,
+        canUpdate: false,
+        canUpdateStatus: false,
+      }),
+    );
+    const roomMarkup = renderToStaticMarkup(
+      createElement(RoomList, {
+        rooms: [ROOM],
+        services: [SERVICE],
+        csrfToken: CSRF,
+        errorMessage: null,
+        canCreate: false,
+        canUpdate: false,
+        canUpdateStatus: false,
+      }),
+    );
+
+    expect(serviceMarkup).toContain('Synthetic Service');
+    expect(serviceMarkup).not.toContain('/services/new');
+    expect(serviceMarkup).not.toContain('/services/status');
+    expect(serviceMarkup).not.toContain('/edit');
+    expect(roomMarkup).toContain('Synthetic Room');
+    expect(roomMarkup).not.toContain('/rooms/new');
+    expect(roomMarkup).not.toContain('/rooms/status');
+    expect(roomMarkup).not.toContain('/edit');
   });
 });
 

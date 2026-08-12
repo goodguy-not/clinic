@@ -21,7 +21,7 @@ export default async function TherapistsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'therapist.read' });
+  const user = await requireSession({ requirePermission: 'therapist.read' });
 
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
@@ -51,6 +51,10 @@ export default async function TherapistsPage({
         services={services.ok ? services.data.services : []}
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={errorMessage}
+        canCreate={user.permissions.includes('therapist.create')}
+        canUpdate={user.permissions.includes('therapist.update')}
+        canUpdateStatus={user.permissions.includes('therapist.update_status')}
+        canReadAvailability={user.permissions.includes('availability.read')}
       />
     </>
   );

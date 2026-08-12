@@ -34,6 +34,8 @@ export function TariffList({
   csrfToken,
   errorMessage,
   voidTariffId,
+  canCreate,
+  canVoid,
 }: {
   tariffs: Tariff[];
   services: Service[];
@@ -42,11 +44,13 @@ export function TariffList({
   csrfToken: string;
   errorMessage: string | null;
   voidTariffId?: string;
+  canCreate: boolean;
+  canVoid: boolean;
 }) {
   const serviceNames = new Map(services.map((service) => [service.id, service.name]));
   const therapistNames = new Map(therapists.map((therapist) => [therapist.id, therapist.fullName]));
 
-  const voiding = tariffs.find((tariff) => tariff.id === voidTariffId);
+  const voiding = canVoid ? tariffs.find((tariff) => tariff.id === voidTariffId) : undefined;
 
   return (
     <PageShell>
@@ -55,7 +59,11 @@ export function TariffList({
         description={COPY.tariffsDescription}
         backHref="/"
         backLabel={COPY.back}
-        action={<ButtonLink href="/tariffs/new">{COPY.tariffAddAction}</ButtonLink>}
+        action={
+          canCreate ? (
+            <ButtonLink href="/tariffs/new">{COPY.tariffAddAction}</ButtonLink>
+          ) : undefined
+        }
       />
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
@@ -118,7 +126,11 @@ export function TariffList({
       {tariffs.length === 0 ? (
         <EmptyState
           message={COPY.tariffEmpty}
-          action={<ButtonLink href="/tariffs/new">{COPY.tariffAddAction}</ButtonLink>}
+          action={
+            canCreate ? (
+              <ButtonLink href="/tariffs/new">{COPY.tariffAddAction}</ButtonLink>
+            ) : undefined
+          }
         />
       ) : (
         <RecordList>
@@ -152,19 +164,23 @@ export function TariffList({
                   </>
                 }
                 actions={
-                  state === 'voided' ? null : (
+                  state === 'voided' || (!canCreate && !canVoid) ? null : (
                     <>
-                      <ButtonLink href={`/tariffs/new?supersedes=${tariff.id}`} tone="secondary">
-                        {COPY.tariffCorrectAction}
-                      </ButtonLink>
+                      {canCreate ? (
+                        <ButtonLink href={`/tariffs/new?supersedes=${tariff.id}`} tone="secondary">
+                          {COPY.tariffCorrectAction}
+                        </ButtonLink>
+                      ) : null}
                       {/*
                         A link, not a form: it opens the confirmation panel above
                         rather than performing the void, so the state change is
                         still a POST with a typed reason.
                       */}
-                      <ButtonLink href={`/tariffs?void=${tariff.id}`} tone="secondary">
-                        {COPY.tariffVoidAction}
-                      </ButtonLink>
+                      {canVoid ? (
+                        <ButtonLink href={`/tariffs?void=${tariff.id}`} tone="secondary">
+                          {COPY.tariffVoidAction}
+                        </ButtonLink>
+                      ) : null}
                     </>
                   )
                 }

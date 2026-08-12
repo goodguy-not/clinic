@@ -26,7 +26,7 @@ export default async function ServicesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'service.read' });
+  const user = await requireSession({ requirePermission: 'service.read' });
 
   const token = await readSessionToken();
   const result = await api.listServices(await callerContext(token ?? undefined));
@@ -48,6 +48,9 @@ export default async function ServicesPage({
         services={result.ok ? result.data.services : []}
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={errorMessage}
+        canCreate={user.permissions.includes('service.create')}
+        canUpdate={user.permissions.includes('service.update')}
+        canUpdateStatus={user.permissions.includes('service.update_status')}
       />
     </>
   );

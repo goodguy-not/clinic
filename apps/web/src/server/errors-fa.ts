@@ -23,6 +23,7 @@ export const WEB_ONLY_ERROR_CODES = [
   'API_UNREACHABLE',
   'TARIFF_BRANCH_CONTRADICTORY',
   'TARIFF_DATE_INVALID',
+  'AVAILABILITY_DATE_INVALID',
 ] as const;
 
 export type WebOnlyErrorCode = (typeof WEB_ONLY_ERROR_CODES)[number];
@@ -70,6 +71,7 @@ const MESSAGES: Record<DisplayableCode, string> = {
   TARIFF_BRANCH_CONTRADICTORY:
     'نوع تعرفه با اطلاعات واردشده هم‌خوانی ندارد. برای تعرفهٔ پرداختی فقط مبلغ و برای تعرفهٔ رایگان فقط دلیل را پر کنید.',
   TARIFF_DATE_INVALID: 'تاریخ واردشده معتبر نیست.',
+  AVAILABILITY_DATE_INVALID: 'تاریخ حضور واردشده معتبر نیست.',
 
   // خانواده‌ها و کودکان.
   FAMILY_NOT_FOUND: 'خانواده پیدا نشد.',

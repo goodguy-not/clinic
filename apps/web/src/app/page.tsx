@@ -48,6 +48,13 @@ export default async function Home() {
       description: COPY.therapistsDescription,
     });
   }
+  if (user.permissions.includes('availability.read')) {
+    sections.push({
+      href: '/availability',
+      title: COPY.availabilityTitle,
+      description: COPY.availabilityDescription,
+    });
+  }
   if (user.permissions.includes('tariff.read')) {
     sections.push({
       href: '/tariffs',

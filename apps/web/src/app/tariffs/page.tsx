@@ -22,7 +22,7 @@ export default async function TariffsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'tariff.read' });
+  const user = await requireSession({ requirePermission: 'tariff.read' });
 
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
@@ -60,6 +60,8 @@ export default async function TariffsPage({
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={errorMessage}
         {...(voidTariffId === undefined ? {} : { voidTariffId })}
+        canCreate={user.permissions.includes('tariff.create')}
+        canVoid={user.permissions.includes('tariff.void')}
       />
     </>
   );

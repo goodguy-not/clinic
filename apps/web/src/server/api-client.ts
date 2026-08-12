@@ -1,10 +1,14 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import {
+  availabilityExceptionListResponseSchema,
+  availabilityExceptionResponseSchema,
+  availabilityWindowListResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
   loginResponseSchema,
   passwordResetResponseSchema,
+  resolveAvailabilityResponseSchema,
   revokeSessionsResponseSchema,
   roomListResponseSchema,
   roomResponseSchema,
@@ -18,9 +22,14 @@ import {
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
+  type AvailabilityExceptionListQuery,
+  type AvailabilityExceptionListResponse,
+  type AvailabilityExceptionResponse,
+  type AvailabilityWindowListResponse,
   type ChildDetailResponse,
   type ChildWriteResponse,
   type ConfirmDraftRequest,
+  type CreateAvailabilityExceptionRequest,
   type CreateChildRequest,
   type CreateFamilyRequest,
   type CreateRoomRequest,
@@ -39,6 +48,9 @@ import {
   type PasswordResetResponse,
   type RecordStatus,
   type RegistrationDraftResponse,
+  type ReplaceAvailabilityWindowsRequest,
+  type ResolveAvailabilityQuery,
+  type ResolveAvailabilityResponse,
   type RevokeSessionsResponse,
   type RoomListResponse,
   type RoomResponse,
@@ -147,7 +159,7 @@ function buildHeaders(context: CallerContext, requestId: string, hasBody: boolea
 
 async function call<T>(
   path: string,
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   schema: { parse: (value: unknown) => T },
   context: CallerContext,
   body?: unknown,
@@ -369,6 +381,89 @@ export const api = {
       context,
       { status },
     ),
+
+  // --- therapist availability ----------------------------------------------
+
+  listAvailabilityWindows: (
+    therapistId: string,
+    context: CallerContext,
+  ): Promise<ApiResult<AvailabilityWindowListResponse>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/windows`,
+      'GET',
+      availabilityWindowListResponseSchema,
+      context,
+    ),
+
+  replaceAvailabilityWindows: (
+    therapistId: string,
+    body: ReplaceAvailabilityWindowsRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AvailabilityWindowListResponse>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/windows`,
+      'PUT',
+      availabilityWindowListResponseSchema,
+      context,
+      body,
+    ),
+
+  listAvailabilityExceptions: (
+    therapistId: string,
+    query: AvailabilityExceptionListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<AvailabilityExceptionListResponse>> => {
+    const search = new URLSearchParams();
+    if (query.from !== undefined) search.set('from', query.from);
+    if (query.to !== undefined) search.set('to', query.to);
+    const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+
+    return call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/exceptions${suffix}`,
+      'GET',
+      availabilityExceptionListResponseSchema,
+      context,
+    );
+  },
+
+  addAvailabilityException: (
+    therapistId: string,
+    body: CreateAvailabilityExceptionRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AvailabilityExceptionResponse>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/exceptions`,
+      'POST',
+      availabilityExceptionResponseSchema,
+      context,
+      body,
+    ),
+
+  removeAvailabilityException: (
+    therapistId: string,
+    exceptionId: string,
+    context: CallerContext,
+  ): Promise<ApiResult<void>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/exceptions/${encodeURIComponent(exceptionId)}`,
+      'DELETE',
+      { parse: () => undefined },
+      context,
+    ),
+
+  resolveAvailability: (
+    query: ResolveAvailabilityQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<ResolveAvailabilityResponse>> => {
+    const search = new URLSearchParams({ therapistId: query.therapistId, date: query.date });
+
+    return call(
+      `/availability/resolution?${search.toString()}`,
+      'GET',
+      resolveAvailabilityResponseSchema,
+      context,
+    );
+  },
 
   listTariffs: (
     query: TariffListQuery,

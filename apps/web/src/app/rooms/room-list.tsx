@@ -17,11 +17,17 @@ export function RoomList({
   services,
   csrfToken,
   errorMessage,
+  canCreate,
+  canUpdate,
+  canUpdateStatus,
 }: {
   rooms: Room[];
   services: Service[];
   csrfToken: string;
   errorMessage: string | null;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canUpdateStatus: boolean;
 }) {
   // Names rather than ids: an id tells a manager nothing about which services a
   // room is limited to.
@@ -34,7 +40,9 @@ export function RoomList({
         description={COPY.roomsDescription}
         backHref="/"
         backLabel={COPY.back}
-        action={<ButtonLink href="/rooms/new">{COPY.roomAddAction}</ButtonLink>}
+        action={
+          canCreate ? <ButtonLink href="/rooms/new">{COPY.roomAddAction}</ButtonLink> : undefined
+        }
       />
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
@@ -42,7 +50,9 @@ export function RoomList({
       {rooms.length === 0 ? (
         <EmptyState
           message={COPY.roomEmpty}
-          action={<ButtonLink href="/rooms/new">{COPY.roomAddAction}</ButtonLink>}
+          action={
+            canCreate ? <ButtonLink href="/rooms/new">{COPY.roomAddAction}</ButtonLink> : undefined
+          }
         />
       ) : (
         <RecordList>
@@ -67,24 +77,30 @@ export function RoomList({
                 )
               }
               actions={
-                <>
-                  <ButtonLink href={`/rooms/${room.id}/edit`} tone="secondary">
-                    {COPY.edit}
-                  </ButtonLink>
+                canUpdate || canUpdateStatus ? (
+                  <>
+                    {canUpdate ? (
+                      <ButtonLink href={`/rooms/${room.id}/edit`} tone="secondary">
+                        {COPY.edit}
+                      </ButtonLink>
+                    ) : null}
 
-                  <form method="post" action="/api/catalog/rooms/status">
-                    <input type="hidden" name="csrfToken" value={csrfToken} />
-                    <input type="hidden" name="id" value={room.id} />
-                    <input
-                      type="hidden"
-                      name="status"
-                      value={room.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
-                    />
-                    <SubmitButton tone="secondary">
-                      {room.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
-                    </SubmitButton>
-                  </form>
-                </>
+                    {canUpdateStatus ? (
+                      <form method="post" action="/api/catalog/rooms/status">
+                        <input type="hidden" name="csrfToken" value={csrfToken} />
+                        <input type="hidden" name="id" value={room.id} />
+                        <input
+                          type="hidden"
+                          name="status"
+                          value={room.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+                        />
+                        <SubmitButton tone="secondary">
+                          {room.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
+                        </SubmitButton>
+                      </form>
+                    ) : null}
+                  </>
+                ) : undefined
               }
             />
           ))}

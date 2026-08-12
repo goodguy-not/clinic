@@ -20,7 +20,7 @@ export default async function RoomsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'room.read' });
+  const user = await requireSession({ requirePermission: 'room.read' });
 
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
@@ -47,6 +47,9 @@ export default async function RoomsPage({
         services={services.ok ? services.data.services : []}
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={errorMessage}
+        canCreate={user.permissions.includes('room.create')}
+        canUpdate={user.permissions.includes('room.update')}
+        canUpdateStatus={user.permissions.includes('room.update_status')}
       />
     </>
   );

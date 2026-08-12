@@ -23,10 +23,16 @@ export function ServiceList({
   services,
   csrfToken,
   errorMessage,
+  canCreate,
+  canUpdate,
+  canUpdateStatus,
 }: {
   services: Service[];
   csrfToken: string;
   errorMessage: string | null;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canUpdateStatus: boolean;
 }) {
   return (
     <PageShell>
@@ -35,7 +41,11 @@ export function ServiceList({
         description={COPY.servicesDescription}
         backHref="/"
         backLabel={COPY.back}
-        action={<ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>}
+        action={
+          canCreate ? (
+            <ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>
+          ) : undefined
+        }
       />
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
@@ -43,7 +53,11 @@ export function ServiceList({
       {services.length === 0 ? (
         <EmptyState
           message={COPY.serviceEmpty}
-          action={<ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>}
+          action={
+            canCreate ? (
+              <ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>
+            ) : undefined
+          }
         />
       ) : (
         <RecordList>
@@ -75,24 +89,30 @@ export function ServiceList({
                 </>
               }
               actions={
-                <>
-                  <ButtonLink href={`/services/${service.id}/edit`} tone="secondary">
-                    {COPY.edit}
-                  </ButtonLink>
+                canUpdate || canUpdateStatus ? (
+                  <>
+                    {canUpdate ? (
+                      <ButtonLink href={`/services/${service.id}/edit`} tone="secondary">
+                        {COPY.edit}
+                      </ButtonLink>
+                    ) : null}
 
-                  <form method="post" action="/api/catalog/services/status">
-                    <input type="hidden" name="csrfToken" value={csrfToken} />
-                    <input type="hidden" name="id" value={service.id} />
-                    <input
-                      type="hidden"
-                      name="status"
-                      value={service.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
-                    />
-                    <SubmitButton tone="secondary">
-                      {service.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
-                    </SubmitButton>
-                  </form>
-                </>
+                    {canUpdateStatus ? (
+                      <form method="post" action="/api/catalog/services/status">
+                        <input type="hidden" name="csrfToken" value={csrfToken} />
+                        <input type="hidden" name="id" value={service.id} />
+                        <input
+                          type="hidden"
+                          name="status"
+                          value={service.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'}
+                        />
+                        <SubmitButton tone="secondary">
+                          {service.status === 'ACTIVE' ? COPY.deactivate : COPY.activate}
+                        </SubmitButton>
+                      </form>
+                    ) : null}
+                  </>
+                ) : undefined
               }
             />
           ))}

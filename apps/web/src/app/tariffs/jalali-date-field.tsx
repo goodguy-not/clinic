@@ -26,7 +26,8 @@ export function JalaliDateField({
 }: {
   legend: string;
   help?: string;
-  namePrefix: 'start' | 'end';
+  /** Kept as a prefix so several independent Jalali dates can share one form. */
+  namePrefix: string;
   value?: JalaliParts | null;
   required?: boolean;
 }) {
@@ -57,6 +58,7 @@ export function JalaliDateField({
           <select
             name={`${namePrefix}-year`}
             defaultValue={value?.year ?? ''}
+            required={required}
             aria-describedby={help === undefined ? undefined : helpId}
             className={select}
           >
@@ -71,7 +73,13 @@ export function JalaliDateField({
 
         <label className="flex flex-col gap-1 text-xs text-slate-600">
           ماه
-          <select name={`${namePrefix}-month`} defaultValue={value?.month ?? ''} className={select}>
+          <select
+            name={`${namePrefix}-month`}
+            defaultValue={value?.month ?? ''}
+            required={required}
+            aria-describedby={help === undefined ? undefined : helpId}
+            className={select}
+          >
             <option value="">—</option>
             {JALALI_MONTHS.map((month, index) => (
               <option key={month} value={index + 1}>
@@ -83,7 +91,13 @@ export function JalaliDateField({
 
         <label className="flex flex-col gap-1 text-xs text-slate-600">
           روز
-          <select name={`${namePrefix}-day`} defaultValue={value?.day ?? ''} className={select}>
+          <select
+            name={`${namePrefix}-day`}
+            defaultValue={value?.day ?? ''}
+            required={required}
+            aria-describedby={help === undefined ? undefined : helpId}
+            className={select}
+          >
             <option value="">—</option>
             {Array.from({ length: 31 }, (_unused, index) => index + 1).map((day) => (
               <option key={day} value={day}>

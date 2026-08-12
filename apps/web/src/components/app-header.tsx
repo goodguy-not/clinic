@@ -41,6 +41,9 @@ export async function AppHeader() {
   if (user.permissions.includes('therapist.read')) {
     links.push({ href: '/therapists', label: COPY.therapistsTitle });
   }
+  if (user.permissions.includes('availability.read')) {
+    links.push({ href: '/availability', label: COPY.availabilityTitle });
+  }
   if (user.permissions.includes('tariff.read')) {
     links.push({ href: '/tariffs', label: COPY.tariffsTitle });
   }
