@@ -31,9 +31,11 @@ export { CONTROL_CLASS, FOCUS_RING };
  * inside it: presentational list/form components include `PageShell` and must
  * stay synchronously renderable for the markup tests.
  */
-export function PageShell({ children }: { children: ReactNode }) {
+export function PageShell({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+    <main
+      className={`mx-auto w-full px-4 py-6 sm:px-6 sm:py-10 ${wide ? 'max-w-6xl' : 'max-w-4xl'}`}
+    >
       <div className="flex flex-col gap-6">{children}</div>
     </main>
   );

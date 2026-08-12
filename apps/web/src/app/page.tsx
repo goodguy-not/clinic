@@ -20,6 +20,13 @@ export default async function Home() {
   const user = await requireSession();
 
   const sections: { href: string; title: string; description?: string }[] = [];
+  if (user.permissions.includes('appointment.read')) {
+    sections.push({
+      href: '/appointments',
+      title: COPY.appointmentsTitle,
+      description: COPY.appointmentsDescription,
+    });
+  }
   if (user.permissions.includes('family.read')) {
     sections.push({
       href: '/families',

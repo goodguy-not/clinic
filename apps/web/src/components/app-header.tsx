@@ -29,6 +29,9 @@ export async function AppHeader() {
   const csrfToken = (await readCsrfCookie()) ?? '';
 
   const links: { href: string; label: string }[] = [];
+  if (user.permissions.includes('appointment.read')) {
+    links.push({ href: '/appointments', label: COPY.appointmentsTitle });
+  }
   if (user.permissions.includes('family.read')) {
     links.push({ href: '/families', label: COPY.familiesTitle });
   }

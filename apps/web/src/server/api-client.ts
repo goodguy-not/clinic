@@ -4,6 +4,9 @@ import {
   availabilityExceptionListResponseSchema,
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
+  appointmentDayResponseSchema,
+  appointmentResponseSchema,
+  appointmentViewResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
   loginResponseSchema,
@@ -26,6 +29,11 @@ import {
   type AvailabilityExceptionListResponse,
   type AvailabilityExceptionResponse,
   type AvailabilityWindowListResponse,
+  type AppointmentDayQuery,
+  type AppointmentDayResponse,
+  type AppointmentResponse,
+  type AppointmentViewResponse,
+  type CancelAppointmentRequest,
   type ChildDetailResponse,
   type ChildWriteResponse,
   type ConfirmDraftRequest,
@@ -45,13 +53,16 @@ import {
   type FamilyWriteResponse,
   type LoginRequest,
   type LoginResponse,
+  type MoveAppointmentRequest,
   type PasswordResetResponse,
   type RecordStatus,
+  type RecordAttendanceRequest,
   type RegistrationDraftResponse,
   type ReplaceAvailabilityWindowsRequest,
   type ResolveAvailabilityQuery,
   type ResolveAvailabilityResponse,
   type RevokeSessionsResponse,
+  type ReopenAppointmentRequest,
   type RoomListResponse,
   type RoomResponse,
   type ServiceListResponse,
@@ -464,6 +475,100 @@ export const api = {
       context,
     );
   },
+
+  // --- appointment day and lifecycle ---------------------------------------
+
+  appointmentDay: (
+    query: AppointmentDayQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentDayResponse>> => {
+    const search = new URLSearchParams({ date: query.date });
+    if (query.therapistId !== undefined) search.set('therapistId', query.therapistId);
+    if (query.roomId !== undefined) search.set('roomId', query.roomId);
+
+    return call(
+      `/appointment-day?${search.toString()}`,
+      'GET',
+      appointmentDayResponseSchema,
+      context,
+    );
+  },
+
+  appointmentView: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentViewResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(id)}/view`,
+      'GET',
+      appointmentViewResponseSchema,
+      context,
+    ),
+
+  moveAppointment: (
+    id: string,
+    body: MoveAppointmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(id)}`,
+      'PATCH',
+      appointmentResponseSchema,
+      context,
+      body,
+    ),
+
+  cancelAppointment: (
+    id: string,
+    body: CancelAppointmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(id)}/cancel`,
+      'POST',
+      appointmentResponseSchema,
+      context,
+      body,
+    ),
+
+  completeAppointment: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(id)}/complete`,
+      'POST',
+      appointmentResponseSchema,
+      context,
+      {},
+    ),
+
+  reopenAppointment: (
+    id: string,
+    body: ReopenAppointmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(id)}/reopen`,
+      'POST',
+      appointmentResponseSchema,
+      context,
+      body,
+    ),
+
+  recordAppointmentAttendance: (
+    appointmentId: string,
+    participantId: string,
+    body: RecordAttendanceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call(
+      `/appointments/${encodeURIComponent(appointmentId)}/participants/${encodeURIComponent(participantId)}/attendance`,
+      'PUT',
+      appointmentResponseSchema,
+      context,
+      body,
+    ),
 
   listTariffs: (
     query: TariffListQuery,

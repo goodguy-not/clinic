@@ -1,0 +1,218 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import type {
+  AppointmentDayResponse,
+  AppointmentView,
+  Room,
+  Service,
+  Therapist,
+} from '@clinic/contracts';
+import { AppointmentDay } from './appointments/appointment-day';
+import { AppointmentDetail } from './appointments/appointment-detail';
+import { AppointmentMoveForm } from './appointments/appointment-move-form';
+
+const APPOINTMENT_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a70';
+const PARTICIPANT_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a71';
+const THERAPIST_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a72';
+const ROOM_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a73';
+const SERVICE_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a74';
+
+const VIEW: AppointmentView = {
+  appointment: {
+    id: APPOINTMENT_ID,
+    serviceId: SERVICE_ID,
+    durationMinutes: 45,
+    therapistId: THERAPIST_ID,
+    roomId: ROOM_ID,
+    startsAt: '2026-08-13T05:30:00.000Z',
+    endsAt: '2026-08-13T06:15:00.000Z',
+    status: 'SCHEDULED',
+    seriesId: null,
+    note: 'یادداشت غیرپزشکی نمونه',
+    completedAt: null,
+    cancelledAt: null,
+    cancellationReason: null,
+    availabilityOverrideReason: null,
+    createdAt: '2026-08-12T10:00:00.000Z',
+  },
+  participants: [
+    {
+      participant: {
+        id: PARTICIPANT_ID,
+        appointmentId: APPOINTMENT_ID,
+        childId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a75',
+        attendance: 'PENDING',
+        attendanceRecordedAt: null,
+      },
+      child: {
+        id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a75',
+        familyId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a76',
+        firstName: 'کودک',
+        lastName: 'نمونه',
+        fileNumber: '14050001',
+      },
+    },
+  ],
+  service: { id: SERVICE_ID, name: 'گفتاردرمانی' },
+  therapist: { id: THERAPIST_ID, fullName: 'درمانگر نمونه' },
+  room: { id: ROOM_ID, name: 'اتاق یک' },
+  tariffSuggestion: { status: 'MISSING' },
+  outcomeUnresolved: true,
+};
+
+const THERAPIST: Therapist = {
+  id: THERAPIST_ID,
+  fullName: 'درمانگر نمونه',
+  specialty: 'گفتاردرمانی',
+  status: 'ACTIVE',
+  deactivatedAt: null,
+  supportedServiceIds: [SERVICE_ID],
+  createdAt: '2026-08-01T00:00:00.000Z',
+};
+const ROOM: Room = {
+  id: ROOM_ID,
+  name: 'اتاق یک',
+  status: 'ACTIVE',
+  deactivatedAt: null,
+  allowedServiceIds: [],
+  createdAt: '2026-08-01T00:00:00.000Z',
+};
+const SERVICE: Service = {
+  id: SERVICE_ID,
+  name: 'گفتاردرمانی',
+  publicDescription: null,
+  isPublic: false,
+  status: 'ACTIVE',
+  deactivatedAt: null,
+  allowedDurationsMinutes: [30, 45, 60],
+  createdAt: '2026-08-01T00:00:00.000Z',
+};
+
+function detail(view = VIEW, canReopen = false): string {
+  return renderToStaticMarkup(
+    createElement(AppointmentDetail, {
+      view,
+      csrfToken: 'synthetic-csrf',
+      errorMessage: null,
+      successMessage: null,
+      canUpdate: true,
+      canCancel: true,
+      canComplete: true,
+      canReopen,
+    }),
+  );
+}
+
+describe('clinic day workflow', () => {
+  const day: AppointmentDayResponse = {
+    date: '2026-08-13',
+    summary: {
+      total: 1,
+      scheduled: 1,
+      completed: 0,
+      cancelled: 0,
+      unresolvedOutcomes: 1,
+      noShows: 0,
+    },
+    appointments: [VIEW],
+  };
+  const markup = renderToStaticMarkup(
+    createElement(AppointmentDay, {
+      day,
+      selectedDateLabel: 'پنجشنبه ۲۲ مرداد ۱۴۰۵',
+      dayOptions: [
+        {
+          isoDate: day.date,
+          href: '/appointments?date=2026-08-13',
+          weekday: 'پنجشنبه',
+          day: '۲۲',
+          selected: true,
+          accessibleLabel: 'پنجشنبه ۲۲ مرداد، انتخاب‌شده',
+        },
+      ],
+      periodLabel: '۱۷ تا ۲۳ مرداد ۱۴۰۵',
+      previousHref: '/appointments?date=2026-08-06',
+      nextHref: '/appointments?date=2026-08-20',
+      todayHref: '/appointments?date=2026-08-13',
+      therapists: [THERAPIST],
+      rooms: [ROOM],
+      clearHref: '/appointments?date=2026-08-13',
+      errorMessage: null,
+    }),
+  );
+
+  it('surfaces unresolved outcomes and a non-blocking missing tariff in the scan row', () => {
+    expect(markup).toContain('نتیجهٔ معوق');
+    expect(markup).toContain('تعرفه ثبت نشده');
+    expect(markup).toContain(`/appointments/${APPOINTMENT_ID}`);
+  });
+
+  it('uses only approved opaque/date filter values in navigation URLs', () => {
+    expect(markup).toContain('name="therapistId"');
+    expect(markup).toContain('name="roomId"');
+    expect(markup).not.toContain('کودک+نمونه');
+    expect(markup).not.toContain(encodeURIComponent('کودک نمونه'));
+  });
+});
+
+describe('appointment lifecycle detail', () => {
+  it('offers every receptionist lifecycle operation except reopening', () => {
+    const markup = detail();
+    expect(markup).toContain('/api/appointments/attendance');
+    expect(markup).toContain('/api/appointments/complete');
+    expect(markup).toContain('/api/appointments/cancel');
+    expect(markup).toContain(`/appointments/${APPOINTMENT_ID}/edit`);
+    expect(markup).not.toContain('/api/appointments/reopen');
+  });
+
+  it('shows missing tariff clearly without suppressing lifecycle forms', () => {
+    const markup = detail();
+    expect(markup).toContain('نوبت معتبر است');
+    expect(markup).toContain('/api/appointments/complete');
+  });
+
+  it('renders manager reopening only for a completed appointment and requires a reason', () => {
+    const completed: AppointmentView = {
+      ...VIEW,
+      appointment: {
+        ...VIEW.appointment,
+        status: 'COMPLETED',
+        completedAt: '2026-08-13T06:20:00.000Z',
+      },
+      outcomeUnresolved: false,
+    };
+    const markup = detail(completed, true);
+    expect(markup).toContain('/api/appointments/reopen');
+    expect(markup).toContain('name="reason"');
+    expect(markup).toContain('required=""');
+  });
+});
+
+describe('frozen move workflow', () => {
+  it('submits a full placement while keeping child and service immutable', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AppointmentMoveForm, {
+        view: VIEW,
+        service: SERVICE,
+        therapists: [THERAPIST],
+        rooms: [ROOM],
+        csrfToken: 'synthetic-csrf',
+        errorMessage: null,
+        canOverrideAvailability: true,
+      }),
+    );
+    for (const field of [
+      'durationMinutes',
+      'therapistId',
+      'roomId',
+      'startTime',
+      'note',
+      'availabilityOverrideReason',
+    ]) {
+      expect(markup).toContain(`name="${field}"`);
+    }
+    expect(markup).not.toContain('name="childId"');
+    expect(markup).not.toContain('name="serviceId"');
+  });
+});

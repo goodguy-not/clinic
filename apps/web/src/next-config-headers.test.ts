@@ -16,12 +16,18 @@ import nextConfig from '../next.config';
  * (CLAUDE.md; 2026-08-04 decision log entry on internal-surface conventions).
  */
 
-describe('next.config.ts headers for family and child pages', () => {
-  it('declares no-store and no-referrer for every family and child path', async () => {
+describe('next.config.ts headers for personal clinic pages', () => {
+  it('declares no-store and same-origin referrers for every personal-data path', async () => {
     const rules = (await nextConfig.headers?.()) ?? [];
     const bySource = new Map(rules.map((rule) => [rule.source, rule.headers]));
 
-    for (const source of ['/families', '/families/:path*', '/children/:path*']) {
+    for (const source of [
+      '/families',
+      '/families/:path*',
+      '/children/:path*',
+      '/appointments',
+      '/appointments/:path*',
+    ]) {
       const headers = bySource.get(source);
       expect(headers).toBeDefined();
       expect(headers).toContainEqual({ key: 'Cache-Control', value: 'no-store' });
@@ -50,6 +56,10 @@ const familyAndChildPages = collectPageFiles(APP_ROOT)
   .map((path) => path.replace(/\\/g, '/'))
   .filter((path) => /\/app\/(families|children)\//.test(path));
 
+const appointmentPages = collectPageFiles(APP_ROOT)
+  .map((path) => path.replace(/\\/g, '/'))
+  .filter((path) => /\/app\/appointments\//.test(path));
+
 describe('every family and child page', () => {
   it('finds the pages it is meant to be checking', () => {
     // Guards this file against silently passing because it enumerated nothing.
@@ -57,6 +67,20 @@ describe('every family and child page', () => {
   });
 
   it.each(familyAndChildPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(
+    '%s is noindex and force-dynamic',
+    (_path, source) => {
+      expect(source).toContain("dynamic = 'force-dynamic'");
+      expect(source).toMatch(/robots:\s*{\s*index:\s*false,\s*follow:\s*false\s*}/);
+    },
+  );
+});
+
+describe('every appointment page', () => {
+  it('finds the B2 pages it is meant to be checking', () => {
+    expect(appointmentPages.length).toBe(3);
+  });
+
+  it.each(appointmentPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(
     '%s is noindex and force-dynamic',
     (_path, source) => {
       expect(source).toContain("dynamic = 'force-dynamic'");

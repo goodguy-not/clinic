@@ -62,6 +62,8 @@ const nextConfig: NextConfig = {
       { source: '/families', headers: noStoreHeaders },
       { source: '/families/:path*', headers: noStoreHeaders },
       { source: '/children/:path*', headers: noStoreHeaders },
+      { source: '/appointments', headers: noStoreHeaders },
+      { source: '/appointments/:path*', headers: noStoreHeaders },
     ];
   },
 };
