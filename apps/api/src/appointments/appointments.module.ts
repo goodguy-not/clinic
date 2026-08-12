@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AvailabilityModule } from '../availability/availability.module';
-import { AppointmentsController } from './appointments.controller';
+import { AppointmentReadService } from './appointment-read.service';
+import { AppointmentDayController, AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
 
 /**
@@ -18,14 +19,19 @@ import { AppointmentsService } from './appointments.service';
  * stays there — a second implementation here would eventually disagree with it,
  * and the disagreement would decide whether somebody's booking was refused.
  *
- * Nothing financial is imported, because nothing financial exists. There is no
- * tariff lookup, no price snapshot and no charge in this module; those belong to
+ * NOTHING FINANCIAL IS WRITTEN, and only one thing financial is read. The
+ * operational read model resolves the clinic's own price list as a suggestion,
+ * with `resolveTariffSql` — the SQL `/catalog/tariff-resolution` answers with,
+ * so there is one statement of "which price applies" rather than two that can
+ * drift. It is a pure read: no price snapshot, no charge and no amount is
+ * stored by anything in this module, and `AppointmentsService` — which owns
+ * every write — cannot see a tariff at all. Pricing a session belongs to
  * Milestone 5.
  */
 @Module({
   imports: [AuditModule, AvailabilityModule],
-  controllers: [AppointmentsController],
-  providers: [AppointmentsService],
-  exports: [AppointmentsService],
+  controllers: [AppointmentsController, AppointmentDayController],
+  providers: [AppointmentsService, AppointmentReadService],
+  exports: [AppointmentsService, AppointmentReadService],
 })
 export class AppointmentsModule {}

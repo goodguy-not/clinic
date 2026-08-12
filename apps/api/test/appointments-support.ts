@@ -1,5 +1,6 @@
 import request from 'supertest';
 import {
+  appointmentResponseSchema,
   childWriteResponseSchema,
   loginResponseSchema,
   roomResponseSchema,
@@ -32,6 +33,34 @@ export const SATURDAY_10_30 = '2026-09-05T07:00:00.000Z';
 export const SATURDAY_20_00 = '2026-09-05T16:30:00.000Z';
 
 export const SATURDAY = '2026-09-05';
+
+/**
+ * A Saturday a year either side of whenever the suite runs, at 10:00 Tehran.
+ *
+ * The fixed dates above are chosen for their weekday and say nothing about
+ * "before now" or "after now". The day view's unresolved-outcome flag is a
+ * comparison against the database clock, so the suites that assert it need a
+ * session that is certainly over and one that is certainly not — and a
+ * hard-coded date would quietly stop meaning that as the calendar moves past it.
+ *
+ * Saturday is weekday 6 in JavaScript's `getUTCDay`, and 10:00 Tehran is 06:30
+ * UTC on the same calendar day.
+ */
+function saturdayNear(offsetDays: number): { date: string; startsAt: string } {
+  const moment = new Date(Date.now() + offsetDays * 86_400_000);
+
+  while (moment.getUTCDay() !== 6) moment.setUTCDate(moment.getUTCDate() + 1);
+
+  const date = moment.toISOString().slice(0, 10);
+
+  return { date, startsAt: `${date}T06:30:00.000Z` };
+}
+
+/** A Saturday whose 10:00 session has certainly finished. */
+export const pastSaturday = (): { date: string; startsAt: string } => saturdayNear(-400);
+
+/** A Saturday whose 10:00 session is certainly still ahead. */
+export const futureSaturday = (): { date: string; startsAt: string } => saturdayNear(365);
 
 export async function signIn(
   harness: Harness,
@@ -197,6 +226,139 @@ export function bookingPayload(
 
 export function book(harness: Harness, token: string, body: Record<string, unknown>): request.Test {
   return request(harness.app.getHttpServer()).post('/appointments').set(asUser(token)).send(body);
+}
+
+/** Books and returns the appointment id, failing loudly if the booking was refused. */
+export async function bookId(
+  harness: Harness,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<string> {
+  const response = await book(harness, token, body);
+  expectCreated(response, 'an appointment');
+
+  return appointmentResponseSchema.parse(response.body).appointment.id;
+}
+
+/** The complete new placement a move submits, defaulting to where the fixture booked. */
+export function movePayload(
+  base: { therapistId: string; roomId: string },
+  overrides: BookingOverrides = {},
+): Record<string, unknown> {
+  return {
+    durationMinutes: 45,
+    therapistId: base.therapistId,
+    roomId: base.roomId,
+    startsAt: SATURDAY_10_00,
+    note: null,
+    availabilityOverrideReason: null,
+    ...overrides,
+  };
+}
+
+export function move(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/appointments/${id}`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function cancel(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/appointments/${id}/cancel`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function complete(harness: Harness, token: string, id: string): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/appointments/${id}/complete`)
+    .set(asUser(token))
+    .send({});
+}
+
+export function reopen(harness: Harness, token: string, id: string, reason: string): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/appointments/${id}/reopen`)
+    .set(asUser(token))
+    .send({ reason });
+}
+
+export function recordAttendance(
+  harness: Harness,
+  token: string,
+  id: string,
+  participantId: string,
+  attendance: string,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .put(`/appointments/${id}/participants/${participantId}/attendance`)
+    .set(asUser(token))
+    .send({ attendance });
+}
+
+export function readDay(
+  harness: Harness,
+  token: string,
+  query: Record<string, string>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get('/appointment-day')
+    .query(query)
+    .set(asUser(token));
+}
+
+export function readView(harness: Harness, token: string, id: string): request.Test {
+  return request(harness.app.getHttpServer()).get(`/appointments/${id}/view`).set(asUser(token));
+}
+
+/**
+ * A price for a service, so the day view has something to suggest.
+ *
+ * Synthetic, like every fixture here, and effective from long before the
+ * Saturday these suites book into.
+ */
+export async function makeTariff(
+  harness: Harness,
+  token: string,
+  tariff: {
+    serviceId: string;
+    durationMinutes?: number;
+    therapistId?: string | null;
+    priceToman?: string;
+    effectiveStart?: string;
+    /** Voids the named tariff in the same transaction, which is how a price changes. */
+    supersedesTariffId?: string;
+  },
+): Promise<string> {
+  const response = await request(harness.app.getHttpServer())
+    .post('/catalog/tariffs')
+    .set(asUser(token))
+    .send({
+      serviceId: tariff.serviceId,
+      durationMinutes: tariff.durationMinutes ?? 45,
+      therapistId: tariff.therapistId ?? null,
+      priceMode: 'PAID',
+      priceToman: tariff.priceToman ?? '250000',
+      effectiveStart: tariff.effectiveStart ?? '2020-01-01',
+      effectiveEnd: null,
+      ...(tariff.supersedesTariffId === undefined
+        ? {}
+        : { supersedesTariffId: tariff.supersedesTariffId }),
+    });
+
+  expectCreated(response, 'a tariff');
+  return response.body.tariff.id as string;
 }
 
 /**

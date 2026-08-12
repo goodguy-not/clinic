@@ -1,10 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { AppointmentDetail, CreateAppointmentRequest, Permission } from '@clinic/contracts';
+import type {
+  AppointmentDetail,
+  AppointmentStatus,
+  CancelAppointmentRequest,
+  CreateAppointmentRequest,
+  MoveAppointmentRequest,
+  Permission,
+  RecordAttendanceRequest,
+} from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import type { AuditJsonObject } from '../audit/audit.types';
 import { AvailabilityService } from '../availability/availability.service';
-import { actorContext, canonicalOptionalText } from '../catalog/catalog-support';
+import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
 import { isForeignKeyViolation, violatesConstraint } from '../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
@@ -21,13 +29,41 @@ import {
 } from './booking-support';
 
 /**
- * Booking one appointment.
+ * The life of one appointment: booking it, moving it, and recording what
+ * happened to it.
  *
- * ONE ENDPOINT, AND EVERY RULE THAT DECIDES IT. Recurrence, rescheduling,
- * completion, cancellation, attendance and the day view are later checkpoints
- * and appear nowhere here. Neither does anything financial: no tariff is read,
- * no price is snapshotted, no charge is created. Pricing a session is
- * Milestone 5's, and this module could not do it — it never looks at a tariff.
+ * EVERY WRITE TO `appointment` AND `appointment_participant` IS HERE, and every
+ * rule that decides one. Recurrence is a later checkpoint and appears nowhere.
+ * Neither does anything financial: no tariff is read, no price is snapshotted,
+ * no charge is created. Pricing a session is Milestone 5's, and this class could
+ * not do it — it never looks at a tariff. The read-only price suggestion an
+ * operational screen shows is computed by `AppointmentReadService`, which
+ * writes nothing, and is deliberately not visible from any method here.
+ *
+ * TWO FACTS, RECORDED SEPARATELY AND NEVER DERIVED FROM EACH OTHER. The
+ * booking's `status` says what happened to the session; a seat's `attendance`
+ * says what one child did with it. A child may fail to arrive for a session
+ * that took place, so `recordAttendance` does not complete an appointment and
+ * `complete` does not resolve an outcome. Milestone 5's rule — only an attended
+ * participant in a completed appointment may be charged — needs both facts, and
+ * gets them because neither was invented from the other.
+ *
+ * THE FOUR STATUSES ARE THE WHOLE LIFECYCLE. A move is an audited in-place
+ * update of a `SCHEDULED` row, not a new state and not a new row: there is no
+ * `RESCHEDULED`, because the appointment that moved is the same appointment,
+ * and its history is in `audit_log` where a before/after can be read. There is
+ * no `VOIDED` either — reversing a completion returns the booking to
+ * `SCHEDULED`, and voiding a financial record is a Milestone 5 operation on a
+ * financial record.
+ *
+ * WHAT EACH STATUS DOES TO THE SLOT, which is the property every conflict rule
+ * is written against: `SCHEDULED` and `COMPLETED` occupy the therapist, the room
+ * and the child; both cancellations release all three. So cancelling frees the
+ * hour for somebody else, completing does not, and reopening a completed
+ * appointment cannot conflict with anything — it moves between two statuses that
+ * occupy identically. The update is still made through the same constraint
+ * translation, so if that ever stops being true the caller is told which
+ * resource is busy rather than seeing an internal error.
  *
  * ------------------------------------------------------------------------
  * THE THREE CONFLICTS, AND THREE DIFFERENT MECHANISMS.
@@ -85,7 +121,14 @@ import {
  * ------------------------------------------------------------------------
  * LOCK ORDER — one rule, extending the two that already exist:
  *
- *     service -> therapist -> room -> family -> child -> advisory keys
+ *     appointment -> service -> therapist -> room -> family -> child -> advisory keys
+ *
+ * A transaction that touches an existing appointment takes that row `FOR UPDATE`
+ * FIRST and holds it for the transaction. It is what serialises two people
+ * acting on the same booking — a move against a cancellation, a completion
+ * against a second completion — so every one of them decides against the status
+ * the previous one committed rather than against a stale read. Each transaction
+ * locks at most one appointment row, so no cycle can form among them.
  *
  * It is consistent with Milestone 2's `service -> therapist -> tariff` and with
  * Milestone 3's `registration_draft -> family -> child -> advisory keys`; no path
@@ -229,6 +272,435 @@ export class AppointmentsService {
   }
 
   /**
+   * Moves a `SCHEDULED` appointment: a new time, length, therapist or room.
+   *
+   * AN IN-PLACE UPDATE OF THE SAME ROW, audited with a before and an after. The
+   * alternative — cancel and rebook — would make one session look like two in
+   * every report that counts them, and would lose the fact that the family kept
+   * their appointment.
+   *
+   * IT RUNS EVERY RULE A BOOKING RUNS, and for the same reason: the placement
+   * being new is what the rules are about, and a move that skipped them would be
+   * a way to reach a state `create` refuses. The therapist and room overlaps are
+   * decided by the two exclusion constraints as the UPDATE lands — a row never
+   * conflicts with itself, so moving by ten minutes is not blocked by its own
+   * old position — and the child overlap is recomputed under the same advisory
+   * lock, excluding this appointment for exactly that reason.
+   *
+   * ONLY FROM `SCHEDULED`. A completed session is a record of something that
+   * happened and its time is a fact, not a plan; a cancelled one is released,
+   * and re-placing it would resurrect a booking the family was told was off. A
+   * manager who completed the wrong appointment reopens it first, which is a
+   * separate, MANAGER-only, reasoned act.
+   *
+   * WHAT A MOVE MAY NOT CHANGE: the service and the child. Either would make
+   * this a different booking wearing the same id, and the seat's `child_id` is
+   * immutable in the database precisely so an edit cannot rewrite who was
+   * treated.
+   *
+   * REPEATING THE SAME MOVE CHANGES NOTHING AND AUDITS NOTHING. A resubmitted
+   * form is the ordinary cause, and an audit trail that records a move to where
+   * the appointment already is describes an event that did not happen.
+   */
+  async move(
+    id: string,
+    input: MoveAppointmentRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AppointmentDetail> {
+    if (!isWholeMinute(input.startsAt)) throw new AppError('APPOINTMENT_TIME_INVALID');
+
+    const note = canonicalOptionalText(input.note);
+    const submittedReason = canonicalOptionalText(input.availabilityOverrideReason);
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await this.lockAppointment(tx, id);
+      if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      const participants = await this.readParticipants(tx, id);
+
+      if (isSamePlacement(current, input, note, submittedReason)) {
+        return detailOf(current, participants);
+      }
+
+      await this.lockActiveTherapist(tx, input.therapistId);
+      await this.lockActiveRoom(tx, input.roomId);
+
+      // Against the appointment's OWN service, which a move cannot change. The
+      // pairings are re-checked because the therapist and the room may be new:
+      // a booking moved to a colleague who does not provide this service, or to
+      // a room not allowed to host it, is the same mistake as making it that way.
+      await this.assertTherapistProvidesService(tx, input.therapistId, current.service_id);
+      await this.assertRoomAllowsService(tx, input.roomId, current.service_id);
+
+      const span = await this.readClinicSpan(tx, input.startsAt, input.durationMinutes);
+      if (span.startDate !== span.endDate) throw new AppError('APPOINTMENT_TIME_INVALID');
+
+      const decision = await this.decideAvailability(tx, span, input, submittedReason, actor);
+
+      for (const participant of participants) {
+        await this.assertChildIsFree(
+          tx,
+          {
+            childId: participant.child_id,
+            startsAt: input.startsAt,
+            durationMinutes: input.durationMinutes,
+          },
+          // Excluded, or an appointment would conflict with the position it is
+          // leaving and no session could ever be moved by less than its length.
+          id,
+        );
+      }
+
+      await this.writePlacement(tx, id, input, note, decision.overrideReason, actor);
+
+      const moved = await this.readAppointment(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'appointment.updated',
+        entityType: 'appointment',
+        entityId: id,
+        // Both sides, because a move is only legible as a difference: "10:00 to
+        // 11:30, room 2 to room 4" is the fact, and neither half states it.
+        before: auditAppointment(current, participants),
+        after: auditAppointment(moved, participants),
+        metadata: decision.audit,
+      });
+
+      return detailOf(moved, participants);
+    });
+  }
+
+  /**
+   * Cancels a scheduled appointment, and says who cancelled it.
+   *
+   * TWO STATUSES FOR ONE ACT, because the clinic counts them apart:
+   * "cancellations by us" is an operational failure to look at, and
+   * "cancellations by families" is not. The request names the party and this
+   * derives the status, so the two lists cannot be filled from a free choice of
+   * status.
+   *
+   * THE SLOT IS RELEASED as the status changes, by the two exclusion constraints
+   * and the child recomputation all being conditional on the occupying statuses.
+   * Nothing here deletes, frees or rebuilds anything: the row stays, the hour
+   * becomes bookable, and the cancelled appointment remains visible in its day
+   * and in every report of it (PROJECT_SPEC.md 14).
+   *
+   * NO CHARGE, AND NO FINANCIAL CONSEQUENCE OF ANY KIND. Cancellation creates
+   * none by default (CLAUDE.md, non-negotiable rules), and a policy that ever
+   * changes that is a Milestone 5 decision about charges, not a change here.
+   *
+   * CANCELLING AN ALREADY-CANCELLED APPOINTMENT THE SAME WAY IS A NO-OP: a
+   * double-submitted form must not overwrite the reason and the instant somebody
+   * recorded, and must not write a second audit row for one cancellation.
+   * Cancelling it the OTHER way is refused — changing who cancelled is a
+   * correction of a recorded fact, not a repeat of it, and no approved operation
+   * makes one.
+   */
+  async cancel(
+    id: string,
+    input: CancelAppointmentRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AppointmentDetail> {
+    const reason = canonicalText(input.reason);
+    const target: AppointmentStatus =
+      input.cancelledBy === 'FAMILY' ? 'CANCELLED_BY_FAMILY' : 'CANCELLED_BY_CLINIC';
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await this.lockAppointment(tx, id);
+      const participants = await this.readParticipants(tx, id);
+
+      if (current.status === target) return detailOf(current, participants);
+      if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      await tx.$executeRaw`
+        UPDATE appointment
+        SET status = ${target}::appointment_status,
+            cancelled_at = transaction_timestamp(),
+            cancellation_reason = ${reason}
+        WHERE id = ${id}::uuid
+      `;
+
+      const cancelled = await this.readAppointment(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'appointment.cancelled',
+        entityType: 'appointment',
+        entityId: id,
+        before: auditAppointment(current, participants),
+        after: auditAppointment(cancelled, participants),
+        // The party, flat, as its own key: "how many sessions did the clinic
+        // cancel last month?" is answered by counting `metadata->>'cancelledBy'`
+        // without parsing a status name out of a diff.
+        metadata: { cancelledBy: input.cancelledBy },
+      });
+
+      return detailOf(cancelled, participants);
+    });
+  }
+
+  /**
+   * Records that a scheduled session took place.
+   *
+   * THE TRANSITION MILESTONE 5 WILL HANG THE SESSION CHARGE ON, and the reason
+   * this is a single, guarded, audited step from `SCHEDULED` rather than a
+   * status a caller may set. Nothing financial happens here yet, and nothing
+   * here presumes what will: it changes a status and writes an audit row.
+   *
+   * IDEMPOTENT BY DESIGN, not by luck. A completed appointment completed again
+   * returns exactly what the first request produced and writes no second audit
+   * row — the appointment row is held `FOR UPDATE`, so two simultaneous requests
+   * cannot both see `SCHEDULED`, and PROJECT_SPEC.md 6 requires repeated
+   * submissions to be idempotent because this is the transition that will create
+   * money. A cancelled appointment cannot be completed: it did not happen.
+   *
+   * IT DOES NOT TOUCH ATTENDANCE. Completing the session and saying which child
+   * arrived are two facts, and inferring one from the other is what would let a
+   * no-show be charged as an attended session.
+   */
+  async complete(
+    id: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AppointmentDetail> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await this.lockAppointment(tx, id);
+      const participants = await this.readParticipants(tx, id);
+
+      if (current.status === 'COMPLETED') return detailOf(current, participants);
+      if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      await tx.$executeRaw`
+        UPDATE appointment
+        SET status = 'COMPLETED'::appointment_status,
+            completed_at = transaction_timestamp()
+        WHERE id = ${id}::uuid
+      `;
+
+      const completed = await this.readAppointment(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'appointment.completed',
+        entityType: 'appointment',
+        entityId: id,
+        before: auditAppointment(current, participants),
+        after: auditAppointment(completed, participants),
+      });
+
+      return detailOf(completed, participants);
+    });
+  }
+
+  /**
+   * Reverses a completion entered by mistake, back to `SCHEDULED`.
+   *
+   * MANAGER-ONLY AND ALWAYS EXPLAINED. `appointment.reopen` is held by no
+   * receptionist (PROJECT_SPEC.md 4), the reason is required, and the whole act
+   * is one audit row of its own — this is the correction of a recorded outcome,
+   * which CLAUDE.md requires to preserve actor, time and reason.
+   *
+   * ONLY FROM `COMPLETED`, and deliberately not idempotent. A second reopen sees
+   * a scheduled appointment and is refused rather than silently accepted:
+   * unlike a repeated completion, "reopen it again" describes nothing, and
+   * telling the manager that the appointment is already open is the useful
+   * answer.
+   *
+   * THE OCCUPANCY IT RESTORES IS THE ONE IT ALREADY HAD — `COMPLETED` and
+   * `SCHEDULED` occupy the therapist, the room and the child identically — so
+   * this can conflict with nothing, and the hour cannot have been given away
+   * while the session was completed. The write still goes through the same
+   * constraint translation, so a future change to what occupies a slot surfaces
+   * as a named conflict instead of an internal error.
+   *
+   * ATTENDANCE IS LEFT EXACTLY AS RECORDED. What a child did is a separate fact
+   * from the booking's status, and the manager reversing a wrong completion did
+   * not say the child was absent.
+   *
+   * IN MILESTONE 5 this is where a session charge must be voided or offset
+   * (PROJECT_SPEC.md 6). Nothing financial exists yet; the audit action is
+   * separate so that rule has a fact to key on.
+   */
+  async reopen(
+    id: string,
+    reason: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AppointmentDetail> {
+    const canonicalReason = canonicalText(reason);
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await this.lockAppointment(tx, id);
+      if (current.status !== 'COMPLETED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      const participants = await this.readParticipants(tx, id);
+
+      try {
+        await tx.$executeRaw`
+          UPDATE appointment
+          SET status = 'SCHEDULED'::appointment_status,
+              completed_at = NULL
+          WHERE id = ${id}::uuid
+        `;
+      } catch (error) {
+        throw translateSchedulingWrite(error);
+      }
+
+      const reopened = await this.readAppointment(tx, id);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'appointment.reopened',
+        entityType: 'appointment',
+        entityId: id,
+        before: auditAppointment(current, participants),
+        after: auditAppointment(reopened, participants),
+        metadata: { reason: canonicalReason },
+      });
+
+      return detailOf(reopened, participants);
+    });
+  }
+
+  /**
+   * Records what one child did with their seat.
+   *
+   * THE SEAT'S OWN FACT. `ATTENDED` and `NO_SHOW` are recorded here and nowhere
+   * else, and neither changes the booking's status: the room was held and the
+   * therapist waited whether or not the child arrived. A `NO_SHOW` creates no
+   * charge, and will create none until the clinic approves a policy (CLAUDE.md,
+   * non-negotiable rules) — nothing in this method knows what a session costs.
+   *
+   * THE APPOINTMENT IS LOCKED FIRST, even though the write is to the seat: an
+   * attendance recorded against an appointment being cancelled in the same
+   * instant must land on one side of that change or the other, and it is also
+   * the lock order every other method here takes.
+   *
+   * A CANCELLED APPOINTMENT HAS NO OUTCOME TO RECORD. The session did not
+   * happen, so neither "attended" nor "did not arrive" is a true thing to say
+   * about it, and `NO_SHOW` on a cancelled booking is exactly the entry that
+   * would later be read as an absence the family is answerable for. Recording an
+   * outcome on a `SCHEDULED` appointment IS allowed: a receptionist marks the
+   * arrival when the child walks in, and the session is completed afterwards.
+   *
+   * REPEATING THE SAME OUTCOME IS A NO-OP, so a double-submitted form neither
+   * moves the instant it was recorded at nor writes a second audit row.
+   * Recording the OTHER outcome is a correction and is audited as the change it
+   * is, with both values on the row. There is no way back to `PENDING`: the
+   * request schema does not accept it, because un-recording an entry is not a
+   * correction of it.
+   */
+  async recordAttendance(
+    appointmentId: string,
+    participantId: string,
+    input: RecordAttendanceRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AppointmentDetail> {
+    return this.prisma.$transaction(async (tx) => {
+      const appointment = await this.lockAppointment(tx, appointmentId);
+
+      const rows = await tx.$queryRaw<ParticipantRow[]>`
+        SELECT ${PARTICIPANT_COLUMNS} FROM appointment_participant
+        WHERE id = ${participantId}::uuid AND appointment_id = ${appointmentId}::uuid
+        FOR UPDATE
+      `;
+
+      const participant = rows[0];
+      if (participant === undefined) throw new AppError('APPOINTMENT_PARTICIPANT_NOT_FOUND');
+
+      if (isCancelled(appointment.status)) throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      if (participant.attendance === input.attendance) {
+        return detailOf(appointment, await this.readParticipants(tx, appointmentId));
+      }
+
+      await tx.$executeRaw`
+        UPDATE appointment_participant
+        SET attendance = ${input.attendance}::attendance_outcome,
+            attendance_recorded_at = transaction_timestamp()
+        WHERE id = ${participantId}::uuid
+      `;
+
+      const participants = await this.readParticipants(tx, appointmentId);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        // The row names the SEAT, not the booking: this is one child's outcome,
+        // and it is the row a session charge will name in Milestone 5.
+        action: 'appointment.attendance_recorded',
+        entityType: 'appointment_participant',
+        entityId: participantId,
+        before: { attendance: participant.attendance, childId: participant.child_id },
+        after: { attendance: input.attendance, childId: participant.child_id },
+        // The booking this seat belongs to, so an appointment's outcomes can be
+        // read out of the audit trail without joining the seat table.
+        metadata: { appointmentId, appointmentStatus: appointment.status },
+      });
+
+      return detailOf(appointment, participants);
+    });
+  }
+
+  /**
+   * The appointment row, held for the transaction.
+   *
+   * `FOR UPDATE` rather than a plain read: every method that changes an
+   * appointment decides what it may do from the status it reads here, and a
+   * status read without a lock is a fact about a moment that has already passed.
+   * It is what makes a second completion see `COMPLETED` rather than race the
+   * first one.
+   */
+  private async lockAppointment(tx: Prisma.TransactionClient, id: string): Promise<AppointmentRow> {
+    const rows = await tx.$queryRaw<AppointmentRow[]>`
+      SELECT ${APPOINTMENT_COLUMNS} FROM appointment WHERE id = ${id}::uuid FOR UPDATE
+    `;
+
+    const row = rows[0];
+    if (row === undefined) throw new AppError('APPOINTMENT_NOT_FOUND');
+    return row;
+  }
+
+  /**
+   * The move's write, and the three rules PostgreSQL decides as it runs.
+   *
+   * `ends_at` is recomputed from the new start and length with the same
+   * `make_interval` expression `appointment_window_chk` uses, so the stored
+   * window cannot drift from the submitted one. The therapist overlap, the room
+   * overlap and "this service offers this length" are decided by the constraints
+   * as this statement lands, exactly as they are for an insert.
+   */
+  private async writePlacement(
+    tx: Prisma.TransactionClient,
+    id: string,
+    input: MoveAppointmentRequest,
+    note: string | null,
+    overrideReason: string | null,
+    actor: ResolvedSession,
+  ): Promise<void> {
+    const overrideBy = overrideReason === null ? null : actor.userId;
+    const overrideAt =
+      overrideReason === null ? Prisma.sql`NULL` : Prisma.sql`transaction_timestamp()`;
+
+    try {
+      await tx.$executeRaw`
+        UPDATE appointment
+        SET duration_minutes = ${input.durationMinutes},
+            therapist_id = ${input.therapistId}::uuid,
+            room_id = ${input.roomId}::uuid,
+            starts_at = ${input.startsAt}::timestamptz,
+            ends_at = ${input.startsAt}::timestamptz
+                      + make_interval(mins => ${input.durationMinutes}::int),
+            note = ${note},
+            availability_override_reason = ${overrideReason},
+            availability_override_by_user_id = ${overrideBy}::uuid,
+            availability_override_at = ${overrideAt}
+        WHERE id = ${id}::uuid
+      `;
+    } catch (error) {
+      throw translateSchedulingWrite(error);
+    }
+  }
+
+  /**
    * Decides whether this booking may sit outside the therapist's working hours.
    *
    * The availability is resolved ON THIS TRANSACTION, against the same snapshot
@@ -249,11 +721,15 @@ export class AppointmentsService {
   private async decideAvailability(
     tx: Prisma.TransactionClient,
     span: ClinicSpan,
-    input: CreateAppointmentRequest,
+    placement: { therapistId: string },
     submittedReason: string | null,
     actor: ResolvedSession,
   ): Promise<AvailabilityDecision> {
-    const resolved = await this.availability.resolveWithin(tx, input.therapistId, span.startDate);
+    const resolved = await this.availability.resolveWithin(
+      tx,
+      placement.therapistId,
+      span.startDate,
+    );
 
     if (isWithinAvailability(span, resolved.windows)) {
       return { overrideReason: null, audit: null };
@@ -344,14 +820,19 @@ export class AppointmentsService {
    * `[)` bounds and the two occupying statuses, matching the resource exclusion
    * constraints exactly — back-to-back sessions do not conflict, and a cancelled
    * booking releases the child as it releases the room.
+   *
+   * `excludeAppointmentId` is the appointment being moved. Without it a booking
+   * would conflict with the position it is leaving, and no session could be
+   * moved by less than its own length — the commonest correction there is.
    */
   private async assertChildIsFree(
     tx: Prisma.TransactionClient,
-    input: CreateAppointmentRequest,
+    placement: { childId: string; startsAt: string; durationMinutes: number },
+    excludeAppointmentId: string | null = null,
   ): Promise<void> {
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(
-        hashtextextended(${CHILD_SCHEDULE_LOCK_NAMESPACE} || ${input.childId}, 0)
+        hashtextextended(${CHILD_SCHEDULE_LOCK_NAMESPACE} || ${placement.childId}, 0)
       )
     `;
 
@@ -359,11 +840,13 @@ export class AppointmentsService {
       SELECT a.id
       FROM appointment_participant ap
       JOIN appointment a ON a.id = ap.appointment_id
-      WHERE ap.child_id = ${input.childId}::uuid
+      WHERE ap.child_id = ${placement.childId}::uuid
         AND a.status IN ('SCHEDULED', 'COMPLETED')
+        AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
         AND tstzrange(a.starts_at, a.ends_at, '[)') && tstzrange(
-              ${input.startsAt}::timestamptz,
-              ${input.startsAt}::timestamptz + make_interval(mins => ${input.durationMinutes}::int),
+              ${placement.startsAt}::timestamptz,
+              ${placement.startsAt}::timestamptz
+                + make_interval(mins => ${placement.durationMinutes}::int),
               '[)'
             )
       LIMIT 1
@@ -424,7 +907,7 @@ export class AppointmentsService {
         )
       `;
     } catch (error) {
-      throw translateBookingWrite(error);
+      throw translateSchedulingWrite(error);
     }
   }
 
@@ -588,7 +1071,7 @@ export class AppointmentsService {
  * afterwards could disagree with it, and would be answering a question about a
  * different moment.
  */
-function translateBookingWrite(error: unknown): unknown {
+function translateSchedulingWrite(error: unknown): unknown {
   if (violatesConstraint(error, 'appointment_no_therapist_overlap_excl')) {
     return new AppError('APPOINTMENT_THERAPIST_CONFLICT');
   }
@@ -620,11 +1103,16 @@ function translateBookingWrite(error: unknown): unknown {
 }
 
 /**
- * What the audit trail records about a new booking.
+ * What the audit trail records about an appointment, on either side of a change.
  *
  * The seats travel with it: an appointment without its participants does not say
  * who was booked, which is most of what the record is for. No price, no tariff
  * and no amount appears — there is none to appear.
+ *
+ * The outcome fields are here so a cancellation's audit row carries the reason
+ * and the instant as values rather than making a reader join back to a row that
+ * may have moved on since. `before` and `after` are the same shape, so a diff of
+ * a move, a completion and a cancellation reads the same way.
  */
 function auditAppointment(
   appointment: AppointmentRow,
@@ -640,6 +1128,9 @@ function auditAppointment(
     status: appointment.status,
     seriesId: appointment.series_id,
     note: appointment.note,
+    completedAt: appointment.completed_at?.toISOString() ?? null,
+    cancelledAt: appointment.cancelled_at?.toISOString() ?? null,
+    cancellationReason: appointment.cancellation_reason,
     availabilityOverrideReason: appointment.availability_override_reason,
     participants: participants.map((participant) => ({
       id: participant.id,
@@ -647,4 +1138,52 @@ function auditAppointment(
       attendance: participant.attendance,
     })),
   };
+}
+
+/** The response every write in this class returns: the booking and its seats. */
+function detailOf(
+  appointment: AppointmentRow,
+  participants: readonly ParticipantRow[],
+): AppointmentDetail {
+  return {
+    appointment: toAppointment(appointment),
+    participants: participants.map(toParticipant),
+  };
+}
+
+function isCancelled(status: string): boolean {
+  return status === 'CANCELLED_BY_FAMILY' || status === 'CANCELLED_BY_CLINIC';
+}
+
+/**
+ * Is this move asking for the placement the appointment already has?
+ *
+ * Compared on the epoch value rather than on the submitted string, so the same
+ * instant spelled two ways — `…T06:30:00.000Z` and `…T10:00:00+03:30` — is
+ * recognised as unchanged. Every field a move may write is compared, including
+ * the note and the override reason, because "nothing changed" has to mean all of
+ * it: an audit row recording a move that moved nothing is a false record, and a
+ * repeated request must produce exactly one.
+ *
+ * An unchanged placement submitted WITHOUT the override reason the row carries
+ * is deliberately not a no-op. It falls through to the availability decision and
+ * is refused unless the caller restates the reason and holds the permission —
+ * the authority to sit outside a therapist's hours is granted per write, and
+ * inheriting it from the row would let it be re-used by somebody who never had
+ * it.
+ */
+function isSamePlacement(
+  current: AppointmentRow,
+  input: MoveAppointmentRequest,
+  note: string | null,
+  submittedReason: string | null,
+): boolean {
+  return (
+    current.starts_at.getTime() === Date.parse(input.startsAt) &&
+    current.duration_minutes === input.durationMinutes &&
+    current.therapist_id === input.therapistId &&
+    current.room_id === input.roomId &&
+    current.note === note &&
+    current.availability_override_reason === submittedReason
+  );
 }

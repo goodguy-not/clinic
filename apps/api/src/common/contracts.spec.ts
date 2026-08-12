@@ -8,9 +8,14 @@ import {
   RECURRENCE_ENDS,
   USER_ROLES,
   USER_STATUSES,
+  appointmentDayQuerySchema,
+  appointmentDetailSchema,
   appointmentParticipantSchema,
   appointmentSchema,
+  appointmentTariffSuggestionSchema,
   availabilityWindowInputSchema,
+  cancelAppointmentRequestSchema,
+  completeAppointmentRequestSchema,
   clockTimeSchema,
   createAppointmentRequestSchema,
   createAvailabilityExceptionRequestSchema,
@@ -21,7 +26,10 @@ import {
   iranMobileSchema,
   loginResponseSchema,
   loginRequestSchema,
+  moveAppointmentRequestSchema,
   nationalIdSchema,
+  recordAttendanceRequestSchema,
+  reopenAppointmentRequestSchema,
   replaceAvailabilityWindowsRequestSchema,
   resolvedAvailabilitySchema,
   usernameSchema,
@@ -661,6 +669,156 @@ describe('Milestone 4 contracts', () => {
       for (const field of Object.keys(createAppointmentRequestSchema.shape)) {
         expect(field).not.toMatch(financial);
       }
+    });
+  });
+
+  describe('the lifecycle contract', () => {
+    const placement = (overrides: Record<string, unknown> = {}) => ({
+      durationMinutes: 45,
+      therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+      roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+      startsAt: '2026-09-05T06:30:00.000Z',
+      note: null,
+      availabilityOverrideReason: null,
+      ...overrides,
+    });
+
+    it('accepts a complete new placement', () => {
+      expect(moveAppointmentRequestSchema.safeParse(placement()).success).toBe(true);
+    });
+
+    it('refuses to move the service, the child or the status', () => {
+      // Changing what was booked, or who it was booked for, is a different
+      // booking rather than a move — and a status is reached through a
+      // transition that guards it, never through an edit.
+      for (const extra of [
+        { serviceId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+        { childId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5e' },
+        { status: 'COMPLETED' },
+        { endsAt: '2026-09-05T07:15:00.000Z' },
+      ]) {
+        expect(moveAppointmentRequestSchema.safeParse(placement(extra)).success).toBe(false);
+      }
+    });
+
+    it('names the cancelling party rather than a status', () => {
+      expect(
+        cancelAppointmentRequestSchema.safeParse({ cancelledBy: 'FAMILY', reason: 'بیماری' })
+          .success,
+      ).toBe(true);
+
+      // The status is derived from the party, so the two dashboard counts
+      // cannot be filled from a free choice of status name.
+      expect(
+        cancelAppointmentRequestSchema.safeParse({
+          cancelledBy: 'CANCELLED_BY_FAMILY',
+          reason: 'بیماری',
+        }).success,
+      ).toBe(false);
+    });
+
+    it('always requires a cancellation reason', () => {
+      for (const body of [
+        { cancelledBy: 'CLINIC' },
+        { cancelledBy: 'CLINIC', reason: '' },
+        { cancelledBy: 'CLINIC', reason: '   ' },
+      ]) {
+        expect(cancelAppointmentRequestSchema.safeParse(body).success).toBe(false);
+      }
+    });
+
+    it('lets a completion carry nothing at all', () => {
+      expect(completeAppointmentRequestSchema.safeParse({}).success).toBe(true);
+
+      // Not a place a price, a status or an attendance can be smuggled in.
+      for (const extra of [
+        { priceToman: '250000' },
+        { status: 'COMPLETED' },
+        { attendance: 'ATTENDED' },
+      ]) {
+        expect(completeAppointmentRequestSchema.safeParse(extra).success).toBe(false);
+      }
+    });
+
+    it('requires a reason to reopen a completion', () => {
+      expect(reopenAppointmentRequestSchema.safeParse({ reason: 'اصلاح' }).success).toBe(true);
+      expect(reopenAppointmentRequestSchema.safeParse({}).success).toBe(false);
+      expect(reopenAppointmentRequestSchema.safeParse({ reason: '  ' }).success).toBe(false);
+    });
+
+    it('records an outcome, and never un-records one', () => {
+      for (const attendance of ['ATTENDED', 'NO_SHOW']) {
+        expect(recordAttendanceRequestSchema.safeParse({ attendance }).success).toBe(true);
+      }
+
+      // `PENDING` is the state of an outcome nobody has entered. Setting it
+      // back would erase a fact a person recorded rather than correct it.
+      expect(recordAttendanceRequestSchema.safeParse({ attendance: 'PENDING' }).success).toBe(
+        false,
+      );
+    });
+
+    it('carries no financial field on any lifecycle request', () => {
+      const financial = /tariff|price|amount|toman|charge|discount|fee/i;
+
+      for (const schema of [
+        moveAppointmentRequestSchema,
+        cancelAppointmentRequestSchema,
+        reopenAppointmentRequestSchema,
+        recordAttendanceRequestSchema,
+      ]) {
+        for (const field of Object.keys(schema.shape)) {
+          expect(field).not.toMatch(financial);
+        }
+      }
+    });
+  });
+
+  describe('the day read model', () => {
+    it('asks for one clinic day, by ids and never by name', () => {
+      expect(appointmentDayQuerySchema.safeParse({ date: '2026-09-05' }).success).toBe(true);
+
+      // A family or child name in a query string reaches the browser history,
+      // the Referer header and every access log — the reason family search is a
+      // POST that reads.
+      expect(
+        appointmentDayQuerySchema.safeParse({ date: '2026-09-05', childName: 'کودک' }).success,
+      ).toBe(false);
+
+      // One day, never a range: a filter that could span a month is a report.
+      expect(
+        appointmentDayQuerySchema.safeParse({ date: '2026-09-05', toDate: '2026-09-12' }).success,
+      ).toBe(false);
+    });
+
+    it('states a missing tariff as a value, not as an absent field', () => {
+      // "Missing tariff is a visible error" (PROJECT_SPEC.md 5), and a day view
+      // that failed because one service has no price would take the whole diary
+      // down with it.
+      expect(appointmentTariffSuggestionSchema.safeParse({ status: 'MISSING' }).success).toBe(true);
+
+      expect(
+        appointmentTariffSuggestionSchema.safeParse({
+          status: 'RESOLVED',
+          tariffId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+          priceMode: 'PAID',
+          priceToman: '250000',
+        }).success,
+      ).toBe(true);
+
+      // A resolved suggestion always names the tariff it came from, so a reader
+      // can see which price list row produced it.
+      expect(
+        appointmentTariffSuggestionSchema.safeParse({ status: 'RESOLVED', priceToman: '250000' })
+          .success,
+      ).toBe(false);
+    });
+
+    it('keeps the price out of the shape a write returns', () => {
+      // `appointmentDetailSchema` is what booking, moving, completing and
+      // cancelling return. A price travelling out of a transaction that books a
+      // session is one step from being stored in it.
+      expect(Object.keys(appointmentDetailSchema.shape)).toEqual(['appointment', 'participants']);
     });
   });
 

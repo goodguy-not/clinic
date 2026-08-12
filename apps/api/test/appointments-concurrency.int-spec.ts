@@ -1,13 +1,20 @@
+import { appointmentResponseSchema } from '@clinic/contracts';
 import { createHarness, resetDatabase, type Harness } from './harness';
 import {
   book,
   bookingPayload,
+  cancel,
+  complete,
   makeFamilyWithChild,
   makeRoom,
   makeTherapist,
+  move,
+  movePayload,
   putWindows,
+  recordAttendance,
   SATURDAY_10_00,
   SATURDAY_10_30,
+  SATURDAY_11_00,
   SATURDAY_MORNING,
   seedClinic,
   signIn,
@@ -196,4 +203,120 @@ describe('appointment concurrency (real PostgreSQL)', () => {
 
     expect([appointments, seats, created]).toEqual([1, 1, 1]);
   }, 30000);
+
+  /**
+   * The lifecycle under the same pressure.
+   *
+   * Every transition decides what it may do from a status it reads, and a status
+   * read without a lock is a fact about a moment that has already passed. These
+   * are the cases where two people act on one booking at once; the assertion is
+   * always on the invariant, never on which request won.
+   */
+  describe('two people acting on one appointment', () => {
+    const bookOne = async (): Promise<string> => {
+      const created = await book(harness, receptionist.token, payload());
+      return appointmentResponseSchema.parse(created.body).appointment.id;
+    };
+
+    it('completes a session exactly once, however many requests arrive together', async () => {
+      const id = await bookOne();
+
+      const responses = await Promise.all([
+        complete(harness, receptionist.token, id),
+        complete(harness, receptionist.token, id),
+        complete(harness, receptionist.token, id),
+      ]);
+
+      // All three succeed — the transition is idempotent — and exactly one of
+      // them is the completion. PROJECT_SPEC.md 6 requires this of the
+      // transition that will create a session charge.
+      expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'appointment.completed' } }),
+      ).toBe(1);
+    }, 30000);
+
+    it('lets a completion and a cancellation race, and records only the one that won', async () => {
+      const id = await bookOne();
+
+      const [completed, cancelled] = await Promise.all([
+        complete(harness, receptionist.token, id),
+        cancel(harness, receptionist.token, id, { cancelledBy: 'FAMILY', reason: 'بیماری کودک' }),
+      ]);
+
+      // One of them found `SCHEDULED` and the other found what the first
+      // committed; the loser is refused rather than overwriting it.
+      expect([completed.status, cancelled.status].sort()).toEqual([200, 409]);
+
+      const row = await harness.prisma.appointment.findUniqueOrThrow({ where: { id } });
+      const audited = await harness.prisma.auditLog.count({
+        where: { action: { in: ['appointment.completed', 'appointment.cancelled'] } },
+      });
+
+      expect(audited).toBe(1);
+      // The row and its audit trail agree: one outcome, one record of it.
+      expect(row.status === 'COMPLETED' ? row.completedAt : row.cancelledAt).not.toBeNull();
+    }, 30000);
+
+    it('never moves two appointments onto the same therapist', async () => {
+      // Two bookings an hour apart, both moved onto the same free slot at once.
+      // Nothing read before writing decides this: the exclusion constraint does,
+      // exactly as it does for two inserts.
+      const roomB = await makeRoom(harness, manager.token);
+      const childB = await makeFamilyWithChild(harness, manager.token);
+
+      const first = await bookOne();
+      const secondResponse = await book(
+        harness,
+        receptionist.token,
+        payload({ startsAt: SATURDAY_11_00, roomId: roomB, childId: childB.childId }),
+      );
+      const second = appointmentResponseSchema.parse(secondResponse.body).appointment.id;
+
+      const target = '2026-09-05T08:30:00.000Z'; // 12:00 Tehran, free for both.
+
+      const [movedFirst, movedSecond] = await Promise.all([
+        move(harness, receptionist.token, first, movePayload(clinic, { startsAt: target })),
+        move(
+          harness,
+          receptionist.token,
+          second,
+          movePayload(clinic, { startsAt: target, roomId: roomB }),
+        ),
+      ]);
+
+      expect([movedFirst.status, movedSecond.status].sort()).toEqual([200, 409]);
+
+      const refused = movedFirst.status === 409 ? movedFirst : movedSecond;
+      expect(refused.body.error.code).toBe('APPOINTMENT_THERAPIST_CONFLICT');
+
+      // The refused move left its appointment exactly where it was, and wrote
+      // no audit row claiming otherwise.
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'appointment.updated' } }),
+      ).toBe(1);
+      expect(
+        await harness.prisma.appointment.count({ where: { startsAt: new Date(target) } }),
+      ).toBe(1);
+    }, 30000);
+
+    it('records one attendance for one seat when the same outcome arrives twice', async () => {
+      const id = await bookOne();
+      const seat = appointmentResponseSchema.parse(
+        (await complete(harness, receptionist.token, id)).body,
+      ).participants[0]?.id;
+
+      const responses = await Promise.all([
+        recordAttendance(harness, receptionist.token, id, seat ?? id, 'ATTENDED'),
+        recordAttendance(harness, receptionist.token, id, seat ?? id, 'ATTENDED'),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([200, 200]);
+      expect(
+        await harness.prisma.auditLog.count({
+          where: { action: 'appointment.attendance_recorded' },
+        }),
+      ).toBe(1);
+    }, 30000);
+  });
 });

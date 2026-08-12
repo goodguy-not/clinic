@@ -30,3 +30,5 @@ export * from './appointments/common';
 export * from './appointments/appointments';
 export * from './appointments/availability';
 export * from './appointments/booking';
+export * from './appointments/lifecycle';
+export * from './appointments/day';

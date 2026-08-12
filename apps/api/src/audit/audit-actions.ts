@@ -83,6 +83,15 @@ export const AUDIT_ACTIONS = [
   'appointment.updated',
   'appointment.completed',
   'appointment.cancelled',
+  // Reversing a completion entered by mistake, which PROJECT_SPEC.md 6 calls a
+  // controlled operation and PROJECT_SPEC.md 4 keeps away from the receptionist.
+  // Its own action rather than an `appointment.updated` carrying a status diff:
+  // "how often is a completed session reopened?" is a question a manager will
+  // ask of a pilot, and in Milestone 5 this is the point at which a session
+  // charge has to be voided or offset. An answer buried in a JSON diff is not
+  // something you can count, and not something a later financial rule can key
+  // off.
+  'appointment.reopened',
   // Names a participant, not the booking: one child's own outcome, which is a
   // separate fact from the booking's status. A no-show is recorded here, because
   // a no-show is a seat's outcome and not a state of the booking — there is

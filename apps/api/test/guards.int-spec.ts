@@ -293,8 +293,10 @@ describe('guard chain (real PostgreSQL)', () => {
       // drafts:     current, discard
       // availability: windows list, windows replace, exceptions list,
       //               exception add, exception remove, resolution
-      // appointments: create, read
-      expect(routes).toBe(56);
+      // appointments: create, read, view, move, cancel, complete, reopen,
+      //               attendance
+      // appointment day: read
+      expect(routes).toBe(63);
     });
   });
 });

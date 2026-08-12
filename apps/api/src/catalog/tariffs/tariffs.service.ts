@@ -15,6 +15,7 @@ import type { RequestContext, ResolvedSession } from '../../common/request-conte
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext, canonicalText } from '../catalog-support';
+import { resolveTariffSql } from './tariff-resolution';
 
 /**
  * Effective-dated prices.
@@ -123,25 +124,20 @@ export class TariffsService {
   /**
    * The price that applied on a given service date.
    *
-   * A therapist-specific tariff wins over a general one for the same date;
-   * `ORDER BY therapist_id NULLS LAST` expresses exactly that and nothing else,
-   * so a single query decides precedence rather than two round trips.
-   *
-   * No status filter on service or therapist. A session that happened in Mordad
-   * is priced by the tariff that was in force in Mordad, whether or not the
-   * service has since been retired — history does not stop being true.
+   * The precedence — a therapist-specific tariff over the general one, voided
+   * rows excluded, the effective range containing the service date — is
+   * `resolveTariffSql`, which the appointment day view resolves its read-only
+   * price suggestion with as well. One statement of the rule, so a suggestion
+   * shown on a screen and the answer this endpoint gives cannot diverge.
    */
   async resolve(query: ResolveTariffQuery): Promise<Tariff> {
     const rows = await this.prisma.$queryRaw<TariffRow[]>`
-      SELECT ${TARIFF_COLUMNS} FROM tariff
-      WHERE service_id = ${query.serviceId}::uuid
-        AND duration_minutes = ${query.durationMinutes}
-        AND (therapist_id IS NULL OR therapist_id = ${query.therapistId ?? null}::uuid)
-        AND voided_at IS NULL
-        AND effective_start <= ${query.serviceDate}::date
-        AND (effective_end IS NULL OR effective_end >= ${query.serviceDate}::date)
-      ORDER BY therapist_id NULLS LAST
-      LIMIT 1
+      ${resolveTariffSql(TARIFF_COLUMNS, {
+        serviceId: Prisma.sql`${query.serviceId}::uuid`,
+        durationMinutes: Prisma.sql`${query.durationMinutes}`,
+        therapistId: Prisma.sql`${query.therapistId ?? null}::uuid`,
+        serviceDate: Prisma.sql`${query.serviceDate}::date`,
+      })}
     `;
 
     const row = rows[0];
