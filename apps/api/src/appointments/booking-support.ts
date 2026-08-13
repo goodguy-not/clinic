@@ -1,4 +1,4 @@
-import type { Appointment, AppointmentParticipant } from '@clinic/contracts';
+import type { Appointment, AppointmentDetail, AppointmentParticipant } from '@clinic/contracts';
 
 /**
  * The decisions in booking that are pure functions, kept out of the service so
@@ -122,6 +122,24 @@ export function toAppointment(row: AppointmentRow): Appointment {
     cancellationReason: row.cancellation_reason,
     availabilityOverrideReason: row.availability_override_reason,
     createdAt: row.created_at.toISOString(),
+  };
+}
+
+/**
+ * The response every write returns: the booking and its seats.
+ *
+ * One occurrence of a series is returned in exactly this shape, by exactly this
+ * function — an occurrence is an appointment, and a caller that had to unwrap a
+ * different envelope depending on whether a booking recurs would be a caller
+ * with two ways to read one thing.
+ */
+export function detailOf(
+  appointment: AppointmentRow,
+  participants: readonly ParticipantRow[],
+): AppointmentDetail {
+  return {
+    appointment: toAppointment(appointment),
+    participants: participants.map(toParticipant),
   };
 }
 

@@ -98,4 +98,61 @@ describe('clinic_date (real PostgreSQL)', () => {
 
     expect(rows[0]?.volatility).toBe('s');
   });
+
+  /**
+   * The other direction: a clinic day and a wall clock back to the instant.
+   *
+   * Recurrence repeats "Saturdays at ten", so it needs the inverse of
+   * `clinic_date` and `clinic_clock_time` rather than arithmetic on a timestamp.
+   * `Asia/Tehran` is written in this function and nowhere in the appointment
+   * module, which is the property these assertions are really about.
+   */
+  describe('clinic_moment', () => {
+    async function clinicMoment(day: string, wallClock: string): Promise<string> {
+      const rows = await harness.prisma.$queryRaw<{ moment: Date }[]>`
+        SELECT clinic_moment(${day}::date, ${wallClock}::time) AS moment
+      `;
+      return rows[0]?.moment.toISOString() ?? '';
+    }
+
+    it('reads a wall-clock time as Tehran, not as UTC', async () => {
+      // 10:00 Tehran is 06:30 UTC: the offset is +03:30 and there is no DST.
+      expect(await clinicMoment('2026-09-05', '10:00')).toBe('2026-09-05T06:30:00.000Z');
+    });
+
+    it('agrees with clinic_day_start at midnight', async () => {
+      const rows = await harness.prisma.$queryRaw<{ same: boolean }[]>`
+        SELECT clinic_moment('2026-09-05'::date, '00:00'::time)
+             = clinic_day_start('2026-09-05'::date) AS same
+      `;
+
+      expect(rows[0]?.same).toBe(true);
+    });
+
+    it('round-trips with clinic_date and clinic_clock_time', async () => {
+      const rows = await harness.prisma.$queryRaw<{ day: string; wall: string }[]>`
+        WITH moment AS (SELECT clinic_moment('2026-09-05'::date, '23:45'::time) AS ts)
+        SELECT clinic_date(ts)::text AS day, clinic_clock_time(ts) AS wall FROM moment
+      `;
+
+      expect(rows[0]).toEqual({ day: '2026-09-05', wall: '23:45' });
+    });
+
+    it('keeps the hour when a week is added to the day, which is what a series repeats', async () => {
+      const first = await clinicMoment('2026-09-05', '10:00');
+      const eighth = await clinicMoment('2026-09-12', '10:00');
+
+      expect(first.slice(11)).toBe(eighth.slice(11));
+    });
+
+    it('is STABLE, for the reason clinic_date is', async () => {
+      const rows = await harness.prisma.$queryRaw<{ volatility: string }[]>`
+        SELECT p.provolatile::text AS volatility
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'clinic_moment'
+      `;
+
+      expect(rows[0]?.volatility).toBe('s');
+    });
+  });
 });

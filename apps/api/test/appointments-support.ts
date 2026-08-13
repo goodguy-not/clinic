@@ -1,11 +1,13 @@
 import request from 'supertest';
 import {
   appointmentResponseSchema,
+  appointmentSeriesResponseSchema,
   childWriteResponseSchema,
   loginResponseSchema,
   roomResponseSchema,
   serviceResponseSchema,
   therapistResponseSchema,
+  type AppointmentSeriesResponse,
 } from '@clinic/contracts';
 import { internalHeaders, seedUser, TEST_PASSWORD, type Harness } from './harness';
 
@@ -305,6 +307,86 @@ export function recordAttendance(
     .put(`/appointments/${id}/participants/${participantId}/attendance`)
     .set(asUser(token))
     .send({ attendance });
+}
+
+/**
+ * A weekly series request: the first booking, plus a rule.
+ *
+ * The first occurrence is the pattern, so the default is the same Saturday at
+ * 10:00 every other fixture books into, repeated for three weeks — 2026-09-05,
+ * 2026-09-12 and 2026-09-19, all Saturdays inside the 09:00–13:00 window.
+ */
+export function seriesPayload(
+  base: { serviceId: string; therapistId: string; roomId: string; childId: string },
+  overrides: BookingOverrides = {},
+): Record<string, unknown> {
+  return {
+    ...bookingPayload(base),
+    recurrence: { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 1, occurrenceCount: 3 },
+    ...overrides,
+  };
+}
+
+export function previewSeries(
+  harness: Harness,
+  token: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/appointment-series/preview')
+    .set(asUser(token))
+    .send(body);
+}
+
+export function createSeries(
+  harness: Harness,
+  token: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post('/appointment-series')
+    .set(asUser(token))
+    .send(body);
+}
+
+export function readSeries(harness: Harness, token: string, id: string): request.Test {
+  return request(harness.app.getHttpServer()).get(`/appointment-series/${id}`).set(asUser(token));
+}
+
+export function cancelSeriesFrom(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/appointment-series/${id}/cancel-from`)
+    .set(asUser(token))
+    .send(body);
+}
+
+export function updateSeriesFrom(
+  harness: Harness,
+  token: string,
+  id: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .patch(`/appointment-series/${id}/update-from`)
+    .set(asUser(token))
+    .send(body);
+}
+
+/** Creates a series and returns it, failing loudly if it was refused. */
+export async function createSeriesOrThrow(
+  harness: Harness,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<AppointmentSeriesResponse> {
+  const response = await createSeries(harness, token, body);
+  expectCreated(response, 'a series');
+
+  return appointmentSeriesResponseSchema.parse(response.body);
 }
 
 export function readDay(

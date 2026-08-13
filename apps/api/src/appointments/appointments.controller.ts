@@ -13,26 +13,36 @@ import {
 import {
   appointmentDayQuerySchema,
   cancelAppointmentRequestSchema,
+  cancelAppointmentSeriesFromRequestSchema,
   completeAppointmentRequestSchema,
   createAppointmentRequestSchema,
+  createAppointmentSeriesRequestSchema,
   moveAppointmentRequestSchema,
   recordAttendanceRequestSchema,
   reopenAppointmentRequestSchema,
+  updateAppointmentSeriesFromRequestSchema,
   type AppointmentDayQuery,
   type AppointmentDayResponse,
   type AppointmentResponse,
+  type AppointmentSeriesOperationResponse,
+  type AppointmentSeriesResponse,
   type AppointmentViewResponse,
   type CancelAppointmentRequest,
+  type CancelAppointmentSeriesFromRequest,
   type CreateAppointmentRequest,
+  type CreateAppointmentSeriesRequest,
   type MoveAppointmentRequest,
   type RecordAttendanceRequest,
+  type RecurrencePreviewResponse,
   type ReopenAppointmentRequest,
+  type UpdateAppointmentSeriesFromRequest,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../auth/decorators/endpoint-access';
 import { Ctx, CurrentSession } from '../auth/decorators/request.decorators';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
 import { AppointmentReadService } from './appointment-read.service';
+import { AppointmentSeriesService } from './appointment-series.service';
 import { AppointmentsService } from './appointments.service';
 
 /**
@@ -196,6 +206,125 @@ export class AppointmentsController {
     @Ctx() context: RequestContext,
   ): Promise<AppointmentResponse> {
     return this.appointments.recordAttendance(id, participantId, body, session, context);
+  }
+}
+
+/**
+ * A weekly series: previewing one, creating it, and changing or calling off the
+ * rest of it.
+ *
+ * A PATH OF ITS OWN, for the reason `/appointment-day` has one: `/appointments/preview`
+ * would sit in the same route space as `/appointments/:id` and which one
+ * answered would depend on declaration order. A distinct path cannot collide.
+ *
+ * NO PERMISSION IS INVENTED FOR RECURRENCE. Creating twelve appointments is
+ * `appointment.create`, calling them off is `appointment.cancel`, re-placing
+ * them is `appointment.update`, and reading the series is `appointment.read` —
+ * the same authorities over the same rows, exercised in bulk. A
+ * `series.manage` permission would let a role map grant somebody the power to
+ * cancel twelve sessions while withholding the power to cancel one, which is
+ * not a distinction the clinic makes.
+ *
+ * The one override is checked by the SERVICE, exactly as it is for a single
+ * booking: `appointment.override_availability` is required only when an
+ * occurrence actually falls outside the therapist's hours.
+ *
+ * THE SINGLE-OCCURRENCE OPERATIONS ARE NOT HERE. Moving or cancelling one week
+ * of a series is `PATCH /appointments/:id` and `POST /appointments/:id/cancel`,
+ * unchanged: an occurrence is an appointment, and there is one appointment
+ * lifecycle.
+ */
+@Controller('appointment-series')
+export class AppointmentSeriesController {
+  constructor(private readonly series: AppointmentSeriesService) {}
+
+  /**
+   * A dry run: what the rule would generate, and what is in the way.
+   *
+   * `POST` rather than `GET` because the request is a whole booking plus a rule
+   * — too large for a query string, and it would put a child id in the browser
+   * history and every access log, which is the reason family search is a POST
+   * (DECISION_LOG, Milestone 3). It writes nothing; `200` rather than `201`
+   * says so.
+   */
+  @Post('preview')
+  @HttpCode(200)
+  @RequirePermissions('appointment.create')
+  async preview(
+    @Body(new ZodBodyPipe(createAppointmentSeriesRequestSchema))
+    body: CreateAppointmentSeriesRequest,
+    @CurrentSession() session: ResolvedSession,
+  ): Promise<RecurrencePreviewResponse> {
+    return this.series.preview(body, session);
+  }
+
+  /** Create the series and every occurrence it generates, or nothing at all. */
+  @Post()
+  @HttpCode(201)
+  @RequirePermissions('appointment.create')
+  async create(
+    @Body(new ZodBodyPipe(createAppointmentSeriesRequestSchema))
+    body: CreateAppointmentSeriesRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<AppointmentSeriesResponse> {
+    return this.series.create(body, session, context);
+  }
+
+  /** The series and every occurrence that belongs to it, in start order. */
+  @Get(':id')
+  @RequirePermissions('appointment.read')
+  async get(@Param('id', ParseUUIDPipe) id: string): Promise<AppointmentSeriesResponse> {
+    return this.series.get(id);
+  }
+
+  /**
+   * Call off this occurrence and every later one still scheduled.
+   *
+   * An action rather than a `DELETE`: nothing is deleted, a cancelled occurrence
+   * stays visible in its day and in every report of it, and the request has to
+   * carry who cancelled and why.
+   */
+  @Post(':id/cancel-from')
+  @HttpCode(200)
+  @RequirePermissions('appointment.cancel')
+  async cancelFrom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(cancelAppointmentSeriesFromRequestSchema))
+    body: CancelAppointmentSeriesFromRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<AppointmentSeriesOperationResponse> {
+    return this.series.cancelFrom(id, body, session, context);
+  }
+
+  /**
+   * Re-place this occurrence and every later one still scheduled.
+   *
+   * `PATCH` for the reason moving one appointment is `PATCH /appointments/:id`:
+   * re-placing sessions is an edit of rows that already exist, and this is the
+   * same edit applied to the tail of a series. The path names the pivot rather
+   * than the whole series because the series row itself is unchanged — the rule
+   * and its bound stay exactly as they were.
+   *
+   * Cancelling stays a `POST` action, exactly as `POST /appointments/:id/cancel`
+   * does: it records who cancelled and why, which is a stated act rather than an
+   * edit of a placement.
+   *
+   * All or nothing: the first occurrence that cannot be placed refuses the whole
+   * operation and the series is left as it was.
+   */
+  @Patch(':id/update-from')
+  @HttpCode(200)
+  @RequirePermissions('appointment.update')
+  async updateFrom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(updateAppointmentSeriesFromRequestSchema))
+    body: UpdateAppointmentSeriesFromRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<AppointmentSeriesOperationResponse> {
+    return this.series.updateFrom(id, body, session, context);
   }
 }
 

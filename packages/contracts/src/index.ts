@@ -32,3 +32,4 @@ export * from './appointments/availability';
 export * from './appointments/booking';
 export * from './appointments/lifecycle';
 export * from './appointments/day';
+export * from './appointments/recurrence';

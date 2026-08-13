@@ -106,6 +106,13 @@ export const appointmentSeriesSchema = z.strictObject({
   intervalWeeks: z.number().int().min(1).max(12),
   startsOn: isoDateSchema,
   endMode: recurrenceEndSchema,
+  /**
+   * The ceiling here mirrors `appointment_series_occurrence_count_chk`, which is
+   * the database's guard against a mistyped run of digits. It is NOT the policy:
+   * what a series may actually be created with is `RECURRENCE_OCCURRENCES_MAX`,
+   * which is stricter and paired with a horizon in months. A read shape states
+   * what the column permits; the request shape states what the clinic allows.
+   */
   occurrenceCount: z.number().int().positive().max(260).nullable(),
   endsOn: isoDateSchema.nullable(),
   createdAt: z.iso.datetime(),

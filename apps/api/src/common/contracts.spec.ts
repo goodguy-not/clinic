@@ -5,19 +5,25 @@ import {
   ERROR_CODES,
   NOTICE_CODES,
   PERMISSIONS,
+  RECURRENCE_BLOCK_CODES,
   RECURRENCE_ENDS,
+  RECURRENCE_HORIZON_MONTHS,
+  RECURRENCE_OCCURRENCES_MAX,
   USER_ROLES,
   USER_STATUSES,
   appointmentDayQuerySchema,
   appointmentDetailSchema,
   appointmentParticipantSchema,
   appointmentSchema,
+  appointmentSeriesDetailSchema,
+  appointmentSeriesSchema,
   appointmentTariffSuggestionSchema,
   availabilityWindowInputSchema,
   cancelAppointmentRequestSchema,
   completeAppointmentRequestSchema,
   clockTimeSchema,
   createAppointmentRequestSchema,
+  createAppointmentSeriesRequestSchema,
   createAvailabilityExceptionRequestSchema,
   createChildRequestSchema,
   createFamilyRequestSchema,
@@ -32,6 +38,7 @@ import {
   reopenAppointmentRequestSchema,
   replaceAvailabilityWindowsRequestSchema,
   resolvedAvailabilitySchema,
+  updateAppointmentSeriesFromRequestSchema,
   usernameSchema,
   weekdaySchema,
 } from '@clinic/contracts';
@@ -819,6 +826,162 @@ describe('Milestone 4 contracts', () => {
       // cancelling return. A price travelling out of a transaction that books a
       // session is one step from being stored in it.
       expect(Object.keys(appointmentDetailSchema.shape)).toEqual(['appointment', 'participants']);
+    });
+  });
+
+  describe('the recurrence contract', () => {
+    const rule = { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 1, occurrenceCount: 12 };
+    const series = (overrides: Record<string, unknown> = {}) => ({
+      serviceId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      durationMinutes: 45,
+      therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+      roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+      childId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5e',
+      startsAt: '2026-09-05T06:30:00.000Z',
+      note: null,
+      availabilityOverrideReason: null,
+      recurrence: rule,
+      ...overrides,
+    });
+
+    it('accepts a series stated as a first booking plus a rule', () => {
+      expect(createAppointmentSeriesRequestSchema.safeParse(series()).success).toBe(true);
+    });
+
+    it('cannot state two bounds, or none', () => {
+      // The discriminated union makes `appointment_series_end_chk` unreachable
+      // from a well-formed request rather than merely agreed with.
+      expect(
+        createAppointmentSeriesRequestSchema.safeParse(
+          series({ recurrence: { ...rule, endsOn: '2026-12-05' } }),
+        ).success,
+      ).toBe(false);
+
+      expect(
+        createAppointmentSeriesRequestSchema.safeParse(
+          series({ recurrence: { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 1 } }),
+        ).success,
+      ).toBe(false);
+    });
+
+    it('states one weekday and one time, taken from the first occurrence', () => {
+      // No `weekday`, no `weekdays`, no `startTime`: the pattern is read from
+      // `startsAt`, and a second statement of it is a second thing that can
+      // disagree. A twice-weekly child is two series, by design.
+      const shape = Object.keys(createAppointmentSeriesRequestSchema.shape);
+
+      expect(shape).toContain('startsAt');
+      expect(shape).not.toContain('weekday');
+      expect(shape).not.toContain('weekdays');
+      expect(shape).not.toContain('startTime');
+    });
+
+    it('has no way to ask for a partial series', () => {
+      // Creation is all or nothing. A flag that skipped conflicting weeks would
+      // hand a family a term with silent holes in it.
+      for (const field of ['skipConflicting', 'allowPartial', 'ignoreConflicts']) {
+        expect(
+          createAppointmentSeriesRequestSchema.safeParse(series({ [field]: true })).success,
+        ).toBe(false);
+      }
+    });
+
+    it('refuses a rule beyond the approved bounds', () => {
+      for (const invalid of [
+        { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 1, occurrenceCount: 0 },
+        { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 0, occurrenceCount: 4 },
+        { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 13, occurrenceCount: 4 },
+        { endMode: 'OCCURRENCE_COUNT', intervalWeeks: 1, occurrenceCount: 53 },
+        { endMode: 'END_DATE', intervalWeeks: 1, endsOn: '2026-02-30' },
+        { endMode: 'MONTHLY', intervalWeeks: 1, occurrenceCount: 4 },
+      ]) {
+        expect(
+          createAppointmentSeriesRequestSchema.safeParse(series({ recurrence: invalid })).success,
+        ).toBe(false);
+      }
+    });
+
+    it('states the two approved bounds on one series as values', () => {
+      // At most a year of weekly sessions, and no session more than a year
+      // past the first. F4 consumers rely on both, so a change to either is a
+      // change to what the clinic may book rather than an implementation
+      // detail. `appointment_series_occurrence_count_chk` permits 260 and is
+      // deliberately looser: it guards against a mistyped run of digits, not
+      // against booking too far ahead.
+      expect(RECURRENCE_OCCURRENCES_MAX).toBe(52);
+      expect(RECURRENCE_HORIZON_MONTHS).toBe(12);
+    });
+
+    it('refuses a count past the approved bound in the request shape itself', () => {
+      expect(
+        createAppointmentSeriesRequestSchema.safeParse(
+          series({
+            recurrence: {
+              endMode: 'OCCURRENCE_COUNT',
+              intervalWeeks: 1,
+              occurrenceCount: RECURRENCE_OCCURRENCES_MAX,
+            },
+          }),
+        ).success,
+      ).toBe(true);
+
+      expect(
+        createAppointmentSeriesRequestSchema.safeParse(
+          series({
+            recurrence: {
+              endMode: 'OCCURRENCE_COUNT',
+              intervalWeeks: 1,
+              occurrenceCount: RECURRENCE_OCCURRENCES_MAX + 1,
+            },
+          }),
+        ).success,
+      ).toBe(false);
+    });
+
+    it('leaves the horizon to the service, which is the only tier that knows the first date', () => {
+      // An end date twenty years out parses: whether it breaks either bound
+      // depends on the first occurrence's clinic date, which is an instant this
+      // shape never sees. The service answers `RECURRENCE_RULE_INVALID`.
+      expect(
+        createAppointmentSeriesRequestSchema.safeParse(
+          series({ recurrence: { endMode: 'END_DATE', intervalWeeks: 1, endsOn: '2046-09-05' } }),
+        ).success,
+      ).toBe(true);
+    });
+
+    it('reports preview findings with the error codes the booking itself raises', () => {
+      // Never a second vocabulary: the interface already translates these, and a
+      // preview that invented its own names would say something different from
+      // the refusal the same request produces a moment later.
+      for (const code of RECURRENCE_BLOCK_CODES) expect(ERROR_CODES).toContain(code);
+    });
+
+    it('moves the hour of a series without moving its weekday', () => {
+      const shape = Object.keys(updateAppointmentSeriesFromRequestSchema.shape);
+
+      // A wall-clock time applied to each occurrence's own date. There is no
+      // `startsAt`, no `weekday` and no recurrence rule: changing the rhythm is
+      // a new series, and shortening one is `cancel-from`.
+      expect(shape).toContain('startTime');
+      expect(shape).not.toContain('startsAt');
+      expect(shape).not.toContain('weekday');
+      expect(shape).not.toContain('recurrence');
+      // The service and the child are absent for the reason they are absent
+      // from a single move: either would make it a different booking.
+      expect(shape).not.toContain('serviceId');
+      expect(shape).not.toContain('childId');
+    });
+
+    it('carries nothing financial on a series or its response', () => {
+      const financial = /tariff|price|amount|toman|charge|discount|fee/i;
+
+      for (const shape of [
+        appointmentSeriesSchema,
+        appointmentSeriesDetailSchema,
+        createAppointmentSeriesRequestSchema,
+      ]) {
+        for (const field of Object.keys(shape.shape)) expect(field).not.toMatch(financial);
+      }
     });
   });
 

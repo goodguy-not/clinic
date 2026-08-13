@@ -2,8 +2,14 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AvailabilityModule } from '../availability/availability.module';
 import { AppointmentReadService } from './appointment-read.service';
-import { AppointmentDayController, AppointmentsController } from './appointments.controller';
+import { AppointmentSeriesService } from './appointment-series.service';
+import {
+  AppointmentDayController,
+  AppointmentSeriesController,
+  AppointmentsController,
+} from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
+import { SchedulingRules } from './scheduling-rules';
 
 /**
  * Appointments: the booking, and the seat in it.
@@ -12,6 +18,14 @@ import { AppointmentsService } from './appointments.service';
  * writes them. It READS `service`, `therapist`, `room`, `child` and `family` for
  * existence, status and the share locks that make a status true at write time,
  * and writes nothing in any of them.
+ *
+ * ONE SET OF SCHEDULING RULES, SHARED. `SchedulingRules` owns the locks, the
+ * compatibility rules, the availability decision, the child recomputation and
+ * the two constrained writes; `AppointmentsService` books one appointment with
+ * them and `AppointmentSeriesService` books a whole series with them. It is a
+ * provider rather than a base class so neither service can quietly specialise a
+ * rule, and it is not exported: nothing outside this module decides where an
+ * appointment may sit.
  *
  * `AvailabilityModule` is imported for one method: the resolved availability for
  * one therapist on one date, read on this module's own transaction. The
@@ -30,8 +44,13 @@ import { AppointmentsService } from './appointments.service';
  */
 @Module({
   imports: [AuditModule, AvailabilityModule],
-  controllers: [AppointmentsController, AppointmentDayController],
-  providers: [AppointmentsService, AppointmentReadService],
-  exports: [AppointmentsService, AppointmentReadService],
+  controllers: [AppointmentsController, AppointmentSeriesController, AppointmentDayController],
+  providers: [
+    AppointmentsService,
+    AppointmentSeriesService,
+    AppointmentReadService,
+    SchedulingRules,
+  ],
+  exports: [AppointmentsService, AppointmentSeriesService, AppointmentReadService],
 })
 export class AppointmentsModule {}

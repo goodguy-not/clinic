@@ -4,7 +4,10 @@ import {
   book,
   bookingPayload,
   cancel,
+  cancelSeriesFrom,
   complete,
+  createSeries,
+  createSeriesOrThrow,
   makeFamilyWithChild,
   makeRoom,
   makeTherapist,
@@ -17,7 +20,9 @@ import {
   SATURDAY_11_00,
   SATURDAY_MORNING,
   seedClinic,
+  seriesPayload,
   signIn,
+  updateSeriesFrom,
 } from './appointments-support';
 
 /**
@@ -317,6 +322,133 @@ describe('appointment concurrency (real PostgreSQL)', () => {
           where: { action: 'appointment.attendance_recorded' },
         }),
       ).toBe(1);
+    }, 30000);
+  });
+
+  /**
+   * A whole series under the same pressure.
+   *
+   * A series creation is one transaction that writes many rows, so the questions
+   * are different in kind: does a conflict on the eleventh week take the first
+   * ten back, and do two people running this-and-future operations on one series
+   * decide against each other's committed state rather than against a stale
+   * read?
+   */
+  describe('two people acting on one series', () => {
+    it('books one of two identical series and leaves not one row of the other', async () => {
+      const [first, second] = await Promise.all([
+        createSeries(harness, receptionist.token, seriesPayload(clinic)),
+        createSeries(harness, receptionist.token, seriesPayload(clinic)),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([201, 409]);
+
+      // Three occurrences, three seats, one series row and four audit rows —
+      // the refused transaction left nothing at all, not even the weeks it had
+      // already inserted before the clash.
+      expect(await harness.prisma.appointment.count()).toBe(3);
+      expect(await harness.prisma.appointmentParticipant.count()).toBe(3);
+      expect(await harness.prisma.appointmentSeries.count()).toBe(1);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'appointment.created' } }),
+      ).toBe(3);
+    }, 30000);
+
+    it('lets a series creation and a single booking race for one hour, and gives it to one', async () => {
+      // The single booking is for another child in the same room, on the middle
+      // Saturday. Whichever lands first, the other is refused entirely.
+      const otherTherapist = await makeTherapist(harness, manager.token, [clinic.serviceId]);
+      const otherFamily = await makeFamilyWithChild(harness, manager.token);
+      await putWindows(harness, manager.token, otherTherapist, [SATURDAY_MORNING]);
+
+      const [series, single] = await Promise.all([
+        createSeries(harness, receptionist.token, seriesPayload(clinic)),
+        book(
+          harness,
+          receptionist.token,
+          payload({
+            startsAt: '2026-09-12T06:30:00.000Z',
+            therapistId: otherTherapist,
+            childId: otherFamily.childId,
+          }),
+        ),
+      ]);
+
+      if (series.status === 201) {
+        expect(single.status).toBe(409);
+        expect(await harness.prisma.appointment.count()).toBe(3);
+      } else {
+        expect(series.status).toBe(409);
+        expect(single.status).toBe(201);
+        // Nothing survived the refused series, including the first Saturday it
+        // had already written.
+        expect(await harness.prisma.appointment.count()).toBe(1);
+        expect(await harness.prisma.appointmentSeries.count()).toBe(0);
+      }
+    }, 30000);
+
+    it('serialises two this-and-future cancellations of one series down to one', async () => {
+      const series = await createSeriesOrThrow(harness, receptionist.token, seriesPayload(clinic));
+      const from = series.occurrences[0]!.appointment.id;
+      const body = { fromAppointmentId: from, cancelledBy: 'CLINIC', reason: 'تعطیلی درمانگاه' };
+
+      const responses = await Promise.all([
+        cancelSeriesFrom(harness, receptionist.token, series.series.id, body),
+        cancelSeriesFrom(harness, receptionist.token, series.series.id, body),
+      ]);
+
+      // Both succeed — the second finds a tail somebody has already cancelled
+      // and changes nothing — and exactly three cancellations are recorded.
+      expect(responses.map((response) => response.status)).toEqual([200, 200]);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'appointment.cancelled' } }),
+      ).toBe(3);
+      expect(
+        await harness.prisma.auditLog.count({ where: { action: 'appointment_series.updated' } }),
+      ).toBe(1);
+    }, 30000);
+
+    it('decides a this-and-future update against the cancellation that committed first', async () => {
+      const series = await createSeriesOrThrow(harness, receptionist.token, seriesPayload(clinic));
+      const from = series.occurrences[0]!.appointment.id;
+
+      const [cancelled, updated] = await Promise.all([
+        cancelSeriesFrom(harness, receptionist.token, series.series.id, {
+          fromAppointmentId: from,
+          cancelledBy: 'CLINIC',
+          reason: 'تعطیلی درمانگاه',
+        }),
+        updateSeriesFrom(harness, receptionist.token, series.series.id, {
+          fromAppointmentId: from,
+          durationMinutes: 45,
+          therapistId: clinic.therapistId,
+          roomId: clinic.roomId,
+          startTime: '11:00',
+          note: null,
+          availabilityOverrideReason: null,
+        }),
+      ]);
+
+      expect([cancelled.status, updated.status]).toEqual([200, 200]);
+
+      // The two serialise on the series row, so one of them saw the other's
+      // committed state: either every occurrence was moved and then cancelled,
+      // or they were cancelled and the update found nothing eligible. What
+      // cannot happen is a cancelled occurrence that also moved after the fact.
+      const rows = await harness.prisma.appointment.findMany({
+        where: { seriesId: series.series.id },
+        orderBy: { startsAt: 'asc' },
+      });
+
+      expect(rows).toHaveLength(3);
+      expect(rows.every((row) => row.status === 'CANCELLED_BY_CLINIC')).toBe(true);
+
+      const moves = await harness.prisma.auditLog.count({
+        where: { action: 'appointment.updated' },
+      });
+      const movedHour = rows.filter((row) => row.startsAt.toISOString().endsWith('07:30:00.000Z'));
+
+      expect(movedHour).toHaveLength(moves === 0 ? 0 : 3);
     }, 30000);
   });
 });

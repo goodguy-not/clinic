@@ -296,7 +296,9 @@ describe('guard chain (real PostgreSQL)', () => {
       // appointments: create, read, view, move, cancel, complete, reopen,
       //               attendance
       // appointment day: read
-      expect(routes).toBe(63);
+      // appointment series: preview, create, read, cancel-from (POST),
+      //                     update-from (PATCH)
+      expect(routes).toBe(68);
     });
   });
 });

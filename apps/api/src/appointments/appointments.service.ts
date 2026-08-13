@@ -1,44 +1,49 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type {
   AppointmentDetail,
   AppointmentStatus,
   CancelAppointmentRequest,
   CreateAppointmentRequest,
   MoveAppointmentRequest,
-  Permission,
   RecordAttendanceRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
-import type { AuditJsonObject } from '../audit/audit.types';
-import { AvailabilityService } from '../availability/availability.service';
 import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
-import { isForeignKeyViolation, violatesConstraint } from '../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  detailOf,
   isWholeMinute,
-  isWithinAvailability,
   toAppointment,
   toParticipant,
   type AppointmentRow,
-  type ClinicSpan,
   type ParticipantRow,
 } from './booking-support';
+import {
+  auditAppointment,
+  PARTICIPANT_COLUMNS,
+  SchedulingRules,
+  translateSchedulingWrite,
+} from './scheduling-rules';
 
 /**
  * The life of one appointment: booking it, moving it, and recording what
  * happened to it.
  *
- * EVERY WRITE TO `appointment` AND `appointment_participant` IS HERE, and every
- * rule that decides one. Recurrence is a later checkpoint and appears nowhere.
- * Neither does anything financial: no tariff is read, no price is snapshotted,
- * no charge is created. Pricing a session is Milestone 5's, and this class could
- * not do it — it never looks at a tariff. The read-only price suggestion an
- * operational screen shows is computed by `AppointmentReadService`, which
- * writes nothing, and is deliberately not visible from any method here.
+ * EVERY WRITE TO `appointment` AND `appointment_participant` IS HERE OR IN
+ * `AppointmentSeriesService`, and both decide what they may write with the same
+ * `SchedulingRules` — the locks, the compatibility rules, the availability
+ * decision, the child recomputation and the two constrained writes. A series
+ * occurrence is booked by exactly the code that books a single appointment, and
+ * the recurrence checkpoint added no second answer to any conflict question.
+ *
+ * Nothing financial appears in either: no tariff is read, no price is
+ * snapshotted, no charge is created. Pricing a session is Milestone 5's, and
+ * this class could not do it — it never looks at a tariff. The read-only price
+ * suggestion an operational screen shows is computed by `AppointmentReadService`,
+ * which writes nothing, and is deliberately not visible from any method here.
  *
  * TWO FACTS, RECORDED SEPARATELY AND NEVER DERIVED FROM EACH OTHER. The
  * booking's `status` says what happened to the session; a seat's `attendance`
@@ -48,13 +53,16 @@ import {
  * participant in a completed appointment may be charged — needs both facts, and
  * gets them because neither was invented from the other.
  *
- * THE FOUR STATUSES ARE THE WHOLE LIFECYCLE. A move is an audited in-place
- * update of a `SCHEDULED` row, not a new state and not a new row: there is no
- * `RESCHEDULED`, because the appointment that moved is the same appointment,
- * and its history is in `audit_log` where a before/after can be read. There is
- * no `VOIDED` either — reversing a completion returns the booking to
- * `SCHEDULED`, and voiding a financial record is a Milestone 5 operation on a
- * financial record.
+ * THE FOUR STATUSES ARE THE WHOLE LIFECYCLE, FOR A RECURRING OCCURRENCE AS MUCH
+ * AS FOR A ONE-OFF. A move is an audited in-place update of a `SCHEDULED` row,
+ * not a new state and not a new row: there is no `RESCHEDULED`, because the
+ * appointment that moved is the same appointment, and its history is in
+ * `audit_log` where a before/after can be read. There is no `VOIDED` either —
+ * reversing a completion returns the booking to `SCHEDULED`, and voiding a
+ * financial record is a Milestone 5 operation on a financial record. Moving or
+ * cancelling ONE occurrence of a series is these methods, unchanged and
+ * unaware of the series; there is deliberately no second lifecycle for a
+ * recurring appointment.
  *
  * WHAT EACH STATUS DOES TO THE SLOT, which is the property every conflict rule
  * is written against: `SCHEDULED` and `COMPLETED` occupy the therapist, the room
@@ -128,7 +136,10 @@ import {
  * acting on the same booking — a move against a cancellation, a completion
  * against a second completion — so every one of them decides against the status
  * the previous one committed rather than against a stale read. Each transaction
- * locks at most one appointment row, so no cycle can form among them.
+ * locks at most one appointment row, so no cycle can form among them. A series
+ * operation is the one exception to "at most one", and it takes its appointment
+ * rows in `starts_at` order behind the series row, which is documented where it
+ * happens.
  *
  * It is consistent with Milestone 2's `service -> therapist -> tariff` and with
  * Milestone 3's `registration_draft -> family -> child -> advisory keys`; no path
@@ -142,42 +153,17 @@ import {
  * The one advisory class here is never mixed with Milestone 3's, and a booking
  * takes exactly one key, so there is no ordering to get wrong within it.
  */
-
-const CHILD_SCHEDULE_LOCK_NAMESPACE = 'child-schedule:';
-
-const APPOINTMENT_COLUMNS = Prisma.sql`
-  id, service_id, duration_minutes, therapist_id, room_id, starts_at, ends_at,
-  status::text AS status, series_id, note, completed_at, cancelled_at,
-  cancellation_reason, availability_override_reason, created_at
-`;
-
-const PARTICIPANT_COLUMNS = Prisma.sql`
-  id, appointment_id, child_id, attendance::text AS attendance, attendance_recorded_at
-`;
-
-const OVERRIDE_PERMISSION: Permission = 'appointment.override_availability';
-
-/**
- * What the availability check concluded: the reason to persist on the row, and
- * the metadata to hang on the audit row of the state change that carried it.
- * Both are null for an ordinary booking.
- */
-type AvailabilityDecision = {
-  readonly overrideReason: string | null;
-  readonly audit: AuditJsonObject | null;
-};
-
 @Injectable()
 export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly availability: AvailabilityService,
+    private readonly rules: SchedulingRules,
   ) {}
 
   async get(id: string): Promise<AppointmentDetail> {
-    const appointment = await this.readAppointment(this.prisma, id);
-    const participants = await this.readParticipants(this.prisma, id);
+    const appointment = await this.rules.readAppointment(this.prisma, id);
+    const participants = await this.rules.readParticipants(this.prisma, id);
 
     return {
       appointment: toAppointment(appointment),
@@ -193,6 +179,11 @@ export class AppointmentsService {
    * what removes the window a competing booking could land in — and the two
    * rules that cannot be decided by reading (the resource overlaps) are not
    * decided by reading at all.
+   *
+   * `seriesId` is null here and is not accepted from the caller. An occurrence
+   * belongs to the series that generated it, and attaching an arbitrary booking
+   * to a series would make "every occurrence of this series matches its pattern"
+   * a property nothing enforces.
    */
   async create(
     input: CreateAppointmentRequest,
@@ -210,15 +201,15 @@ export class AppointmentsService {
     const participantId = uuidv7();
 
     return this.prisma.$transaction(async (tx) => {
-      await this.lockActiveService(tx, input.serviceId);
-      await this.lockActiveTherapist(tx, input.therapistId);
-      await this.lockActiveRoom(tx, input.roomId);
-      await this.lockActiveChild(tx, input.childId);
+      await this.rules.lockActiveService(tx, input.serviceId);
+      await this.rules.lockActiveTherapist(tx, input.therapistId);
+      await this.rules.lockActiveRoom(tx, input.roomId);
+      await this.rules.lockActiveChild(tx, input.childId);
 
-      await this.assertTherapistProvidesService(tx, input.therapistId, input.serviceId);
-      await this.assertRoomAllowsService(tx, input.roomId, input.serviceId);
+      await this.rules.assertTherapistProvidesService(tx, input.therapistId, input.serviceId);
+      await this.rules.assertRoomAllowsService(tx, input.roomId, input.serviceId);
 
-      const span = await this.readClinicSpan(tx, input.startsAt, input.durationMinutes);
+      const span = await this.rules.readClinicSpan(tx, input.startsAt, input.durationMinutes);
 
       // A HARD BLOCK, DECIDED BEFORE THE OVERRIDE IS EVEN CONSIDERED. The
       // approved model records a session as a weekday and two wall-clock times,
@@ -228,28 +219,28 @@ export class AppointmentsService {
       // `decideAvailability` is what makes that true rather than merely intended.
       if (span.startDate !== span.endDate) throw new AppError('APPOINTMENT_TIME_INVALID');
 
-      const decision = await this.decideAvailability(tx, span, input, submittedReason, actor);
+      const decision = await this.rules.decideAvailability(tx, span, input, submittedReason, actor);
 
-      await this.assertChildIsFree(tx, input);
+      await this.rules.assertChildIsFree(tx, input);
 
-      await this.insertAppointment(tx, {
+      await this.rules.insertAppointment(tx, {
         appointmentId,
-        input,
+        seriesId: null,
+        serviceId: input.serviceId,
+        placement: input,
         note,
         overrideReason: decision.overrideReason,
         actor,
       });
 
-      await tx.$executeRaw`
-        INSERT INTO appointment_participant (id, appointment_id, child_id, attendance)
-        VALUES (
-          ${participantId}::uuid, ${appointmentId}::uuid, ${input.childId}::uuid,
-          'PENDING'::attendance_outcome
-        )
-      `;
+      await this.rules.insertParticipant(tx, {
+        participantId,
+        appointmentId,
+        childId: input.childId,
+      });
 
-      const appointment = await this.readAppointment(tx, appointmentId);
-      const participants = await this.readParticipants(tx, appointmentId);
+      const appointment = await this.rules.readAppointment(tx, appointmentId);
+      const participants = await this.rules.readParticipants(tx, appointmentId);
 
       // ONE ROW FOR ONE STATE CHANGE. An override is not a second thing that
       // happened; it is a property of this booking, so it travels in this row's
@@ -287,6 +278,12 @@ export class AppointmentsService {
    * old position — and the child overlap is recomputed under the same advisory
    * lock, excluding this appointment for exactly that reason.
    *
+   * ONE OCCURRENCE OF A SERIES MOVES THROUGH HERE, exactly as a one-off does.
+   * Changing one occurrence leaves the others alone (PROJECT_SPEC.md 6), the
+   * appointment keeps its `series_id`, and no series-level rule is consulted:
+   * the series is an identity and a termination rule, not a template that has to
+   * keep agreeing with its occurrences.
+   *
    * ONLY FROM `SCHEDULED`. A completed session is a record of something that
    * happened and its time is a fact, not a plan; a cancelled one is released,
    * and re-placing it would resurrect a booking the family was told was off. A
@@ -314,32 +311,32 @@ export class AppointmentsService {
     const submittedReason = canonicalOptionalText(input.availabilityOverrideReason);
 
     return this.prisma.$transaction(async (tx) => {
-      const current = await this.lockAppointment(tx, id);
+      const current = await this.rules.lockAppointment(tx, id);
       if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
 
-      const participants = await this.readParticipants(tx, id);
+      const participants = await this.rules.readParticipants(tx, id);
 
       if (isSamePlacement(current, input, note, submittedReason)) {
         return detailOf(current, participants);
       }
 
-      await this.lockActiveTherapist(tx, input.therapistId);
-      await this.lockActiveRoom(tx, input.roomId);
+      await this.rules.lockActiveTherapist(tx, input.therapistId);
+      await this.rules.lockActiveRoom(tx, input.roomId);
 
       // Against the appointment's OWN service, which a move cannot change. The
       // pairings are re-checked because the therapist and the room may be new:
       // a booking moved to a colleague who does not provide this service, or to
       // a room not allowed to host it, is the same mistake as making it that way.
-      await this.assertTherapistProvidesService(tx, input.therapistId, current.service_id);
-      await this.assertRoomAllowsService(tx, input.roomId, current.service_id);
+      await this.rules.assertTherapistProvidesService(tx, input.therapistId, current.service_id);
+      await this.rules.assertRoomAllowsService(tx, input.roomId, current.service_id);
 
-      const span = await this.readClinicSpan(tx, input.startsAt, input.durationMinutes);
+      const span = await this.rules.readClinicSpan(tx, input.startsAt, input.durationMinutes);
       if (span.startDate !== span.endDate) throw new AppError('APPOINTMENT_TIME_INVALID');
 
-      const decision = await this.decideAvailability(tx, span, input, submittedReason, actor);
+      const decision = await this.rules.decideAvailability(tx, span, input, submittedReason, actor);
 
       for (const participant of participants) {
-        await this.assertChildIsFree(
+        await this.rules.assertChildIsFree(
           tx,
           {
             childId: participant.child_id,
@@ -352,9 +349,9 @@ export class AppointmentsService {
         );
       }
 
-      await this.writePlacement(tx, id, input, note, decision.overrideReason, actor);
+      await this.rules.writePlacement(tx, id, input, note, decision.overrideReason, actor);
 
-      const moved = await this.readAppointment(tx, id);
+      const moved = await this.rules.readAppointment(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'appointment.updated',
@@ -408,8 +405,8 @@ export class AppointmentsService {
       input.cancelledBy === 'FAMILY' ? 'CANCELLED_BY_FAMILY' : 'CANCELLED_BY_CLINIC';
 
     return this.prisma.$transaction(async (tx) => {
-      const current = await this.lockAppointment(tx, id);
-      const participants = await this.readParticipants(tx, id);
+      const current = await this.rules.lockAppointment(tx, id);
+      const participants = await this.rules.readParticipants(tx, id);
 
       if (current.status === target) return detailOf(current, participants);
       if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
@@ -422,7 +419,7 @@ export class AppointmentsService {
         WHERE id = ${id}::uuid
       `;
 
-      const cancelled = await this.readAppointment(tx, id);
+      const cancelled = await this.rules.readAppointment(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'appointment.cancelled',
@@ -465,8 +462,8 @@ export class AppointmentsService {
     context: RequestContext,
   ): Promise<AppointmentDetail> {
     return this.prisma.$transaction(async (tx) => {
-      const current = await this.lockAppointment(tx, id);
-      const participants = await this.readParticipants(tx, id);
+      const current = await this.rules.lockAppointment(tx, id);
+      const participants = await this.rules.readParticipants(tx, id);
 
       if (current.status === 'COMPLETED') return detailOf(current, participants);
       if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
@@ -478,7 +475,7 @@ export class AppointmentsService {
         WHERE id = ${id}::uuid
       `;
 
-      const completed = await this.readAppointment(tx, id);
+      const completed = await this.rules.readAppointment(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'appointment.completed',
@@ -530,10 +527,10 @@ export class AppointmentsService {
     const canonicalReason = canonicalText(reason);
 
     return this.prisma.$transaction(async (tx) => {
-      const current = await this.lockAppointment(tx, id);
+      const current = await this.rules.lockAppointment(tx, id);
       if (current.status !== 'COMPLETED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
 
-      const participants = await this.readParticipants(tx, id);
+      const participants = await this.rules.readParticipants(tx, id);
 
       try {
         await tx.$executeRaw`
@@ -546,7 +543,7 @@ export class AppointmentsService {
         throw translateSchedulingWrite(error);
       }
 
-      const reopened = await this.readAppointment(tx, id);
+      const reopened = await this.rules.readAppointment(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'appointment.reopened',
@@ -597,7 +594,7 @@ export class AppointmentsService {
     context: RequestContext,
   ): Promise<AppointmentDetail> {
     return this.prisma.$transaction(async (tx) => {
-      const appointment = await this.lockAppointment(tx, appointmentId);
+      const appointment = await this.rules.lockAppointment(tx, appointmentId);
 
       const rows = await tx.$queryRaw<ParticipantRow[]>`
         SELECT ${PARTICIPANT_COLUMNS} FROM appointment_participant
@@ -611,7 +608,7 @@ export class AppointmentsService {
       if (isCancelled(appointment.status)) throw new AppError('APPOINTMENT_TRANSITION_INVALID');
 
       if (participant.attendance === input.attendance) {
-        return detailOf(appointment, await this.readParticipants(tx, appointmentId));
+        return detailOf(appointment, await this.rules.readParticipants(tx, appointmentId));
       }
 
       await tx.$executeRaw`
@@ -621,7 +618,7 @@ export class AppointmentsService {
         WHERE id = ${participantId}::uuid
       `;
 
-      const participants = await this.readParticipants(tx, appointmentId);
+      const participants = await this.rules.readParticipants(tx, appointmentId);
 
       await this.audit.record(tx, actorContext(actor, context), {
         // The row names the SEAT, not the booking: this is one child's outcome,
@@ -639,516 +636,6 @@ export class AppointmentsService {
       return detailOf(appointment, participants);
     });
   }
-
-  /**
-   * The appointment row, held for the transaction.
-   *
-   * `FOR UPDATE` rather than a plain read: every method that changes an
-   * appointment decides what it may do from the status it reads here, and a
-   * status read without a lock is a fact about a moment that has already passed.
-   * It is what makes a second completion see `COMPLETED` rather than race the
-   * first one.
-   */
-  private async lockAppointment(tx: Prisma.TransactionClient, id: string): Promise<AppointmentRow> {
-    const rows = await tx.$queryRaw<AppointmentRow[]>`
-      SELECT ${APPOINTMENT_COLUMNS} FROM appointment WHERE id = ${id}::uuid FOR UPDATE
-    `;
-
-    const row = rows[0];
-    if (row === undefined) throw new AppError('APPOINTMENT_NOT_FOUND');
-    return row;
-  }
-
-  /**
-   * The move's write, and the three rules PostgreSQL decides as it runs.
-   *
-   * `ends_at` is recomputed from the new start and length with the same
-   * `make_interval` expression `appointment_window_chk` uses, so the stored
-   * window cannot drift from the submitted one. The therapist overlap, the room
-   * overlap and "this service offers this length" are decided by the constraints
-   * as this statement lands, exactly as they are for an insert.
-   */
-  private async writePlacement(
-    tx: Prisma.TransactionClient,
-    id: string,
-    input: MoveAppointmentRequest,
-    note: string | null,
-    overrideReason: string | null,
-    actor: ResolvedSession,
-  ): Promise<void> {
-    const overrideBy = overrideReason === null ? null : actor.userId;
-    const overrideAt =
-      overrideReason === null ? Prisma.sql`NULL` : Prisma.sql`transaction_timestamp()`;
-
-    try {
-      await tx.$executeRaw`
-        UPDATE appointment
-        SET duration_minutes = ${input.durationMinutes},
-            therapist_id = ${input.therapistId}::uuid,
-            room_id = ${input.roomId}::uuid,
-            starts_at = ${input.startsAt}::timestamptz,
-            ends_at = ${input.startsAt}::timestamptz
-                      + make_interval(mins => ${input.durationMinutes}::int),
-            note = ${note},
-            availability_override_reason = ${overrideReason},
-            availability_override_by_user_id = ${overrideBy}::uuid,
-            availability_override_at = ${overrideAt}
-        WHERE id = ${id}::uuid
-      `;
-    } catch (error) {
-      throw translateSchedulingWrite(error);
-    }
-  }
-
-  /**
-   * Decides whether this booking may sit outside the therapist's working hours.
-   *
-   * The availability is resolved ON THIS TRANSACTION, against the same snapshot
-   * as the locks the caller already holds. Read on a separate connection, a
-   * manager could close the day between the check and the insert and the booking
-   * would be written against hours that no longer exist.
-   *
-   * The order of the three refusals matters. "Not available" is decided first,
-   * because a caller who supplies a reason for a booking that needs none must not
-   * be told they lack a permission; only once the rule has actually been broken
-   * does the reason, and then the authority to use it, come into question.
-   *
-   * The span is supplied by the caller rather than read here, because a session
-   * crossing midnight is refused as an invalid time BEFORE this method is
-   * reached. Availability is a question about a day, and a booking that has two
-   * of them is not one this decision — or the override in it — may answer.
-   */
-  private async decideAvailability(
-    tx: Prisma.TransactionClient,
-    span: ClinicSpan,
-    placement: { therapistId: string },
-    submittedReason: string | null,
-    actor: ResolvedSession,
-  ): Promise<AvailabilityDecision> {
-    const resolved = await this.availability.resolveWithin(
-      tx,
-      placement.therapistId,
-      span.startDate,
-    );
-
-    if (isWithinAvailability(span, resolved.windows)) {
-      return { overrideReason: null, audit: null };
-    }
-
-    if (submittedReason === null) throw new AppError('APPOINTMENT_OUTSIDE_AVAILABILITY');
-
-    // The permission list was resolved from the database by `SessionGuard` for
-    // this request, never taken from anything the caller sent. `AUTH_FORBIDDEN`
-    // names no permission, exactly as `PermissionsGuard` does not.
-    if (!actor.permissions.includes(OVERRIDE_PERMISSION)) throw new AppError('AUTH_FORBIDDEN');
-
-    return {
-      overrideReason: submittedReason,
-      // The metadata of the state change that carried the override, flat rather
-      // than nested: "how often is a booking made outside a therapist's hours?"
-      // is a question the pilot will ask, and `metadata->>'availabilityOverride'`
-      // answers it without unwrapping anything.
-      audit: {
-        availabilityOverride: true,
-        reason: submittedReason,
-        permission: OVERRIDE_PERMISSION,
-        date: span.startDate,
-        startTime: span.startTime,
-        endTime: span.endTime,
-        // What the therapist's day actually said, recorded as values: the rows
-        // it was resolved from are current configuration and may be edited
-        // tomorrow, and an audit row that pointed at them would answer a
-        // different question every time it was read.
-        isClosed: resolved.isClosed,
-        availableWindows: resolved.windows.map((window) => ({
-          startTime: window.startTime,
-          endTime: window.endTime,
-        })),
-      },
-    };
-  }
-
-  /**
-   * The session as the clinic's own calendar and clock read it.
-   *
-   * Both halves come from PostgreSQL — `clinic_date` and `clinic_clock_time` —
-   * so `Asia/Tehran` is applied in exactly one place in the system and the date
-   * and the time cannot come from two different timezones. `ends_at` is computed
-   * with the same `make_interval` expression `appointment_window_chk` uses, so
-   * the window checked is the window stored.
-   */
-  private async readClinicSpan(
-    tx: Prisma.TransactionClient,
-    startsAt: string,
-    durationMinutes: number,
-  ): Promise<ClinicSpan> {
-    const rows = await tx.$queryRaw<ClinicSpan[]>`
-      WITH span AS (
-        SELECT ${startsAt}::timestamptz AS starts_at,
-               ${startsAt}::timestamptz + make_interval(mins => ${durationMinutes}::int) AS ends_at
-      )
-      SELECT clinic_date(starts_at)::text AS "startDate",
-             clinic_clock_time(starts_at) AS "startTime",
-             clinic_date(ends_at)::text   AS "endDate",
-             clinic_clock_time(ends_at)   AS "endTime"
-      FROM span
-    `;
-
-    const span = rows[0];
-    // Unreachable: the query is a projection over one synthetic row. Stated so a
-    // future edit that makes it a join cannot silently return no span.
-    if (span === undefined) throw new AppError('APPOINTMENT_TIME_INVALID');
-
-    return span;
-  }
-
-  /**
-   * Refuses a child already booked into an overlapping session.
-   *
-   * The advisory lock is taken FIRST and the recomputation runs UNDER it, which
-   * is the whole point: without it two bookings both read "free" and both
-   * insert, and the child is in two rooms at once. The key is derived by
-   * PostgreSQL's own `hashtextextended` — a second implementation in Node would
-   * have to agree bit for bit forever, and the day it stopped agreeing the two
-   * writers would take different locks and the mechanism would fail open
-   * silently (DECISION_LOG, 2026-08-09).
-   *
-   * A key collision costs unnecessary serialisation between two unrelated
-   * children and never a wrong answer: the lock is mutual exclusion, and the
-   * authoritative decision is the SQL below it.
-   *
-   * `[)` bounds and the two occupying statuses, matching the resource exclusion
-   * constraints exactly — back-to-back sessions do not conflict, and a cancelled
-   * booking releases the child as it releases the room.
-   *
-   * `excludeAppointmentId` is the appointment being moved. Without it a booking
-   * would conflict with the position it is leaving, and no session could be
-   * moved by less than its own length — the commonest correction there is.
-   */
-  private async assertChildIsFree(
-    tx: Prisma.TransactionClient,
-    placement: { childId: string; startsAt: string; durationMinutes: number },
-    excludeAppointmentId: string | null = null,
-  ): Promise<void> {
-    await tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(
-        hashtextextended(${CHILD_SCHEDULE_LOCK_NAMESPACE} || ${placement.childId}, 0)
-      )
-    `;
-
-    const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT a.id
-      FROM appointment_participant ap
-      JOIN appointment a ON a.id = ap.appointment_id
-      WHERE ap.child_id = ${placement.childId}::uuid
-        AND a.status IN ('SCHEDULED', 'COMPLETED')
-        AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
-        AND tstzrange(a.starts_at, a.ends_at, '[)') && tstzrange(
-              ${placement.startsAt}::timestamptz,
-              ${placement.startsAt}::timestamptz
-                + make_interval(mins => ${placement.durationMinutes}::int),
-              '[)'
-            )
-      LIMIT 1
-    `;
-
-    if (rows.length > 0) throw new AppError('APPOINTMENT_CHILD_CONFLICT');
-  }
-
-  /**
-   * The INSERT, and the three rules it does not check first.
-   *
-   * The therapist overlap, the room overlap and "this service offers this session
-   * length" are all decided by PostgreSQL as this statement runs. Translating the
-   * failure is not a fallback for a check that was skipped — it is the check, and
-   * it is the only form of it that holds when two requests arrive together.
-   */
-  private async insertAppointment(
-    tx: Prisma.TransactionClient,
-    args: {
-      appointmentId: string;
-      input: CreateAppointmentRequest;
-      note: string | null;
-      overrideReason: string | null;
-      actor: ResolvedSession;
-    },
-  ): Promise<void> {
-    const { appointmentId, input, note, overrideReason, actor } = args;
-    const overrideBy = overrideReason === null ? null : actor.userId;
-    // The instant comes from `transaction_timestamp()`, never from Node: it must
-    // be the same clock `created_at` is written with, or the two would disagree
-    // by whatever skew exists between the API host and the database.
-    const overrideAt =
-      overrideReason === null ? Prisma.sql`NULL` : Prisma.sql`transaction_timestamp()`;
-
-    try {
-      await tx.$executeRaw`
-        INSERT INTO appointment (
-          id, service_id, duration_minutes, therapist_id, room_id,
-          starts_at, ends_at, status, series_id, note,
-          availability_override_reason, availability_override_by_user_id,
-          availability_override_at, created_at, created_by_user_id
-        ) VALUES (
-          ${appointmentId}::uuid,
-          ${input.serviceId}::uuid,
-          ${input.durationMinutes},
-          ${input.therapistId}::uuid,
-          ${input.roomId}::uuid,
-          ${input.startsAt}::timestamptz,
-          ${input.startsAt}::timestamptz + make_interval(mins => ${input.durationMinutes}::int),
-          'SCHEDULED'::appointment_status,
-          NULL,
-          ${note},
-          ${overrideReason},
-          ${overrideBy}::uuid,
-          ${overrideAt},
-          transaction_timestamp(),
-          ${actor.userId}::uuid
-        )
-      `;
-    } catch (error) {
-      throw translateSchedulingWrite(error);
-    }
-  }
-
-  /**
-   * TWO ASSOCIATIONS, TWO DELIBERATELY DIFFERENT MEANINGS.
-   *
-   * `therapist_service` IS THE THERAPIST'S SUPPORTED SERVICES — the Milestone 2
-   * model states them explicitly (PROJECT_SPEC.md 5, "Therapist: … supported
-   * services"), and a booking requires the association to exist. No rows means
-   * this therapist provides nothing yet, not everything: an unstated competency
-   * list is exactly what a clinic must not book against, and reading silence as
-   * permission would let any therapist be assigned to any service.
-   *
-   * `room_service` IS A RESTRICTION, and no rows means unrestricted — documented
-   * that way in the Milestone 2 contract, and the common case that needs no data
-   * entry. The asymmetry is the point: one list says what somebody does, the
-   * other says what a room is not allowed to host.
-   *
-   * Neither check consults the service's or the therapist's status: those were
-   * decided under a lock a moment ago, and this is a question about
-   * configuration, not lifecycle.
-   */
-  private async assertTherapistProvidesService(
-    tx: Prisma.TransactionClient,
-    therapistId: string,
-    serviceId: string,
-  ): Promise<void> {
-    const rows = await tx.$queryRaw<{ supported: boolean }[]>`
-      SELECT EXISTS (
-        SELECT 1 FROM therapist_service
-        WHERE therapist_id = ${therapistId}::uuid AND service_id = ${serviceId}::uuid
-      ) AS supported
-    `;
-
-    if (rows[0]?.supported !== true) {
-      throw new AppError('APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED');
-    }
-  }
-
-  /** The restriction half: no rows means unrestricted, unchanged from Milestone 2. */
-  private async assertRoomAllowsService(
-    tx: Prisma.TransactionClient,
-    roomId: string,
-    serviceId: string,
-  ): Promise<void> {
-    const rows = await tx.$queryRaw<{ allowed: boolean }[]>`
-      SELECT
-        NOT EXISTS (SELECT 1 FROM room_service WHERE room_id = ${roomId}::uuid)
-        OR EXISTS (
-          SELECT 1 FROM room_service
-          WHERE room_id = ${roomId}::uuid AND service_id = ${serviceId}::uuid
-        ) AS allowed
-    `;
-
-    if (rows[0]?.allowed !== true) throw new AppError('APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED');
-  }
-
-  /**
-   * `FOR SHARE`, not `FOR UPDATE`, on all four rows.
-   *
-   * A share lock still conflicts with the `UPDATE` a deactivation performs —
-   * which is the requirement, and what makes "active" true at write time rather
-   * than true of a world a concurrent deactivation has already left — while
-   * letting two unrelated bookings against the same service proceed together.
-   * `FOR UPDATE` would serialise every booking in the clinic behind whichever
-   * one holds the busiest service, for no additional safety.
-   */
-  private async lockActiveService(tx: Prisma.TransactionClient, id: string): Promise<void> {
-    const rows = await tx.$queryRaw<{ status: string }[]>`
-      SELECT status::text AS status FROM service WHERE id = ${id}::uuid FOR SHARE
-    `;
-
-    const row = rows[0];
-    if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
-    if (row.status !== 'ACTIVE') throw new AppError('SERVICE_INACTIVE');
-  }
-
-  private async lockActiveTherapist(tx: Prisma.TransactionClient, id: string): Promise<void> {
-    const rows = await tx.$queryRaw<{ status: string }[]>`
-      SELECT status::text AS status FROM therapist WHERE id = ${id}::uuid FOR SHARE
-    `;
-
-    const row = rows[0];
-    if (row === undefined) throw new AppError('THERAPIST_NOT_FOUND');
-    if (row.status !== 'ACTIVE') throw new AppError('THERAPIST_INACTIVE');
-  }
-
-  private async lockActiveRoom(tx: Prisma.TransactionClient, id: string): Promise<void> {
-    const rows = await tx.$queryRaw<{ status: string }[]>`
-      SELECT status::text AS status FROM room WHERE id = ${id}::uuid FOR SHARE
-    `;
-
-    const row = rows[0];
-    if (row === undefined) throw new AppError('ROOM_NOT_FOUND');
-    if (row.status !== 'ACTIVE') throw new AppError('ROOM_INACTIVE');
-  }
-
-  /**
-   * The child and the family that owes for the session, locked in that global
-   * order: family before child, as every Milestone 3 path takes them.
-   *
-   * The family is checked as well as the child, and it is not redundant: a family
-   * deactivated after a child was left active is a family the clinic has stopped
-   * treating, and booking a session it would be billed for is exactly what
-   * deactivation is for. The child is read once unlocked to learn which family to
-   * lock, then re-read under the lock — the second read is the one that decides.
-   */
-  private async lockActiveChild(tx: Prisma.TransactionClient, childId: string): Promise<void> {
-    const found = await tx.$queryRaw<{ family_id: string }[]>`
-      SELECT family_id FROM child WHERE id = ${childId}::uuid
-    `;
-
-    const familyId = found[0]?.family_id;
-    if (familyId === undefined) throw new AppError('CHILD_NOT_FOUND');
-
-    const families = await tx.$queryRaw<{ status: string }[]>`
-      SELECT status::text AS status FROM family WHERE id = ${familyId}::uuid FOR SHARE
-    `;
-
-    if (families[0]?.status !== 'ACTIVE') throw new AppError('FAMILY_INACTIVE');
-
-    const children = await tx.$queryRaw<{ status: string }[]>`
-      SELECT status::text AS status FROM child WHERE id = ${childId}::uuid FOR SHARE
-    `;
-
-    const child = children[0];
-    if (child === undefined) throw new AppError('CHILD_NOT_FOUND');
-    if (child.status !== 'ACTIVE') throw new AppError('CHILD_INACTIVE');
-  }
-
-  private async readAppointment(
-    client: PrismaService | Prisma.TransactionClient,
-    id: string,
-  ): Promise<AppointmentRow> {
-    const rows = await client.$queryRaw<AppointmentRow[]>`
-      SELECT ${APPOINTMENT_COLUMNS} FROM appointment WHERE id = ${id}::uuid
-    `;
-
-    const row = rows[0];
-    if (row === undefined) throw new AppError('APPOINTMENT_NOT_FOUND');
-    return row;
-  }
-
-  private readParticipants(
-    client: PrismaService | Prisma.TransactionClient,
-    appointmentId: string,
-  ): Promise<ParticipantRow[]> {
-    return client.$queryRaw<ParticipantRow[]>`
-      SELECT ${PARTICIPANT_COLUMNS} FROM appointment_participant
-      WHERE appointment_id = ${appointmentId}::uuid
-      ORDER BY id ASC
-    `;
-  }
-}
-
-/**
- * Maps what PostgreSQL refused onto what the receptionist is told.
- *
- * Each conflict names its own resource because each is fixed by changing a
- * different field, and the constraint that fired is the authority — a re-read
- * afterwards could disagree with it, and would be answering a question about a
- * different moment.
- */
-function translateSchedulingWrite(error: unknown): unknown {
-  if (violatesConstraint(error, 'appointment_no_therapist_overlap_excl')) {
-    return new AppError('APPOINTMENT_THERAPIST_CONFLICT');
-  }
-
-  if (violatesConstraint(error, 'appointment_no_room_overlap_excl')) {
-    return new AppError('APPOINTMENT_ROOM_CONFLICT');
-  }
-
-  // The composite foreign key to `service_duration`: this service does not offer
-  // this session length. Distinguished from the two single-column foreign keys
-  // by name, because "the service does not exist" is a different message and
-  // cannot be reached here in any case — the service was locked and read first.
-  if (
-    violatesConstraint(error, 'appointment_service_id_duration_minutes_fkey') ||
-    (isForeignKeyViolation(error) && violatesConstraint(error, 'service_duration'))
-  ) {
-    return new AppError('APPOINTMENT_DURATION_NOT_ALLOWED');
-  }
-
-  if (
-    violatesConstraint(error, 'appointment_duration_chk') ||
-    violatesConstraint(error, 'appointment_window_chk') ||
-    violatesConstraint(error, 'appointment_starts_at_precision_chk')
-  ) {
-    return new AppError('APPOINTMENT_TIME_INVALID');
-  }
-
-  return error;
-}
-
-/**
- * What the audit trail records about an appointment, on either side of a change.
- *
- * The seats travel with it: an appointment without its participants does not say
- * who was booked, which is most of what the record is for. No price, no tariff
- * and no amount appears — there is none to appear.
- *
- * The outcome fields are here so a cancellation's audit row carries the reason
- * and the instant as values rather than making a reader join back to a row that
- * may have moved on since. `before` and `after` are the same shape, so a diff of
- * a move, a completion and a cancellation reads the same way.
- */
-function auditAppointment(
-  appointment: AppointmentRow,
-  participants: readonly ParticipantRow[],
-): AuditJsonObject {
-  return {
-    serviceId: appointment.service_id,
-    durationMinutes: appointment.duration_minutes,
-    therapistId: appointment.therapist_id,
-    roomId: appointment.room_id,
-    startsAt: appointment.starts_at.toISOString(),
-    endsAt: appointment.ends_at.toISOString(),
-    status: appointment.status,
-    seriesId: appointment.series_id,
-    note: appointment.note,
-    completedAt: appointment.completed_at?.toISOString() ?? null,
-    cancelledAt: appointment.cancelled_at?.toISOString() ?? null,
-    cancellationReason: appointment.cancellation_reason,
-    availabilityOverrideReason: appointment.availability_override_reason,
-    participants: participants.map((participant) => ({
-      id: participant.id,
-      childId: participant.child_id,
-      attendance: participant.attendance,
-    })),
-  };
-}
-
-/** The response every write in this class returns: the booking and its seats. */
-function detailOf(
-  appointment: AppointmentRow,
-  participants: readonly ParticipantRow[],
-): AppointmentDetail {
-  return {
-    appointment: toAppointment(appointment),
-    participants: participants.map(toParticipant),
-  };
 }
 
 function isCancelled(status: string): boolean {
