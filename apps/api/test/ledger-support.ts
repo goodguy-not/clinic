@@ -1,0 +1,230 @@
+import { Prisma } from '@prisma/client';
+import { uuidv7 } from '../src/common/uuid';
+import type { Harness } from './harness';
+import {
+  bookId,
+  bookingPayload,
+  complete,
+  makeTariff,
+  recordAttendance,
+  seedClinic,
+  signIn,
+  SATURDAY,
+} from './appointments-support';
+
+/**
+ * Shared fixtures for the Milestone 5 ledger schema suites.
+ *
+ * EVERYTHING HERE IS SYNTHETIC. No real family, child, therapist, price or
+ * amount appears in any fixture in this project.
+ *
+ * Checkpoint A1 builds the SCHEMA and no behaviour, so there is no charge
+ * endpoint and no posting service to seed through. Every charge and adjustment
+ * below is written with raw SQL — which is also the honest test of what this
+ * checkpoint claims: the rules must hold against a caller that is not the
+ * service, because in A1 there is no service to hold them.
+ *
+ * The clinic side of the fixture is built over HTTP by a manager, exactly as the
+ * Milestone 4 suites do, so every appointment charged here is a state the
+ * application itself can produce.
+ */
+
+export type LedgerFixture = {
+  managerId: string;
+  managerToken: string;
+  familyId: string;
+  childId: string;
+  serviceId: string;
+  therapistId: string;
+  appointmentId: string;
+  participantId: string;
+  tariffId: string;
+  /** The clinic calendar day the fixture's session happens on. */
+  serviceDate: string;
+  /** 45 minutes, matching `bookingPayload`. */
+  durationMinutes: number;
+};
+
+/**
+ * A completed appointment with one attended child, and a price that covered it.
+ *
+ * The whole precondition of a primary session charge, in one call.
+ */
+export async function seedChargeableSession(harness: Harness): Promise<LedgerFixture> {
+  const manager = await signIn(harness, 'MANAGER');
+  const clinic = await seedClinic(harness, manager.token);
+
+  const tariffId = await makeTariff(harness, manager.token, {
+    serviceId: clinic.serviceId,
+    durationMinutes: 45,
+    priceToman: '250000',
+  });
+
+  const appointmentId = await bookId(harness, manager.token, bookingPayload(clinic));
+
+  const participant = await harness.prisma.appointmentParticipant.findFirstOrThrow({
+    where: { appointmentId },
+  });
+
+  await recordAttendance(harness, manager.token, appointmentId, participant.id, 'ATTENDED');
+  await complete(harness, manager.token, appointmentId);
+
+  return {
+    managerId: manager.id,
+    managerToken: manager.token,
+    familyId: clinic.familyId,
+    childId: clinic.childId,
+    serviceId: clinic.serviceId,
+    therapistId: clinic.therapistId,
+    appointmentId,
+    participantId: participant.id,
+    tariffId,
+    serviceDate: SATURDAY,
+    durationMinutes: 45,
+  };
+}
+
+export type ChargeOverrides = {
+  id?: string;
+  familyId?: string;
+  childId?: string;
+  appointmentId?: string;
+  participantId?: string;
+  serviceId?: string;
+  therapistId?: string;
+  durationMinutes?: number;
+  serviceDate?: string;
+  tariffId?: string;
+  priceMode?: 'PAID' | 'FREE';
+  amountToman?: string;
+  voided?: boolean;
+};
+
+/**
+ * Inserts a session charge with raw SQL and returns its id.
+ *
+ * `transaction_timestamp()` for `created_at`, as every service in this project
+ * writes it, so a fixture and a production row come from the same clock.
+ */
+export async function insertCharge(
+  harness: Harness,
+  fixture: LedgerFixture,
+  overrides: ChargeOverrides = {},
+): Promise<string> {
+  const id = overrides.id ?? uuidv7();
+  const voided = overrides.voided ?? false;
+
+  await harness.prisma.$executeRaw`
+    INSERT INTO session_charge (
+      id, family_id, child_id, appointment_id, appointment_participant_id,
+      service_id, therapist_id, duration_minutes, service_date,
+      tariff_id, price_mode, amount_toman,
+      created_at, created_by_user_id, voided_at, voided_by_user_id, void_reason
+    ) VALUES (
+      ${id}::uuid,
+      ${overrides.familyId ?? fixture.familyId}::uuid,
+      ${overrides.childId ?? fixture.childId}::uuid,
+      ${overrides.appointmentId ?? fixture.appointmentId}::uuid,
+      ${overrides.participantId ?? fixture.participantId}::uuid,
+      ${overrides.serviceId ?? fixture.serviceId}::uuid,
+      ${overrides.therapistId ?? fixture.therapistId}::uuid,
+      ${overrides.durationMinutes ?? fixture.durationMinutes},
+      ${overrides.serviceDate ?? fixture.serviceDate}::date,
+      ${overrides.tariffId ?? fixture.tariffId}::uuid,
+      ${overrides.priceMode ?? 'PAID'}::tariff_price_mode,
+      ${overrides.amountToman ?? '250000'}::bigint,
+      transaction_timestamp(),
+      ${fixture.managerId}::uuid,
+      ${voided ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
+      ${voided ? Prisma.sql`${fixture.managerId}::uuid` : Prisma.sql`NULL`},
+      ${voided ? Prisma.sql`'اصلاح آزمایشی'` : Prisma.sql`NULL`}
+    )
+  `;
+
+  return id;
+}
+
+/**
+ * Voids a charge the way the A3 service will: one UPDATE setting the three void
+ * columns together, and nothing else.
+ */
+export async function voidCharge(
+  harness: Harness,
+  fixture: LedgerFixture,
+  chargeId: string,
+): Promise<void> {
+  await harness.prisma.$executeRaw`
+    UPDATE session_charge
+       SET voided_at = transaction_timestamp(),
+           voided_by_user_id = ${fixture.managerId}::uuid,
+           void_reason = 'اصلاح آزمایشی'
+     WHERE id = ${chargeId}::uuid
+  `;
+}
+
+export type AdjustmentOverrides = {
+  id?: string;
+  amountToman?: string;
+  therapistDiscountToman?: string;
+  clinicDiscountToman?: string;
+  reason?: string;
+  voided?: boolean;
+};
+
+/** Inserts a charge adjustment with raw SQL and returns its id. */
+export async function insertAdjustment(
+  harness: Harness,
+  fixture: LedgerFixture,
+  chargeId: string,
+  overrides: AdjustmentOverrides = {},
+): Promise<string> {
+  const id = overrides.id ?? uuidv7();
+  const amount = overrides.amountToman ?? '50000';
+  const voided = overrides.voided ?? false;
+
+  await harness.prisma.$executeRaw`
+    INSERT INTO charge_adjustment (
+      id, session_charge_id, amount_toman,
+      therapist_discount_toman, clinic_discount_toman, reason,
+      created_at, created_by_user_id, voided_at, voided_by_user_id, void_reason
+    ) VALUES (
+      ${id}::uuid,
+      ${chargeId}::uuid,
+      ${amount}::bigint,
+      ${overrides.therapistDiscountToman ?? '0'}::bigint,
+      ${overrides.clinicDiscountToman ?? amount}::bigint,
+      ${overrides.reason ?? 'تخفیف آزمایشی'},
+      transaction_timestamp(),
+      ${fixture.managerId}::uuid,
+      ${voided ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
+      ${voided ? Prisma.sql`${fixture.managerId}::uuid` : Prisma.sql`NULL`},
+      ${voided ? Prisma.sql`'اصلاح آزمایشی'` : Prisma.sql`NULL`}
+    )
+  `;
+
+  return id;
+}
+
+/**
+ * Runs a statement that must fail, and returns the PostgreSQL SQLSTATE it failed
+ * with.
+ *
+ * Asserting on the code rather than on a message is what makes these tests
+ * survive a reworded exception, and 23001 (`restrict_violation`) is the single
+ * code every "the database refuses to rewrite this" failure in this project
+ * raises.
+ */
+export async function sqlStateOf(attempt: Promise<unknown>): Promise<string> {
+  try {
+    await attempt;
+  } catch (error) {
+    const meta = error as { meta?: { code?: string }; code?: string };
+    const state = meta.meta?.code ?? meta.code;
+
+    if (typeof state === 'string') return state;
+
+    throw new Error('Statement failed without a SQLSTATE', { cause: error });
+  }
+
+  throw new Error('Statement was expected to fail and did not');
+}

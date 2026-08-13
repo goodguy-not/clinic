@@ -4,6 +4,8 @@
 //               draft that carries a submission across a duplicate warning.
 // Milestone 4 — appointments: the booking, the per-child seat in it, the
 //               recurrence series, and therapist availability.
+// Milestone 5 — the ledger spine: the session charge a completed seat produces,
+//               and the append-only adjustment that reduces it.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
 // indexes, exclusion constraints, composite foreign keys, functions and
@@ -258,6 +260,11 @@ model AppUser {
   createdAvailability      TherapistAvailability[]
   createdAvailabilityExceptions TherapistAvailabilityException[]
 
+  createdSessionCharges    SessionCharge[]    @relation("SessionChargeCreatedBy")
+  voidedSessionCharges     SessionCharge[]    @relation("SessionChargeVoidedBy")
+  createdChargeAdjustments ChargeAdjustment[] @relation("ChargeAdjustmentCreatedBy")
+  voidedChargeAdjustments  ChargeAdjustment[] @relation("ChargeAdjustmentVoidedBy")
+
   @@map("app_user")
 }
 
@@ -361,6 +368,7 @@ model Therapist {
   supportedServices    TherapistService[]
   tariffs              Tariff[]
   appointments         Appointment[]
+  sessionCharges       SessionCharge[]
   availability         TherapistAvailability[]
   availabilityExceptions TherapistAvailabilityException[]
 
@@ -389,6 +397,7 @@ model Service {
   roomRestrictions RoomService[]
   tariffs          Tariff[]
   appointments     Appointment[]
+  sessionCharges   SessionCharge[]
 
   @@index([status])
   @@map("service")
@@ -409,9 +418,10 @@ model ServiceDuration {
   serviceId       String @map("service_id") @db.Uuid
   durationMinutes Int    @map("duration_minutes")
 
-  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  tariffs      Tariff[]      @relation("TariffServiceDuration")
-  appointments Appointment[] @relation("AppointmentServiceDuration")
+  service        Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tariffs        Tariff[]        @relation("TariffServiceDuration")
+  appointments   Appointment[]   @relation("AppointmentServiceDuration")
+  sessionCharges SessionCharge[] @relation("SessionChargeServiceDuration")
 
   @@unique([serviceId, durationMinutes])
   @@map("service_duration")
@@ -517,6 +527,7 @@ model Tariff {
   supersedesTariff Tariff?         @relation("TariffSupersedes", fields: [supersedesTariffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersededBy     Tariff[]        @relation("TariffSupersedes")
   createdBy        AppUser         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sessionCharges   SessionCharge[]
 
   /// The resolution lookup: service and duration are always known, therapist
   /// may be. Effective dates are filtered after this narrowing, so they are not
@@ -591,10 +602,11 @@ model Family {
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId  String       @map("created_by_user_id") @db.Uuid
 
-  createdBy AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  guardians Guardian[]
-  children  Child[]
-  drafts    RegistrationDraft[]
+  createdBy      AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  guardians      Guardian[]
+  children       Child[]
+  drafts         RegistrationDraft[]
+  sessionCharges SessionCharge[]
 
   @@index([status])
   @@index([searchFamilyName])
@@ -689,7 +701,14 @@ model Child {
   createdBy        AppUser                  @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   drafts           RegistrationDraft[]
   appointmentSeats AppointmentParticipant[]
+  sessionCharges   SessionCharge[]          @relation("SessionChargeChild")
 
+  /// Supports the composite foreign key from `session_charge`, and exists for
+  /// no other reason. `id` alone is already the primary key, so this adds no
+  /// uniqueness the table did not have; what it adds is a target PostgreSQL can
+  /// reference, which is what makes "the charged child belongs to the charged
+  /// family" a database guarantee rather than a service-layer join.
+  @@unique([id, familyId])
   @@index([familyId])
   @@index([status])
   @@index([searchLastName, searchFirstName])
@@ -911,9 +930,18 @@ model AppointmentParticipant {
   attendance           AttendanceOutcome @default(PENDING)
   attendanceRecordedAt DateTime?         @map("attendance_recorded_at") @db.Timestamptz
 
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  child       Child       @relation(fields: [childId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointment    Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  child          Child           @relation(fields: [childId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sessionCharges SessionCharge[] @relation("SessionChargeParticipant")
 
+  /// Supports the composite foreign key from `session_charge`, and exists for
+  /// no other reason. It does NOT make a seat unique per appointment — `id` is
+  /// already the primary key, so this index is unique on a superset of a key
+  /// that is unique already, and a group booking still holds as many seats as
+  /// it has children. What it adds is a target PostgreSQL can reference, which
+  /// is what makes "the charged participant belongs to the charged
+  /// appointment" a database guarantee.
+  @@unique([id, appointmentId])
   @@index([appointmentId])
   /// The key the child-conflict recomputation reads, joined to `appointment`
   /// for the window. Also one child's session history.
@@ -1027,4 +1055,185 @@ model TherapistAvailabilityException {
 
   @@index([therapistId, exceptionDate])
   @@map("therapist_availability_exception")
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 5, checkpoint A1 — the ledger spine.
+//
+// TWO TABLES, STRUCTURE ONLY. `session_charge` is what a completed, attended
+// seat costs a family; `charge_adjustment` is an append-only reduction of one
+// charge. This checkpoint builds the schema for both and the behaviour of
+// neither: there is no charge-posting service, no endpoint, no permission and
+// no family account read. The tables exist now so the checkpoints that add
+// those behaviours do not each open with a migration, and so the financial
+// spine is settled before any money exists.
+//
+// NO FINANCIAL COLUMN IS ADDED TO `appointment` OR `appointment_participant`,
+// and none ever will be. The Milestone 4 boundary holds: a booking is a
+// booking, and THE CHARGE ROW IS THE FINANCIAL SNAPSHOT. The tariff stays a
+// read-only suggestion at booking time (DECISION_LOG, 2026-08-13) and becomes a
+// stored amount only here, at the completion that creates money.
+//
+// NOTHING HERE IS A PAYMENT. There is no payment, no credit, no allocation, no
+// promise, no balance and no therapist share or settlement percentage. Those
+// are Milestones 6 and 8, and a column for any of them would be state stored
+// before its rules are approved — the mistake this milestone's predecessor
+// deliberately avoided.
+//
+// WHAT POSTGRESQL ENFORCES AND THIS FILE DOES NOT SHOW: at most one non-voided
+// charge per seat (a partial unique index), the clinic-borne-only discount
+// policy and its split identity, the effective-charge floor with its parent-row
+// lock, and the immutability of both tables. Read the migration alongside this.
+//
+// ON CLOCKS: as in every earlier milestone, PostgreSQL owns the record's own
+// timestamps. `service_date` is different in kind — it is the clinic calendar
+// day the session happened on, `clinic_date(appointment.starts_at)`, a derived
+// snapshot rather than a clock reading.
+// ---------------------------------------------------------------------------
+
+/// What one completed, attended seat costs one family.
+///
+/// THE PRIMARY SESSION CHARGE, and in Milestone 5 the only kind of charge there
+/// is. There is deliberately no `type` column: a second charge kind would be a
+/// vocabulary invented before anything needs it, and the exactly-once index
+/// below reads more honestly without one.
+///
+/// EVERY COLUMN HERE IS A SNAPSHOT. `amount_toman` is what the family was
+/// charged on the day, not what the tariff says today: correcting a tariff
+/// never rewrites a charge (CLAUDE.md, non-negotiable rules), so `tariff_id`
+/// records which price was applied and the amount records what it was. The two
+/// are deliberately not constrained to agree — the tariff may since have been
+/// voided and replaced, and the charge must still read as it was raised.
+///
+/// `price_mode` is carried for the same reason it is carried on `Tariff`, and
+/// keeps the same meaning: a FREE session is a genuinely complimentary one and
+/// stays structurally distinct from a PAID session later adjusted to zero. A
+/// FREE charge is zero and, because an adjustment may not take a charge below
+/// zero, can never be adjusted at all.
+///
+/// FOUR THINGS THE DATABASE PROVES:
+///
+///   * the charged child belongs to the charged family —
+///     `(child_id, family_id)` -> `child`;
+///   * the charged participant belongs to the charged appointment —
+///     `(appointment_participant_id, appointment_id)` -> `appointment_participant`,
+///     which is also what keeps `appointment_id` traceable to a real booking;
+///   * the charged service, therapist and session length are real catalog
+///     records, and the length is one the service actually offers —
+///     `service_id` -> `service`, `therapist_id` -> `therapist`, and
+///     `(service_id, duration_minutes)` -> `service_duration`, the same three
+///     guarantees, and the same mechanism, as `Tariff`;
+///   * at most one non-voided charge exists per seat — a partial unique index,
+///     which is what makes repeated completions idempotent.
+///
+/// WHAT THE DATABASE DELIBERATELY DOES NOT PROVE is that the snapshotted
+/// service, therapist and length still match the appointment's CURRENT
+/// placement. They must not: a charge may be voided, its completed appointment
+/// reopened, and the reopened booking legitimately moved to another therapist
+/// or another length. The voided charge has to keep saying what the session it
+/// represented actually was, and it must not pin the live booking to a
+/// placement it has moved on from. The snapshot points at the catalog records,
+/// which are permanent and deactivate-only, not at the mutable placement.
+///
+/// Void is a one-way door recording actor, instant and reason, exactly as
+/// `Tariff`'s is. A voided charge and its replacement both survive: that is how
+/// a correction is made, and the trigger permits no other transition.
+model SessionCharge {
+  id                       String          @id @default(uuid(7)) @db.Uuid
+  familyId                 String          @map("family_id") @db.Uuid
+  childId                  String          @map("child_id") @db.Uuid
+  appointmentId            String          @map("appointment_id") @db.Uuid
+  appointmentParticipantId String          @map("appointment_participant_id") @db.Uuid
+  serviceId                String          @map("service_id") @db.Uuid
+  therapistId              String          @map("therapist_id") @db.Uuid
+  durationMinutes          Int             @map("duration_minutes")
+  /// The clinic calendar day the session happened on, in Asia/Tehran. A date
+  /// with no time and no offset, as `Tariff.effectiveStart` is, so the day a
+  /// charge belongs to never depends on the reader's timezone.
+  serviceDate              DateTime        @map("service_date") @db.Date
+  /// Which price was applied. Not a claim that the tariff still says so.
+  tariffId                 String          @map("tariff_id") @db.Uuid
+  priceMode                TariffPriceMode @map("price_mode")
+  amountToman              BigInt          @map("amount_toman")
+  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId          String          @map("created_by_user_id") @db.Uuid
+  voidedAt                 DateTime?       @map("voided_at") @db.Timestamptz
+  voidedByUserId           String?         @map("voided_by_user_id") @db.Uuid
+  voidReason               String?         @map("void_reason")
+
+  family          Family                 @relation(fields: [familyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  child           Child                  @relation("SessionChargeChild", fields: [childId, familyId], references: [id, familyId], onDelete: Restrict, onUpdate: Cascade)
+  participant     AppointmentParticipant @relation("SessionChargeParticipant", fields: [appointmentParticipantId, appointmentId], references: [id, appointmentId], onDelete: Restrict, onUpdate: Cascade)
+  service         Service                @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceDuration ServiceDuration        @relation("SessionChargeServiceDuration", fields: [serviceId, durationMinutes], references: [serviceId, durationMinutes], onDelete: Restrict, onUpdate: Cascade)
+  therapist       Therapist              @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tariff          Tariff                 @relation(fields: [tariffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       AppUser                @relation("SessionChargeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  voidedBy        AppUser?               @relation("SessionChargeVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  adjustments ChargeAdjustment[]
+
+  /// The family account, which is the read every ledger question starts from.
+  @@index([familyId, serviceDate])
+  /// Child-level session detail within that account (PROJECT_SPEC.md 7).
+  @@index([childId])
+  /// One seat's whole charge history, voided rows included — which is exactly
+  /// what the partial unique index cannot answer, because it does not index
+  /// them.
+  @@index([appointmentParticipantId])
+  @@map("session_charge")
+}
+
+/// An append-only reduction of one session charge: a discount, a waiver, or the
+/// freeing of a session that was priced.
+///
+/// A CORRECTION IS NEVER AN EDIT. The charge is not rewritten and the tariff is
+/// not touched; a row is added here, and the family's effective amount is the
+/// charge less the adjustments still active against it. That is what keeps the
+/// original price, the concession and the reason all readable afterwards
+/// (PROJECT_SPEC.md 9).
+///
+/// EVERY MILESTONE 5 DISCOUNT IS CLINIC-BORNE, and PostgreSQL enforces it:
+/// `therapist_discount_toman` must be zero and `clinic_discount_toman` must
+/// equal `amount_toman`. The three columns exist in their final shape because
+/// the split identity — therapist share plus clinic share equals the family
+/// discount — is an approved domain rule (DECISION_LOG, 2026-08-02), and a
+/// two-column table would have to be reshaped to honour it later. What is
+/// deferred is the ability to record a non-zero therapist share, not the
+/// vocabulary for it. A shared or therapist-borne concession is not
+/// representable here and must not be disguised as a clinic-borne one.
+///
+/// THE FAMILY'S EFFECTIVE AMOUNT MAY NEVER GO NEGATIVE. Active adjustments
+/// against one charge may not sum past it, and that is enforced under a lock on
+/// the parent charge row, so two concurrent adjustments cannot both pass
+/// against a stale sum.
+///
+/// Void is one-way and records actor, instant and reason, exactly as the
+/// charge's is. Voiding an adjustment restores the amount it had removed, which
+/// is why the floor check reads only non-voided rows.
+model ChargeAdjustment {
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  sessionChargeId        String    @map("session_charge_id") @db.Uuid
+  /// The total the family is relieved of. Positive: this table only ever
+  /// reduces, and an increase would be a different fact needing its own rules.
+  amountToman            BigInt    @map("amount_toman")
+  /// Zero in Milestone 5, by CHECK. The column is here because the split is an
+  /// approved rule, not because a value other than zero is reachable.
+  therapistDiscountToman BigInt    @map("therapist_discount_toman")
+  clinicDiscountToman    BigInt    @map("clinic_discount_toman")
+  /// Required, unlike the charge's own note-free shape. A concession nobody can
+  /// explain is what CLAUDE.md forbids outright.
+  reason                 String
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+  voidedAt               DateTime? @map("voided_at") @db.Timestamptz
+  voidedByUserId         String?   @map("voided_by_user_id") @db.Uuid
+  voidReason             String?   @map("void_reason")
+
+  sessionCharge SessionCharge @relation(fields: [sessionChargeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     AppUser       @relation("ChargeAdjustmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  voidedBy      AppUser?      @relation("ChargeAdjustmentVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([sessionChargeId])
+  @@map("charge_adjustment")
 }

@@ -144,6 +144,10 @@ const PROTECTED_TABLES = [
   'appointment',
   'appointment_participant',
   'appointment_series',
+  // Milestone 5. These two are money, and both carry no-delete, no-truncate,
+  // born-active and immutability triggers.
+  'session_charge',
+  'charge_adjustment',
 ];
 
 /**
@@ -155,6 +159,10 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 5, dependents first: an adjustment names a charge, and a charge
+  // names a family, a child, an appointment and a seat in it.
+  'charge_adjustment',
+  'session_charge',
   // Milestone 4, dependents first: a seat names an appointment, an appointment
   // names a series and reference data, and the two availability tables cascade
   // from their therapist. Neither availability table is protected — both are

@@ -230,15 +230,32 @@ describe('appointment schema objects', () => {
     // invariant, exactly as "a family has at least one guardian" is. A unique
     // index would state it and would also collapse the two-level model into a
     // one-to-one relation.
-    const rows = await harness.prisma.$queryRaw<{ indexdef: string }[]>`
-      SELECT indexdef FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename = 'appointment_participant'
-        AND indexdef LIKE '%UNIQUE%'
-        AND indexdef LIKE '%appointment_id%'
+    //
+    // Asked as "is any unique index keyed on `appointment_id` ALONE", rather
+    // than by matching the column name anywhere in a definition. Milestone 5
+    // adds `(id, appointment_id)` as the target of the composite foreign key
+    // from `session_charge`, and that index constrains nothing: `id` is already
+    // the primary key, so it is unique on a superset of a key that is unique
+    // already, and a group booking still holds as many seats as it has
+    // children. A name-substring test could not tell the two apart, and the
+    // rule worth pinning is the second one.
+    const rows = await harness.prisma.$queryRaw<{ indexname: string; columns: string[] }[]>`
+      SELECT i.relname AS indexname,
+             array_agg(a.attname ORDER BY a.attname) AS columns
+      FROM pg_index x
+      JOIN pg_class i ON i.oid = x.indexrelid
+      JOIN pg_class t ON t.oid = x.indrelid
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY (x.indkey)
+      WHERE t.relname = 'appointment_participant' AND x.indisunique
+      GROUP BY i.relname
     `;
 
-    expect(rows).toHaveLength(0);
+    const keys = rows.map((row) => row.columns.join(','));
+
+    expect(keys).not.toContain('appointment_id');
+    // The two that do exist, and exactly those: the primary key, and the
+    // Milestone 5 foreign-key target.
+    expect(keys.sort()).toEqual(['appointment_id,id', 'id']);
   });
 
   describe('the contract enums match the PostgreSQL enums exactly', () => {

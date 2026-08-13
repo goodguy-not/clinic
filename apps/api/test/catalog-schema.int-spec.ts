@@ -185,8 +185,8 @@ describe('catalog schema objects', () => {
     // The ledger, payments and the public site are later milestones. Listing
     // the whole set here makes an out-of-scope table fail a test rather than
     // arrive unnoticed — which is exactly what it did when Milestone 3 added
-    // its four and Milestone 4 its five, so this list grew deliberately both
-    // times.
+    // its four and Milestone 4 its five, so this list grew deliberately three
+    // times over.
     expect(tables).toEqual(
       [
         '_prisma_migrations',
@@ -211,6 +211,10 @@ describe('catalog schema objects', () => {
         'appointment_series',
         'therapist_availability',
         'therapist_availability_exception',
+        // Milestone 5, checkpoint A1. Two tables and no more: still no payment,
+        // credit, promise, balance or settlement table anywhere.
+        'session_charge',
+        'charge_adjustment',
       ].sort(),
     );
   });

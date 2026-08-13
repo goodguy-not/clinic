@@ -1074,3 +1074,129 @@ nor `availability.manage`, nor any catalog write. `tariff.create` and
 
 `permissions.spec.ts` asserts both halves — the exact list they have, and the
 list they still do not.
+
+---
+
+## 2026-08-14 — A session is discounted by append-only adjustment, never by rewriting history
+
+**Status:** Accepted
+
+Milestone 5 supports discounting, waiving and fully freeing a **PAID** session by
+inserting a row in `charge_adjustment` against the `session_charge`. The charge is
+never edited, the tariff is never touched, and no historical session is
+recalculated. The family's effective amount for a session is the charge less the
+adjustments still active against it.
+
+`FREE` and `PAID` stay structurally distinct, in the ledger as in the catalogue
+(2026-08-06 — Explicit PAID and FREE tariff modes). A `FREE` charge came from a
+genuinely complimentary programme and is zero; a session that was priced and then
+wholly waived stays a `PAID` charge carrying an adjustment. `session_charge_price_mode_chk`
+makes neither shape reachable from the other, and because an adjustment must be
+positive and may not take a charge below zero, a `FREE` charge cannot be adjusted
+at all — there is no concession to record on a session that was never priced.
+
+- **Alternatives:** editing the charge amount in place; re-resolving the tariff at
+  report time.
+- **Reason:** PROJECT_SPEC.md 9 requires actor, time, reason and before/after
+  effect to stay inspectable, and CLAUDE.md forbids rewriting historical charges.
+  An in-place edit destroys the "before" and leaves the reason unattached to the
+  amount it explains.
+- **Trade-off:** every family-facing amount is a charge minus a sum, so no single
+  column holds "what they owe for this session".
+- **Enforced by:** `charge_adjustment` with `charge_adjustment_split_identity_chk`
+  and `charge_adjustment_amount_bounds_chk`; the cumulative bound in
+  `enforce_charge_adjustment_bounds`, which locks the parent charge row `FOR
+UPDATE` so two concurrent adjustments cannot both pass against a stale sum; and
+  `enforce_session_charge_immutability` / `enforce_charge_adjustment_immutability`,
+  which permit exactly one active → voided transition and refuse every other
+  update, including unvoiding. Both tables refuse `DELETE` and `TRUNCATE`
+  outright.
+- **Revisit when:** never for the append-only shape. The reduction vocabulary is
+  revisited when Milestone 6 adds payments and credits.
+
+A correction to a charge itself is void-and-re-post, not an edit, exactly as a
+tariff correction is (2026-08-06). `session_charge_one_valid_per_participant_uq`
+is partial on `voided_at IS NULL`, so the voided row leaves the index and the
+replacement takes its place while both rows survive in the table.
+
+**Financial history records what happened and never constrains what happens
+next.** A charge's snapshotted service, therapist and session length are keyed to
+`service`, `therapist` and `service_duration` — permanent, deactivate-only
+records — and deliberately **not** to the appointment's current placement. The
+lifecycle requires this: a charge is voided, the completed appointment is
+reopened, and the reopened `SCHEDULED` booking is then legitimately movable to
+another therapist or another length under the Milestone 4 move workflow. A
+foreign key from the snapshot into `appointment` would let a withdrawn charge
+veto that move for the rest of the booking's life. `appointment_id` stays
+traceable through `(appointment_participant_id, appointment_id)`, and the
+snapshot stays immutable by trigger, so nothing is given up.
+
+---
+
+## 2026-08-14 — Every Milestone 5 discount is genuinely clinic-borne
+
+**Status:** Accepted
+
+`therapist_discount_toman` must be `0` and `clinic_discount_toman` must equal
+`amount_toman` on every `charge_adjustment` row, enforced by
+`charge_adjustment_clinic_borne_chk` in PostgreSQL. A shared or therapist-borne
+concession is **not representable** in Milestone 5.
+
+The three columns exist in their final shape because the split identity —
+therapist discount + clinic discount = total family discount — is an approved
+domain rule (2026-08-02 — Therapist share and discount allocation), and a
+two-column table would have to be reshaped to honour it later. What is deferred
+is the ability to record a non-zero therapist share, not the vocabulary for it.
+
+- **Alternatives:** accept a therapist share now and reconcile it at settlement;
+  omit the two allocation columns until Milestone 8.
+- **Reason:** therapist settlement — effective-dated share percentages and their
+  snapshot onto a completed session — is Milestone 8 and is not approved. Without
+  it there is no basis on which a therapist can be said to have agreed to bear
+  part of a concession, and a row claiming they had would record an unfunded
+  liability as a fact. CLAUDE.md is explicit that any settlement rule not
+  explicitly approved remains unresolved and must not be inferred.
+- **Trade-off:** a clinic that wants to split a discount with a therapist before
+  Milestone 8 cannot record it, and must wait rather than record it wrongly. That
+  is the intended answer: refusing the concession is honest, and mis-recording it
+  as clinic-borne is not.
+- **Assumptions:** the clinic bearing 100% of a Milestone 5 discount is
+  acceptable, which is already the approved default for therapists who do not
+  participate in discounts (2026-08-02).
+- **Revisit when:** Milestone 8 approves settlement. The constraint is dropped
+  there, the split identity stays, and no historical row is rewritten — every
+  Milestone 5 adjustment was and remains genuinely clinic-borne.
+
+Nothing in this milestone stores a share percentage, a settlement period or a
+therapist net. A negative clinic net is not yet computable and is not claimed to
+be.
+
+---
+
+## 2026-08-14 — Charge adjustment and void authority is manager-only
+
+**Status:** Accepted — resolves the "revisit at Milestone 5" clause of
+2026-08-13 — Receptionist permissions for Milestone 4
+
+Adjusting a session charge and voiding one are **manager** authorities. A
+receptionist may not perform either, including on the same day the charge was
+raised.
+
+- **Alternatives:** a same-day receptionist correction window, which
+  PROJECT_SPEC.md 15 item 3 leaves open.
+- **Reason:** PROJECT_SPEC.md 4 keeps financial corrections away from the
+  receptionist, and 2026-08-13 already withheld `appointment.reopen` from them for
+  the same reason — reversing a completion voids or offsets a financial record.
+  Granting the charge-level authority they were denied at the appointment level
+  would reopen by the back door what that decision closed. A same-day window is
+  also the hardest version of the rule to reason about: it is authority that
+  expires, and the day it expires is the day a mistake becomes unfixable by the
+  person who made it.
+- **Trade-off:** a receptionist who mis-posts a charge must ask a manager, which
+  is slower. Posting itself is not affected — that is the completion they already
+  own.
+- **Revisit when:** the pilot shows managers acting as a bottleneck on same-day
+  corrections often enough to measure.
+
+The permission vocabulary that expresses this is checkpoint A2's; this entry
+fixes the decision it must implement.
