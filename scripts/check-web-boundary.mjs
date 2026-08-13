@@ -373,6 +373,9 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.
   'src/app/availability/weekly-availability-editor.tsx',
+  // Booking needs private POST-based child search and an advisory preview whose
+  // returned occurrences remain beside the receptionist's unpersisted intent.
+  'src/app/appointments/new/booking-workflow.tsx',
 ];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];
