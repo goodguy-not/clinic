@@ -354,8 +354,8 @@ walk(webAppRoot, (file) => {
 // running a build, and covers `@/env`, whose values include the internal API
 // key and the cookie signing secret.
 //
-// The family search box is the entry this list was expected to take, and it is
-// the only one: a search term must not reach a URL, so it has to be posted, and
+// The family search box is the first entry this list was expected to take: a
+// search term must not reach a URL, so it has to be posted, and
 // a Server Action's return value is readable only through `useActionState`,
 // which is a client hook. That chain was verified against Next 16.2.12 and
 // React 19.2.8 before it was relied upon.
@@ -367,7 +367,13 @@ walk(webAppRoot, (file) => {
 // every module holding one declares `server-only` and would fail the build if
 // it were reachable from a Client Component; the import bans below are the
 // second, legible line of that same defence.
-const CLIENT_COMPONENT_ALLOWLIST = ['src/app/families/family-search.tsx'];
+const CLIENT_COMPONENT_ALLOWLIST = [
+  'src/app/families/family-search.tsx',
+  // A weekly set needs rows to be added and removed before its one wholesale
+  // PUT. The form still posts ordinarily; the island owns only that local row
+  // state and receives its labels as serialisable props from the Server Component.
+  'src/app/availability/weekly-availability-editor.tsx',
+];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];
 const CLIENT_FORBIDDEN_IMPORT_PREFIXES = ['@/server/'];
