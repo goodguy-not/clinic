@@ -93,6 +93,27 @@ export const PERMISSIONS = [
   // record itself.
   'availability.read',
   'availability.manage',
+
+  // The ledger. Four verbs over one record, and the split is the approved
+  // authority boundary rather than a granularity preference: raising the charge
+  // for a session that happened is the ordinary end of the diary work a
+  // receptionist already owns, while withdrawing one or reducing one is a
+  // financial correction PROJECT_SPEC.md 4 keeps away from that role
+  // (DECISION_LOG, 2026-08-14 — Charge adjustment and void authority is
+  // manager-only).
+  //
+  // `charge.post` covers the explicit re-post, which is idempotent: a retry
+  // against a participant that already has a valid charge returns that charge
+  // rather than raising a second one, so holding this permission never lets a
+  // receptionist duplicate money.
+  //
+  // There is deliberately NO time-boxed variant — no `charge.void_same_day`, no
+  // window that expires. Authority that expires is authority whose last day is
+  // the day a mistake becomes unfixable by the person who made it.
+  'charge.read',
+  'charge.post',
+  'charge.void',
+  'charge.adjust',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

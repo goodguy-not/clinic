@@ -114,6 +114,29 @@ export const AUDIT_ACTIONS = [
   // the windows as values — exactly how a guardian change is recorded inside
   // `family.updated`.
   'therapist_availability.updated',
+
+  // The ledger. Four actions over two records, named after the tables they
+  // describe, and every one of them is a financial fact rather than a status
+  // diff. The runtime writes arrive with the services that make these state
+  // changes; the vocabulary is fixed here so the audit contract cannot change
+  // underneath them.
+  //
+  // Posting and voiding are separate actions rather than one
+  // `session_charge.changed`, for the reason completion and cancellation are:
+  // "how often is a charge withdrawn, and why?" is the question PROJECT_SPEC.md
+  // 9 exists to let a manager ask, and an answer buried in a JSON diff is not
+  // something you can count.
+  //
+  // There is deliberately no `session_charge.adjusted`. A concession is a row in
+  // `charge_adjustment`, not a change to the charge, so the audit row names the
+  // record that was actually written — and the pair of adjustment actions is
+  // what makes "granted then withdrawn" two facts instead of one entry read as
+  // a diff. Nothing here records a re-post as its own action either: a re-post
+  // IS a post, and the void that preceded it is already its own fact.
+  'session_charge.posted',
+  'session_charge.voided',
+  'charge_adjustment.created',
+  'charge_adjustment.voided',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -140,6 +163,12 @@ export const AUDIT_ENTITY_TYPES = [
   // rather than the appointment around it.
   'appointment_participant',
   'appointment_series',
+  // The two Milestone 5 ledger tables. Both are named, and neither is folded
+  // into the other: an adjustment is a record in its own right with its own
+  // actor, reason and void, and an audit row that named the charge instead
+  // would leave the concession's own history unaddressable.
+  'session_charge',
+  'charge_adjustment',
   // `therapist_availability` and `therapist_availability_exception` are
   // deliberately absent, for the reason `guardian` is: they are current
   // configuration replaced as a set, and the change is recorded against the

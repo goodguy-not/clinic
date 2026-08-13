@@ -34,12 +34,18 @@ export const tomanAmountSchema = z
 export type TomanAmount = z.infer<typeof tomanAmountSchema>;
 
 /**
- * The practical ceiling for a single tariff price, mirrored by the
- * `tariff_price_bounds_chk` database constraint.
+ * The practical ceiling for a single amount of money anywhere in this product.
+ *
+ * ONE NUMBER, THREE CONSTRAINTS. It is mirrored by `tariff_price_bounds_chk`,
+ * and Milestone 5 reuses the same ceiling in `session_charge_amount_bounds_chk`
+ * and `charge_adjustment_amount_bounds_chk` rather than picking a second value
+ * that could drift from it. The name says "tariff" because that is where the
+ * bound was first agreed; what it means is the largest amount the ledger will
+ * accept.
  *
  * A fat-finger guard, not a modelled price: it exists so a mistyped run of
  * digits is refused at entry rather than discovered in a report. It is
  * deliberately far above any plausible session price, and changing it is a
- * one-line change in both places with no data migration.
+ * one-line change in every place with no data migration.
  */
 export const TARIFF_MAX_PRICE_TOMAN = '1000000000';

@@ -36,6 +36,11 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * the approved override (PROJECT_SPEC.md 5). What they do not hold is
  * `appointment.reopen`: reversing a completion voids or offsets a financial
  * record, which PROJECT_SPEC.md 4 keeps away from this role.
+ *
+ * THE LEDGER SPLIT IS THE SAME BOUNDARY SEEN FROM THE MONEY SIDE. A
+ * receptionist reads the family account and posts the charge for a session that
+ * happened; voiding a charge and reducing one are the manager's, and no
+ * time-boxed variant of either exists.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,
@@ -64,6 +69,17 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'appointment.cancel',
     'appointment.complete',
     'appointment.override_availability',
+
+    // Milestone 5: the receptionist reads the family account and raises the
+    // charge for a session that happened, which is the ordinary end of
+    // completing it. `charge.void` and `charge.adjust` stay with the manager —
+    // withdrawing a charge or reducing one is a financial correction
+    // PROJECT_SPEC.md 4 keeps away from this role, and granting it here would
+    // reopen by the back door what withholding `appointment.reopen` closed
+    // (DECISION_LOG, 2026-08-14 — Charge adjustment and void authority is
+    // manager-only). There is no same-day window and no expiring authority.
+    'charge.read',
+    'charge.post',
   ],
 };
 

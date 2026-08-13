@@ -109,6 +109,25 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED: 422,
   APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED: 422,
 
+  CHARGE_NOT_FOUND: 404,
+  // 409 for all three "the record is not in the state this act needs": the
+  // submission is well formed and something else already happened to the row,
+  // which a refreshed screen explains. Exactly `TARIFF_ALREADY_VOIDED`'s
+  // reasoning.
+  CHARGE_ALREADY_VOIDED: 409,
+  CHARGE_VOIDED: 409,
+  CHARGE_EXISTS_FOR_PARTICIPANT: 409,
+  // 422 rather than 409: nothing conflicts and nothing is missing. The session
+  // simply is not one that may be charged — not completed, or not attended by
+  // this child.
+  CHARGE_NOT_ELIGIBLE: 422,
+  ADJUSTMENT_NOT_FOUND: 404,
+  ADJUSTMENT_ALREADY_VOIDED: 409,
+  // 422: the amount is a valid amount and conflicts with no other request; it
+  // is larger than the charge it is offered against, which is a property of the
+  // referenced data rather than a race.
+  ADJUSTMENT_EXCEEDS_CHARGE: 422,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -181,6 +200,17 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   CHILD_INACTIVE: 'The child is inactive',
   APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED: 'The therapist does not provide this service',
   APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED: 'The room is not allowed to host this service',
+
+  CHARGE_NOT_FOUND: 'Session charge not found',
+  CHARGE_ALREADY_VOIDED: 'This session charge has already been voided',
+  CHARGE_VOIDED: 'This session charge has been voided and may not be changed',
+  CHARGE_EXISTS_FOR_PARTICIPANT: 'A valid session charge already exists for this participant',
+  CHARGE_NOT_ELIGIBLE:
+    'Only an attended participant of a completed appointment may be charged for a session',
+  ADJUSTMENT_NOT_FOUND: 'Charge adjustment not found',
+  ADJUSTMENT_ALREADY_VOIDED: 'This charge adjustment has already been voided',
+  ADJUSTMENT_EXCEEDS_CHARGE:
+    'The adjustments on this charge may not exceed the amount that was charged',
 
   INTERNAL_ERROR: 'Internal error',
 };

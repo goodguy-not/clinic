@@ -139,6 +139,43 @@ export const ERROR_CODES = [
   'APPOINTMENT_THERAPIST_SERVICE_NOT_SUPPORTED',
   'APPOINTMENT_ROOM_SERVICE_NOT_ALLOWED',
 
+  // The ledger. Eight codes, and `TARIFF_MISSING` is reused rather than
+  // duplicated as a charge-shaped variant: a session whose date no tariff covers
+  // is the same fact whether it is met while pricing or while charging, and one
+  // code keeps one Persian message and one fix — record the tariff.
+  'CHARGE_NOT_FOUND',
+  // Voiding a charge that is already void. Separate from `CHARGE_VOIDED`
+  // because they are separate mistakes: this one means the correction has
+  // already happened, and the caller is looking at a stale screen.
+  'CHARGE_ALREADY_VOIDED',
+  // Acting on a voided charge — adjusting it, or adjusting an adjustment of it.
+  // The charge no longer stands, so there is nothing to reduce, and the fix is
+  // to re-post rather than to retry.
+  'CHARGE_VOIDED',
+  // A valid primary charge already exists for this participant. It is raised
+  // where a SECOND charge would otherwise be created — notably by reopening a
+  // completed session whose charge still stands, which must be voided first. An
+  // explicit re-post does NOT raise it: a retry is idempotent by rule
+  // (CLAUDE.md) and returns the existing charge as `ALREADY_POSTED`.
+  'CHARGE_EXISTS_FOR_PARTICIPANT',
+  // The session cannot be charged: it is not completed, or this child did not
+  // attend it. Only an attended participant of a completed appointment may be
+  // charged (CLAUDE.md), and a cancellation and a no-show deliberately create
+  // nothing.
+  'CHARGE_NOT_ELIGIBLE',
+  'ADJUSTMENT_NOT_FOUND',
+  'ADJUSTMENT_ALREADY_VOIDED',
+  // The concession would take the family's effective amount for the session
+  // below zero, counting the adjustments already active against the charge.
+  // Also what a `FREE` charge produces: any positive amount exceeds a zero
+  // charge, and there is no concession to record on a session never priced.
+  'ADJUSTMENT_EXCEEDS_CHARGE',
+  // There is deliberately no `ADJUSTMENT_SPLIT_INVALID`. The Milestone 5
+  // adjustment request carries no therapist portion and no split to validate:
+  // every discount is clinic-borne, the server writes both allocation columns
+  // itself, and a strict request schema refuses a caller that tries to state
+  // one (DECISION_LOG, 2026-08-14).
+
   'INTERNAL_ERROR',
 ] as const;
 

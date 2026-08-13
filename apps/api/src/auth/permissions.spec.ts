@@ -39,6 +39,10 @@ describe('role to permission map', () => {
         'appointment.cancel',
         'appointment.complete',
         'appointment.override_availability',
+        // Milestone 5: reading the family account and raising the charge for a
+        // session that happened. Voiding and adjusting are the manager's.
+        'charge.read',
+        'charge.post',
       ].sort(),
     );
   });
@@ -71,9 +75,46 @@ describe('role to permission map', () => {
       'tariff.create',
       'tariff.void',
       'availability.manage',
+      'charge.void',
+      'charge.adjust',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
+  });
+
+  describe('the ledger', () => {
+    // PROJECT_SPEC.md 4 keeps financial corrections away from the receptionist,
+    // and DECISION_LOG 2026-08-14 settles that as four permissions rather than
+    // one: posting is the ordinary end of completing a session, and withdrawing
+    // or reducing a charge is a correction.
+    it('grants a manager all four charge permissions', () => {
+      for (const permission of [
+        'charge.read',
+        'charge.post',
+        'charge.void',
+        'charge.adjust',
+      ] as const) {
+        expect(permissionsForRole('MANAGER')).toContain(permission);
+      }
+    });
+
+    it('grants a receptionist exactly the two that raise no correction', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('charge.read');
+      expect(granted).toContain('charge.post');
+      expect(granted).not.toContain('charge.void');
+      expect(granted).not.toContain('charge.adjust');
+    });
+
+    it('defines exactly four charge permissions, and no time-boxed variant', () => {
+      // Authority that expires is authority whose last day is the day a mistake
+      // becomes unfixable by the person who made it; the same-day window
+      // PROJECT_SPEC.md 15 left open was declined.
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('charge.')).sort()).toEqual(
+        ['charge.adjust', 'charge.post', 'charge.read', 'charge.void'].sort(),
+      );
+    });
   });
 
   it('lets a receptionist book outside availability, which is an authority of its own', () => {
