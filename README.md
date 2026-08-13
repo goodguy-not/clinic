@@ -713,6 +713,237 @@ As in both earlier migrations, a table owner can still `ALTER TABLE ... DISABLE 
 Closing that needs a runtime database role that does not own these tables, and remains a
 production hardening item.
 
+## Appointments (Milestone 4)
+
+The clinic diary. Therapist working hours, one-time and weekly-recurring bookings,
+conflict protection, the day view a receptionist keeps open, and the recorded
+outcome of every session.
+
+This is the first milestone with **daily traffic**, and the first where a
+receptionist holds an operational authority beyond family records: they run the
+diary end to end, including the one authorised override, and hold no permission
+to reverse a completion.
+
+### Scope, and what is deliberately absent
+
+Built: recurring weekly availability with dated exceptions, one-time booking,
+weekly recurrence with preview and all-or-nothing creation, therapist/room/child
+conflict protection, move, cancellation by family or clinic, completion,
+per-participant attendance, manager-only reopen, the daily operational review, and
+a read-only tariff suggestion.
+
+Not built, and each for a stated reason:
+
+| Absent                                       | Why                                                                                                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Price snapshot on the appointment**        | The snapshot exists so a session is charged the price of the day it happened, and booking is not that day. It arrives in Milestone 5 with the charge (decision log, 2026-08-13). |
+| **Any charge, payment, balance or discount** | Milestone 5 onward. Nothing here reads a tariff except one read-only screen query, and nothing here writes an amount.                                                            |
+| **`RESCHEDULED` and `VOIDED` statuses**      | A move is an audited in-place update of the same row, and there is no financial record yet to void (decision log, 2026-08-13).                                                   |
+| **Group bookings**                           | The two-level structure is built and an individual appointment has exactly one participant. Multi-participant booking needs approved group billing rules.                        |
+| **Multi-weekday or monthly recurrence**      | One weekday per series. A child seen twice a week is two series, which keeps "this and all future occurrences" a question with one answer.                                       |
+| **Extending a series**                       | Not an approved operation. Shortening one is `cancel-from`; a longer arrangement is a new series.                                                                                |
+| **Deleting an appointment**                  | A cancelled session stays visible in its day and in every report of it (PROJECT_SPEC.md 14). No-delete triggers enforce it.                                                      |
+| **Therapist self-service scheduling**        | Therapist login is separately approved and has not been (PROJECT_SPEC.md 4).                                                                                                     |
+
+No real clinic data appears anywhere. Every fixture, test and example is
+synthetic (PROJECT_SPEC.md 17).
+
+### Two facts: the booking, and the seat
+
+`appointment` is the shared resource booking — one therapist, one room, one
+service, one time range — and its `status` is one of four: `SCHEDULED`,
+`COMPLETED`, `CANCELLED_BY_FAMILY`, `CANCELLED_BY_CLINIC`.
+`appointment_participant` is a child's seat in it, and its `attendance` is
+`PENDING`, `ATTENDED` or `NO_SHOW`.
+
+**A no-show is a seat's outcome, not a booking's status.** The room was held and
+the therapist waited. Neither fact is derived from the other: completing a session
+does not resolve an outcome, and recording an outcome does not complete a session.
+Milestone 5's rule — only an attended participant in a completed appointment may
+be charged — needs both.
+
+`SCHEDULED` and `COMPLETED` occupy the therapist, the room and the child; both
+cancellations release all three, which is what makes a cancelled slot re-bookable.
+
+### Time, dates and the week
+
+`starts_at` and `ends_at` are `timestamptz`, and every calendar question about
+them is answered by PostgreSQL — `clinic_date`, `clinic_clock_time`,
+`clinic_day_start`, `clinic_moment` — so `Asia/Tehran` stays written once.
+
+The week is **Saturday-first**: weekday 0 is Saturday and 6 is Friday, in the
+contract, the database and every screen. PostgreSQL's `EXTRACT(DOW)` is
+Sunday-first and is translated at the boundary; the native numbering is never
+stored or returned.
+
+A start carrying seconds is refused, and so is a session whose clinic start and
+end days differ — the latter before the availability override is even considered,
+because an overnight session is not a shape the model can express.
+
+### Availability
+
+Recurring weekly windows plus dated exceptions, and **no effective dating**: a
+window applies whenever it is asked about, the set is replaced wholesale, and the
+set that was replaced is preserved in `audit_log` as values.
+
+One precedence rule, stated in exactly one place: a **closed-day** exception
+suspends the recurring week for that date and leaves any **extra window** dated to
+it standing. "Not my usual Saturday, but I will come in for 15:00–18:00" is the
+arrangement that needs both.
+
+Removing a dated exception is the only `DELETE` in the application, and it is
+audited before the row goes.
+
+### Conflicts, and the one override
+
+| Rule                    | Mechanism                                                                     | Overridable                     |
+| ----------------------- | ----------------------------------------------------------------------------- | ------------------------------- |
+| Therapist overlap       | `appointment_no_therapist_overlap_excl` — partial GiST exclusion, `[)` bounds | **No**                          |
+| Room overlap            | `appointment_no_room_overlap_excl` — partial GiST exclusion, `[)` bounds      | **No**                          |
+| Child overlap           | SQL recomputation under a transaction-scoped advisory lock on the child       | **No**                          |
+| Outside therapist hours | `AvailabilityService.resolve` inside the booking transaction                  | Yes, with permission and reason |
+
+The two exclusion constraints mean nothing reads before writing: two simultaneous
+bookings for one room cannot both pass, whatever an application check saw first,
+and the constraint that fired decides which resource the receptionist is told is
+busy. Back-to-back sessions do not clash — `[)` bounds are the normal shape of a
+clinic day.
+
+The child's overlap cannot be a constraint (the child is on one table and the time
+on another), so it is recomputed in SQL while an advisory lock is held on that
+child — the mechanism the Milestone 3 duplicate rules use, for the same reason.
+
+Booking outside a therapist's hours requires `appointment.override_availability`
+**and** a stated reason, and is recorded twice over: on the appointment row for
+operational visibility, and in the audit row's `metadata` with the hours it fell
+outside, as values. Nothing else may be overridden.
+
+Hard failures with no override at all: an inactive service, therapist, room, child
+or family; a therapist who does not provide the service; a room not allowed to
+host it; a duration the service does not offer; an invalid or overnight time.
+
+### Recurrence
+
+A series is a first booking plus a weekly rule: one weekday, one time of day,
+every week or every n-th week, bounded by an occurrence count or a last date. The
+first occurrence _is_ the pattern.
+
+Two bounds, and a series must satisfy both: **at most 52 occurrences**, and **no
+occurrence more than 12 months** after the first. Breaking either is
+`RECURRENCE_RULE_INVALID` — never a silently truncated series.
+
+**Preview writes nothing** and reports, per occurrence, whether it is outside the
+therapist's hours and what would block it. It is advisory: the create re-decides
+everything under its own locks. **Creation is all or nothing** — twelve
+occurrences or none.
+
+Every occurrence is an ordinary appointment with its own id, status, audit history
+and seat. Moving or cancelling one week is the ordinary single-appointment
+lifecycle; `cancel-from` and `update-from` act on the still-`SCHEDULED`
+occurrences from a named pivot onwards, leaving completed and already-cancelled
+weeks exactly as they are.
+
+### Tariff suggestion
+
+The day view and the appointment view resolve the current tariff live, against the
+appointment's own clinic date, therapist, service and duration, through the same
+SQL `/catalog/tariff-resolution` uses. It is **read-only, stored nowhere, and
+non-blocking**: a service with no tariff shows `MISSING` rather than failing the
+screen (PROJECT_SPEC.md 5).
+
+The class that reads it holds no transaction and writes no row; the class that
+books, moves, completes and cancels never looks at a tariff.
+
+### Permissions
+
+Eleven new grants for the receptionist: `therapist.read`, `service.read`,
+`room.read`, `tariff.read`, `availability.read`, and
+`appointment.read|create|update|cancel|complete|override_availability`.
+
+Manager-only: `appointment.reopen` and `availability.manage`, plus every catalog
+write as before. `permissions.spec.ts` asserts both halves.
+
+### Endpoints
+
+```text
+GET    /availability/therapists/:therapistId/windows
+PUT    /availability/therapists/:therapistId/windows
+GET    /availability/therapists/:therapistId/exceptions
+POST   /availability/therapists/:therapistId/exceptions
+DELETE /availability/therapists/:therapistId/exceptions/:id
+GET    /availability/resolution
+
+POST   /appointments                     GET  /appointment-day
+GET    /appointments/:id                 POST /appointment-series/preview
+GET    /appointments/:id/view            POST /appointment-series
+PATCH  /appointments/:id                 GET  /appointment-series/:id
+POST   /appointments/:id/cancel          POST /appointment-series/:id/cancel-from
+POST   /appointments/:id/complete        PATCH /appointment-series/:id/update-from
+POST   /appointments/:id/reopen
+PUT    /appointments/:id/participants/:participantId/attendance
+```
+
+`/appointment-day`, `/appointment-series` and `/availability/resolution` are paths
+of their own rather than `/appointments/day` and the like: a literal segment
+beside `:id` makes which route answers depend on declaration order.
+
+`GET /appointments/:id` returns the plain booking and its seats — the shape every
+write returns and what a caller re-reads to confirm a transition. `GET
+/appointments/:id/view` is the screen-ready reading, with names and the price
+suggestion. They are separate because a write must not carry a price, and a screen
+must.
+
+### Persian pages
+
+`/availability`, `/therapists/[id]/availability`, `/appointments`,
+`/appointments/new`, `/appointments/[id]`, `/appointments/[id]/edit`,
+`/appointment-series/[id]`.
+
+Every one is `force-dynamic` and `noindex`. The appointment and series pages carry
+`Cache-Control: no-store` and `Referrer-Policy: same-origin` from
+`next.config.ts`, for the reason the family pages do — a cached page on a shared
+reception machine is readable by whoever sits down next.
+
+The booking screen's **child search is a Server Action**, exactly as family search
+is: the term is a child's or a guardian's name, and it must never reach a URL, a
+redirect or a cookie. `app/appointments/new/booking-workflow.tsx` is the third and
+final entry in `CLIENT_COMPONENT_ALLOWLIST`, alongside the weekly-availability
+editor, which owns only local row state before its one wholesale `PUT`.
+
+Every state-changing page action posts to a named Route Handler under `/api`,
+which verifies strict Origin and the CSRF token before calling NestJS.
+`handler-coverage.test.ts` enumerates all of them and fails the build for one that
+does not.
+
+### Database objects
+
+Five tables — `appointment`, `appointment_participant`, `appointment_series`,
+`therapist_availability`, `therapist_availability_exception` — with three enums
+(`appointment_status`, `attendance_outcome`, `recurrence_end`) and a `timerange`
+range type.
+
+The five reviewed migrations hand-write the two GiST exclusion constraints on
+`appointment`, one on `therapist_availability` and one on
+`therapist_availability_exception`; a partial unique index for one closure per
+date; the CHECK constraints that keep `ends_at`, the completion and cancellation
+timestamps, the attendance timestamp, the override triple and the series bounds
+internally consistent; no-delete and no-truncate triggers on the three appointment
+tables; identity-immutability triggers on `appointment` and
+`appointment_participant`; and three functions — `clinic_clock_time`,
+`clinic_day_start` and `clinic_moment` — beside Milestone 2's `clinic_date`.
+
+Every object is pinned by name in `appointments-schema.int-spec.ts` and
+`availability.int-spec.ts`, because `prisma migrate diff` sees neither CHECK
+constraints nor triggers and would let one disappear silently.
+
+The two availability tables deliberately carry **no** delete trigger: they are
+current configuration recorded in `audit_log` as values, like `guardian` and
+`therapist_service`.
+
+As in every earlier migration, a table owner can still
+`ALTER TABLE ... DISABLE TRIGGER`. Closing that needs a runtime database role that
+does not own these tables, and remains a production hardening item.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the

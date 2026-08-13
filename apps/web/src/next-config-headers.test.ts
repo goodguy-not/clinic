@@ -57,9 +57,14 @@ const familyAndChildPages = collectPageFiles(APP_ROOT)
   .map((path) => path.replace(/\\/g, '/'))
   .filter((path) => /\/app\/(families|children)\//.test(path));
 
+// Both scheduling trees, because both render child names: the diary itself and
+// the series view, which lists every occurrence with the child booked into it.
+// `/app/appointments/` alone would have left `/appointment-series/[id]` outside
+// the mechanical check while its header rule sat in `next.config.ts` looking
+// covered.
 const appointmentPages = collectPageFiles(APP_ROOT)
   .map((path) => path.replace(/\\/g, '/'))
-  .filter((path) => /\/app\/appointments\//.test(path));
+  .filter((path) => /\/app\/(appointments|appointment-series)\//.test(path));
 
 describe('every family and child page', () => {
   it('finds the pages it is meant to be checking', () => {
@@ -78,7 +83,7 @@ describe('every family and child page', () => {
 
 describe('every appointment page', () => {
   it('finds the appointment pages it is meant to be checking', () => {
-    expect(appointmentPages.length).toBe(4);
+    expect(appointmentPages.length).toBe(5);
   });
 
   it.each(appointmentPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(

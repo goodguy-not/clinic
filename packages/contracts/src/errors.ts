@@ -78,7 +78,7 @@ export const ERROR_CODES = [
   // reasoning that makes AUTH_INVALID_CREDENTIALS cover four login failures.
   'DRAFT_NOT_FOUND',
 
-  // Appointments. The vocabulary only: no endpoint raises any of these yet.
+  // Appointments. Every code below is raised by an endpoint as of Milestone 4.
   'APPOINTMENT_NOT_FOUND',
   'APPOINTMENT_SERIES_NOT_FOUND',
   'APPOINTMENT_PARTICIPANT_NOT_FOUND',
@@ -102,19 +102,24 @@ export const ERROR_CODES = [
   'APPOINTMENT_TRANSITION_INVALID',
   // Booked outside the therapist's recurring windows, or on a day a dated
   // exception closes. PROJECT_SPEC.md 5 requires this to be prevented or
-  // explicitly authorized; which of the two, and by whom, is the availability
-  // checkpoint's decision.
+  // explicitly authorized: it is refused unless the caller holds
+  // `appointment.override_availability` AND states a reason, which is then
+  // recorded on the appointment and in the audit row of the change that carried
+  // it. It is the ONLY overridable scheduling rule.
   'APPOINTMENT_OUTSIDE_AVAILABILITY',
-  // A recurring series must state exactly one bound: a number of occurrences or
-  // a last date (PROJECT_SPEC.md 6).
+  // The weekly rule the clinic will not accept: a last date earlier than the
+  // first session, more than `RECURRENCE_OCCURRENCES_MAX` sessions, or a session
+  // beyond `RECURRENCE_HORIZON_MONTHS` (PROJECT_SPEC.md 6). One code, because
+  // the fix is the same in all three cases: change the bound.
   'RECURRENCE_RULE_INVALID',
   // A working window whose end is not after its start, or an exception that
   // closes a day and carries times anyway.
   'AVAILABILITY_WINDOW_INVALID',
-  // Two recurring windows describe the same weekday, the same hours and
-  // overlapping effective dates. Refused rather than merged: a therapist's week
-  // has one reading, and two rows stating the same hours would make "when does
-  // this window stop applying?" a question with two answers.
+  // Two recurring windows describe the same weekday and overlapping hours.
+  // Refused rather than merged: a recurring window is current configuration and
+  // carries no dates, so a therapist's week has exactly one reading and two rows
+  // covering one hour would make "is she working then?" a question with two
+  // answers.
   'AVAILABILITY_WINDOW_OVERLAP',
   // Two dated exceptions collide on one date — two extra windows over the same
   // hours, two closed days, or a closed day and an extra window on the same

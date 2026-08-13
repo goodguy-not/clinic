@@ -69,9 +69,9 @@ export const AUDIT_ACTIONS = [
   'family.duplicate_override',
   'child.duplicate_override',
 
-  // Appointments. Endpoints arrive in the checkpoints that follow this one; the
-  // vocabulary is fixed here for the same reason as above, so the audit
-  // contract does not change underneath them.
+  // Appointments. The vocabulary was fixed here before the endpoints existed so
+  // the audit contract could not change underneath them; every action below is
+  // written by a Milestone 4 state change.
   //
   // Completion and cancellation are separate actions rather than one
   // `appointment.status_changed`, unlike every catalog entity. A completion is

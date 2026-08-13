@@ -759,3 +759,318 @@ prop.** Pages render `AppHeader` beside `PageShell`, never inside it, so the
 presentational list and form components stay synchronously renderable for the
 markup tests. Navigation is rendered from the permission list NestJS resolved for
 that request, and sign-out is a form post rather than a link.
+
+---
+
+## 2026-08-13 — A booking's lifecycle and a seat's attendance are two facts
+
+**Status:** Accepted
+
+`appointment.status` has exactly four values — `SCHEDULED`, `COMPLETED`,
+`CANCELLED_BY_FAMILY`, `CANCELLED_BY_CLINIC` — and describes the shared booking:
+one therapist, one room, one service, one time range.
+`appointment_participant.attendance` has three — `PENDING`, `ATTENDED`,
+`NO_SHOW` — and describes what one child did with their seat. Neither is derived
+from the other, and no constraint relates them.
+
+- **Alternatives:** the six statuses PROJECT_SPEC.md 6 lists, with `NO_SHOW`,
+  `RESCHEDULED` and `VOIDED` on the booking.
+- **Reason:** a no-show is not a state of the booking. The room was held and the
+  therapist waited, so the fact that somebody did not arrive belongs to the seat
+  that was empty — and in a group session two children can differ. Milestone 5's
+  rule is that only an _attended_ participant in a _completed_ appointment may be
+  charged; that needs both facts, and it gets them because neither was invented
+  from the other.
+- **`RESCHEDULED` is omitted** because a move is an audited in-place update of a
+  `SCHEDULED` row. The appointment that moved is the same appointment; a status
+  saying otherwise would make one session look like two in every report that
+  counts them, and the before/after is already in `audit_log`.
+- **`VOIDED` is omitted** because reversing a completion returns the booking to
+  `SCHEDULED`, and voiding a _financial_ record is a Milestone 5 operation on a
+  financial record. There is nothing financial in Milestone 4 to void.
+- **Trade-off:** the shipped status list is narrower than PROJECT_SPEC.md 6's
+  "recommended" list, so a reader comparing them must read this entry.
+- **Revisit when:** group billing is approved, or Milestone 5 finds a charge rule
+  the two-fact model cannot express.
+
+Which statuses OCCUPY a resource is the property every conflict rule is written
+against: `SCHEDULED` and `COMPLETED` hold the therapist, the room and the child;
+both cancellations release all three. Reopening therefore cannot conflict with
+anything, because it moves between two statuses that occupy identically.
+
+---
+
+## 2026-08-13 — Appointments are wall-clock sessions in `Asia/Tehran`
+
+**Status:** Accepted
+
+`starts_at` and `ends_at` are `timestamptz`, but every question asked of them —
+which clinic day is this, what time of day is it, does it fall inside a working
+window — is answered by PostgreSQL, through `clinic_date`, `clinic_clock_time`,
+`clinic_day_start` and `clinic_moment`. `Asia/Tehran` is written once, in the
+database, beside the Milestone 2 `clinic_date` these extend.
+
+- **Alternatives:** store a local date and a local time; convert in Node.
+- **Reason:** a session is an instant — two people cannot be in one room at one
+  moment however the moment is spelled — so the exclusion constraints need
+  `timestamptz`. But availability is a weekday and two wall-clock times, and
+  recurrence repeats a wall-clock time on a calendar rhythm. Converting in Node
+  would put the zone in two places, and the day they disagreed a booking would be
+  written against a different day than it was checked against.
+- **Trade-off:** placement logic is raw SQL rather than Prisma calls.
+- **Revisit when:** multi-clinic or multi-timezone operation is approved — the
+  same trigger as the Milestone 2 timezone entry.
+
+Two consequences are enforced rather than assumed. A start carrying seconds is
+refused (`appointment_starts_at_precision_chk`): a diary is entered, read and
+printed in minutes. A session whose clinic start date differs from its clinic end
+date is refused as `APPOINTMENT_TIME_INVALID` **before** the availability
+override is considered — an overnight appointment is a shape the approved model
+cannot express, not an hour a therapist may agree to work.
+
+The Saturday-first weekday convention (0 = Saturday, 6 = Friday) is the product
+contract across every tier. PostgreSQL's `EXTRACT(DOW)` is Sunday-first and is
+translated at the database boundary with `(EXTRACT(DOW ...)::int + 1) % 7`; the
+native numbering is never stored and never returned.
+
+---
+
+## 2026-08-13 — Availability is current configuration, with no effective dating
+
+**Status:** Accepted
+
+A recurring window is a therapist, a weekday and two wall-clock times. It carries
+no dates and applies whenever it is asked about. The way a therapist's hours
+change is that somebody edits the set; the set that was replaced is history in
+`audit_log`, not a row still sitting in the table waiting to apply.
+`therapist_availability` was created with `effective_from`/`effective_to` and the
+availability migration drops both.
+
+Dated exceptions carry the single-day facts: a closed day, or an extra window.
+One precedence rule, and it lives in `AvailabilityService.resolve` alone: **a
+closure suspends the recurring week for that date and leaves dated windows
+standing.** "Not my usual Saturday, but I will come in for 15:00–18:00" is a real
+arrangement, and a closure plus an extra window is the only way to state it.
+
+- **Alternatives:** effective-dated windows, as tariffs have.
+- **Reason:** a tariff must be dated because a past session is priced by the day
+  it happened. Availability is never asked about the past: a booking that already
+  exists is a fact, and no later reading of the schedule changes it. Dating the
+  rows would add a second, silent way for two windows to describe one hour.
+- **Trade-off:** "what were her hours in March?" is answerable only from
+  `audit_log`, not by querying the table.
+- **Revisit when:** a reporting or settlement rule needs to reconstruct a past
+  week from live rows rather than from the audit trail.
+
+The whole recurring set is replaced by one `PUT` under a `FOR UPDATE` lock on the
+therapist — stronger than the `FOR SHARE` the booking paths take, because a
+replacement is a delete followed by inserts and two share-locked replacements
+would interleave into a union neither manager asked for. Removing an exception is
+the only `DELETE` in the application: it is configuration about a day, nothing
+names it, and a day off entered against the wrong therapist has to be removable.
+What it said is written to `audit_log` in the same transaction that removes it.
+
+---
+
+## 2026-08-13 — Availability is the only overridable scheduling rule
+
+**Status:** Accepted
+
+Booking outside a therapist's working hours is permitted to a caller who holds
+`appointment.override_availability` **and** states a reason (PROJECT_SPEC.md 5,
+"blocked or requires an authorized, recorded override"). Therapist overlap, room
+overlap and child overlap are never overridable — there is no flag, no permission
+and no request field that books over any of them.
+
+- **Reason:** a double-booked room is not a policy the clinic may set aside, it is
+  two sessions that cannot both happen. A therapist agreeing to come in outside
+  her usual hours is exactly a policy the clinic may set aside, and the person
+  running the diary is the person she tells.
+- **The permission is held by the receptionist as well as the manager,** granted
+  separately from `appointment.create` so it stays visible in the role map and
+  revocable on its own.
+- **It is recorded twice over:** the reason, the actor and the instant on the
+  appointment row for operational visibility, and the whole decision — reason,
+  the session's hours, and the windows it fell outside, as values — in the
+  `metadata` of the state change's own audit row. There is deliberately no
+  separate "override" action: an override qualifies the change that carried it
+  rather than being a second change.
+- **The order of refusal matters.** "Not available" is decided first, so a caller
+  who supplies a reason for a booking that needs none is never told they lack a
+  permission; the authority is only in question once the rule has actually been
+  broken. A reason supplied for a booking inside availability is not an error and
+  is not recorded — nothing was overridden.
+- **Trade-off:** an otherwise unchanged move submitted without restating the
+  reason the row carries is refused rather than treated as a no-op. Deliberate:
+  the authority is granted per write, and inheriting it from the row would let it
+  be re-used by somebody who never held it.
+- **Revisit when:** the pilot shows the override being used routinely, which would
+  mean the recorded hours are wrong rather than the bookings.
+
+`appointment_availability_override_chk` requires the reason, the actor and the
+instant to be all present or all absent, so a half-recorded override cannot exist.
+
+---
+
+## 2026-08-13 — Child overlap is an advisory-locked SQL recomputation
+
+**Status:** Accepted
+
+Therapist and room overlap are two partial `EXCLUDE USING GIST` constraints on
+`appointment`, conditional on the two occupying statuses and using `[)` bounds so
+back-to-back sessions do not clash. Nothing reads before writing: the INSERT is
+the check, and the constraint that fired decides which resource the receptionist
+is told is busy.
+
+A child's overlap cannot be a constraint — the child is on
+`appointment_participant` and the window is on `appointment`, so no single-row
+exclusion constraint can compare them. It is recomputed in SQL while a
+transaction-scoped advisory lock is held on the child, keyed by PostgreSQL's own
+`hashtextextended`: the mechanism the 2026-08-09 duplicate-rule entry approved,
+for the same reason and with the same properties.
+
+- **Alternatives:** denormalise the window onto the seat to make an exclusion
+  constraint possible.
+- **Reason:** that is a different architecture, not a smaller one, and it creates
+  a second copy of the time that can drift from the booking's own.
+- **Trade-off:** one rule is enforced by application code under a lock rather than
+  by a constraint. It is the only one.
+- **Revisit when:** group bookings make the seat table hot enough for the
+  serialisation to matter.
+
+A series takes that lock once and re-asks per occurrence: the key is the child's,
+`pg_advisory_xact_lock` is re-entrant within a transaction, and every occurrence
+inserted earlier in the transaction is visible to the recomputation of the next —
+so a rule that would book a child against themselves is caught by the same
+statement that catches a clash with somebody else's appointment.
+
+Lock order, extending the two that already exist and forming no cycle with them:
+
+```text
+appointment_series -> appointment -> service -> therapist -> room
+  -> family -> child -> advisory keys
+```
+
+A single-appointment operation takes at most one appointment row and never a
+series row; a series operation takes its occurrences in `starts_at` order behind
+the series row it holds `FOR UPDATE`.
+
+---
+
+## 2026-08-13 — The tariff is a read-only suggestion; there is no price snapshot
+
+**Status:** Accepted
+
+No appointment table carries a tariff reference, a price, a tariff source or any
+amount. PROJECT_SPEC.md 6 lists "price snapshot" among the minimum appointment
+data; it is deferred to Milestone 5 with the charge it belongs to.
+
+- **Alternatives:** snapshot the resolved price at booking, as PROJECT_SPEC.md 6
+  lists.
+- **Reason:** the snapshot exists so a completed session is charged the price that
+  applied on the day it happened. Booking is not that day. A price captured at
+  booking and a session completed eleven weeks later — the ordinary shape of a
+  recurring term — is a snapshot of the wrong moment, and one nobody would notice
+  was wrong. Milestone 5 owns the transition that creates money and is where the
+  snapshot belongs.
+- **Trade-off:** an appointment carries no price, so any interim report of
+  expected revenue must resolve one live.
+- **Revisit when:** Milestone 5 designs the session charge. The column arrives
+  there, on the charge or the participant, not here.
+
+The screen-ready reads (`GET /appointments/:id/view`, `GET /appointment-day`)
+resolve the current tariff live through the same SQL `/catalog/tariff-resolution`
+uses, and a missing tariff is reported as `status: 'MISSING'` rather than raised —
+PROJECT_SPEC.md 5 requires it to be visible, and a day view that failed because
+one service has no price would take the whole diary down with it. The class that
+reads tariffs (`AppointmentReadService`) holds no transaction and writes no row,
+not even an audit row; the class that writes (`AppointmentsService`) never looks
+at a tariff. Neither can become the other by accident.
+
+---
+
+## 2026-08-13 — One weekday per series, and creation is all or nothing
+
+**Status:** Accepted
+
+A series is a first booking plus a rule: one weekday, one placement, one time of
+day, every week or every n-th week, bounded by an occurrence count or a last
+date. The first occurrence _is_ the pattern — its clinic weekday and wall-clock
+time are read from `startsAt` rather than submitted separately, because two
+fields stating one fact are two fields that can disagree about which day a family
+is expected on.
+
+**A child seen twice a week is two series.** That is not a limitation being worked
+around: it is what keeps "this and all future occurrences" a question with one
+answer. Nothing in the contract expresses a multi-weekday rule, a monthly rule, a
+per-occurrence override or an exception list.
+
+**Two bounds, and a series must satisfy both:** at most 52 occurrences, and no
+occurrence more than 12 months after the first. Neither implies the other — 52
+fortnightly sessions run for two years, and one session every twelfth week for a
+year is five sessions. A rule that breaks either is refused with
+`RECURRENCE_RULE_INVALID` and never silently truncated: a receptionist who asked
+for two years and was quietly given one would find out when a family arrived to a
+session nobody had booked. `appointment_series_occurrence_count_chk` permits 260
+and is deliberately looser — it guards against a mistyped run of digits, not
+policy.
+
+**Creation is all or nothing.** One transaction generates every occurrence or
+none. There is no `skipConflicting` and no partial success: a family told "your
+term is booked" and given eleven of twelve weeks is worse off than one told "week
+four clashes, choose another hour", because the first failure is invisible until
+somebody arrives to a locked room. `cancel-from` and `update-from` are
+all-or-nothing for the same reason.
+
+**The preview writes nothing and is advisory.** It exists so the receptionist sees
+all twelve findings _before_ the request that would refuse the lot. It cannot be a
+rehearsal of the write — an aborted INSERT would report the first conflict and
+lose the other eleven — so it asks the same questions as a read, against the same
+occupancy predicate the constraints use, and the create re-decides everything
+under its own locks rather than trusting anything from it.
+
+- **Alternatives:** a multi-weekday rule; partial creation with a conflict report.
+- **Trade-off:** a twice-weekly arrangement is two objects to manage.
+- **Revisit when:** the pilot shows staff maintaining paired series often enough
+  that the pairing itself needs to be a record.
+
+**The series is an identity and a termination rule, not a template.** Every
+occurrence is an ordinary appointment with its own id, status, audit history and
+seat, and stays independently movable, cancellable and completable through the
+one appointment lifecycle. `cancel-from` and `update-from` act only on
+occurrences still `SCHEDULED` from the pivot onwards, ordered by when they happen:
+a completed session is a record of something that happened and a cancelled one has
+been communicated to a family, so neither is rewritten by a decision about the
+weeks ahead. `update-from` moves the hour, the length, the therapist or the room —
+never the weekday, the service or the child.
+
+---
+
+## 2026-08-13 — Receptionist permissions for Milestone 4
+
+**Status:** Accepted — supersedes the "revisit at Milestone 4" clause of
+2026-08-06 — Receptionist holds no catalog permission in Milestone 2
+
+The receptionist gains eleven permissions: `therapist.read`, `service.read`,
+`room.read`, `tariff.read`, `availability.read`, and the six appointment verbs
+`appointment.read|create|update|cancel|complete|override_availability`.
+
+They do **not** gain `appointment.reopen` — reversing a completion voids or
+offsets a financial record, which PROJECT_SPEC.md 4 keeps away from this role —
+nor `availability.manage`, nor any catalog write. `tariff.create` and
+`tariff.void` stay with the manager.
+
+- **Reason:** the catalog grants are reads. PROJECT_SPEC.md 4 bars the
+  receptionist from global tariff _changes_; it does not bar them from seeing
+  which services exist and what a session costs, both of which somebody running
+  the diary has to look up. `availability.read` without `availability.manage` is
+  the same distinction: a booking screen must show when a therapist works, and
+  maintaining that schedule is a different authority.
+- **Trade-off:** seven appointment verbs rather than one `appointment.write`,
+  which is more vocabulary to hold. It is what makes the reopen boundary
+  expressible at all.
+- **Revisit when:** Milestone 5 decides whether a receptionist may correct a
+  charge on the same day (PROJECT_SPEC.md 15, item 3).
+
+`permissions.spec.ts` asserts both halves — the exact list they have, and the
+list they still do not.
