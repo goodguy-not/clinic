@@ -5,8 +5,11 @@ import {
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
   appointmentDayResponseSchema,
+  appointmentSeriesOperationResponseSchema,
+  appointmentSeriesResponseSchema,
   appointmentResponseSchema,
   appointmentViewResponseSchema,
+  recurrencePreviewResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
   loginResponseSchema,
@@ -32,12 +35,17 @@ import {
   type AppointmentDayQuery,
   type AppointmentDayResponse,
   type AppointmentResponse,
+  type AppointmentSeriesOperationResponse,
+  type AppointmentSeriesResponse,
   type AppointmentViewResponse,
   type CancelAppointmentRequest,
+  type CancelAppointmentSeriesFromRequest,
   type ChildDetailResponse,
   type ChildWriteResponse,
   type ConfirmDraftRequest,
   type CreateAvailabilityExceptionRequest,
+  type CreateAppointmentRequest,
+  type CreateAppointmentSeriesRequest,
   type CreateChildRequest,
   type CreateFamilyRequest,
   type CreateRoomRequest,
@@ -63,6 +71,7 @@ import {
   type ResolveAvailabilityResponse,
   type RevokeSessionsResponse,
   type ReopenAppointmentRequest,
+  type RecurrencePreviewResponse,
   type RoomListResponse,
   type RoomResponse,
   type ServiceListResponse,
@@ -75,6 +84,7 @@ import {
   type TherapistResponse,
   type UpdateChildRequest,
   type UpdateFamilyRequest,
+  type UpdateAppointmentSeriesFromRequest,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
   type UpdateTherapistRequest,
@@ -503,6 +513,61 @@ export const api = {
       'GET',
       appointmentViewResponseSchema,
       context,
+    ),
+
+  createAppointment: (
+    body: CreateAppointmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentResponse>> =>
+    call('/appointments', 'POST', appointmentResponseSchema, context, body),
+
+  previewAppointmentSeries: (
+    body: CreateAppointmentSeriesRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<RecurrencePreviewResponse>> =>
+    call('/appointment-series/preview', 'POST', recurrencePreviewResponseSchema, context, body),
+
+  createAppointmentSeries: (
+    body: CreateAppointmentSeriesRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentSeriesResponse>> =>
+    call('/appointment-series', 'POST', appointmentSeriesResponseSchema, context, body),
+
+  appointmentSeries: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentSeriesResponse>> =>
+    call(
+      `/appointment-series/${encodeURIComponent(id)}`,
+      'GET',
+      appointmentSeriesResponseSchema,
+      context,
+    ),
+
+  cancelAppointmentSeriesFrom: (
+    id: string,
+    body: CancelAppointmentSeriesFromRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentSeriesOperationResponse>> =>
+    call(
+      `/appointment-series/${encodeURIComponent(id)}/cancel-from`,
+      'POST',
+      appointmentSeriesOperationResponseSchema,
+      context,
+      body,
+    ),
+
+  updateAppointmentSeriesFrom: (
+    id: string,
+    body: UpdateAppointmentSeriesFromRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<AppointmentSeriesOperationResponse>> =>
+    call(
+      `/appointment-series/${encodeURIComponent(id)}/update-from`,
+      'PATCH',
+      appointmentSeriesOperationResponseSchema,
+      context,
+      body,
     ),
 
   moveAppointment: (

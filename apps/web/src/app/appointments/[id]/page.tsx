@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 const SUCCESSES: Record<string, string> = {
+  created: 'نوبت با موفقیت ثبت شد.',
   moved: COPY.appointmentMoved,
   cancelled: COPY.appointmentCancelledSuccess,
   completed: COPY.appointmentCompletedSuccess,

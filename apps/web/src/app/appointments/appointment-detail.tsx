@@ -107,7 +107,18 @@ export function AppointmentDetail({
         backHref={dayDate === undefined ? '/appointments' : `/appointments?date=${dayDate}`}
         backLabel={COPY.appointmentsTitle}
         action={
-          scheduled && canUpdate ? (
+          appointment.seriesId !== null ? (
+            <div className="flex flex-wrap gap-2">
+              <ButtonLink href={`/appointment-series/${appointment.seriesId}`} tone="secondary">
+                مدیریت مجموعه
+              </ButtonLink>
+              {scheduled && canUpdate ? (
+                <ButtonLink href={`/appointments/${appointment.id}/edit`} tone="secondary">
+                  {COPY.appointmentMoveAction}
+                </ButtonLink>
+              ) : null}
+            </div>
+          ) : scheduled && canUpdate ? (
             <ButtonLink href={`/appointments/${appointment.id}/edit`} tone="secondary">
               {COPY.appointmentMoveAction}
             </ButtonLink>

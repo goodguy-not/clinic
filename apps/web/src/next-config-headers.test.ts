@@ -27,6 +27,7 @@ describe('next.config.ts headers for personal clinic pages', () => {
       '/children/:path*',
       '/appointments',
       '/appointments/:path*',
+      '/appointment-series/:path*',
     ]) {
       const headers = bySource.get(source);
       expect(headers).toBeDefined();
@@ -76,8 +77,8 @@ describe('every family and child page', () => {
 });
 
 describe('every appointment page', () => {
-  it('finds the B2 pages it is meant to be checking', () => {
-    expect(appointmentPages.length).toBe(3);
+  it('finds the appointment pages it is meant to be checking', () => {
+    expect(appointmentPages.length).toBe(4);
   });
 
   it.each(appointmentPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(

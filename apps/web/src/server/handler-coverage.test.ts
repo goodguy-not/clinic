@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(41);
-    expect(stateChangingHandlers.length).toBe(40);
+    expect(handlers.length).toBe(43);
+    expect(stateChangingHandlers.length).toBe(42);
   });
 
   it('exposes no catch-all route', () => {
@@ -72,6 +72,8 @@ describe('route handler inventory', () => {
       .sort();
 
     expect(routes).toEqual([
+      '/api/appointment-series/cancel-from',
+      '/api/appointment-series/update-from',
       '/api/appointments/attendance',
       '/api/appointments/cancel',
       '/api/appointments/complete',
@@ -245,7 +247,7 @@ describe('every Server Action authorises for itself', () => {
   it('enumerates the Server Action modules that exist', () => {
     // Stated as an exact count for the same reason the handler count is: a file
     // that stops being found must fail here rather than pass silently.
-    expect(serverActionModules).toHaveLength(1);
+    expect(serverActionModules).toHaveLength(2);
   });
 
   it.each(serverActionModules.map((module) => [module.path, module] as const))(

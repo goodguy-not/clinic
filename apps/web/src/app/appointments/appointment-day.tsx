@@ -152,6 +152,7 @@ export function AppointmentDay({
     <PageShell wide>
       <PageHeader
         title={COPY.appointmentsTitle}
+        action={<ButtonLink href="/appointments/new">ثبت نوبت</ButtonLink>}
         description={`${selectedDateLabel} — ${COPY.appointmentsDescription}`}
       />
 
