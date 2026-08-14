@@ -28,17 +28,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const ids = z
-    .strictObject({ familyId: z.uuid(), adjustmentId: z.uuid() })
-    .safeParse({ familyId: body['familyId'], adjustmentId: body['adjustmentId'] });
+    .strictObject({ familyId: z.uuid(), chargeId: z.uuid(), adjustmentId: z.uuid() })
+    .safeParse({
+      familyId: body['familyId'],
+      chargeId: body['chargeId'],
+      adjustmentId: body['adjustmentId'],
+    });
   if (!ids.success) return failureRedirect(request, '/families', 'VALIDATION_FAILED');
 
   const accountPath = `/families/${ids.data.familyId}/account` as const;
   const parsed = voidChargeAdjustmentRequestSchema.safeParse({ reason: body['reason'] ?? '' });
   if (!parsed.success) return failureRedirect(request, accountPath, 'VALIDATION_FAILED');
 
-  const result = await api.voidChargeAdjustment(ids.data.adjustmentId, parsed.data, {
-    sessionToken,
-  });
+  const result = await api.voidChargeAdjustment(
+    ids.data.chargeId,
+    ids.data.adjustmentId,
+    parsed.data,
+    { sessionToken },
+  );
   if (!result.ok) return failureRedirect(request, accountPath, result.code);
 
   return secureRedirect(request, `${accountPath}?success=adjustment-voided`);

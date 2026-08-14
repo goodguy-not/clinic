@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { FamilyAccountQuery, FamilyAccountResponse } from '@clinic/contracts';
@@ -167,7 +168,15 @@ const query: FamilyAccountQuery = { page: 2, pageSize: 25, includeVoided: true }
 
 describe('/families/[id]/account presentation', () => {
   const markup = renderToStaticMarkup(
-    createElement(FamilyAccountView, { familyId: FAMILY_ID, children, account: populated, query }),
+    createElement(FamilyAccountView, {
+      familyId: FAMILY_ID,
+      children,
+      account: populated,
+      query,
+      csrfToken: 'synthetic-csrf',
+      canAdjustCharge: false,
+      canVoidCharge: false,
+    }),
   );
 
   it('shows family totals exactly as supplied with Persian toman formatting', () => {
@@ -239,6 +248,9 @@ describe('family account empty state and navigation', () => {
           charges: [],
           page: { page: 1, pageSize: 25, total: 0, hasMore: false },
         },
+        csrfToken: 'synthetic-csrf',
+        canAdjustCharge: false,
+        canVoidCharge: false,
       }),
     );
     expect(markup).toContain(COPY.familyAccountEmpty);
@@ -262,5 +274,84 @@ describe('family account empty state and navigation', () => {
     expect(buildAccountHref(FAMILY_ID, { ...query, childId: CHILD_TWO }, 3)).toContain(
       `childId=${CHILD_TWO}`,
     );
+  });
+});
+
+describe('manager financial corrections', () => {
+  function corrections(canAdjustCharge: boolean, canVoidCharge: boolean): string {
+    return renderToStaticMarkup(
+      createElement(FamilyAccountView, {
+        familyId: FAMILY_ID,
+        children,
+        account: populated,
+        query,
+        csrfToken: 'synthetic-csrf',
+        canAdjustCharge,
+        canVoidCharge,
+      }),
+    );
+  }
+
+  it('shows deliberate charge void controls only with charge.void and requires a reason', () => {
+    const manager = corrections(true, true);
+    const receptionist = corrections(false, false);
+
+    expect(manager).toContain('/api/ledger/session-charges/void');
+    expect(manager).toContain(COPY.familyAccountChargeVoidHelp);
+    expect(manager).toMatch(/name="reason"[^>]*required=""/);
+    expect(manager).not.toContain('/session-charges/0199');
+    expect(receptionist).not.toContain('/api/ledger/session-charges/void');
+    expect(receptionist).not.toContain(COPY.familyAccountManagerCorrection);
+  });
+
+  it('offers adjustment creation with amount and reason as its only business inputs', () => {
+    const markup = corrections(true, true);
+    const start = markup.indexOf('action="/api/ledger/adjustments/create"');
+    const end = markup.indexOf('</form>', start);
+    const form = markup.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(form).toContain('name="amountToman"');
+    expect(form).toContain('name="reason"');
+    expect(form.match(/<input[^>]*name="amountToman"[^>]*\/>/)?.[0]).toContain('required=""');
+    expect(form).toMatch(/name="reason"[^>]*required=""/);
+    expect(form).not.toMatch(/therapist|share|split/i);
+    expect(markup).toContain(COPY.familyAccountAdjustmentClinicOnly);
+    expect(corrections(false, true)).not.toContain('/api/ledger/adjustments/create');
+  });
+
+  it('offers adjustment void only with charge.adjust and preserves both historical reasons', () => {
+    const manager = corrections(true, false);
+    const receptionist = corrections(false, false);
+
+    expect(manager).toContain('/api/ledger/adjustments/void');
+    expect(manager).toContain(`name="chargeId" value="${adjustment.sessionChargeId}"`);
+    expect(manager).toContain(`name="adjustmentId" value="${adjustment.id}"`);
+    expect(manager).toContain(adjustment.reason);
+    expect(manager).toContain(voidedAdjustment.reason);
+    expect(manager).toContain(voidedAdjustment.voidReason);
+    expect(manager).toContain(COPY.familyAccountAdjustmentVoidHelp);
+    expect(receptionist).not.toContain('/api/ledger/adjustments/void');
+  });
+
+  it('keeps voided history rendered and a fully discounted PAID charge distinct from FREE', () => {
+    const markup = corrections(true, true);
+
+    expect(markup).toContain(COPY.familyAccountVoidedNoEffect);
+    expect(markup).toContain(COPY.familyAccountVoidedAdjustmentNoEffect);
+    expect(markup).toContain(COPY.familyAccountFullyAdjusted);
+    expect(markup).toContain(COPY.familyAccountFree);
+    expect(markup).toContain('۱٬۵۰۰٬۰۰۰ تومان');
+  });
+
+  it('adds no Client Component for B3', () => {
+    for (const file of [
+      'families/[id]/account/account-view.tsx',
+      'families/[id]/account/page.tsx',
+    ]) {
+      expect(readFileSync(new URL(file, import.meta.url), 'utf8')).not.toMatch(
+        /^['"]use client['"]/m,
+      );
+    }
   });
 });

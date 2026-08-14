@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { familyAccountQuerySchema, type FamilyAccountQuery } from '@clinic/contracts';
 import { AppHeader } from '@/components/app-header';
-import { PageHeader, PageShell } from '@/components/ui';
+import { Alert, PageHeader, PageShell } from '@/components/ui';
 import { api } from '@/server/api-client';
-import { readSessionToken, requireSession } from '@/server/auth-session';
+import { readCsrfCookie, readSessionToken, requireSession } from '@/server/auth-session';
 import { COPY } from '@/server/copy-fa';
+import { persianMessage } from '@/server/errors-fa';
+import { isKnownErrorCode } from '@/server/handler-support';
 import { FamilyAccountView } from './account-view';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +20,7 @@ export default async function FamilyAccountPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'charge.read' });
+  const user = await requireSession({ requirePermission: 'charge.read' });
   const [{ id }, rawQuery, token] = await Promise.all([params, searchParams, readSessionToken()]);
   const query = parseAccountQuery(rawQuery);
   const context = { sessionToken: token ?? undefined };
@@ -36,6 +38,14 @@ export default async function FamilyAccountPage({
     throw new Error(`Failed to load family account: ${accountResult.code}`);
   }
 
+  const rawError = typeof rawQuery['error'] === 'string' ? rawQuery['error'] : null;
+  const rawSuccess = typeof rawQuery['success'] === 'string' ? rawQuery['success'] : '';
+  const successes: Record<string, string> = {
+    'charge-voided': COPY.familyAccountChargeVoidedSuccess,
+    'adjustment-created': COPY.familyAccountAdjustmentCreatedSuccess,
+    'adjustment-voided': COPY.familyAccountAdjustmentVoidedSuccess,
+  };
+
   return (
     <>
       <AppHeader />
@@ -46,11 +56,18 @@ export default async function FamilyAccountPage({
           backHref={`/families/${id}`}
           backLabel={COPY.back}
         />
+        {isKnownErrorCode(rawError) ? <Alert>{persianMessage(rawError)}</Alert> : null}
+        {successes[rawSuccess] !== undefined ? (
+          <Alert tone="info">{successes[rawSuccess]}</Alert>
+        ) : null}
         <FamilyAccountView
           familyId={id}
           children={familyResult.data.children}
           account={accountResult.data}
           query={query}
+          csrfToken={(await readCsrfCookie()) ?? ''}
+          canAdjustCharge={user.permissions.includes('charge.adjust')}
+          canVoidCharge={user.permissions.includes('charge.void')}
         />
       </PageShell>
     </>

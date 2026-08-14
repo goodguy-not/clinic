@@ -383,6 +383,7 @@ describe('frozen ledger endpoints', () => {
       { sessionToken: 'token' },
     );
     await api.voidChargeAdjustment(
+      chargeId,
       adjustmentId,
       { reason: 'waiver entered in error' },
       { sessionToken: 'token' },
@@ -399,7 +400,10 @@ describe('frozen ledger endpoints', () => {
         `/session-charges/${chargeId}/adjustments`,
         { amountToman: '250000', reason: 'clinic waiver' },
       ],
-      [`/charge-adjustments/${adjustmentId}/void`, { reason: 'waiver entered in error' }],
+      [
+        `/session-charges/${chargeId}/adjustments/${adjustmentId}/void`,
+        { reason: 'waiver entered in error' },
+      ],
     ]);
     expect(captured.every((request) => request.init.method === 'POST')).toBe(true);
     expect(captured.every((request) => request.init.cache === 'no-store')).toBe(true);

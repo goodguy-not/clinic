@@ -178,8 +178,8 @@ const sessionChargeApiPath = {
     `/appointment-participants/${encodeURIComponent(participantId)}/session-charge`,
   createAdjustment: (chargeId: string) =>
     `/session-charges/${encodeURIComponent(chargeId)}/adjustments`,
-  voidAdjustment: (adjustmentId: string) =>
-    `/charge-adjustments/${encodeURIComponent(adjustmentId)}/void`,
+  voidAdjustment: (chargeId: string, adjustmentId: string) =>
+    `/session-charges/${encodeURIComponent(chargeId)}/adjustments/${encodeURIComponent(adjustmentId)}/void`,
 } as const;
 
 function buildHeaders(context: CallerContext, requestId: string, hasBody: boolean): Headers {
@@ -774,12 +774,13 @@ export const api = {
     ),
 
   voidChargeAdjustment: (
+    chargeId: string,
     adjustmentId: string,
     body: VoidChargeAdjustmentRequest,
     context: CallerContext,
   ): Promise<ApiResult<SessionChargeResponse>> =>
     call(
-      sessionChargeApiPath.voidAdjustment(adjustmentId),
+      sessionChargeApiPath.voidAdjustment(chargeId, adjustmentId),
       'POST',
       sessionChargeResponseSchema,
       context,

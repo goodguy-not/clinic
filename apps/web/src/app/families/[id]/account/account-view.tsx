@@ -4,7 +4,7 @@ import type {
   FamilyAccountResponse,
   FamilyDetailResponse,
 } from '@clinic/contracts';
-import { Badge, ButtonLink, EmptyState, Panel, SubmitButton } from '@/components/ui';
+import { Badge, ButtonLink, EmptyState, Field, Panel, SubmitButton } from '@/components/ui';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/styles';
 import {
   formatChargeMoney,
@@ -46,11 +46,17 @@ export function FamilyAccountView({
   children,
   account,
   query,
+  csrfToken,
+  canAdjustCharge,
+  canVoidCharge,
 }: {
   familyId: string;
   children: Child[];
   account: FamilyAccountResponse;
   query: FamilyAccountQuery;
+  csrfToken: string;
+  canAdjustCharge: boolean;
+  canVoidCharge: boolean;
 }) {
   const totals = formatFamilyAccountMoney(account.totals);
 
@@ -134,7 +140,14 @@ export function FamilyAccountView({
         ) : (
           <ol className="flex list-none flex-col gap-4 p-0">
             {account.charges.map((view) => (
-              <ChargeCard key={view.charge.id} view={view} />
+              <ChargeCard
+                key={view.charge.id}
+                familyId={familyId}
+                view={view}
+                csrfToken={csrfToken}
+                canAdjustCharge={canAdjustCharge}
+                canVoidCharge={canVoidCharge}
+              />
             ))}
           </ol>
         )}
@@ -188,7 +201,19 @@ function MoneyFact({
   );
 }
 
-function ChargeCard({ view }: { view: FamilyAccountResponse['charges'][number] }) {
+function ChargeCard({
+  familyId,
+  view,
+  csrfToken,
+  canAdjustCharge,
+  canVoidCharge,
+}: {
+  familyId: string;
+  view: FamilyAccountResponse['charges'][number];
+  csrfToken: string;
+  canAdjustCharge: boolean;
+  canVoidCharge: boolean;
+}) {
   const { charge, child, service, therapist } = view;
   const money = formatChargeMoney(charge);
   const voided = charge.voidedAt !== null;
@@ -301,6 +326,27 @@ function ChargeCard({ view }: { view: FamilyAccountResponse['charges'][number] }
                           {COPY.familyAccountVoidedAt}: {formatInstant(adjustment.voidedAt!)}
                         </p>
                       </div>
+                    ) : canAdjustCharge && !voided ? (
+                      <CorrectionDetails title={COPY.familyAccountAdjustmentVoidTitle}>
+                        <p className="text-sm text-slate-700">
+                          {COPY.familyAccountAdjustmentVoidHelp}
+                        </p>
+                        <form
+                          method="post"
+                          action="/api/ledger/adjustments/void"
+                          className="mt-3 flex flex-col gap-3"
+                        >
+                          <CorrectionHiddenFields familyId={familyId} csrfToken={csrfToken} />
+                          <input type="hidden" name="chargeId" value={charge.id} />
+                          <input type="hidden" name="adjustmentId" value={adjustment.id} />
+                          <ReasonField id={`adjustment-void-reason-${adjustment.id}`} />
+                          <div>
+                            <SubmitButton tone="danger">
+                              {COPY.familyAccountAdjustmentVoidAction}
+                            </SubmitButton>
+                          </div>
+                        </form>
+                      </CorrectionDetails>
                     ) : null}
                   </li>
                 );
@@ -308,8 +354,111 @@ function ChargeCard({ view }: { view: FamilyAccountResponse['charges'][number] }
             </ul>
           </div>
         ) : null}
+
+        {!voided && (canAdjustCharge || canVoidCharge) ? (
+          <div className="grid gap-3 border-t border-slate-200 bg-slate-50 p-4 lg:grid-cols-2">
+            {canAdjustCharge &&
+            charge.priceMode === 'PAID' &&
+            charge.effectiveAmountToman !== '0' ? (
+              <CorrectionDetails title={COPY.familyAccountAdjustmentCreateTitle}>
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
+                  {COPY.familyAccountAdjustmentClinicOnly}
+                </p>
+                <form
+                  method="post"
+                  action="/api/ledger/adjustments/create"
+                  className="mt-3 flex flex-col gap-3"
+                >
+                  <CorrectionHiddenFields familyId={familyId} csrfToken={csrfToken} />
+                  <input type="hidden" name="chargeId" value={charge.id} />
+                  <Field
+                    id={`adjustment-amount-${charge.id}`}
+                    label={COPY.familyAccountAdjustmentAmount}
+                    help={COPY.familyAccountAdjustmentAmountHelp}
+                    required
+                  >
+                    {({ id, className, describedBy }) => (
+                      <input
+                        id={id}
+                        name="amountToman"
+                        type="text"
+                        inputMode="numeric"
+                        required
+                        aria-describedby={describedBy}
+                        className={className}
+                      />
+                    )}
+                  </Field>
+                  <ReasonField id={`adjustment-reason-${charge.id}`} />
+                  <div>
+                    <SubmitButton>{COPY.familyAccountAdjustmentCreateAction}</SubmitButton>
+                  </div>
+                </form>
+              </CorrectionDetails>
+            ) : null}
+            {canVoidCharge ? (
+              <CorrectionDetails title={COPY.familyAccountChargeVoidTitle}>
+                <p className="text-sm text-slate-700">{COPY.familyAccountChargeVoidHelp}</p>
+                <form
+                  method="post"
+                  action="/api/ledger/session-charges/void"
+                  className="mt-3 flex flex-col gap-3"
+                >
+                  <CorrectionHiddenFields familyId={familyId} csrfToken={csrfToken} />
+                  <input type="hidden" name="chargeId" value={charge.id} />
+                  <ReasonField id={`charge-void-reason-${charge.id}`} />
+                  <div>
+                    <SubmitButton tone="danger">{COPY.familyAccountChargeVoidAction}</SubmitButton>
+                  </div>
+                </form>
+              </CorrectionDetails>
+            ) : null}
+          </div>
+        ) : null}
       </article>
     </li>
+  );
+}
+
+function CorrectionDetails({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <details className="rounded-lg border border-slate-300 bg-white p-3">
+      <summary className={`cursor-pointer font-bold text-slate-900 ${FOCUS_RING}`}>
+        {COPY.familyAccountManagerCorrection}: {title}
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
+function CorrectionHiddenFields({ familyId, csrfToken }: { familyId: string; csrfToken: string }) {
+  return (
+    <>
+      <input type="hidden" name="familyId" value={familyId} />
+      <input type="hidden" name="csrfToken" value={csrfToken} />
+    </>
+  );
+}
+
+function ReasonField({ id }: { id: string }) {
+  return (
+    <Field
+      id={id}
+      label={COPY.familyAccountCorrectionReason}
+      help={COPY.familyAccountCorrectionReasonHelp}
+      required
+    >
+      {({ id: fieldId, className, describedBy }) => (
+        <textarea
+          id={fieldId}
+          name="reason"
+          rows={2}
+          required
+          aria-describedby={describedBy}
+          className={className}
+        />
+      )}
+    </Field>
   );
 }
 

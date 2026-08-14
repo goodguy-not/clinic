@@ -404,6 +404,27 @@ export const COPY = {
   familyAccountAdjustmentReason: 'دلیل تخفیف',
   familyAccountVoidedAdjustment: 'تخفیف باطل‌شده',
   familyAccountVoidedAdjustmentNoEffect: 'این تخفیف دیگر اثر مالی ندارد.',
+  familyAccountManagerCorrection: 'اصلاح مالی مدیر',
+  familyAccountChargeVoidTitle: 'ابطال هزینهٔ جلسه',
+  familyAccountChargeVoidHelp:
+    'ردیف مالی اصلی در تاریخچه می‌ماند و جلسه یا هزینه حذف نمی‌شود. این گام مالی باید پیش از اصلاح وضعیت جلسه، مانند بازگشایی، انجام شود.',
+  familyAccountChargeVoidAction: 'ثبت ابطال هزینه',
+  familyAccountAdjustmentCreateTitle: 'ثبت تخفیف یا بخشودگی',
+  familyAccountAdjustmentClinicOnly:
+    'تمام تخفیف‌های این مرحله به‌طور کامل توسط کلینیک تأمین می‌شوند. تخفیف کامل همچنان یک تعرفهٔ مبلغ‌دار با تخفیف است، نه تعرفهٔ رایگان از ابتدا.',
+  familyAccountAdjustmentAmount: 'مبلغ تخفیف (تومان)',
+  familyAccountAdjustmentAmountHelp:
+    'مبلغ مجاز را سامانهٔ مالی بررسی می‌کند؛ مبلغ باقی‌مانده در این صفحه محاسبه نمی‌شود.',
+  familyAccountAdjustmentCreateAction: 'ثبت تخفیف کلینیک',
+  familyAccountAdjustmentVoidTitle: 'ابطال تخفیف',
+  familyAccountAdjustmentVoidHelp:
+    'تخفیف و دلیل ایجاد آن در تاریخچه می‌ماند، اما اثر مالی فعلی آن برداشته می‌شود. برای ابطال، دلیل جدید لازم است.',
+  familyAccountAdjustmentVoidAction: 'ثبت ابطال تخفیف',
+  familyAccountCorrectionReason: 'دلیل',
+  familyAccountCorrectionReasonHelp: 'دلیل الزامی است و در سابقهٔ مالی ثبت می‌شود.',
+  familyAccountChargeVoidedSuccess: 'هزینهٔ جلسه باطل شد و در تاریخچه باقی ماند.',
+  familyAccountAdjustmentCreatedSuccess: 'تخفیف تأمین‌شده توسط کلینیک ثبت شد.',
+  familyAccountAdjustmentVoidedSuccess: 'تخفیف باطل شد و در تاریخچه باقی ماند.',
   familyAccountService: 'خدمت',
   familyAccountTherapist: 'درمانگر',
   familyAccountSessionDate: 'تاریخ جلسه',
