@@ -309,9 +309,9 @@ describe('guard chain (real PostgreSQL)', () => {
       // appointment series: preview, create, read, cancel-from (POST),
       //                     update-from (PATCH)
       // session charges: post for a participant (the explicit, idempotent
-      //                  re-post). Voiding and adjusting arrive in later
-      //                  checkpoints and are deliberately not routed yet.
-      expect(routes).toBe(69);
+      //                  re-post), void a charge (manager-only). Adjustments
+      //                  arrive in a later checkpoint and are not routed yet.
+      expect(routes).toBe(70);
     });
   });
 });

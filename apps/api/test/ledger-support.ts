@@ -101,6 +101,87 @@ export async function seedChargeableSession(harness: Harness): Promise<LedgerFix
 }
 
 /**
+ * A session the application itself has charged, and the charge it raised.
+ *
+ * The tariff is recorded FIRST here, which is the whole difference from
+ * `seedChargeableSession` above: attendance and completion then run in the order
+ * a receptionist works in, and the completion posts the charge through the real
+ * A3 path. Nothing in this fixture writes a financial row with SQL — the charge
+ * under test is one the endpoints produced.
+ */
+export async function seedPostedSession(harness: Harness): Promise<PostedSession> {
+  const manager = await signIn(harness, 'MANAGER');
+  const clinic = await seedClinic(harness, manager.token);
+  const appointmentId = await bookId(harness, manager.token, bookingPayload(clinic));
+
+  const participant = await harness.prisma.appointmentParticipant.findFirstOrThrow({
+    where: { appointmentId },
+  });
+
+  const tariffId = await makeTariff(harness, manager.token, {
+    serviceId: clinic.serviceId,
+    durationMinutes: 45,
+    priceToman: '250000',
+  });
+
+  await recordAttendance(
+    harness,
+    manager.token,
+    appointmentId,
+    participant.id,
+    'ATTENDED',
+  ).expect(200);
+  await complete(harness, manager.token, appointmentId).expect(200);
+
+  const charge = await harness.prisma.sessionCharge.findFirstOrThrow({
+    where: { appointmentParticipantId: participant.id, voidedAt: null },
+  });
+
+  return {
+    managerId: manager.id,
+    managerToken: manager.token,
+    familyId: clinic.familyId,
+    childId: clinic.childId,
+    serviceId: clinic.serviceId,
+    therapistId: clinic.therapistId,
+    roomId: clinic.roomId,
+    appointmentId,
+    participantId: participant.id,
+    tariffId,
+    serviceDate: SATURDAY,
+    durationMinutes: 45,
+    chargeId: charge.id,
+    amountToman: '250000',
+  };
+}
+
+export type PostedSession = LedgerFixture & {
+  /** The charge the completion raised, still valid. */
+  chargeId: string;
+  amountToman: string;
+};
+
+/** The manager-only void: the charge is named by the path, the reason is required. */
+export function voidChargeOverHttp(
+  harness: Harness,
+  token: string,
+  chargeId: string,
+  reason = 'ابطال آزمایشی هزینه',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/session-charges/${chargeId}/void`)
+    .set(asUser(token))
+    .send({ reason });
+}
+
+/** The `session_charge.voided` rows written for one charge. */
+export function voidedAuditRowsFor(harness: Harness, chargeId: string) {
+  return harness.prisma.auditLog.findMany({
+    where: { action: 'session_charge.voided', entityId: chargeId },
+  });
+}
+
+/**
  * A booked session and nothing else: no attendance, no completion, no price.
  *
  * The starting point for every A3 test that cares about the ORDER the two facts
@@ -277,6 +358,28 @@ export async function voidCharge(
            voided_by_user_id = ${fixture.managerId}::uuid,
            void_reason = 'اصلاح آزمایشی'
      WHERE id = ${chargeId}::uuid
+  `;
+}
+
+/**
+ * Withdraws an adjustment with one UPDATE, the way the A5 service will.
+ *
+ * Separate from `insertAdjustment`'s `voided` override because the database
+ * refuses a row created already void — `charge_adjustment` records a concession
+ * that was granted and then taken back, and "granted and withdrawn in the same
+ * statement" is not a history that happened.
+ */
+export async function voidAdjustment(
+  harness: Harness,
+  fixture: { managerId: string },
+  adjustmentId: string,
+): Promise<void> {
+  await harness.prisma.$executeRaw`
+    UPDATE charge_adjustment
+       SET voided_at = transaction_timestamp(),
+           voided_by_user_id = ${fixture.managerId}::uuid,
+           void_reason = 'ابطال تخفیف آزمایشی'
+     WHERE id = ${adjustmentId}::uuid
   `;
 }
 

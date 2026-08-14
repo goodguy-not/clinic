@@ -19,6 +19,7 @@ import {
   postedAuditRowsFor,
   seedBookedSession,
   voidCharge,
+  voidChargeOverHttp,
   type BookedSession,
 } from './ledger-support';
 
@@ -444,20 +445,36 @@ describe('session charge posting (real PostgreSQL)', () => {
       expect(await charges()).toHaveLength(1);
     });
 
-    it('leaves a posted charge alone when the completion is reversed', async () => {
+    it('never deletes or rewrites a posted charge when the completion is reversed', async () => {
       await priceIt();
       await attend().expect(200);
       await finish().expect(200);
 
-      // The reopen/charge guard is checkpoint A4's. What A3 must not do is
-      // silently delete or rewrite the charge, and this pins that.
+      const chargeId = (await charges())[0]?.id ?? '';
+
+      // The reversal is refused while the charge stands — checkpoint A4's guard —
+      // and A3's own claim still holds on both sides of it: NOTHING silently
+      // deletes or rewrites the charge. Not the refused reopen, and not the
+      // successful one after the manager voids it by hand.
+      await reopen(harness, session.managerToken, session.appointmentId, 'اصلاح آزمایشی').expect(
+        409,
+      );
+
+      expect(await charges()).toHaveLength(1);
+      expect((await charges())[0]?.voidedAt).toBeNull();
+
+      await voidChargeOverHttp(harness, session.managerToken, chargeId, 'ابطال آزمایشی').expect(200);
       await reopen(harness, session.managerToken, session.appointmentId, 'اصلاح آزمایشی').expect(
         200,
       );
 
       const rows = await charges();
       expect(rows).toHaveLength(1);
-      expect(rows[0]?.voidedAt).toBeNull();
+      expect(rows[0]?.id).toBe(chargeId);
+      expect(rows[0]?.amountToman).toBe(250000n);
+      // Voided by the manager's own explicit act, never as a side effect.
+      expect(rows[0]?.voidedAt).not.toBeNull();
+      expect(rows[0]?.voidReason).toBe('ابطال آزمایشی');
     });
   });
 });

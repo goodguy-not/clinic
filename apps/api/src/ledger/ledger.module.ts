@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { ChargeLifecycleGuard } from './charge-lifecycle-guard';
 import { ChargePostingService } from './charge-posting.service';
 import { SessionChargesController } from './session-charges.controller';
 import { SessionChargesService } from './session-charges.service';
@@ -21,6 +22,13 @@ import { SessionChargesService } from './session-charges.service';
  * one must never reach it. Making that a module fact rather than a convention is
  * what keeps "the charge commits with the completion that caused it" true.
  *
+ * `ChargeLifecycleGuard` CROSSES FOR THE SAME REASON, IN THE OTHER DIRECTION.
+ * "May this session's outcome be reversed?" is answered by whether the seat still
+ * carries money, which is this module's fact and not the diary's — so the
+ * predicate is exported and `AppointmentsService` calls it on its own transaction,
+ * rather than learning what a valid charge is. It is the only other way in, it
+ * writes nothing, and it still cannot create or withdraw a charge.
+ *
  * THE DEPENDENCY POINTS ONE WAY: appointments depend on the ledger, never the
  * reverse. Nothing here imports `AppointmentsModule`, so no cycle exists and the
  * posting routine cannot reach a scheduling rule — it re-reads the two facts it
@@ -33,7 +41,7 @@ import { SessionChargesService } from './session-charges.service';
 @Module({
   imports: [AuditModule],
   controllers: [SessionChargesController],
-  providers: [ChargePostingService, SessionChargesService],
-  exports: [ChargePostingService],
+  providers: [ChargePostingService, ChargeLifecycleGuard, SessionChargesService],
+  exports: [ChargePostingService, ChargeLifecycleGuard],
 })
 export class LedgerModule {}

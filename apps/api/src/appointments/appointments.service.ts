@@ -9,6 +9,7 @@ import type {
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/catalog-support';
+import { ChargeLifecycleGuard } from '../ledger/charge-lifecycle-guard';
 import { ChargePostingService } from '../ledger/charge-posting.service';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
@@ -53,6 +54,16 @@ import {
  * `complete` does not resolve an outcome. Milestone 5's rule — only an attended
  * participant in a completed appointment may be charged — needs both facts, and
  * gets them because neither was invented from the other.
+ *
+ * AND WHILE A CHARGE STANDS ON THEM, NEITHER MAY BE TAKEN BACK. Reopening a
+ * completed session and reversing an `ATTENDED` seat both falsify the premise the
+ * money rests on, so `ChargeLifecycleGuard` refuses them while a non-voided charge
+ * exists for an affected seat. NOTHING IS AUTO-VOIDED: "this did not happen as
+ * recorded" and "this should not be owed" are two decisions with two reasons and
+ * two audit facts, and the manager makes the financial one first, explicitly. The
+ * refusal is thrown under the same lock and inside the same transaction as the
+ * write it prevents, so the status, the attendance and every financial row are
+ * left exactly as they were.
  *
  * WHICHEVER OF THE TWO IS RECORDED SECOND POSTS THE CHARGE. Both writes hand the
  * seat to `ChargePostingService` on their own transaction once their own fact is
@@ -170,6 +181,7 @@ export class AppointmentsService {
     private readonly audit: AuditService,
     private readonly rules: SchedulingRules,
     private readonly charges: ChargePostingService,
+    private readonly chargeGuard: ChargeLifecycleGuard,
   ) {}
 
   async get(id: string): Promise<AppointmentDetail> {
@@ -545,9 +557,15 @@ export class AppointmentsService {
    * from the booking's status, and the manager reversing a wrong completion did
    * not say the child was absent.
    *
-   * IN MILESTONE 5 this is where a session charge must be voided or offset
-   * (PROJECT_SPEC.md 6). Nothing financial exists yet; the audit action is
-   * separate so that rule has a fact to key on.
+   * A VALID CHARGE BLOCKS IT, AND IS NOT VOIDED ON THE MANAGER'S BEHALF
+   * (PROJECT_SPEC.md 6). While any seat under this booking carries a charge that
+   * has not been voided, the ledger refuses the reopen with
+   * `CHARGE_EXISTS_FOR_PARTICIPANT` and the appointment is left `COMPLETED`. The
+   * manager voids the charge — a separate manager-only request, with a financial
+   * reason of its own — and reopens afterwards with a lifecycle reason. Two
+   * decisions, two audit rows; and if the session is later completed and attended
+   * again, the ordinary posting path raises a NEW charge while the withdrawn one
+   * stays permanently visible.
    */
   async reopen(
     id: string,
@@ -562,6 +580,17 @@ export class AppointmentsService {
       if (current.status !== 'COMPLETED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
 
       const participants = await this.rules.readParticipants(tx, id);
+
+      // BEFORE ANY WRITE, AND UNDER THE LOCK TAKEN ABOVE. Reopening says the
+      // session did not happen as recorded, which is the premise every charge
+      // under it stands on; the ledger refuses while any seat still carries one,
+      // and the manager voids it — with a financial reason of its own — first.
+      // Nothing here voids anything, and nothing here needs to be undone when it
+      // refuses: the throw rolls back a transaction that has written nothing.
+      await this.chargeGuard.assertNoValidCharge(
+        tx,
+        participants.map((participant) => participant.id),
+      );
 
       try {
         await tx.$executeRaw`
@@ -624,6 +653,12 @@ export class AppointmentsService {
    * is, with both values on the row. There is no way back to `PENDING`: the
    * request schema does not accept it, because un-recording an entry is not a
    * correction of it.
+   *
+   * `ATTENDED -> NO_SHOW` IS REFUSED WHILE THE SEAT CARRIES A VALID CHARGE. The
+   * correction is legitimate, but it says the child was never treated, and the
+   * money raised because they were must be withdrawn deliberately first — by a
+   * manager, with a financial reason. Recording `ATTENDED` is never guarded: it
+   * makes the charge's premise true rather than false.
    */
   async recordAttendance(
     appointmentId: string,
@@ -648,6 +683,15 @@ export class AppointmentsService {
 
       if (participant.attendance === input.attendance) {
         return detailOf(appointment, await this.rules.readParticipants(tx, appointmentId));
+      }
+
+      // MOVING AWAY FROM `ATTENDED` FALSIFIES THE OTHER HALF OF A CHARGE'S
+      // PREMISE, so the ledger refuses it while this seat still carries one. Only
+      // this seat: another child's outcome is their own fact and their own
+      // charge. Recording `ATTENDED` is never guarded — it makes the premise true
+      // rather than false, and it is the path that raises the charge below.
+      if (input.attendance !== 'ATTENDED') {
+        await this.chargeGuard.assertNoValidCharge(tx, [participantId]);
       }
 
       await tx.$executeRaw`

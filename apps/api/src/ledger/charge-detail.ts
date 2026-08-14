@@ -99,6 +99,32 @@ export async function findValidChargeForParticipant(
   return rows[0];
 }
 
+/**
+ * The charge, held `FOR UPDATE` for the rest of the transaction.
+ *
+ * THE SERIALISATION POINT OF EVERY WRITE TO ONE CHARGE. Two voids of the same row
+ * queue here, and the second one re-reads `voided_at` after the first commits —
+ * so it reports `CHARGE_ALREADY_VOIDED` against the void that actually happened
+ * rather than racing it. The re-read is what makes that true, not the lock alone.
+ *
+ * A TRANSACTION CLIENT, NOT `LedgerClient`. `FOR UPDATE` outside a transaction
+ * takes a lock that is released by the next statement, which reads as protection
+ * and is none; requiring the narrower type means that mistake does not compile.
+ */
+export async function lockChargeRow(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+): Promise<ChargeRow> {
+  const rows = await tx.$queryRaw<ChargeRow[]>`
+    SELECT ${CHARGE_COLUMNS} FROM session_charge WHERE id = ${chargeId}::uuid
+    FOR UPDATE
+  `;
+
+  const row = rows[0];
+  if (row === undefined) throw new AppError('CHARGE_NOT_FOUND');
+  return row;
+}
+
 export async function readChargeRow(client: LedgerClient, chargeId: string): Promise<ChargeRow> {
   const rows = await client.$queryRaw<ChargeRow[]>`
     SELECT ${CHARGE_COLUMNS} FROM session_charge WHERE id = ${chargeId}::uuid

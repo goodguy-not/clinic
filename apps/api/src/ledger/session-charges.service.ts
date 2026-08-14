@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import type { PostSessionChargeResponse } from '@clinic/contracts';
+import type { PostSessionChargeResponse, SessionChargeResponse } from '@clinic/contracts';
+import { AuditService } from '../audit/audit.service';
+import { actorContext, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
+import { lockChargeRow, readChargeDetail, readChargeRow } from './charge-detail';
 import { ChargePostingService } from './charge-posting.service';
 
 /**
@@ -39,6 +42,7 @@ export class SessionChargesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: ChargePostingService,
+    private readonly audit: AuditService,
   ) {}
 
   async post(
@@ -70,6 +74,97 @@ export class SessionChargesService {
         case 'TARIFF_MISSING':
           throw new AppError('TARIFF_MISSING');
       }
+    });
+  }
+
+  /**
+   * Withdraws a charge that should not stand, and says why.
+   *
+   * NOT A DELETE, AND NOT AN EDIT. Final financial records are voided or
+   * adjusted, never physically deleted (CLAUDE.md), so this writes three columns
+   * onto the row and touches nothing else. Every snapshot column — who was
+   * treated, by whom, for what, on which day, for how much — is left exactly as
+   * raised, and `enforce_session_charge_immutability` refuses any statement that
+   * says otherwise whether or not it came from here.
+   *
+   * ONE-WAY, AND THAT IS ENFORCED TWICE. There is no un-void request in the
+   * frozen contract, the `UPDATE` below is predicated on `voided_at IS NULL`, and
+   * the trigger raises `restrict_violation` on any attempt to change a void's
+   * instant, actor or reason once it exists. So a second void CANNOT overwrite
+   * the first one's reason even if every check above it were removed; what the
+   * checks add is that the manager is told `CHARGE_ALREADY_VOIDED` instead of
+   * seeing an internal error.
+   *
+   * THE LOCK IS ON THE CHARGE ROW AND ON NOTHING ELSE. Two simultaneous voids
+   * serialise on it and the second re-reads `voided_at` after the first commits,
+   * so exactly one financial transition and exactly one audit row are produced.
+   * No appointment lock is taken: a void changes no appointment and no
+   * attendance, and widening the footprint would put this transaction into the
+   * lifecycle's lock order for no rule it needs. The two meet correctly anyway —
+   * a lifecycle reversal reads this row under the appointment lock, and either
+   * sees a void that has committed or refuses on a charge that was still valid.
+   *
+   * IT DOES NOT REOPEN, UNCOMPLETE OR UN-ATTEND ANYTHING. Voiding the money and
+   * correcting the session are two decisions with two reasons, and this endpoint
+   * makes exactly one of them (see `ChargeLifecycleGuard`).
+   *
+   * ADJUSTMENTS ATTACHED TO THE CHARGE ARE LEFT ALONE — not deleted, not voided,
+   * not rewritten. They are history of a concession that was genuinely granted,
+   * and a voided charge contributes nothing to any account total whatever its
+   * arithmetic says, so there is no number for them to distort.
+   */
+  async void(
+    chargeId: string,
+    reason: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<SessionChargeResponse> {
+    const canonicalReason = canonicalText(reason);
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await lockChargeRow(tx, chargeId);
+      if (current.voided_at !== null) throw new AppError('CHARGE_ALREADY_VOIDED');
+
+      // `voided_at IS NULL` in the predicate as well as in the check above: the
+      // check is what produces the named refusal, this is what makes a second
+      // void structurally unable to write even if the check were wrong.
+      await tx.$executeRaw`
+        UPDATE session_charge
+           SET voided_at = transaction_timestamp(),
+               voided_by_user_id = ${actor.userId}::uuid,
+               void_reason = ${canonicalReason}
+         WHERE id = ${chargeId}::uuid AND voided_at IS NULL
+      `;
+
+      const voided = await readChargeRow(tx, chargeId);
+
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'session_charge.voided',
+        entityType: 'session_charge',
+        entityId: chargeId,
+        // The transition, both sides, because "it is void" does not state that
+        // it was not. The actor and the instant are columns of the audit row
+        // itself and are not repeated into the payload.
+        before: { voidedAt: null },
+        after: {
+          voidedAt: voided.voided_at?.toISOString() ?? null,
+          voidReason: canonicalReason,
+        },
+        // What money was withdrawn from whom, as flat countable keys — the same
+        // financial identifiers `session_charge.posted` records and nothing
+        // more. No name, no phone number and no file number is copied into
+        // `audit_log`, which is append-only and permanent.
+        metadata: {
+          familyId: current.family_id,
+          childId: current.child_id,
+          appointmentId: current.appointment_id,
+          appointmentParticipantId: current.appointment_participant_id,
+          priceMode: current.price_mode,
+          amountToman: current.amount_toman.toString(),
+        },
+      });
+
+      return { charge: await readChargeDetail(tx, chargeId) };
     });
   }
 }
