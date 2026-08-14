@@ -268,3 +268,140 @@ describe('availability endpoints', () => {
     expect(captured[0]?.init.method).toBe('GET');
   });
 });
+
+describe('frozen ledger endpoints', () => {
+  const familyId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01';
+  const childId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b02';
+  const appointmentId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b03';
+  const participantId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b04';
+  const chargeId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b05';
+  const adjustmentId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b06';
+
+  const charge = {
+    id: chargeId,
+    familyId,
+    childId,
+    appointmentId,
+    appointmentParticipantId: participantId,
+    serviceId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b07',
+    therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b08',
+    durationMinutes: 45,
+    serviceDate: '2026-08-14',
+    tariffId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b09',
+    priceMode: 'PAID',
+    amountToman: '1500000',
+    createdAt: '2026-08-14T01:00:00.000Z',
+    createdByUserId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b10',
+    voidedAt: null,
+    voidedByUserId: null,
+    voidReason: null,
+    adjustments: [],
+    activeAdjustmentTotalToman: '0',
+    effectiveAmountToman: '1500000',
+  };
+
+  it('reads a filtered family account as a server-only no-store request', async () => {
+    mockFetch(200, {
+      familyId,
+      totals: {
+        chargedTotalToman: '1500000',
+        adjustmentTotalToman: '0',
+        netChargedTotalToman: '1500000',
+        chargeCount: 1,
+        voidedChargeCount: 0,
+      },
+      charges: [
+        {
+          charge,
+          child: { id: childId, firstName: 'Test', lastName: 'Child', fileNumber: '1405000001' },
+          service: { id: charge.serviceId, name: 'Test service' },
+          therapist: { id: charge.therapistId, fullName: 'Test therapist' },
+        },
+      ],
+      page: { page: 2, pageSize: 10, total: 11, hasMore: false },
+    });
+
+    await api.getFamilyAccount(
+      familyId,
+      {
+        page: 2,
+        pageSize: 10,
+        includeVoided: false,
+        childId,
+        from: '2026-08-01',
+        to: '2026-08-14',
+      },
+      { sessionToken: 'verified-token' },
+    );
+
+    const request = captured[0] as Captured;
+    const url = new URL(request.url);
+    expect(url.pathname).toBe(`/families/${familyId}/account`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      page: '2',
+      pageSize: '10',
+      includeVoided: 'false',
+      childId,
+      from: '2026-08-01',
+      to: '2026-08-14',
+    });
+    expect(request.init.method).toBe('GET');
+    expect(request.init.cache).toBe('no-store');
+  });
+
+  it('posts a participant charge with the frozen empty request body', async () => {
+    mockFetch(200, { outcome: 'POSTED', charge });
+
+    await api.postSessionCharge(participantId, { sessionToken: 'verified-token' });
+
+    const url = new URL((captured[0] as Captured).url);
+    expect(url.pathname).toBe('/session-charges');
+    expect(url.searchParams.get('appointmentParticipantId')).toBe(participantId);
+    expect(captured[0]?.init.method).toBe('POST');
+    expect(JSON.parse(String(captured[0]?.init.body))).toEqual({});
+  });
+
+  it('reads appointment charge state by participant without a generic lookup', async () => {
+    mockFetch(200, charge);
+
+    await api.getParticipantSessionCharge(participantId, { sessionToken: 'verified-token' });
+
+    expect(new URL((captured[0] as Captured).url).pathname).toBe(
+      `/appointment-participants/${participantId}/session-charge`,
+    );
+    expect(captured[0]?.init.method).toBe('GET');
+    expect(captured[0]?.init.cache).toBe('no-store');
+  });
+
+  it('exposes only the three frozen correction writes with typed bodies', async () => {
+    mockFetch(200, { charge });
+
+    await api.voidSessionCharge(chargeId, { reason: 'wrong session' }, { sessionToken: 'token' });
+    await api.createChargeAdjustment(
+      chargeId,
+      { amountToman: '250000', reason: 'clinic waiver' },
+      { sessionToken: 'token' },
+    );
+    await api.voidChargeAdjustment(
+      adjustmentId,
+      { reason: 'waiver entered in error' },
+      { sessionToken: 'token' },
+    );
+
+    expect(
+      captured.map((request) => [
+        new URL(request.url).pathname,
+        JSON.parse(String(request.init.body)),
+      ]),
+    ).toEqual([
+      [`/session-charges/${chargeId}/void`, { reason: 'wrong session' }],
+      [
+        `/session-charges/${chargeId}/adjustments`,
+        { amountToman: '250000', reason: 'clinic waiver' },
+      ],
+      [`/charge-adjustments/${adjustmentId}/void`, { reason: 'waiver entered in error' }],
+    ]);
+    expect(captured.every((request) => request.init.method === 'POST')).toBe(true);
+    expect(captured.every((request) => request.init.cache === 'no-store')).toBe(true);
+  });
+});
