@@ -20,6 +20,7 @@ import {
 import { COPY } from '@/server/copy-fa';
 import { GUARDIAN_RELATIONSHIP_LABEL } from '../relationship-labels';
 import { AppHeader } from '@/components/app-header';
+import { FamilyDetailActions } from './family-detail-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,9 +68,11 @@ export default async function FamilyDetailPage({
           backHref="/families"
           backLabel={COPY.back}
           action={
-            canUpdate ? (
-              <ButtonLink href={`/families/${id}/edit`}>{COPY.edit}</ButtonLink>
-            ) : undefined
+            <FamilyDetailActions
+              familyId={id}
+              canEdit={canUpdate}
+              canReadAccount={user.permissions.includes('charge.read')}
+            />
           }
         />
 

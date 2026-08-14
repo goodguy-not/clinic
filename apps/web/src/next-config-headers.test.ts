@@ -86,7 +86,7 @@ const appointmentPages = collectPageFiles(APP_ROOT)
 describe('every family and child page', () => {
   it('finds the pages it is meant to be checking', () => {
     // Guards this file against silently passing because it enumerated nothing.
-    expect(familyAndChildPages.length).toBe(7);
+    expect(familyAndChildPages.length).toBe(8);
   });
 
   it.each(familyAndChildPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(
