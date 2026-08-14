@@ -9,6 +9,8 @@ import {
   appointmentSeriesResponseSchema,
   appointmentResponseSchema,
   appointmentViewResponseSchema,
+  familyAccountResponseSchema,
+  postSessionChargeResponseSchema,
   recurrencePreviewResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
@@ -21,6 +23,8 @@ import {
   serviceListResponseSchema,
   serviceResponseSchema,
   sessionResponseSchema,
+  sessionChargeDetailSchema,
+  sessionChargeResponseSchema,
   tariffListResponseSchema,
   tariffResponseSchema,
   therapistListResponseSchema,
@@ -55,6 +59,8 @@ import {
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
+  type FamilyAccountQuery,
+  type FamilyAccountResponse,
   type FamilyDetailResponse,
   type FamilyListResponse,
   type FamilySearchRequest,
@@ -62,6 +68,7 @@ import {
   type LoginRequest,
   type LoginResponse,
   type MoveAppointmentRequest,
+  type PostSessionChargeResponse,
   type PasswordResetResponse,
   type RecordStatus,
   type RecordAttendanceRequest,
@@ -77,6 +84,8 @@ import {
   type ServiceListResponse,
   type ServiceResponse,
   type SessionResponse,
+  type SessionChargeDetail,
+  type SessionChargeResponse,
   type TariffListQuery,
   type TariffListResponse,
   type TariffResponse,
@@ -92,6 +101,9 @@ import {
   type UserResponse,
   type UserRole,
   type UserStatus,
+  type CreateChargeAdjustmentRequest,
+  type VoidChargeAdjustmentRequest,
+  type VoidSessionChargeRequest,
   childDetailResponseSchema,
   childWriteResponseSchema,
   familyDetailResponseSchema,
@@ -149,6 +161,25 @@ export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_USER_AGENT_LENGTH = 256;
+
+/**
+ * Nest ledger URLs are owned by the API workstream, not by the browser-facing
+ * `/api/ledger/*` handlers. Keep the finalized read and correction paths
+ * isolated here so Web callers and presentation contracts do not encode Nest
+ * routing details.
+ */
+const sessionChargeApiPath = {
+  postForParticipant: (participantId: string) =>
+    `/session-charges/participants/${encodeURIComponent(participantId)}`,
+  void: (chargeId: string) => `/session-charges/${encodeURIComponent(chargeId)}/void`,
+  familyAccount: (familyId: string) => `/families/${encodeURIComponent(familyId)}/account`,
+  participantChargeState: (participantId: string) =>
+    `/session-charges/participants/${encodeURIComponent(participantId)}`,
+  createAdjustment: (chargeId: string) =>
+    `/session-charges/${encodeURIComponent(chargeId)}/adjustments`,
+  voidAdjustment: (chargeId: string, adjustmentId: string) =>
+    `/session-charges/${encodeURIComponent(chargeId)}/adjustments/${encodeURIComponent(adjustmentId)}/void`,
+} as const;
 
 function buildHeaders(context: CallerContext, requestId: string, hasBody: boolean): Headers {
   const { INTERNAL_API_KEY } = loadServerEnv();
@@ -668,6 +699,92 @@ export const api = {
     call(`/catalog/tariffs/${encodeURIComponent(id)}/void`, 'POST', tariffResponseSchema, context, {
       reason,
     }),
+
+  // --- ledger ---------------------------------------------------------------
+  //
+  // The Web tier names only the frozen Milestone 5 operations. In particular,
+  // there is no arbitrary ledger path or body escape hatch and no amount can be
+  // supplied while posting a session charge. Browser-facing route names do not
+  // determine the Nest paths isolated in `sessionChargeApiPath` above.
+
+  getFamilyAccount: (
+    familyId: string,
+    query: FamilyAccountQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyAccountResponse>> => {
+    const search = new URLSearchParams({
+      page: String(query.page),
+      pageSize: String(query.pageSize),
+      includeVoided: String(query.includeVoided),
+    });
+    if (query.childId !== undefined) search.set('childId', query.childId);
+    if (query.from !== undefined) search.set('from', query.from);
+    if (query.to !== undefined) search.set('to', query.to);
+
+    return call(
+      `${sessionChargeApiPath.familyAccount(familyId)}?${search.toString()}`,
+      'GET',
+      familyAccountResponseSchema,
+      context,
+    );
+  },
+
+  postSessionCharge: (
+    participantId: string,
+    context: CallerContext,
+  ): Promise<ApiResult<PostSessionChargeResponse>> =>
+    call(
+      sessionChargeApiPath.postForParticipant(participantId),
+      'POST',
+      postSessionChargeResponseSchema,
+      context,
+      {},
+    ),
+
+  getParticipantSessionCharge: (
+    participantId: string,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionChargeDetail>> =>
+    call(
+      sessionChargeApiPath.participantChargeState(participantId),
+      'GET',
+      sessionChargeDetailSchema,
+      context,
+    ),
+
+  voidSessionCharge: (
+    chargeId: string,
+    body: VoidSessionChargeRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionChargeResponse>> =>
+    call(sessionChargeApiPath.void(chargeId), 'POST', sessionChargeResponseSchema, context, body),
+
+  createChargeAdjustment: (
+    chargeId: string,
+    body: CreateChargeAdjustmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionChargeResponse>> =>
+    call(
+      sessionChargeApiPath.createAdjustment(chargeId),
+      'POST',
+      sessionChargeResponseSchema,
+      context,
+      body,
+    ),
+
+  voidChargeAdjustment: (
+    chargeId: string,
+    adjustmentId: string,
+    body: VoidChargeAdjustmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionChargeResponse>> =>
+    call(
+      sessionChargeApiPath.voidAdjustment(chargeId, adjustmentId),
+      'POST',
+      sessionChargeResponseSchema,
+      context,
+      body,
+    ),
 
   // --- families and children --------------------------------------------------
 

@@ -38,6 +38,23 @@ describe('next.config.ts headers for personal clinic pages', () => {
       expect(headers).toContainEqual({ key: 'Referrer-Policy', value: 'same-origin' });
     }
   });
+
+  it('covers the upcoming ledger surfaces without a separate cacheable route tree', async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const sources = rules.map((rule) => rule.source);
+
+    // B1 lives under the already-private family tree; B2/B3 surface charge
+    // state and actions under the already-private appointment tree. Keeping
+    // those paths here makes a later route move a security-reviewing diff.
+    expect(sources).toContain('/families/:path*');
+    expect(sources).toContain('/appointments/:path*');
+
+    for (const source of ['/families/:path*', '/appointments/:path*']) {
+      const headers = rules.find((rule) => rule.source === source)?.headers;
+      expect(headers).toContainEqual({ key: 'Cache-Control', value: 'no-store' });
+      expect(headers).toContainEqual({ key: 'Referrer-Policy', value: 'same-origin' });
+    }
+  });
 });
 
 const APP_ROOT = join(__dirname, 'app');
@@ -69,7 +86,7 @@ const appointmentPages = collectPageFiles(APP_ROOT)
 describe('every family and child page', () => {
   it('finds the pages it is meant to be checking', () => {
     // Guards this file against silently passing because it enumerated nothing.
-    expect(familyAndChildPages.length).toBe(7);
+    expect(familyAndChildPages.length).toBe(8);
   });
 
   it.each(familyAndChildPages.map((path) => [path, readFileSync(path, 'utf8')] as const))(

@@ -5,6 +5,7 @@ import { api } from '@/server/api-client';
 import { callerContext, readSessionToken, requireSession } from '@/server/auth-session';
 import { clinicToday } from '@/server/clinic-time';
 import { persianMessage } from '@/server/errors-fa';
+import { loadParticipantCharges } from '@/server/appointment-charges';
 import { formatScheduleDate } from '@/scheduling/presentation';
 import { addDaysToIsoDate, clinicWeek } from '@/scheduling/appointment-presentation';
 import { AppointmentDay } from './appointment-day';
@@ -28,7 +29,7 @@ export default async function AppointmentsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'appointment.read' });
+  const user = await requireSession({ requirePermission: 'appointment.read' });
   const params = await searchParams;
   const today = clinicToday();
   const candidateDate = one(params['date']) ?? today;
@@ -58,6 +59,15 @@ export default async function AppointmentsPage({
   const selectedLabel = formatScheduleDate(date)?.full ?? date;
   const filterTherapist = filters.therapistId;
   const filterRoom = filters.roomId;
+  const charges =
+    day.ok && user.permissions.includes('charge.read')
+      ? await loadParticipantCharges(
+          day.data.appointments.flatMap((view) =>
+            view.participants.map(({ participant }) => participant.id),
+          ),
+          context,
+        )
+      : {};
 
   return (
     <>
@@ -94,6 +104,7 @@ export default async function AppointmentsPage({
         roomId={filterRoom}
         clearHref={dateHref(date)}
         errorMessage={day.ok ? null : persianMessage(day.code)}
+        charges={charges}
       />
     </>
   );

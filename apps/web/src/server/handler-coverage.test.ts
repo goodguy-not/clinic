@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(43);
-    expect(stateChangingHandlers.length).toBe(42);
+    expect(handlers.length).toBe(47);
+    expect(stateChangingHandlers.length).toBe(46);
   });
 
   it('exposes no catch-all route', () => {
@@ -119,6 +119,12 @@ describe('route handler inventory', () => {
       '/api/families/status',
       '/api/families/update',
       '/api/health',
+      // Milestone 5 financial writes. IDs and reasons stay in the POST body;
+      // each handler is a named operation rather than a generic ledger proxy.
+      '/api/ledger/adjustments/create',
+      '/api/ledger/adjustments/void',
+      '/api/ledger/session-charges/post',
+      '/api/ledger/session-charges/void',
       '/api/registration-drafts/discard',
       '/api/staff/create',
       '/api/staff/password-reset',
