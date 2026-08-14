@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import request from 'supertest';
+import { childWriteResponseSchema, sessionChargeResponseSchema } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import type { Harness } from './harness';
 import {
@@ -7,11 +8,19 @@ import {
   bookId,
   bookingPayload,
   complete,
+  makeFamilyWithChild,
+  makeRoom,
+  makeService,
   makeTariff,
+  makeTherapist,
+  putWindows,
   recordAttendance,
   seedClinic,
   signIn,
   SATURDAY,
+  SATURDAY_10_00,
+  SATURDAY_11_00,
+  SATURDAY_MORNING,
 } from './appointments-support';
 
 /**
@@ -495,4 +504,249 @@ export async function sqlStateOf(attempt: Promise<unknown>): Promise<string> {
   }
 
   throw new Error('Statement was expected to fail and did not');
+}
+
+/**
+ * The two Saturdays the family-account fixture spends, in UTC.
+ *
+ * The clinic runs on `Asia/Tehran` (+03:30), so 06:30Z is 10:00 local — the same
+ * arithmetic `SATURDAY_10_00` is built on, restated for the following week so the
+ * fixture has two distinct `service_date` values to filter and to page across.
+ */
+export const NEXT_SATURDAY = '2026-09-12';
+const SATURDAY_12_00 = '2026-09-05T08:30:00.000Z';
+const NEXT_SATURDAY_10_00 = '2026-09-12T06:30:00.000Z';
+const NEXT_SATURDAY_11_00 = '2026-09-12T07:30:00.000Z';
+
+/** Registers another child under a family that already exists. */
+export async function makeChild(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  firstName: string,
+): Promise<string> {
+  const response = await request(harness.app.getHttpServer())
+    .post(`/families/${familyId}/children`)
+    .set(asUser(token))
+    .send({
+      firstName,
+      lastName: 'آزمایشی',
+      birthDate: '2019-05-22',
+      sex: 'UNSPECIFIED',
+      nationalId: null,
+      legacyPaperFileNumber: null,
+      referralSource: null,
+      note: null,
+    });
+
+  if (response.status !== 201) {
+    throw new Error(
+      `Expected 201 seeding a second child, got ${String(response.status)} ` +
+        `(${String(response.body?.error?.code ?? 'no code')})`,
+    );
+  }
+
+  return childWriteResponseSchema.parse(response.body).child.id;
+}
+
+/** Books one session, marks the child attended, completes it, and returns the charge it raised. */
+async function chargeSession(
+  harness: Harness,
+  token: string,
+  booking: {
+    serviceId: string;
+    therapistId: string;
+    roomId: string;
+    childId: string;
+    startsAt: string;
+  },
+): Promise<{ appointmentId: string; participantId: string; chargeId: string }> {
+  const appointmentId = await bookId(
+    harness,
+    token,
+    bookingPayload(booking, { startsAt: booking.startsAt }),
+  );
+
+  const participant = await harness.prisma.appointmentParticipant.findFirstOrThrow({
+    where: { appointmentId },
+  });
+
+  await recordAttendance(harness, token, appointmentId, participant.id, 'ATTENDED').expect(200);
+  await complete(harness, token, appointmentId).expect(200);
+
+  const charge = await harness.prisma.sessionCharge.findFirstOrThrow({
+    where: { appointmentParticipantId: participant.id, voidedAt: null },
+  });
+
+  return { appointmentId, participantId: participant.id, chargeId: charge.id };
+}
+
+export type FamilyLedgerFixture = {
+  managerId: string;
+  managerToken: string;
+  familyId: string;
+  /** Two children of ONE family, which is what makes the account a family-level read. */
+  childAId: string;
+  childBId: string;
+  /** Child A, first Saturday: 250000 reduced by an active 50000 concession. */
+  reducedChargeId: string;
+  reducedParticipantId: string;
+  /** Child A, second Saturday: adjusted by 30000 and then WITHDRAWN. */
+  voidedChargeId: string;
+  voidedParticipantId: string;
+  /** The concession on the voided charge. Still active; its parent is not. */
+  adjustmentOnVoidedChargeId: string;
+  /** Child B, first Saturday: 250000 with a concession that was itself withdrawn. */
+  restoredChargeId: string;
+  restoredParticipantId: string;
+  voidedAdjustmentId: string;
+  /** Child B, second Saturday: PAID 250000 waived in full — effective zero, still PAID. */
+  waivedChargeId: string;
+  waivedParticipantId: string;
+  /** Child B, first Saturday: a genuinely complimentary session. Zero at source. */
+  freeChargeId: string;
+  freeParticipantId: string;
+};
+
+/**
+ * One family, two children, five sessions, and every financial state the account
+ * has to tell apart.
+ *
+ * EVERY ROW HERE WAS PRODUCED BY THE APPLICATION. The sessions are booked,
+ * attended and completed over HTTP, the charges are raised by the real A3
+ * posting path, and the concessions and voids go through the real A4/A5
+ * endpoints. Nothing is written with SQL — a read model tested against
+ * hand-inserted rows would prove only that the SQL matched the SQL.
+ *
+ * WHAT THE FAMILY IS OWED, IF THE READ IS RIGHT:
+ * - charged   250000 + 250000 + 250000 + 0 = 750000 over four valid charges;
+ * - reduced   50000 (child A) + 250000 (the waiver) = 300000;
+ * - net       450000;
+ * - and one withdrawn charge, whose own 30000 concession reduces nothing.
+ */
+export async function seedFamilyLedger(harness: Harness): Promise<FamilyLedgerFixture> {
+  const manager = await signIn(harness, 'MANAGER');
+  const token = manager.token;
+
+  const serviceId = await makeService(harness, token);
+  const freeServiceId = await makeService(harness, token);
+  const therapistId = await makeTherapist(harness, token, [serviceId]);
+  const freeTherapistId = await makeTherapist(harness, token, [freeServiceId]);
+  const roomId = await makeRoom(harness, token);
+
+  await putWindows(harness, token, therapistId, [SATURDAY_MORNING]).expect(200);
+  await putWindows(harness, token, freeTherapistId, [SATURDAY_MORNING]).expect(200);
+
+  const { familyId, childId: childAId } = await makeFamilyWithChild(harness, token);
+  const childBId = await makeChild(harness, token, familyId, 'کودک دوم');
+
+  await makeTariff(harness, token, { serviceId, durationMinutes: 45, priceToman: '250000' });
+  await makeFreeTariff(harness, token, freeServiceId, 45);
+
+  const paid = { serviceId, therapistId, roomId };
+
+  const reduced = await chargeSession(harness, token, {
+    ...paid,
+    childId: childAId,
+    startsAt: SATURDAY_10_00,
+  });
+  const voided = await chargeSession(harness, token, {
+    ...paid,
+    childId: childAId,
+    startsAt: NEXT_SATURDAY_10_00,
+  });
+  const restored = await chargeSession(harness, token, {
+    ...paid,
+    childId: childBId,
+    startsAt: SATURDAY_11_00,
+  });
+  const waived = await chargeSession(harness, token, {
+    ...paid,
+    childId: childBId,
+    startsAt: NEXT_SATURDAY_11_00,
+  });
+  const free = await chargeSession(harness, token, {
+    serviceId: freeServiceId,
+    therapistId: freeTherapistId,
+    roomId,
+    childId: childBId,
+    startsAt: SATURDAY_12_00,
+  });
+
+  // An ordinary concession that still stands.
+  await adjustOverHttp(harness, token, reduced.chargeId, '50000').expect(200);
+
+  // Granted, then withdrawn: visible history that reduces nothing.
+  const withdrawn = await adjustOverHttp(harness, token, restored.chargeId, '100000').expect(200);
+  const voidedAdjustmentId = lastAdjustmentId(withdrawn.body);
+  await voidAdjustmentOverHttp(harness, token, restored.chargeId, voidedAdjustmentId).expect(200);
+
+  // The whole charge waived. Effective zero, and still PAID — a different fact
+  // from the complimentary session above (DECISION_LOG, 2026-08-06).
+  await adjustOverHttp(harness, token, waived.chargeId, '250000').expect(200);
+
+  // A concession granted before its charge was withdrawn. It stays attached and
+  // stays visible; the account counts neither.
+  const orphaned = await adjustOverHttp(harness, token, voided.chargeId, '30000').expect(200);
+  const adjustmentOnVoidedChargeId = lastAdjustmentId(orphaned.body);
+  await voidChargeOverHttp(harness, token, voided.chargeId).expect(200);
+
+  return {
+    managerId: manager.id,
+    managerToken: token,
+    familyId,
+    childAId,
+    childBId,
+    reducedChargeId: reduced.chargeId,
+    reducedParticipantId: reduced.participantId,
+    voidedChargeId: voided.chargeId,
+    voidedParticipantId: voided.participantId,
+    adjustmentOnVoidedChargeId,
+    restoredChargeId: restored.chargeId,
+    restoredParticipantId: restored.participantId,
+    voidedAdjustmentId,
+    waivedChargeId: waived.chargeId,
+    waivedParticipantId: waived.participantId,
+    freeChargeId: free.chargeId,
+    freeParticipantId: free.participantId,
+  };
+}
+
+/**
+ * The adjustment just created, out of the charge the write answered with.
+ *
+ * Every ledger write returns the whole charge rather than the row it wrote
+ * (frozen F1), and `adjustments` is ordered oldest first, so the newest is the
+ * last one.
+ */
+function lastAdjustmentId(body: unknown): string {
+  const charge = sessionChargeResponseSchema.parse(body).charge;
+  const newest = charge.adjustments.at(-1);
+
+  if (newest === undefined) throw new Error('Expected the charge to carry the adjustment');
+  return newest.id;
+}
+
+/** The family account: filters travel in the query string, the family in the path. */
+export function familyAccount(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  query: Record<string, string | number> = {},
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get(`/families/${familyId}/account`)
+    .query(query)
+    .set(asUser(token));
+}
+
+/** What one seat currently owes: the read `B2` renders an appointment's money from. */
+export function readParticipantCharge(
+  harness: Harness,
+  token: string,
+  participantId: string,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get(`/session-charges/participants/${participantId}`)
+    .set(asUser(token));
 }

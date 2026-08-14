@@ -5,7 +5,12 @@ import { actorContext, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
-import { lockChargeRow, readChargeDetail, readChargeRow } from './charge-detail';
+import {
+  findCurrentOrLatestChargeForParticipant,
+  lockChargeRow,
+  readChargeDetail,
+  readChargeRow,
+} from './charge-detail';
 import { ChargePostingService } from './charge-posting.service';
 
 /**
@@ -75,6 +80,48 @@ export class SessionChargesService {
           throw new AppError('TARIFF_MISSING');
       }
     });
+  }
+
+  /**
+   * What one seat currently owes, if anything.
+   *
+   * THE ONE READ AN APPOINTMENT SCREEN NEEDS. A session detail page has a
+   * participant and has to show whether that seat has been charged, for how much,
+   * and what is left after any concession — without asking the browser to work
+   * any of it out. It answers with `sessionChargeDetail`, the same shape every
+   * ledger write returns, built by the same `readChargeDetail`. No arithmetic
+   * exists here.
+   *
+   * NO TRANSACTION AND NO LOCK. Nothing is decided, so there is nothing to
+   * serialise; two statements against a read-committed snapshot are enough for a
+   * view, exactly as `AppointmentReadService` reasons.
+   *
+   * A STANDING CHARGE WINS; OTHERWISE THE SEAT'S HISTORY ANSWERS. The selection
+   * is `findCurrentOrLatestChargeForParticipant`'s total order: the valid charge
+   * if there is one — at most one, by
+   * `session_charge_one_valid_per_participant_uq` — and otherwise the most
+   * recently withdrawn. A seat that was charged, corrected and re-charged
+   * therefore answers with the charge that stands, and a seat whose charge was
+   * withdrawn and not replaced answers with that withdrawal.
+   *
+   * RETURNING A VOIDED ROW MAKES NOTHING OWED. `voidedAt`, `voidedByUserId` and
+   * `voidReason` are populated on it, which is exactly how a caller tells the two
+   * apart on a shape that carries one charge, and no total in this system
+   * consults this method. What it buys is that "this session was charged and the
+   * charge was taken back" is reachable at all: the alternative was a 404 that a
+   * screen could not distinguish from a session nobody ever charged, which are
+   * opposite situations for the person deciding whether to re-post.
+   *
+   * `CHARGE_NOT_FOUND` NOW MEANS EXACTLY ONE THING: this seat has no charge
+   * history whatsoever. A participant that does not exist answers the same way,
+   * and neither confirms the other — a caller guessing seat ids learns only that
+   * there is nothing to see.
+   */
+  async readForParticipant(participantId: string): Promise<SessionChargeResponse> {
+    const charge = await findCurrentOrLatestChargeForParticipant(this.prisma, participantId);
+    if (charge === undefined) throw new AppError('CHARGE_NOT_FOUND');
+
+    return { charge: await readChargeDetail(this.prisma, charge.id) };
   }
 
   /**

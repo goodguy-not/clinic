@@ -4,6 +4,8 @@ import { ChargeAdjustmentsController } from './charge-adjustments.controller';
 import { ChargeAdjustmentsService } from './charge-adjustments.service';
 import { ChargeLifecycleGuard } from './charge-lifecycle-guard';
 import { ChargePostingService } from './charge-posting.service';
+import { FamilyAccountController } from './family-account.controller';
+import { FamilyAccountService } from './family-account.service';
 import { SessionChargesController } from './session-charges.controller';
 import { SessionChargesService } from './session-charges.service';
 
@@ -36,18 +38,26 @@ import { SessionChargesService } from './session-charges.service';
  * posting routine cannot reach a scheduling rule — it re-reads the two facts it
  * needs with its own SQL, under the lock the caller established.
  *
+ * `FamilyAccountController` SITS ON THE FAMILY'S PATH AND LIVES HERE. The money a
+ * family was charged is derived from this module's two tables on every request —
+ * there is no stored balance anywhere in this system — so the read stays beside
+ * the rows it reads and `FamiliesModule` keeps touching no financial table. It
+ * joins `child`, `service` and `therapist` for the names an interface prints,
+ * which is the same read-only reach the posting service already has.
+ *
  * There is deliberately no tariff resolution of its own: `resolveTariffSql` is
  * the catalog's fragment, used unchanged, so "which price applies" has one
  * statement in this system and not three.
  */
 @Module({
   imports: [AuditModule],
-  controllers: [SessionChargesController, ChargeAdjustmentsController],
+  controllers: [SessionChargesController, ChargeAdjustmentsController, FamilyAccountController],
   providers: [
     ChargePostingService,
     ChargeLifecycleGuard,
     SessionChargesService,
     ChargeAdjustmentsService,
+    FamilyAccountService,
   ],
   exports: [ChargePostingService, ChargeLifecycleGuard],
 })

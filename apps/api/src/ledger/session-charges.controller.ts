@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import {
   postSessionChargeRequestSchema,
   voidSessionChargeRequestSchema,
@@ -53,6 +53,42 @@ export class SessionChargesController {
     @Ctx() context: RequestContext,
   ): Promise<PostSessionChargeResponse> {
     return this.charges.post(participantId, session, context);
+  }
+
+  /**
+   * What this seat currently owes.
+   *
+   * THE SAME URL AS THE POST, WITH THE METHOD SAYING WHICH. `POST` raises the
+   * charge for a seat; `GET` reads it. One resource — "this participant's
+   * charge" — and no second vocabulary for the same thing.
+   *
+   * `charge.read` IS HELD BY BOTH ROLES, and reading is all this does: no
+   * transaction, no lock, no audit row. It exists because an appointment screen
+   * has to show whether a session has been charged and what is left after a
+   * concession, and CLAUDE.md forbids the web tier from computing either.
+   *
+   * NO NEW SHAPE AND NO HISTORY LIST. It answers with the frozen
+   * `sessionChargeResponse` that voiding and adjusting already return — ONE
+   * charge — so a screen that reads a charge and a screen that changes one parse
+   * the same object.
+   *
+   * THE ONE CHARGE IS THE STANDING ONE, OR THE LAST WITHDRAWN ONE. A seat whose
+   * charge was voided and not replaced answers with that voided charge, its
+   * reason and its adjustments intact, because "charged and taken back" and
+   * "never charged" are opposite situations for the person deciding whether to
+   * re-post, and a single 404 could not tell them apart. Nothing about that
+   * response is owed: `voidedAt` is set on it, and no total in this system reads
+   * this route.
+   *
+   * 404 ONLY WHEN THE SEAT HAS NO CHARGE HISTORY AT ALL, using the existing
+   * `CHARGE_NOT_FOUND`.
+   */
+  @Get('participants/:participantId')
+  @RequirePermissions('charge.read')
+  async readForParticipant(
+    @Param('participantId', ParseUUIDPipe) participantId: string,
+  ): Promise<SessionChargeResponse> {
+    return this.charges.readForParticipant(participantId);
   }
 
   /**

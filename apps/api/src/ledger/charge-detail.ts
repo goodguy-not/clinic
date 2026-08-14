@@ -96,6 +96,44 @@ export async function findValidChargeForParticipant(
 }
 
 /**
+ * The one charge that represents a seat right now: the valid one if there is
+ * one, otherwise the most recently withdrawn.
+ *
+ * A READ-ONLY REPRESENTATION AND NOT A FINANCIAL FACT. Returning a voided row
+ * here does not make it owed — every total in this system is computed from
+ * `voided_at IS NULL` and none of them consults this function. What it answers is
+ * "what should a screen say about this seat", and for a seat whose charge was
+ * withdrawn the honest answer is "there was a charge and it was taken back",
+ * not silence. `findValidChargeForParticipant` above is the financial predicate
+ * and is unchanged; the posting path still uses that one.
+ *
+ * THE ORDER IS TOTAL, SO THE ANSWER IS ONE ROW AND ALWAYS THE SAME ROW:
+ * 1. `voided_at IS NULL` first — a standing charge always outranks history, and
+ *    the partial unique index guarantees there is at most one of them;
+ * 2. then `voided_at` descending — of several withdrawn charges, the one
+ *    withdrawn last is the one that describes the seat's current situation;
+ * 3. then `created_at` descending, for two rows voided in the same transaction
+ *    timestamp;
+ * 4. then `id` descending, which is a uuidv7 and therefore breaks the last tie by
+ *    creation order rather than arbitrarily.
+ * The final key alone would settle it; the earlier ones are what make the choice
+ * mean something to a reader instead of merely being repeatable.
+ */
+export async function findCurrentOrLatestChargeForParticipant(
+  client: LedgerClient,
+  participantId: string,
+): Promise<ChargeRow | undefined> {
+  const rows = await client.$queryRaw<ChargeRow[]>`
+    SELECT ${CHARGE_COLUMNS} FROM session_charge
+    WHERE appointment_participant_id = ${participantId}::uuid
+    ORDER BY (voided_at IS NULL) DESC, voided_at DESC, created_at DESC, id DESC
+    LIMIT 1
+  `;
+
+  return rows[0];
+}
+
+/**
  * The charge, held `FOR UPDATE` for the rest of the transaction.
  *
  * THE SERIALISATION POINT OF EVERY WRITE TO ONE CHARGE. Two voids of the same row
@@ -198,7 +236,16 @@ export async function readChargeDetail(
   return toChargeDetail(charge, adjustments);
 }
 
-function toChargeDetail(
+/**
+ * The charge, its history and its two sums, from rows the caller already has.
+ *
+ * EXPORTED SO THE FAMILY ACCOUNT USES THIS ARITHMETIC AND NOT ITS OWN. That read
+ * fetches a page of charges and their adjustments in two statements rather than
+ * one detail lookup per row, so it cannot call `readChargeDetail`; what it must
+ * not do is recompute `effectiveAmountToman`, because a second implementation is
+ * a second answer to the only question a family asks.
+ */
+export function toChargeDetail(
   charge: ChargeRow,
   adjustments: readonly AdjustmentRow[],
 ): SessionChargeDetail {
