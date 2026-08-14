@@ -944,6 +944,232 @@ As in every earlier migration, a table owner can still
 `ALTER TABLE ... DISABLE TRIGGER`. Closing that needs a runtime database role that
 does not own these tables, and remains a production hardening item.
 
+## Family ledger (Milestone 5)
+
+The first money in this system. A completed session that a child actually attended
+becomes a **session charge** carrying the price of the day it happened; a manager may
+reduce one with a clinic-funded discount or waiver, or withdraw one entirely; and a
+family account states what the family was charged, per child, derived on every request.
+
+This is the milestone where a record stops being correctable by editing it. Nothing
+financial is deleted and nothing is rewritten: a mistake is voided and re-posted, and
+both rows survive.
+
+### Scope, and what is deliberately absent
+
+Built: the exactly-once primary session charge with its service-date tariff snapshot,
+posted by whichever of completion and attendance is recorded last; the explicit,
+idempotent re-post; manager-only charge void; manager-only clinic-funded adjustments and
+their void; charge-level lifecycle guards that refuse a reopen or an attendance reversal
+while the money still stands; the participant charge read an appointment screen needs;
+and the family account with derived totals.
+
+Not built, and each for a stated reason:
+
+| Absent                                                      | Why                                                                                                                                                                                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Payments, credits, allocation, promises, balance**        | Milestone 6. Nothing here has been paid, so `netChargedTotalToman` says what was asked for and is deliberately not named or shaped like a balance.                                                    |
+| **Shared or therapist-funded discounts**                    | Therapist settlement — effective-dated share percentages and their snapshot onto a session — is Milestone 8 and is not approved. A therapist cannot be said to bear part of a concession until it is. |
+| **Therapist share, settlement period, negative clinic net** | Not computable without the above, and not claimed to be. No column on either table stores a percentage or a share.                                                                                    |
+| **Pre-Milestone-5 and paper debt, opening balances**        | The ledger begins with the first charge this system posts. Historical amounts owed on paper are not represented, and no total here should be read as a family's whole financial history.              |
+| **An upward correction of a charge**                        | `charge_adjustment` only ever reduces. "The family owes more than the session was priced at" is a different fact with no approved rule.                                                               |
+| **Editing or deleting a financial row**                     | Final records are voided or adjusted, never physically deleted (CLAUDE.md, PROJECT_SPEC.md 7). Both tables refuse `DELETE` and `TRUNCATE` outright.                                                   |
+
+No real clinic data appears anywhere. Every fixture, test and example is synthetic
+(PROJECT_SPEC.md 17).
+
+### The two facts, and the one routine that reads them
+
+A primary charge may exist only when the appointment is `COMPLETED` **and** the seat's
+attendance is `ATTENDED`. Those are recorded separately, in either order, and
+`ChargePostingService.post` — the only runtime path that may create a charge — is called
+by completion, by attendance and by the explicit re-post. Whichever fact lands second
+raises the charge; a cancellation and a `NO_SHOW` create nothing because they cannot
+satisfy the conjunction, not because a caller remembered a condition.
+
+`session_charge_one_valid_per_participant_uq` is the final authority on "at most one
+valid charge per seat", and it is partial on `voided_at IS NULL` — which is exactly what
+makes void-then-re-post possible while both rows stay in the table.
+
+A session nobody priced is **not** charged zero. Completion and attendance still succeed,
+the session stands visibly unpriced, and the explicit re-post answers `TARIFF_MISSING`
+until a tariff is recorded. A `FREE` tariff is a different fact and produces a real zero
+charge with `priceMode = FREE`; `session_charge_price_mode_chk` keeps a genuinely free
+session and a paid session waived to zero structurally unreachable from one another.
+
+### Every Milestone 5 discount is clinic-funded
+
+`therapist_discount_toman` is `0` and `clinic_discount_toman` equals the adjustment on
+every row, written by the server and enforced by `charge_adjustment_clinic_borne_chk`.
+The frozen request carries no therapist portion and no override, so a shared or
+therapist-funded concession is **not representable** in this milestone and cannot be
+disguised as a clinic-funded one. The split identity — therapist portion plus clinic
+portion equals the family discount — is stated in its general form and stays when
+Milestone 8 drops the restriction; no historical row is rewritten then, because every
+Milestone 5 adjustment was and remains genuinely clinic-borne.
+
+The cumulative bound is enforced under a lock on the parent charge, so a family's
+effective amount for a session can never go below zero, and a `FREE` charge is
+unadjustable for the same reason — there is nothing priced to reduce.
+
+### Corrections, and what stays visible
+
+Voiding writes three columns and touches nothing else. The snapshot, the actor, the
+instant and the amount stay exactly as raised, and the void carries its own actor, time
+and required reason. A voided charge contributes to no total and remains readable
+forever, as does every adjustment attached to it. Voiding an adjustment restores what it
+had removed, by the read rather than by a stored number, and preserves both reasons.
+
+**A valid charge guards the lifecycle.** Reopening a completed appointment and reversing
+an `ATTENDED` seat both falsify the premise the money rests on, so the ledger refuses
+them with `CHARGE_EXISTS_FOR_PARTICIPANT` — naming the blocking charge and its effective
+amount — and nothing is auto-voided. The approved sequence is: void the charge with a
+financial reason, then correct the session with a lifecycle reason. If the session is
+completed and attended again, the ordinary posting path raises a new charge and the
+withdrawn one stays.
+
+### Totals are derived, never stored
+
+There is no balance column and no cache. Every number in the family account is computed
+from the immutable rows on each request: a charge counts if it is not voided, and an
+adjustment reduces only if neither it nor its parent charge is voided. The totals are one
+aggregate over the whole filtered account, so **turning the page cannot change them**, and
+`includeVoided` narrows the list alone — hiding history is a display choice, never a
+financial one. The read runs in a `REPEATABLE READ` transaction so its four statements
+describe one instant; it takes no locks and blocks no writer.
+
+Group sessions are not collapsed: a row is one charge for one child, keyed by the seat,
+so a family with two children in therapy sees each session attributed to the child who
+was treated.
+
+### Permissions
+
+`charge.read` and `charge.post` are held by the **manager and the receptionist**: reading
+a family account, and raising the charge for a session that happened — the ordinary end
+of the diary work they already own, and idempotent, so holding it can never duplicate
+money.
+
+`charge.void` and `charge.adjust` are **manager-only**, for both granting and withdrawing
+a concession (decision log, 2026-08-14). There is no same-day receptionist window and no
+authority that expires. `permissions.spec.ts` and `guards.int-spec.ts` assert both halves
+— the exact list the receptionist has, and the two they still do not.
+
+### Endpoints
+
+```text
+POST /session-charges/participants/:participantId
+GET  /session-charges/participants/:participantId
+POST /session-charges/:id/void
+POST /session-charges/:chargeId/adjustments
+POST /session-charges/:chargeId/adjustments/:adjustmentId/void
+GET  /families/:id/account
+```
+
+The post names the seat because a charge is not a document a caller composes — it is what
+one seat costs — and the body is empty: every financial value is resolved by the server.
+It answers 200 with `POSTED` or `ALREADY_POSTED`, never 201, because the outcome is what
+an interface renders. The `GET` on the same URL answers with the charge that stands, or
+the most recently withdrawn one if none does, so "charged and taken back" is
+distinguishable from "never charged"; 404 means the seat has no charge history at all.
+
+Adjustments are addressed under their charge and both operations answer with the whole
+charge — its history and its two server-computed totals — so no screen has to work out
+what the family now owes.
+
+`GET /families/:id/account` lives on the family's path and requires `charge.read` rather
+than `family.read`: reading who a family is and reading what they owe are two authorities.
+Nothing on it is audited — `audit_log` is permanent, and copying a financial read into it
+would build a second undeletable store of who was treated and for how much.
+
+### Persian pages
+
+`/families/[id]/account`, plus the charge surfaces on `/appointments` and
+`/appointments/[id]`. All are `force-dynamic`, `noindex`, and carry `Cache-Control:
+no-store` and `Referrer-Policy: same-origin` from `next.config.ts` under the already
+private `/families` and `/appointments` trees.
+
+Every one is a Server Component; Milestone 5 adds no entry to
+`CLIENT_COMPONENT_ALLOWLIST`. No amount is computed in the browser: the pages format the
+decimal strings NestJS states and nothing else. The four state-changing actions post to
+named Route Handlers — `/api/ledger/session-charges/post|void` and
+`/api/ledger/adjustments/create|void` — which verify strict Origin and the CSRF token
+before calling NestJS.
+
+The interface separates the facts that read alike: `رایگان از ابتدا` for a genuinely free
+session and `تعرفهٔ مبلغ‌دار، تخفیف کامل` for a paid one waived to zero; voided rows are
+marked and explained as history with no current effect; every correction form requires a
+reason; and there is no therapist-allocation input anywhere, because there is nothing
+approved for it to mean.
+
+### Database objects
+
+Two tables — `session_charge` and `charge_adjustment` — and no others. No payment,
+credit, promise, balance or settlement table exists, and no financial column was added to
+`appointment` or `appointment_participant`.
+
+The reviewed migration hand-writes nine CHECK constraints, the partial unique index
+`session_charge_one_valid_per_participant_uq`, nine triggers, and four functions:
+`enforce_financial_row_born_active` (a charge inserted already voided would sidestep the
+exactly-once index), `enforce_charge_adjustment_bounds` (the cumulative floor, which locks
+the parent charge `FOR UPDATE` inside the insert), and the two financial immutability
+triggers, which permit exactly one active-to-voided transition and refuse every other
+update including unvoiding. Both tables refuse `DELETE` and `TRUNCATE`.
+
+Every object is pinned by name in `ledger-schema.int-spec.ts`, because `prisma migrate
+diff` sees neither CHECK constraints, partial indexes nor triggers and would let one
+disappear silently.
+
+The lock order extends Milestone 4's rather than competing with it: `appointment` first
+for anything that can create a charge, then `session_charge`, then `charge_adjustment`.
+No path takes them the other way round.
+
+As in every earlier migration, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
+Closing that needs a runtime database role that does not own these tables, and remains a
+production hardening item.
+
+### Verification
+
+Beside the automated suites, the integrated milestone was walked through end to end
+against the **real local API and web stack** with synthetic data only — no real clinic
+record, name or amount was used at any point.
+
+The walkthrough confirmed, in the browser: two children of one family each traceable to
+their own charges; a charge posting automatically from whichever of completion and
+attendance was recorded last; a `FREE` session and an unpriced one rendering as visibly
+different states; a clinic-funded discount reducing the effective amount while the
+original amount and the whole history stayed readable; a discount larger than the
+remaining amount being refused; a charge void changing the derived totals while the row
+stayed visible as history; a reopen refused while a valid charge stood; the approved void
+→ reopen → re-complete sequence raising a new charge with the old voided charge and its
+concession preserved beside it; a re-post pricing the session from its **service date**
+rather than from today; an adjustment void restoring the amount and keeping both reasons;
+the history filters changing what is listed without changing any total; and a
+receptionist reading the account and posting a charge while seeing no manager correction
+control at all. Persian RTL reading order, Jalali dates and toman presentation were
+correct throughout, at both desktop and narrow widths.
+
+**One limitation, stated precisely.** Live browser rendering was exercised, but
+screenshot capture was unavailable in the review environment. The visual checks were
+therefore made against the rendered browser state and layout measurements — text and
+reading order, computed direction, and element-versus-container widths at 1280 and 375
+pixels, which found no overflow or clipping — rather than against captured images. A
+pixel-level aesthetic pass remains a human step.
+
+### Accepted risks and revisit triggers
+
+None of these is a correctness, security or data-integrity issue, and none is committed
+scope for a later milestone.
+
+1. **Correction redirects lose the family account's filter and page state.** After a
+   void or a concession the account reopens unfiltered on the first page. Revisit if it
+   proves to be friction on longer histories.
+2. **A completed, attended participant whose charge was voided and is awaiting a re-post
+   has no dedicated day-view signal.** The appointment detail states it plainly; the day
+   card stays deliberately minimal. Revisit if pilot use shows re-posts being missed.
+3. **The day view reads participant charges one request per participant.** Revisit only
+   if measured pilot latency warrants it — a batch read, not a cache, would be the
+   answer.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the
