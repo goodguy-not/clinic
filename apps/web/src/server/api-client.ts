@@ -169,11 +169,8 @@ const MAX_USER_AGENT_LENGTH = 256;
  * presentation contracts.
  */
 const sessionChargeApiPath = {
-  // The collection path is approved. The participant selector remains an
-  // integration detail for Agent A because F1 deliberately keeps the body
-  // empty; it is isolated here with the other adjustable URL decisions.
   postForParticipant: (participantId: string) =>
-    `/session-charges?appointmentParticipantId=${encodeURIComponent(participantId)}`,
+    `/session-charges/participants/${encodeURIComponent(participantId)}`,
   void: (chargeId: string) => `/session-charges/${encodeURIComponent(chargeId)}/void`,
   // Provisional until the owning backend checkpoints name these routes.
   familyAccount: (familyId: string) => `/families/${encodeURIComponent(familyId)}/account`,

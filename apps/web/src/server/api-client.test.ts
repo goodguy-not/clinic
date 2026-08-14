@@ -355,8 +355,8 @@ describe('frozen ledger endpoints', () => {
     await api.postSessionCharge(participantId, { sessionToken: 'verified-token' });
 
     const url = new URL((captured[0] as Captured).url);
-    expect(url.pathname).toBe('/session-charges');
-    expect(url.searchParams.get('appointmentParticipantId')).toBe(participantId);
+    expect(url.pathname).toBe(`/session-charges/participants/${participantId}`);
+    expect(url.search).toBe('');
     expect(captured[0]?.init.method).toBe('POST');
     expect(JSON.parse(String(captured[0]?.init.body))).toEqual({});
   });
