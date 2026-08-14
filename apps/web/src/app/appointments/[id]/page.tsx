@@ -12,6 +12,7 @@ import {
 import { COPY } from '@/server/copy-fa';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
+import { loadParticipantCharges } from '@/server/appointment-charges';
 import { AppointmentDetail } from '../appointment-detail';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ const SUCCESSES: Record<string, string> = {
   completed: COPY.appointmentCompletedSuccess,
   attendance: COPY.appointmentAttendanceSuccess,
   reopened: COPY.appointmentReopenedSuccess,
+  'charge-posted': 'هزینهٔ جلسه با موفقیت ثبت شد.',
+  'charge-already-posted': 'هزینهٔ معتبر این جلسه پیش‌تر ثبت شده بود.',
 };
 
 export default async function AppointmentDetailPage({
@@ -36,7 +39,8 @@ export default async function AppointmentDetailPage({
   const user = await requireSession({ requirePermission: 'appointment.read' });
   const { id } = await params;
   const token = await readSessionToken();
-  const result = await api.appointmentView(id, await callerContext(token ?? undefined));
+  const context = await callerContext(token ?? undefined);
+  const result = await api.appointmentView(id, context);
   if (!result.ok && result.code === 'APPOINTMENT_NOT_FOUND') notFound();
 
   if (!result.ok) {
@@ -53,6 +57,13 @@ export default async function AppointmentDetailPage({
   const query = await searchParams;
   const rawError = typeof query['error'] === 'string' ? query['error'] : null;
   const rawSuccess = typeof query['success'] === 'string' ? query['success'] : '';
+  const canReadCharges = user.permissions.includes('charge.read');
+  const charges = canReadCharges
+    ? await loadParticipantCharges(
+        result.data.participants.map(({ participant }) => participant.id),
+        context,
+      )
+    : {};
 
   return (
     <>
@@ -66,6 +77,9 @@ export default async function AppointmentDetailPage({
         canCancel={user.permissions.includes('appointment.cancel')}
         canComplete={user.permissions.includes('appointment.complete')}
         canReopen={user.permissions.includes('appointment.reopen')}
+        charges={charges}
+        canReadCharges={canReadCharges}
+        canPostCharge={user.permissions.includes('charge.post')}
       />
     </>
   );

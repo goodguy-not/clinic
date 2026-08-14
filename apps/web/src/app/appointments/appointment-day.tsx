@@ -18,6 +18,7 @@ import {
 } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
 import { toPersianDigits } from '@/server/numerals-fa';
+import { appointmentChargeState, type ParticipantChargeLookup } from '@/ledger/appointment-charge';
 import {
   APPOINTMENT_STATUS_PRESENTATION,
   ATTENDANCE_PRESENTATION,
@@ -26,16 +27,36 @@ import {
   appointmentTimeLabel,
 } from '@/scheduling/appointment-presentation';
 
-const MONEY = new Intl.NumberFormat('fa-IR');
+function ChargeSignal({
+  view,
+  charges,
+}: {
+  view: AppointmentView;
+  charges: ParticipantChargeLookup;
+}) {
+  const states = view.participants.map(({ participant }) =>
+    appointmentChargeState(view, participant.id, charges[participant.id]),
+  );
 
-function TariffBadge({ view }: { view: AppointmentView }) {
-  const tariff = view.tariffSuggestion;
-  if (tariff.status === 'MISSING') return <Badge tone="warning">تعرفه ثبت نشده</Badge>;
-  if (tariff.priceMode === 'FREE') return <Badge tone="info">{COPY.appointmentFreeTariff}</Badge>;
-  return <span>{MONEY.format(BigInt(tariff.priceToman))} تومان</span>;
+  return (
+    <>
+      {states.some((state) => state.kind === 'CHARGED') ? (
+        <Badge tone="success">✓ {COPY.appointmentDayCharged}</Badge>
+      ) : null}
+      {states.some((state) => state.kind === 'UNPRICED') ? (
+        <Badge tone="warning">! {COPY.appointmentDayUnpriced}</Badge>
+      ) : null}
+    </>
+  );
 }
 
-function AppointmentCard({ view }: { view: AppointmentView }) {
+function AppointmentCard({
+  view,
+  charges,
+}: {
+  view: AppointmentView;
+  charges: ParticipantChargeLookup;
+}) {
   const child = view.participants[0]?.child;
   const participant = view.participants[0]?.participant;
   const status = APPOINTMENT_STATUS_PRESENTATION[view.appointment.status];
@@ -76,7 +97,7 @@ function AppointmentCard({ view }: { view: AppointmentView }) {
               {COPY.appointmentFileNumber}: {toPersianDigits(child.fileNumber)}
             </span>
           ) : null}
-          <TariffBadge view={view} />
+          <ChargeSignal view={view} charges={charges} />
         </>
       }
     />
@@ -124,6 +145,7 @@ export function AppointmentDay({
   roomId,
   clearHref,
   errorMessage,
+  charges,
 }: {
   day: AppointmentDayResponse | null;
   selectedDateLabel: string;
@@ -138,6 +160,7 @@ export function AppointmentDay({
   roomId?: string;
   clearHref: string;
   errorMessage: string | null;
+  charges: ParticipantChargeLookup;
 }) {
   const grouped = new Map<string, AppointmentView[]>();
   for (const view of day?.appointments ?? []) {
@@ -251,7 +274,7 @@ export function AppointmentDay({
               timeLabel={appointmentTimeLabel(appointments[0]!.appointment.startsAt)}
             >
               {appointments.map((view) => (
-                <AppointmentCard key={view.appointment.id} view={view} />
+                <AppointmentCard key={view.appointment.id} view={view} charges={charges} />
               ))}
             </ScheduleAgendaGroup>
           ))}

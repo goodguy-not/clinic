@@ -414,6 +414,32 @@ export const COPY = {
   familyAccountPageLabel: 'صفحه',
   familyAccountOfRows: 'ردیف در این فیلتر',
 
+  appointmentChargeTitle: 'وضعیت مالی جلسه',
+  appointmentChargePosted: 'هزینه ثبت شده',
+  appointmentChargeOriginal: 'مبلغ اولیه',
+  appointmentChargeEffective: 'مبلغ مؤثر',
+  appointmentChargeFree: 'هزینهٔ رایگان ثبت شده',
+  appointmentChargeFullyAdjusted: 'تعرفهٔ مبلغ‌دار، تخفیف کامل',
+  appointmentChargeUnpriced: 'نیازمند اصلاح تعرفه',
+  appointmentChargeUnpricedHelp:
+    'این جلسه انجام شده و کودک حاضر بوده است، اما تعرفهٔ قابل اعمالی پیدا نشده؛ بنابراین هیچ مبلغی حدس زده یا به‌عنوان صفر ثبت نشده است.',
+  appointmentChargeRepostHelp:
+    'پس از اصلاح تعرفه، ثبت دوباره را بزنید تا مبلغ فقط در سرور تعیین و ثبت شود.',
+  appointmentChargeReady: 'آمادهٔ ثبت هزینه',
+  appointmentChargeReadyHelp:
+    'جلسه واجد شرایط است و تعرفه پیدا شده، اما هنوز هزینهٔ معتبری برای آن ثبت نشده است.',
+  appointmentChargePostAction: 'ثبت دوبارهٔ هزینه',
+  appointmentChargeNotChargeable: 'بدون هزینهٔ قابل ثبت',
+  appointmentChargeNotChargeableHelp:
+    'این وضعیت خطای قیمت‌گذاری نیست؛ جلسه هنوز واجد شرایط ثبت هزینه نیست یا حضور کودک ثبت نشده است.',
+  appointmentChargeNoShowHelp: 'برای عدم حضور کودک هزینه‌ای ثبت نمی‌شود.',
+  appointmentChargeCancelledHelp: 'برای نوبت لغوشده هزینه‌ای ثبت نمی‌شود.',
+  appointmentChargeVoidedHistory: 'هزینهٔ تاریخی باطل‌شده',
+  appointmentChargeVoidedHelp: 'این ردیف فقط سابقه است و اثر مالی جاری ندارد.',
+  appointmentChargeUnavailable: 'وضعیت هزینه در حال حاضر قابل دریافت نیست.',
+  appointmentDayCharged: 'هزینه ثبت شده',
+  appointmentDayUnpriced: 'نیازمند تعرفه',
+
   duplicateTitle: 'بررسی موارد مشابه',
   duplicateFamilyIntro:
     'اطلاعاتی که وارد کردید با یک یا چند خانوادهٔ ثبت‌شده مشابهت دارد. هر مورد را بررسی کنید؛ اگر مطمئن هستید خانوادهٔ تکراری نیست، آن را تأیید کنید و دوباره ثبت را بزنید.',
