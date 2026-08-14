@@ -124,9 +124,12 @@ describe('session charge void and lifecycle reversal guards', () => {
     });
 
     it('writes exactly one session_charge.voided audit row, carrying no personal data', async () => {
-      await voidChargeOverHttp(harness, session.managerToken, session.chargeId, 'اصلاح مالی').expect(
-        200,
-      );
+      await voidChargeOverHttp(
+        harness,
+        session.managerToken,
+        session.chargeId,
+        'اصلاح مالی',
+      ).expect(200);
 
       const rows = await voidedAuditRowsFor(harness, session.chargeId);
       expect(rows).toHaveLength(1);
@@ -614,7 +617,9 @@ describe('session charge void and lifecycle reversal guards', () => {
     });
 
     it('void → reopen → re-complete raises a NEW charge and keeps the old one voided', async () => {
-      await voidChargeOverHttp(harness, session.managerToken, session.chargeId, 'اصلاح').expect(200);
+      await voidChargeOverHttp(harness, session.managerToken, session.chargeId, 'اصلاح').expect(
+        200,
+      );
       await reopenIt().expect(200);
 
       // The session did happen after all, and the child did attend: the ordinary

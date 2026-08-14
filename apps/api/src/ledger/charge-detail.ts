@@ -1,9 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type {
-  ChargeAdjustment,
-  SessionChargeDetail,
-  TariffPriceMode,
-} from '@clinic/contracts';
+import type { ChargeAdjustment, SessionChargeDetail, TariffPriceMode } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
 import type { PrismaService } from '../prisma/prisma.service';
 
@@ -63,7 +59,7 @@ const ADJUSTMENT_COLUMNS = Prisma.sql`
   reason, created_at, created_by_user_id, voided_at, voided_by_user_id, void_reason
 `;
 
-type AdjustmentRow = {
+export type AdjustmentRow = {
   id: string;
   session_charge_id: string;
   amount_toman: bigint;
@@ -122,6 +118,57 @@ export async function lockChargeRow(
 
   const row = rows[0];
   if (row === undefined) throw new AppError('CHARGE_NOT_FOUND');
+  return row;
+}
+
+/**
+ * What the active adjustments against one charge already take off it.
+ *
+ * ONLY MEANINGFUL UNDER `lockChargeRow`. The number it returns is the basis of
+ * the affordability decision, and a total read without the parent lock is a
+ * total another transaction may already have invalidated — which is the exact
+ * race `enforce_charge_adjustment_bounds` was written to survive. The predicate
+ * matches that trigger's: voided adjustments have no financial effect and are
+ * not counted, whatever they still say.
+ */
+export async function sumActiveAdjustments(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+): Promise<bigint> {
+  const rows = await tx.$queryRaw<{ total: bigint }[]>`
+    SELECT coalesce(sum(amount_toman), 0)::bigint AS total FROM charge_adjustment
+    WHERE session_charge_id = ${chargeId}::uuid AND voided_at IS NULL
+  `;
+
+  return rows[0]?.total ?? 0n;
+}
+
+/**
+ * One adjustment of one charge, held `FOR UPDATE`.
+ *
+ * NAMED BY BOTH IDS, and the parent is part of the predicate rather than
+ * checked afterwards: an adjustment id that belongs to a different charge is not
+ * "found and rejected", it is simply not this charge's adjustment, and
+ * `ADJUSTMENT_NOT_FOUND` is the honest answer. It also means the route cannot be
+ * used to void an arbitrary adjustment by guessing a charge.
+ *
+ * THE CALLER MUST ALREADY HOLD THE PARENT CHARGE'S LOCK. Every write in this
+ * module takes `session_charge` first and `charge_adjustment` second, so two
+ * transactions touching the same charge can never hold one another's next lock.
+ */
+export async function lockAdjustmentRow(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+  adjustmentId: string,
+): Promise<AdjustmentRow> {
+  const rows = await tx.$queryRaw<AdjustmentRow[]>`
+    SELECT ${ADJUSTMENT_COLUMNS} FROM charge_adjustment
+    WHERE id = ${adjustmentId}::uuid AND session_charge_id = ${chargeId}::uuid
+    FOR UPDATE
+  `;
+
+  const row = rows[0];
+  if (row === undefined) throw new AppError('ADJUSTMENT_NOT_FOUND');
   return row;
 }
 

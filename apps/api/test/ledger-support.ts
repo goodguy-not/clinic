@@ -124,13 +124,9 @@ export async function seedPostedSession(harness: Harness): Promise<PostedSession
     priceToman: '250000',
   });
 
-  await recordAttendance(
-    harness,
-    manager.token,
-    appointmentId,
-    participant.id,
-    'ATTENDED',
-  ).expect(200);
+  await recordAttendance(harness, manager.token, appointmentId, participant.id, 'ATTENDED').expect(
+    200,
+  );
   await complete(harness, manager.token, appointmentId).expect(200);
 
   const charge = await harness.prisma.sessionCharge.findFirstOrThrow({
@@ -172,6 +168,57 @@ export function voidChargeOverHttp(
     .post(`/session-charges/${chargeId}/void`)
     .set(asUser(token))
     .send({ reason });
+}
+
+/** The manager-only concession: the charge is named by the path, both fields are required. */
+export function adjustOverHttp(
+  harness: Harness,
+  token: string,
+  chargeId: string,
+  amountToman: string,
+  reason = 'تخفیف آزمایشی',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/session-charges/${chargeId}/adjustments`)
+    .set(asUser(token))
+    .send({ amountToman, reason });
+}
+
+/** Withdrawing a concession: both ids in the path, the reason required. */
+export function voidAdjustmentOverHttp(
+  harness: Harness,
+  token: string,
+  chargeId: string,
+  adjustmentId: string,
+  reason = 'ابطال تخفیف آزمایشی',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/session-charges/${chargeId}/adjustments/${adjustmentId}/void`)
+    .set(asUser(token))
+    .send({ reason });
+}
+
+/**
+ * Every adjustment against one charge, voided rows included, oldest first.
+ *
+ * Read straight from the table, for the reason `chargeRowsFor` is: "exactly one
+ * row exists" is a claim about the database, and a read that hid voided rows
+ * could not tell one concession from three.
+ */
+export function adjustmentRowsFor(harness: Harness, chargeId: string) {
+  return harness.prisma.chargeAdjustment.findMany({
+    where: { sessionChargeId: chargeId },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/** The `charge_adjustment.*` rows written for one adjustment. */
+export function adjustmentAuditRowsFor(
+  harness: Harness,
+  action: 'charge_adjustment.created' | 'charge_adjustment.voided',
+  adjustmentId: string,
+) {
+  return harness.prisma.auditLog.findMany({ where: { action, entityId: adjustmentId } });
 }
 
 /** The `session_charge.voided` rows written for one charge. */

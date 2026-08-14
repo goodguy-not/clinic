@@ -463,7 +463,9 @@ describe('session charge posting (real PostgreSQL)', () => {
       expect(await charges()).toHaveLength(1);
       expect((await charges())[0]?.voidedAt).toBeNull();
 
-      await voidChargeOverHttp(harness, session.managerToken, chargeId, 'ابطال آزمایشی').expect(200);
+      await voidChargeOverHttp(harness, session.managerToken, chargeId, 'ابطال آزمایشی').expect(
+        200,
+      );
       await reopen(harness, session.managerToken, session.appointmentId, 'اصلاح آزمایشی').expect(
         200,
       );

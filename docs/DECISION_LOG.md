@@ -1294,3 +1294,34 @@ carries no financial value.
 
 - **Revisit when:** never for the two outcomes. A third would mean a post can
   succeed in a way that is neither of these, which no approved rule produces.
+
+## 2026-08-14 — Adjustments are addressed under their charge, and voiding one is the same authority as granting it
+
+**Status:** Accepted
+
+The two runtime adjustment operations are:
+
+- `POST /session-charges/:chargeId/adjustments` — grant a concession;
+- `POST /session-charges/:chargeId/adjustments/:adjustmentId/void` — withdraw one.
+
+Both require `charge.adjust`, both answer HTTP 200 with the frozen
+`sessionChargeResponse` — the charge as it now stands, with its whole adjustment
+history and the two server-computed totals — and the void names both ids, so an
+adjustment belonging to a different charge is `ADJUSTMENT_NOT_FOUND` rather than
+a mismatch discovered after the fact.
+
+- **Alternatives:** a top-level `/charge-adjustments/:id` resource; a separate
+  `charge.adjust_void` permission; 201 on the create with the adjustment as the
+  body.
+- **Reason:** an adjustment exists only to reduce one specific charge and its
+  bound is that charge's amount, so it has no meaning addressed on its own. The
+  response is the charge rather than the created row because the caller's next
+  question is always "what does the family owe now", and CLAUDE.md forbids the
+  web tier from computing that — 201 with the adjustment would force a second
+  request to answer it. A person who may not grant a concession may not undo
+  somebody else's either, so splitting the permission would create an authority
+  nobody was given.
+- **Trade-off:** the web tier must hold the charge id to address an adjustment,
+  which it always does — it read the adjustment from that charge's detail.
+- **Revisit when:** Milestone 8 introduces a therapist-borne portion, which
+  changes what the request carries and nothing about where it is addressed.

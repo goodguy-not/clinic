@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { ChargeAdjustmentsController } from './charge-adjustments.controller';
+import { ChargeAdjustmentsService } from './charge-adjustments.service';
 import { ChargeLifecycleGuard } from './charge-lifecycle-guard';
 import { ChargePostingService } from './charge-posting.service';
 import { SessionChargesController } from './session-charges.controller';
@@ -15,11 +17,11 @@ import { SessionChargesService } from './session-charges.service';
  * writes nothing in any of them. `AppointmentsModule` owns those tables and
  * keeps owning them; this module never changes a status or an attendance.
  *
- * `ChargePostingService` IS EXPORTED AND `SessionChargesService` IS NOT. The
- * appointment lifecycle needs to post a charge inside its own transaction, so the
- * routine that does it crosses the module boundary; the class that opens a
- * transaction for the HTTP endpoint does not, because a caller that already has
- * one must never reach it. Making that a module fact rather than a convention is
+ * `ChargePostingService` IS EXPORTED AND NEITHER `SessionChargesService` NOR
+ * `ChargeAdjustmentsService` IS. The appointment lifecycle needs to post a charge
+ * inside its own transaction, so the routine that does it crosses the module
+ * boundary; the classes that open a transaction for an HTTP endpoint do not,
+ * because a caller that already has one must never reach them. Making that a module fact rather than a convention is
  * what keeps "the charge commits with the completion that caused it" true.
  *
  * `ChargeLifecycleGuard` CROSSES FOR THE SAME REASON, IN THE OTHER DIRECTION.
@@ -40,8 +42,13 @@ import { SessionChargesService } from './session-charges.service';
  */
 @Module({
   imports: [AuditModule],
-  controllers: [SessionChargesController],
-  providers: [ChargePostingService, ChargeLifecycleGuard, SessionChargesService],
+  controllers: [SessionChargesController, ChargeAdjustmentsController],
+  providers: [
+    ChargePostingService,
+    ChargeLifecycleGuard,
+    SessionChargesService,
+    ChargeAdjustmentsService,
+  ],
   exports: [ChargePostingService, ChargeLifecycleGuard],
 })
 export class LedgerModule {}

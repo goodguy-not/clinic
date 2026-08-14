@@ -36,6 +36,28 @@ export function isForeignKeyViolation(error: unknown): boolean {
 }
 
 /**
+ * SQLSTATE 23514, check_violation.
+ *
+ * Raised both by a table CHECK and by a trigger that raises with that ERRCODE —
+ * the ledger's cumulative adjustment floor is the second kind, because the rule
+ * spans rows and no CHECK can see them.
+ */
+export function isCheckViolation(error: unknown): boolean {
+  return hasSqlState(error, '23514');
+}
+
+/**
+ * SQLSTATE 23001, restrict_violation.
+ *
+ * The single code every "the database refuses to rewrite this" guard in this
+ * project raises: the no-delete trigger, the born-active trigger, and both
+ * financial immutability triggers.
+ */
+export function isRestrictViolation(error: unknown): boolean {
+  return hasSqlState(error, '23001');
+}
+
+/**
  * True when the violation names the given constraint.
  *
  * One table can have several constraints of the same class — `tariff` alone has
