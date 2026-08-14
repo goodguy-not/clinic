@@ -1,7 +1,9 @@
 import { Prisma } from '@prisma/client';
+import request from 'supertest';
 import { uuidv7 } from '../src/common/uuid';
 import type { Harness } from './harness';
 import {
+  asUser,
   bookId,
   bookingPayload,
   complete,
@@ -36,6 +38,7 @@ export type LedgerFixture = {
   childId: string;
   serviceId: string;
   therapistId: string;
+  roomId: string;
   appointmentId: string;
   participantId: string;
   tariffId: string;
@@ -46,19 +49,25 @@ export type LedgerFixture = {
 };
 
 /**
- * A completed appointment with one attended child, and a price that covered it.
+ * A completed appointment with one attended child, and a price that covers it.
  *
  * The whole precondition of a primary session charge, in one call.
+ *
+ * THE TARIFF IS RECORDED LAST, AFTER THE SESSION IS COMPLETE, and the order is
+ * load-bearing rather than incidental. From checkpoint A3 the completion posts
+ * the charge automatically, and a fixture that arrived already charged would
+ * collide with every schema suite below — all of which insert their own charge
+ * with raw SQL, because what those suites test is that the rules hold against a
+ * caller that is not the service. Completing an unpriced session writes nothing
+ * and leaves the seat chargeable, so the fixture still means exactly what it
+ * meant in A1: a session that MAY be charged and has not been.
+ *
+ * `seedPostedSession` below is the fixture for the other question — a session
+ * the application itself has charged.
  */
 export async function seedChargeableSession(harness: Harness): Promise<LedgerFixture> {
   const manager = await signIn(harness, 'MANAGER');
   const clinic = await seedClinic(harness, manager.token);
-
-  const tariffId = await makeTariff(harness, manager.token, {
-    serviceId: clinic.serviceId,
-    durationMinutes: 45,
-    priceToman: '250000',
-  });
 
   const appointmentId = await bookId(harness, manager.token, bookingPayload(clinic));
 
@@ -69,6 +78,12 @@ export async function seedChargeableSession(harness: Harness): Promise<LedgerFix
   await recordAttendance(harness, manager.token, appointmentId, participant.id, 'ATTENDED');
   await complete(harness, manager.token, appointmentId);
 
+  const tariffId = await makeTariff(harness, manager.token, {
+    serviceId: clinic.serviceId,
+    durationMinutes: 45,
+    priceToman: '250000',
+  });
+
   return {
     managerId: manager.id,
     managerToken: manager.token,
@@ -76,12 +91,114 @@ export async function seedChargeableSession(harness: Harness): Promise<LedgerFix
     childId: clinic.childId,
     serviceId: clinic.serviceId,
     therapistId: clinic.therapistId,
+    roomId: clinic.roomId,
     appointmentId,
     participantId: participant.id,
     tariffId,
     serviceDate: SATURDAY,
     durationMinutes: 45,
   };
+}
+
+/**
+ * A booked session and nothing else: no attendance, no completion, no price.
+ *
+ * The starting point for every A3 test that cares about the ORDER the two facts
+ * arrive in, which the higher-level fixture above has already fixed.
+ */
+export async function seedBookedSession(harness: Harness): Promise<BookedSession> {
+  const manager = await signIn(harness, 'MANAGER');
+  const clinic = await seedClinic(harness, manager.token);
+  const appointmentId = await bookId(harness, manager.token, bookingPayload(clinic));
+
+  const participant = await harness.prisma.appointmentParticipant.findFirstOrThrow({
+    where: { appointmentId },
+  });
+
+  return {
+    managerId: manager.id,
+    managerToken: manager.token,
+    ...clinic,
+    appointmentId,
+    participantId: participant.id,
+    serviceDate: SATURDAY,
+  };
+}
+
+export type BookedSession = {
+  managerId: string;
+  managerToken: string;
+  serviceId: string;
+  therapistId: string;
+  roomId: string;
+  familyId: string;
+  childId: string;
+  appointmentId: string;
+  participantId: string;
+  serviceDate: string;
+};
+
+/** The explicit, idempotent re-post: the seat is named by the path, the body is empty. */
+export function postCharge(harness: Harness, token: string, participantId: string): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/session-charges/participants/${participantId}`)
+    .set(asUser(token))
+    .send({});
+}
+
+/**
+ * A genuinely complimentary programme, which is a different fact from a priced
+ * session discounted to nothing (DECISION_LOG, 2026-08-06).
+ */
+export async function makeFreeTariff(
+  harness: Harness,
+  token: string,
+  serviceId: string,
+  durationMinutes = 45,
+): Promise<string> {
+  const response = await request(harness.app.getHttpServer())
+    .post('/catalog/tariffs')
+    .set(asUser(token))
+    .send({
+      serviceId,
+      durationMinutes,
+      therapistId: null,
+      priceMode: 'FREE',
+      freeReason: 'برنامهٔ رایگان آزمایشی',
+      confirmFreePrice: true,
+      effectiveStart: '2020-01-01',
+      effectiveEnd: null,
+    });
+
+  if (response.status !== 201) {
+    throw new Error(
+      `Expected 201 seeding a free tariff, got ${String(response.status)} ` +
+        `(${String(response.body?.error?.code ?? 'no code')})`,
+    );
+  }
+
+  return response.body.tariff.id as string;
+}
+
+/**
+ * Every charge a seat has ever had, voided rows included, oldest first.
+ *
+ * Read straight from the table rather than through an endpoint: "exactly one row
+ * exists" is a claim about the database, and a read that filtered voided rows
+ * could not distinguish "one charge" from "three, two of them withdrawn".
+ */
+export function chargeRowsFor(harness: Harness, participantId: string) {
+  return harness.prisma.sessionCharge.findMany({
+    where: { appointmentParticipantId: participantId },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/** The `session_charge.posted` rows written for one charge. */
+export function postedAuditRowsFor(harness: Harness, chargeId: string) {
+  return harness.prisma.auditLog.findMany({
+    where: { action: 'session_charge.posted', entityId: chargeId },
+  });
 }
 
 export type ChargeOverrides = {
@@ -150,7 +267,8 @@ export async function insertCharge(
  */
 export async function voidCharge(
   harness: Harness,
-  fixture: LedgerFixture,
+  /** Only the actor is needed; both fixture shapes carry one. */
+  fixture: { managerId: string },
   chargeId: string,
 ): Promise<void> {
   await harness.prisma.$executeRaw`

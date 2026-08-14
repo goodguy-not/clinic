@@ -9,6 +9,7 @@ import type {
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/catalog-support';
+import { ChargePostingService } from '../ledger/charge-posting.service';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
@@ -39,11 +40,11 @@ import {
  * occurrence is booked by exactly the code that books a single appointment, and
  * the recurrence checkpoint added no second answer to any conflict question.
  *
- * Nothing financial appears in either: no tariff is read, no price is
- * snapshotted, no charge is created. Pricing a session is Milestone 5's, and
- * this class could not do it — it never looks at a tariff. The read-only price
- * suggestion an operational screen shows is computed by `AppointmentReadService`,
- * which writes nothing, and is deliberately not visible from any method here.
+ * NO FINANCIAL RULE APPEARS IN EITHER: no tariff is read here, no price is
+ * decided, no amount is computed. This class could not price a session — it never
+ * looks at a tariff. The read-only price suggestion an operational screen shows
+ * is computed by `AppointmentReadService`, which writes nothing, and is
+ * deliberately not visible from any method here.
  *
  * TWO FACTS, RECORDED SEPARATELY AND NEVER DERIVED FROM EACH OTHER. The
  * booking's `status` says what happened to the session; a seat's `attendance`
@@ -52,6 +53,15 @@ import {
  * `complete` does not resolve an outcome. Milestone 5's rule — only an attended
  * participant in a completed appointment may be charged — needs both facts, and
  * gets them because neither was invented from the other.
+ *
+ * WHICHEVER OF THE TWO IS RECORDED SECOND POSTS THE CHARGE. Both writes hand the
+ * seat to `ChargePostingService` on their own transaction once their own fact is
+ * recorded, and that routine — not this class — decides whether the seat may be
+ * charged, at what price, and whether it already has been. Neither method knows
+ * the eligibility rule and neither may skip a call to avoid it: a `NO_SHOW`, a
+ * cancellation and a still-`PENDING` seat all produce nothing because the ledger
+ * refuses them, not because a caller remembered a condition. The charge commits
+ * with the fact that caused it or not at all.
  *
  * THE FOUR STATUSES ARE THE WHOLE LIFECYCLE, FOR A RECURRING OCCURRENCE AS MUCH
  * AS FOR A ONE-OFF. A move is an audited in-place update of a `SCHEDULED` row,
@@ -159,6 +169,7 @@ export class AppointmentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly rules: SchedulingRules,
+    private readonly charges: ChargePostingService,
   ) {}
 
   async get(id: string): Promise<AppointmentDetail> {
@@ -440,17 +451,26 @@ export class AppointmentsService {
   /**
    * Records that a scheduled session took place.
    *
-   * THE TRANSITION MILESTONE 5 WILL HANG THE SESSION CHARGE ON, and the reason
-   * this is a single, guarded, audited step from `SCHEDULED` rather than a
-   * status a caller may set. Nothing financial happens here yet, and nothing
-   * here presumes what will: it changes a status and writes an audit row.
+   * THE TRANSITION THE SESSION CHARGE HANGS ON, and the reason this is a single,
+   * guarded, audited step from `SCHEDULED` rather than a status a caller may set.
+   *
+   * EVERY SEAT IS OFFERED TO THE LEDGER, unconditionally, on this transaction.
+   * The ones that are already `ATTENDED` are charged; a `PENDING` or `NO_SHOW`
+   * seat is declined by `ChargePostingService` and nothing is written for it.
+   * Filtering here instead would put a second copy of the eligibility rule in the
+   * one place that must not have one — and the filter, not the rule, is what a
+   * later edit would quietly get wrong.
    *
    * IDEMPOTENT BY DESIGN, not by luck. A completed appointment completed again
    * returns exactly what the first request produced and writes no second audit
    * row — the appointment row is held `FOR UPDATE`, so two simultaneous requests
    * cannot both see `SCHEDULED`, and PROJECT_SPEC.md 6 requires repeated
-   * submissions to be idempotent because this is the transition that will create
-   * money. A cancelled appointment cannot be completed: it did not happen.
+   * submissions to be idempotent because this is the transition that creates
+   * money. The early return also posts nothing: a repeated submission is not a
+   * request to raise a charge, and a session left unpriced by a missing tariff is
+   * recovered through the explicit re-post, which says so out loud instead of
+   * depending on somebody pressing a button twice. A cancelled appointment cannot
+   * be completed: it did not happen, so it can produce no charge either.
    *
    * IT DOES NOT TOUCH ATTENDANCE. Completing the session and saying which child
    * arrived are two facts, and inferring one from the other is what would let a
@@ -484,6 +504,17 @@ export class AppointmentsService {
         before: auditAppointment(current, participants),
         after: auditAppointment(completed, participants),
       });
+
+      // After the status is recorded and audited, so the charge is raised against
+      // a session the same transaction has already established as completed.
+      for (const participant of participants) {
+        await this.charges.post(tx, {
+          participantId: participant.id,
+          actor,
+          context,
+          trigger: 'APPOINTMENT_COMPLETED',
+        });
+      }
 
       return detailOf(completed, participants);
     });
@@ -565,7 +596,15 @@ export class AppointmentsService {
    * else, and neither changes the booking's status: the room was held and the
    * therapist waited whether or not the child arrived. A `NO_SHOW` creates no
    * charge, and will create none until the clinic approves a policy (CLAUDE.md,
-   * non-negotiable rules) — nothing in this method knows what a session costs.
+   * non-negotiable rules) — nothing in this method knows what a session costs,
+   * and the ledger declines the seat rather than this method skipping it.
+   *
+   * RECORDING `ATTENDED` ON AN ALREADY-COMPLETED SESSION RAISES THE CHARGE, which
+   * is the second of the two orders the rule has to survive. The seat is offered
+   * to the ledger on this transaction once the outcome is recorded; if the
+   * appointment is still `SCHEDULED`, nothing is written and the completion that
+   * follows raises it instead. Repeating the same outcome stays a no-op and posts
+   * nothing — the fact did not change, so nothing new happened to charge for.
    *
    * THE APPOINTMENT IS LOCKED FIRST, even though the write is to the seat: an
    * attendance recorded against an appointment being cancelled in the same
@@ -631,6 +670,17 @@ export class AppointmentsService {
         // The booking this seat belongs to, so an appointment's outcomes can be
         // read out of the audit trail without joining the seat table.
         metadata: { appointmentId, appointmentStatus: appointment.status },
+      });
+
+      // THE OTHER ORDER. If the session was already completed, this is the fact
+      // that arrived last and the charge is raised now. Offered unconditionally:
+      // a `NO_SHOW` recorded against a completed session is declined by the
+      // ledger, which is where "a no-show creates no charge" is enforced.
+      await this.charges.post(tx, {
+        participantId,
+        actor,
+        context,
+        trigger: 'ATTENDANCE_RECORDED',
       });
 
       return detailOf(appointment, participants);

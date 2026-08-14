@@ -140,11 +140,15 @@ describe('guard chain (real PostgreSQL)', () => {
         ).body,
       );
 
-      // Milestone 3 gave the receptionist their first permissions and Milestone 4
-      // added the operational set: four catalog reads, availability read, and the
-      // diary — book, move, cancel, complete, and override availability with a
-      // recorded reason. Asserted as an exact list, so a permission leaking into
-      // that role fails here rather than in review.
+      // Milestone 3 gave the receptionist their first permissions, Milestone 4
+      // added the operational set — four catalog reads, availability read, and
+      // the diary: book, move, cancel, complete, and override availability with a
+      // recorded reason — and Milestone 5 added reading a family account and
+      // raising the charge for a session that happened, which is the ordinary end
+      // of that diary work. `charge.void` and `charge.adjust` are deliberately
+      // absent (DECISION_LOG, 2026-08-14 — Charge adjustment and void authority
+      // is manager-only) and are asserted absent below. The list is exact, so a
+      // permission leaking into that role fails here rather than in review.
       expect([...asReceptionist.user.permissions].sort()).toEqual([
         'appointment.cancel',
         'appointment.complete',
@@ -153,6 +157,8 @@ describe('guard chain (real PostgreSQL)', () => {
         'appointment.read',
         'appointment.update',
         'availability.read',
+        'charge.post',
+        'charge.read',
         'child.create',
         'child.read',
         'child.update',
@@ -181,6 +187,10 @@ describe('guard chain (real PostgreSQL)', () => {
         'therapist.update_status',
         'availability.manage',
         'appointment.reopen',
+        // The money side of the same boundary: raising a charge is theirs,
+        // withdrawing one and reducing one are the manager's.
+        'charge.void',
+        'charge.adjust',
       ]) {
         expect(asReceptionist.user.permissions).not.toContain(forbidden);
       }
@@ -298,7 +308,10 @@ describe('guard chain (real PostgreSQL)', () => {
       // appointment day: read
       // appointment series: preview, create, read, cancel-from (POST),
       //                     update-from (PATCH)
-      expect(routes).toBe(68);
+      // session charges: post for a participant (the explicit, idempotent
+      //                  re-post). Voiding and adjusting arrive in later
+      //                  checkpoints and are deliberately not routed yet.
+      expect(routes).toBe(69);
     });
   });
 });

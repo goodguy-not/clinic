@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { AvailabilityModule } from './availability/availability.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { FamiliesModule } from './families/families.module';
+import { LedgerModule } from './ledger/ledger.module';
 import { InternalKeyGuard } from './auth/guards/internal-key.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { SessionGuard } from './auth/guards/session.guard';
@@ -39,6 +40,7 @@ import { UsersModule } from './users/users.module';
     CatalogModule,
     AvailabilityModule,
     AppointmentsModule,
+    LedgerModule,
     FamiliesModule,
     HealthModule,
   ],

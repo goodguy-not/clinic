@@ -1200,3 +1200,97 @@ raised.
 
 The permission vocabulary that expresses this is checkpoint A2's; this entry
 fixes the decision it must implement.
+
+---
+
+## 2026-08-14 — One posting routine, called by whichever fact lands second
+
+**Status:** Accepted
+
+A primary session charge is created by exactly one runtime routine,
+`ChargePostingService.post`. Nothing else in the system may insert a
+`session_charge` row. Three callers reach it: completing an appointment,
+recording an attendance, and the explicit re-post endpoint.
+
+It runs inside the caller's transaction, re-reads both eligibility facts under
+the appointment's `FOR UPDATE` lock, returns the existing valid charge on a
+retry, resolves the tariff with the catalog's `resolveTariffSql`, snapshots the
+delivered facts, inserts, and writes `session_charge.posted` — all or nothing.
+
+**Both orders are first-class.** `appointment.status = COMPLETED` and the seat's
+`attendance = ATTENDED` are recorded separately, neither implies the other, and
+the charge is raised by whichever becomes true LAST. Completion offers every seat
+to the ledger and an attendance record offers its own, unconditionally; the
+routine declines what is not eligible. A cancellation and a `NO_SHOW` therefore
+create nothing without either needing a rule of its own, which is how CLAUDE.md's
+two "creates no charge" defaults are enforced — by a conjunction that cannot be
+satisfied, not by a caller remembering a condition.
+
+- **Alternatives:** posting only on completion and requiring a manual re-post for
+  late attendance; a trigger on the two tables; an eligibility filter in each
+  lifecycle caller.
+- **Reason:** the clinic produces both orders — a child marked in on arrival and
+  completed afterwards, or a day completed in a batch with attendance resolved
+  later — and an implementation that charges only on completion silently bills
+  nobody whose attendance is entered late. A database trigger cannot write the
+  audit row or resolve the actor. A filter in each caller is a second copy of the
+  eligibility rule, and the copy is what drifts.
+- **Trade-off:** completing an appointment now issues a small number of extra
+  statements per seat, inside the transaction it already held.
+- **Enforced by:** `session_charge_one_valid_per_participant_uq` as the final
+  authority (checkpoint A1), the appointment row lock as the serialisation point
+  above it, and `LedgerModule` exporting the posting routine and nothing else, so
+  no caller can open its own transaction around a charge.
+- **Revisit when:** group appointments are approved, which multiplies seats per
+  completion but changes nothing about the rule.
+
+## 2026-08-14 — A missing tariff never invents a zero charge, and never rolls back an outcome
+
+**Status:** Accepted
+
+When no tariff applies to a completed, attended session, AUTOMATIC posting writes
+nothing and the completion or attendance record still succeeds. The session
+stands as completed, attended and unpriced, and `AppointmentView.tariffSuggestion`
+already reports `MISSING` for exactly that session.
+
+The EXPLICIT re-post answers the same condition with `TARIFF_MISSING` (404). A
+person asking for the charge to be raised now is told why it was not.
+
+A `FREE` tariff is a different fact and produces a real charge of zero with
+`priceMode = FREE`.
+
+- **Alternatives:** rolling back the completion; storing a zero charge and
+  correcting it later; blocking completion until a tariff exists.
+- **Reason:** the session happening and the child attending are clinical facts
+  that have already occurred, and refusing to record them because nobody entered
+  a price loses the fact to protect the invoice. A zero charge is worse: it is
+  indistinguishable in every total from a genuinely free session, and
+  PROJECT_SPEC.md 5 requires a pricing gap to be visible rather than silently
+  priced at nothing.
+- **Trade-off:** an unpriced completed session is recoverable but not
+  self-healing — somebody has to record the tariff and re-post.
+- **Revisit when:** the pilot shows unpriced sessions accumulating unnoticed, at
+  which point the answer is a dashboard count, not an automatic zero.
+
+## 2026-08-14 — F2: the charge posting result vocabulary is frozen
+
+**Status:** Accepted
+
+`chargePostResult` has exactly two runtime values, both carrying the charge:
+
+- `POSTED` — a charge was created by this request;
+- `ALREADY_POSTED` — a valid charge already existed and is returned unchanged.
+
+Both are HTTP 200. Everything else is a normal error envelope:
+`CHARGE_NOT_ELIGIBLE` (422), `TARIFF_MISSING` (404),
+`APPOINTMENT_PARTICIPANT_NOT_FOUND` (404), `VALIDATION_FAILED` (400).
+`CHARGE_EXISTS_FOR_PARTICIPANT` is never raised by an explicit re-post; it
+remains reserved for a path where a SECOND charge would otherwise be created.
+
+The route is `POST /session-charges/participants/:participantId` with an empty
+body. The seat is named by the path because a charge is not a document a caller
+composes — it is what one seat costs — and F1 already states that the body
+carries no financial value.
+
+- **Revisit when:** never for the two outcomes. A third would mean a post can
+  succeed in a way that is neither of these, which no approved rule produces.

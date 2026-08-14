@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AvailabilityModule } from '../availability/availability.module';
+import { LedgerModule } from '../ledger/ledger.module';
 import { AppointmentReadService } from './appointment-read.service';
 import { AppointmentSeriesService } from './appointment-series.service';
 import {
@@ -33,17 +34,27 @@ import { SchedulingRules } from './scheduling-rules';
  * stays there — a second implementation here would eventually disagree with it,
  * and the disagreement would decide whether somebody's booking was refused.
  *
- * NOTHING FINANCIAL IS WRITTEN, and only one thing financial is read. The
- * operational read model resolves the clinic's own price list as a suggestion,
- * with `resolveTariffSql` — the SQL `/catalog/tariff-resolution` answers with,
- * so there is one statement of "which price applies" rather than two that can
- * drift. It is a pure read: no price snapshot, no charge and no amount is
- * stored by anything in this module, and `AppointmentsService` — which owns
- * every write — cannot see a tariff at all. Pricing a session belongs to
- * Milestone 5.
+ * NO FINANCIAL RULE LIVES HERE, and no financial row is written by this module's
+ * own SQL. Two financial things touch it, and both belong to somebody else.
+ *
+ * The operational read model resolves the clinic's own price list as a
+ * SUGGESTION, with `resolveTariffSql` — the SQL `/catalog/tariff-resolution`
+ * answers with, so there is one statement of "which price applies" rather than
+ * two that can drift. It is a pure read: no price snapshot and no amount is
+ * stored by anything here, and `AppointmentsService` still cannot see a tariff at
+ * all.
+ *
+ * From Milestone 5 the two lifecycle writes that can make a session chargeable —
+ * completing it, and recording that a child attended — CALL THE LEDGER'S posting
+ * routine inside their own transaction, so the charge and the fact that caused it
+ * commit together. `LedgerModule` decides everything about that charge:
+ * eligibility, price, snapshot, idempotency and audit. This module supplies a
+ * transaction and a participant id, and would be unable to write a charge if it
+ * wanted to — it holds no charge SQL and the ledger exports no other way in.
+ * The dependency points one way and no cycle exists.
  */
 @Module({
-  imports: [AuditModule, AvailabilityModule],
+  imports: [AuditModule, AvailabilityModule, LedgerModule],
   controllers: [AppointmentsController, AppointmentSeriesController, AppointmentDayController],
   providers: [
     AppointmentsService,
