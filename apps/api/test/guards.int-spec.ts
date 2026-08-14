@@ -309,9 +309,11 @@ describe('guard chain (real PostgreSQL)', () => {
       // appointment series: preview, create, read, cancel-from (POST),
       //                     update-from (PATCH)
       // session charges: post for a participant (the explicit, idempotent
-      //                  re-post), void a charge (manager-only)
+      //                  re-post), read a participant's charge, void a charge
+      //                  (manager-only)
       // charge adjustments: grant a concession, void one (both manager-only)
-      expect(routes).toBe(72);
+      // family account:  read one family's ledger
+      expect(routes).toBe(74);
     });
   });
 });

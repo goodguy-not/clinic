@@ -4,9 +4,9 @@ import { api } from '@/server/api-client';
 import type { ParticipantChargeLookup } from '@/ledger/appointment-charge';
 
 /**
- * Adapts the provisional participant-scoped read into an explicit three-way
- * value: detail, confirmed absence, or unavailable read. The provisional URL
- * remains isolated in api-client.ts.
+ * Adapts the frozen participant-scoped read into an explicit three-way value:
+ * detail, confirmed absence, or unavailable read. The Nest URL remains isolated
+ * in api-client.ts.
  */
 export async function loadParticipantCharges(
   participantIds: readonly string[],

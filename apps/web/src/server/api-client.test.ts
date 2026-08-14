@@ -362,15 +362,20 @@ describe('frozen ledger endpoints', () => {
   });
 
   it('reads appointment charge state by participant without a generic lookup', async () => {
-    mockFetch(200, charge);
+    // The frozen `sessionChargeResponse` envelope NestJS actually answers with,
+    // not a bare charge: parsing the wrong one fails on every charged seat.
+    mockFetch(200, { charge });
 
-    await api.getParticipantSessionCharge(participantId, { sessionToken: 'verified-token' });
+    const result = await api.getParticipantSessionCharge(participantId, {
+      sessionToken: 'verified-token',
+    });
 
     expect(new URL((captured[0] as Captured).url).pathname).toBe(
       `/session-charges/participants/${participantId}`,
     );
     expect(captured[0]?.init.method).toBe('GET');
     expect(captured[0]?.init.cache).toBe('no-store');
+    expect(result.ok && result.data).toEqual(charge);
   });
 
   it('exposes only the three frozen correction writes with typed bodies', async () => {

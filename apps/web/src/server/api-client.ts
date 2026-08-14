@@ -23,7 +23,6 @@ import {
   serviceListResponseSchema,
   serviceResponseSchema,
   sessionResponseSchema,
-  sessionChargeDetailSchema,
   sessionChargeResponseSchema,
   tariffListResponseSchema,
   tariffResponseSchema,
@@ -741,16 +740,28 @@ export const api = {
       {},
     ),
 
-  getParticipantSessionCharge: (
+  /**
+   * The seat's current charge, unwrapped for the callers that only want it.
+   *
+   * NestJS answers this read with the frozen `sessionChargeResponse` — the same
+   * `{ charge }` envelope every ledger write returns — so it is parsed as that
+   * and the charge is handed on. Parsing the bare detail against the envelope
+   * would fail on every seat that has a charge at all, which is precisely the
+   * seat this read exists for.
+   */
+  getParticipantSessionCharge: async (
     participantId: string,
     context: CallerContext,
-  ): Promise<ApiResult<SessionChargeDetail>> =>
-    call(
+  ): Promise<ApiResult<SessionChargeDetail>> => {
+    const result = await call(
       sessionChargeApiPath.participantChargeState(participantId),
       'GET',
-      sessionChargeDetailSchema,
+      sessionChargeResponseSchema,
       context,
-    ),
+    );
+
+    return result.ok ? { ...result, data: result.data.charge } : result;
+  },
 
   voidSessionCharge: (
     chargeId: string,
