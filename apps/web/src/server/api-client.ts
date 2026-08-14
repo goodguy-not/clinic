@@ -164,18 +164,17 @@ const MAX_USER_AGENT_LENGTH = 256;
 
 /**
  * Nest ledger URLs are owned by the API workstream, not by the browser-facing
- * `/api/ledger/*` handlers. Keep the unfrozen read/A5 choices isolated here so
- * Agent A's owning checkpoint can settle them without reshaping Web callers or
- * presentation contracts.
+ * `/api/ledger/*` handlers. Keep the finalized read and correction paths
+ * isolated here so Web callers and presentation contracts do not encode Nest
+ * routing details.
  */
 const sessionChargeApiPath = {
   postForParticipant: (participantId: string) =>
     `/session-charges/participants/${encodeURIComponent(participantId)}`,
   void: (chargeId: string) => `/session-charges/${encodeURIComponent(chargeId)}/void`,
-  // Provisional until the owning backend checkpoints name these routes.
   familyAccount: (familyId: string) => `/families/${encodeURIComponent(familyId)}/account`,
   participantChargeState: (participantId: string) =>
-    `/appointment-participants/${encodeURIComponent(participantId)}/session-charge`,
+    `/session-charges/participants/${encodeURIComponent(participantId)}`,
   createAdjustment: (chargeId: string) =>
     `/session-charges/${encodeURIComponent(chargeId)}/adjustments`,
   voidAdjustment: (chargeId: string, adjustmentId: string) =>
