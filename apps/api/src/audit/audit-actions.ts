@@ -137,6 +137,35 @@ export const AUDIT_ACTIONS = [
   'session_charge.voided',
   'charge_adjustment.created',
   'charge_adjustment.voided',
+
+  // Money in. Six actions over two records, named after the tables they
+  // describe, exactly as the ledger's are. The runtime writes arrive with the
+  // services that make these state changes; the vocabulary is fixed here in
+  // checkpoint A2 so the audit contract cannot change underneath them.
+  //
+  // `payment.recorded` rather than `payment.created`: the row is created, but
+  // the fact is that money was received, and the action a manager searches for
+  // is the one named after the fact.
+  //
+  // THE THREE PROMISE RESOLUTIONS ARE THREE ACTIONS, not one
+  // `payment_promise.resolved` carrying a status diff — even though they share a
+  // single permission. The permission is one authority because none of the three
+  // moves money; the audit is three facts because "how often does a family
+  // reschedule rather than pay?" is precisely the question a pilot asks of
+  // promises, and an answer buried in a JSON diff is not something you can
+  // count.
+  //
+  // There is deliberately no `payment_promise.missed`. Missed is a fact about
+  // the clock that nobody performs, derived on read from an OPEN promise whose
+  // due date has passed (DECISION_LOG, 2026-08-15), and audit records state
+  // changes rather than the passage of time. There is no `payment.updated`
+  // either: nothing about a payment is ever rewritten.
+  'payment.recorded',
+  'payment.voided',
+  'payment_promise.created',
+  'payment_promise.fulfilled',
+  'payment_promise.rescheduled',
+  'payment_promise.cancelled',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -169,6 +198,12 @@ export const AUDIT_ENTITY_TYPES = [
   // would leave the concession's own history unaddressable.
   'session_charge',
   'charge_adjustment',
+  // The two Milestone 6 tables. A promise is named in its own right rather than
+  // folded into the payment that fulfilled it: it has its own actor, its own
+  // resolution and its own reason, and it exists — and is cancelled — in cases
+  // where no payment ever appears.
+  'payment',
+  'payment_promise',
   // `therapist_availability` and `therapist_availability_exception` are
   // deliberately absent, for the reason `guardian` is: they are current
   // configuration replaced as a set, and the change is recorded against the

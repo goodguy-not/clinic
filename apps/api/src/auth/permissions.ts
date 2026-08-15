@@ -41,6 +41,10 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * receptionist reads the family account and posts the charge for a session that
  * happened; voiding a charge and reducing one are the manager's, and no
  * time-boxed variant of either exists.
+ *
+ * MILESTONE 6 DRAWS THE SAME LINE THROUGH MONEY IN. Recording a payment and the
+ * whole promise workflow are the receptionist's; voiding a payment is the
+ * manager's alone, again with no same-day window.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,
@@ -80,9 +84,52 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     // manager-only). There is no same-day window and no expiring authority.
     'charge.read',
     'charge.post',
+
+    // Milestone 6: the receptionist takes the money and records the promise.
+    // Recording a payment — including a prepayment, for which no approval
+    // threshold exists (DECISION_LOG, 2026-08-15 — Credit is derived) — is the
+    // counter work this role owns, and the whole promise workflow is theirs
+    // because a promise moves no money in any state (CLAUDE.md).
+    //
+    // `payment.void` stays with the manager, with no same-day exception
+    // (DECISION_LOG, 2026-08-15 — Payment void is manager-only): reversing a
+    // financial record is the authority PROJECT_SPEC.md 4 keeps away from this
+    // role, and granting it here would reopen by the back door what withholding
+    // `charge.void` closed.
+    'payment.read',
+    'payment.create',
+    'promise.read',
+    'promise.create',
+    'promise.resolve',
   ],
 };
 
 export function permissionsForRole(role: UserRole): readonly Permission[] {
   return ROLE_PERMISSIONS[role];
 }
+
+/**
+ * What reading a family account requires, ALL THREE OF THEM.
+ *
+ * The response is one screen and three authorities. It carries the charges and
+ * their concessions (`charge.read`), and from Milestone 6 a whole-family
+ * position stating what has been paid and what is due (`payment.read`) together
+ * with the open and overdue promise counts (`promise.read`). A route that
+ * demanded only the first would hand a caller two kinds of information its
+ * permission never mentioned, and the permission model would describe the
+ * product inaccurately — which is how a later role that should see charges but
+ * not money quietly gets both.
+ *
+ * AND, NOT OR. `PermissionsGuard` requires every named permission, so a future
+ * role holding one and not the others is refused rather than served a partial
+ * account.
+ *
+ * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all three
+ * (`ROLE_PERMISSIONS`), and a test pins that. It is a statement about what the
+ * response contains, made before the response contains it.
+ */
+export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
+  'charge.read',
+  'payment.read',
+  'promise.read',
+] as const satisfies readonly Permission[];

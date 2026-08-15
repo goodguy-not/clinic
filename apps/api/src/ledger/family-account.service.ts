@@ -1,13 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type {
-  FamilyAccountQuery,
-  FamilyAccountResponse,
-  FamilyAccountTotals,
-  SessionChargeView,
-} from '@clinic/contracts';
+import type { FamilyAccountQuery, FamilyAccountTotals, SessionChargeView } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
 import { PrismaService } from '../prisma/prisma.service';
+import type { LegacyFamilyAccountResponse } from './family-account-legacy';
 import {
   CHARGE_COLUMNS,
   toChargeDetail,
@@ -104,7 +100,7 @@ export class FamilyAccountService {
    * that reached for `this.prisma` would open a second connection with a second
    * snapshot and silently undo all of this.
    */
-  async account(familyId: string, query: FamilyAccountQuery): Promise<FamilyAccountResponse> {
+  async account(familyId: string, query: FamilyAccountQuery): Promise<LegacyFamilyAccountResponse> {
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertFamilyExists(tx, familyId);

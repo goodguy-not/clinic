@@ -1,5 +1,9 @@
 import { PERMISSIONS, USER_ROLES } from '@clinic/contracts';
-import { ROLE_PERMISSIONS, permissionsForRole } from './permissions';
+import {
+  FAMILY_ACCOUNT_READ_PERMISSIONS,
+  ROLE_PERMISSIONS,
+  permissionsForRole,
+} from './permissions';
 
 describe('role to permission map', () => {
   it('covers every role in the shared contract', () => {
@@ -43,6 +47,13 @@ describe('role to permission map', () => {
         // session that happened. Voiding and adjusting are the manager's.
         'charge.read',
         'charge.post',
+        // Milestone 6: taking the money and recording the promise. Voiding a
+        // payment is the manager's.
+        'payment.read',
+        'payment.create',
+        'promise.read',
+        'promise.create',
+        'promise.resolve',
       ].sort(),
     );
   });
@@ -77,6 +88,7 @@ describe('role to permission map', () => {
       'availability.manage',
       'charge.void',
       'charge.adjust',
+      'payment.void',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
@@ -114,6 +126,85 @@ describe('role to permission map', () => {
       expect(PERMISSIONS.filter((permission) => permission.startsWith('charge.')).sort()).toEqual(
         ['charge.adjust', 'charge.post', 'charge.read', 'charge.void'].sort(),
       );
+    });
+  });
+
+  describe('money in', () => {
+    // DECISION_LOG, 2026-08-15: payment void is manager-only, and a promise —
+    // which moves no money in any state — is entirely the receptionist's.
+    it('defines exactly six permissions, and no time-boxed variant', () => {
+      expect(
+        PERMISSIONS.filter((permission) => /^(?:payment|promise)\./.test(permission)).sort(),
+      ).toEqual(
+        [
+          'payment.read',
+          'payment.create',
+          'payment.void',
+          'promise.read',
+          'promise.create',
+          'promise.resolve',
+        ].sort(),
+      );
+
+      for (const absent of [
+        'payment.void_same_day',
+        'payment.update',
+        'promise.fulfill',
+        'promise.reschedule',
+        'promise.cancel',
+        'credit.manage',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('grants a manager all six', () => {
+      for (const permission of [
+        'payment.read',
+        'payment.create',
+        'payment.void',
+        'promise.read',
+        'promise.create',
+        'promise.resolve',
+      ] as const) {
+        expect(permissionsForRole('MANAGER')).toContain(permission);
+      }
+    });
+
+    it('grants a receptionist everything except reversing a payment', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('payment.read');
+      expect(granted).toContain('payment.create');
+      expect(granted).toContain('promise.read');
+      expect(granted).toContain('promise.create');
+      expect(granted).toContain('promise.resolve');
+      expect(granted).not.toContain('payment.void');
+    });
+
+    it('requires all three financial reads to read a family account', () => {
+      // The response carries the charges, the whole-family payment position and
+      // the open and overdue promise counts, so the route names every authority
+      // it reads. AND semantics: `PermissionsGuard` requires every permission in
+      // the list, so a future role holding one and not the others is refused
+      // rather than served a partial account.
+      expect([...FAMILY_ACCOUNT_READ_PERMISSIONS].sort()).toEqual(
+        ['charge.read', 'payment.read', 'promise.read'].sort(),
+      );
+
+      for (const permission of FAMILY_ACCOUNT_READ_PERMISSIONS) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+    });
+
+    it('changes nobody access today, because both roles hold all three', () => {
+      for (const role of ['MANAGER', 'RECEPTIONIST'] as const) {
+        const granted = permissionsForRole(role);
+
+        for (const permission of FAMILY_ACCOUNT_READ_PERMISSIONS) {
+          expect(granted).toContain(permission);
+        }
+      }
     });
   });
 

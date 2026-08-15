@@ -176,6 +176,57 @@ export const ERROR_CODES = [
   // itself, and a strict request schema refuses a caller that tries to state
   // one (DECISION_LOG, 2026-08-14).
 
+  // Money in. Ten codes over two records, and each one names a situation with a
+  // fix of its own — the reasoning that gave the ledger eight rather than one
+  // `CHARGE_INVALID`.
+  'PAYMENT_NOT_FOUND',
+  // Voiding a payment that is already void: the correction has already
+  // happened and the caller is looking at a stale screen. Separate from
+  // `PAYMENT_VOIDED` for the reason `CHARGE_ALREADY_VOIDED` is separate from
+  // `CHARGE_VOIDED`.
+  'PAYMENT_ALREADY_VOIDED',
+  // Acting on a voided payment — offering it as the evidence that a promise was
+  // kept. Voided money is not money, so the fix is to record the payment that
+  // actually arrived, not to retry.
+  'PAYMENT_VOIDED',
+  // `receivedOn` is after the clinic's calendar day. A future receipt is not a
+  // payment, it is a promise, and the promise record already models one
+  // (DECISION_LOG, 2026-08-15 — A payment may be back-dated but never
+  // post-dated). Back-dating is unlimited and raises nothing.
+  'PAYMENT_DATE_IN_FUTURE',
+  // The payment offered belongs to another family. It exists so the composite
+  // foreign key `payment_promise_fulfilling_payment_id_family_id_fkey` has a
+  // translation rather than surfacing as an internal error; a payment the
+  // caller cannot see at all is `PAYMENT_NOT_FOUND`, which is what keeps this
+  // code from confirming the existence of another family's money.
+  'PAYMENT_FAMILY_MISMATCH',
+  // One payment fulfils at most one promise, and the surplus of a large payment
+  // is visible as credit rather than as evidence for a second promise
+  // (DECISION_LOG, 2026-08-15 — A promise is a calendar fact).
+  'PAYMENT_ALREADY_FULFILS_PROMISE',
+  // The payment does not cover the promised amount. There is no partial
+  // fulfilment model: the fix is to record the payment that covers it, or to
+  // reschedule or cancel the promise.
+  'PROMISE_PAYMENT_TOO_SMALL',
+  'PROMISE_NOT_FOUND',
+  // Fulfilling, rescheduling or cancelling a promise that has already ended.
+  // Terminal is terminal: `FULFILLED`, `RESCHEDULED` and `CANCELLED` never
+  // transition again. It covers the derived `MISSED` reading too — a missed
+  // promise is stored `OPEN` and may be resolved normally, so `MISSED` never
+  // raises this.
+  'PROMISE_NOT_OPEN',
+  // A rescheduled successor due before today at the clinic. An intention already
+  // overdue at the moment it is agreed records nothing. Creating a promise with
+  // a past due date is explicitly allowed and never raises this (DECISION_LOG,
+  // 2026-08-15 — A promise may be born late).
+  'PROMISE_DUE_DATE_IN_PAST',
+  // There is deliberately no `PAYMENT_AMOUNT_INVALID` and no
+  // `PROMISE_AMOUNT_INVALID`: a non-positive or oversized amount is refused by
+  // the request schema as `VALIDATION_FAILED`, exactly as every other bounded
+  // amount in this package is. And no `FAMILY_CREDIT_*` code of any kind —
+  // credit is derived from rows, never recorded, so there is no operation on it
+  // to refuse.
+
   'INTERNAL_ERROR',
 ] as const;
 

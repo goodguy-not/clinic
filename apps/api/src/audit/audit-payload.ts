@@ -64,6 +64,18 @@ const FORBIDDEN_KEY_SUBSTRINGS = [
 const BOOLEAN_ONLY_ALLOWED_KEYS = new Set(['mustchangepassword']);
 
 /**
+ * THERE IS DELIBERATELY NO GLOBAL `reference` RULE HERE. A payment's bank
+ * reference must never reach a permanent audit payload (DECISION_LOG,
+ * 2026-08-15), and that guarantee is enforced where the fact lives — see
+ * `assertPaymentAuditSafe` in `payment-audit.ts`, which every payment and
+ * promise audit write passes through. A substring rule at this level would
+ * refuse `referenceDate`, `tariffReferenceId` and every other unrelated key a
+ * later domain might legitimately name, which is a policy change for domains
+ * nobody has decided anything about. The rules in this file stay what they have
+ * always been: secret material, and identifiers that must be masked.
+ */
+
+/**
  * Keys whose value must be `null` or an exactly masked identifier.
  *
  * `audit_log` is append-only and permanent, so a national identifier or a phone

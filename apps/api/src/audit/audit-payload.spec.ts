@@ -38,6 +38,31 @@ describe('assertAuditPayloadSafe', () => {
     expect(() => assertAuditPayloadSafe({ after: { [key]: 'value' } })).toThrow(AuditPayloadError);
   });
 
+  it('applies no banking-key rule of its own', () => {
+    // The bank-reference exclusion belongs to the payment domain and is enforced
+    // by `assertPaymentAuditSafe`, not by a substring rule here that would also
+    // refuse `referenceDate` and every other unrelated key a later domain might
+    // legitimately name (DECISION_LOG, 2026-08-15 — the broad rule was declined).
+    expect(() => assertAuditPayloadSafe({ after: { referenceDate: '2026-08-15' } })).not.toThrow();
+  });
+
+  it('accepts a payment payload built to the frozen shape', () => {
+    // Money as canonical decimal strings, the note in full, the reference only
+    // as a boolean, and no name, phone number or file number anywhere.
+    expect(() =>
+      assertAuditPayloadSafe({
+        after: {
+          familyId: '01923c9e-4c1a-7000-8000-000000000001',
+          amountToman: '500000',
+          method: 'TRANSFER',
+          receivedOn: '2026-08-15',
+          hasReference: true,
+          note: 'بابت دو جلسهٔ مرداد',
+        },
+      }),
+    ).not.toThrow();
+  });
+
   it('allows mustChangePassword when it is a boolean, and only then', () => {
     // A flag about a password, not a password. The boolean requirement is what
     // keeps the exemption from becoming a hole.

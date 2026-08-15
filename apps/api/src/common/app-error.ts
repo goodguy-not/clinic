@@ -128,6 +128,25 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // referenced data rather than a race.
   ADJUSTMENT_EXCEEDS_CHARGE: 422,
 
+  PAYMENT_NOT_FOUND: 404,
+  PROMISE_NOT_FOUND: 404,
+  // 409 for the four "the record is not in the state this act needs": the
+  // submission is well formed and something else already happened to the row,
+  // which a refreshed screen explains. Exactly `CHARGE_ALREADY_VOIDED`'s
+  // reasoning.
+  PAYMENT_ALREADY_VOIDED: 409,
+  PAYMENT_VOIDED: 409,
+  PAYMENT_ALREADY_FULFILS_PROMISE: 409,
+  PROMISE_NOT_OPEN: 409,
+  // 422 for the four that are properties of the values rather than races:
+  // nothing conflicts and nothing is missing, the request simply asks for
+  // something the domain does not permit. A retry of the same request always
+  // fails the same way, which is what separates these from the 409s above.
+  PAYMENT_DATE_IN_FUTURE: 422,
+  PAYMENT_FAMILY_MISMATCH: 422,
+  PROMISE_PAYMENT_TOO_SMALL: 422,
+  PROMISE_DUE_DATE_IN_PAST: 422,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -211,6 +230,17 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   ADJUSTMENT_ALREADY_VOIDED: 'This charge adjustment has already been voided',
   ADJUSTMENT_EXCEEDS_CHARGE:
     'The adjustments on this charge may not exceed the amount that was charged',
+
+  PAYMENT_NOT_FOUND: 'Payment not found',
+  PAYMENT_ALREADY_VOIDED: 'This payment has already been voided',
+  PAYMENT_VOIDED: 'This payment has been voided and may not fulfil a promise',
+  PAYMENT_DATE_IN_FUTURE: 'The received date is after the current date at the clinic',
+  PAYMENT_FAMILY_MISMATCH: 'The payment belongs to a different family',
+  PAYMENT_ALREADY_FULFILS_PROMISE: 'This payment has already fulfilled another promise',
+  PROMISE_PAYMENT_TOO_SMALL: 'The payment is smaller than the promised amount',
+  PROMISE_NOT_FOUND: 'Payment promise not found',
+  PROMISE_NOT_OPEN: 'This payment promise has already been resolved',
+  PROMISE_DUE_DATE_IN_PAST: 'A rescheduled due date must not be before the current date',
 
   INTERNAL_ERROR: 'Internal error',
 };

@@ -299,6 +299,22 @@ describe('ledger contracts', () => {
       therapist: { id: UUID, fullName: 'درمانگر آزمایشی' },
     };
 
+    // Milestone 6 added the required whole-family `position` beside the
+    // filter-scoped `totals` this file froze. The totals are untouched; the
+    // position is here because the response now states one, and the two are
+    // asserted apart in `payment-contracts.spec.ts`.
+    const position = {
+      netChargedTotalToman: '250000',
+      confirmedPaymentTotalToman: '0',
+      creditToman: '0',
+      amountDueToman: '250000',
+      paymentCount: 0,
+      voidedPaymentCount: 0,
+      lastPayment: null,
+      openPromiseCount: 0,
+      missedPromiseCount: 0,
+    };
+
     const response = {
       familyId: OTHER_UUID,
       totals: {
@@ -308,6 +324,7 @@ describe('ledger contracts', () => {
         chargeCount: 1,
         voidedChargeCount: 0,
       },
+      position,
       charges: [view],
       page: { page: 1, pageSize: LEDGER_PAGE_SIZE_DEFAULT, total: 1, hasMore: false },
     };
@@ -319,10 +336,11 @@ describe('ledger contracts', () => {
       expect(parsed.charges[0]?.child.id).toBe(UUID);
     });
 
-    it('states no balance, credit or payment', () => {
-      // Milestone 6 owns payments. A zero balance shown before payments exist is
-      // the one number a reader would trust most, and it would be a claim the
-      // ledger cannot support.
+    it('keeps every payment fact out of the filter-scoped totals', () => {
+      // The totals describe the CHARGE VIEW the query asked for. What has been
+      // paid is a whole-family fact and lives in `position`, which no filter
+      // narrows — the distinction Milestone 6 froze, and the reason a balance
+      // never appears beside a filtered sum.
       for (const field of [
         'balanceToman',
         'creditToman',

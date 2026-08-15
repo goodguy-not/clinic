@@ -167,6 +167,13 @@ describe('guard chain (real PostgreSQL)', () => {
         'family.read',
         'family.update',
         'family.update_status',
+        // Milestone 6: recording money and the whole promise workflow.
+        // `payment.void` stays with the manager.
+        'payment.create',
+        'payment.read',
+        'promise.create',
+        'promise.read',
+        'promise.resolve',
         'room.read',
         'service.read',
         'tariff.read',

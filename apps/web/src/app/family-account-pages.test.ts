@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { FamilyAccountQuery, FamilyAccountResponse } from '@clinic/contracts';
+import type { FamilyAccountQuery } from '@clinic/contracts';
+import type { LegacyFamilyAccountResponse } from '@/ledger/family-account-legacy';
 import { COPY } from '@/server/copy-fa';
 import { FamilyAccountView, buildAccountHref } from './families/[id]/account/account-view';
 import { FamilyDetailActions } from './families/[id]/family-detail-actions';
@@ -67,10 +68,10 @@ function chargeView({
   amount: string;
   effective: string;
   priceMode?: 'PAID' | 'FREE';
-  adjustments?: FamilyAccountResponse['charges'][number]['charge']['adjustments'];
+  adjustments?: LegacyFamilyAccountResponse['charges'][number]['charge']['adjustments'];
   adjustmentTotal?: string;
   voided?: boolean;
-}): FamilyAccountResponse['charges'][number] {
+}): LegacyFamilyAccountResponse['charges'][number] {
   const child = children.find((one) => one.id === childId)!;
   return {
     charge: {
@@ -112,7 +113,7 @@ const voidedAdjustment = {
   voidReason: 'اصلاح دلیل',
 };
 
-const populated: FamilyAccountResponse = {
+const populated: LegacyFamilyAccountResponse = {
   familyId: FAMILY_ID,
   totals: {
     chargedTotalToman: '3500000',

@@ -1,11 +1,8 @@
 import Link from 'next/link';
-import type {
-  FamilyAccountQuery,
-  FamilyAccountResponse,
-  FamilyDetailResponse,
-} from '@clinic/contracts';
+import type { FamilyAccountQuery, FamilyDetailResponse } from '@clinic/contracts';
 import { Badge, ButtonLink, EmptyState, Field, Panel, SubmitButton } from '@/components/ui';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/styles';
+import type { LegacyFamilyAccountResponse } from '@/ledger/family-account-legacy';
 import {
   formatChargeMoney,
   formatAdjustmentMoney,
@@ -52,7 +49,7 @@ export function FamilyAccountView({
 }: {
   familyId: string;
   children: Child[];
-  account: FamilyAccountResponse;
+  account: LegacyFamilyAccountResponse;
   query: FamilyAccountQuery;
   csrfToken: string;
   canAdjustCharge: boolean;
@@ -209,7 +206,7 @@ function ChargeCard({
   canVoidCharge,
 }: {
   familyId: string;
-  view: FamilyAccountResponse['charges'][number];
+  view: LegacyFamilyAccountResponse['charges'][number];
   csrfToken: string;
   canAdjustCharge: boolean;
   canVoidCharge: boolean;

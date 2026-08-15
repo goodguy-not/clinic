@@ -114,6 +114,27 @@ export const PERMISSIONS = [
   'charge.post',
   'charge.void',
   'charge.adjust',
+
+  // Money in. Six verbs over two records, and the split is the same authority
+  // boundary the ledger draws, seen from the payment side: recording money that
+  // arrived is the counter work a receptionist owns, and REVERSING a financial
+  // record is the manager's (DECISION_LOG, 2026-08-15 — Payment void is
+  // manager-only). There is again no time-boxed variant — no
+  // `payment.void_same_day` — for the reason `charge.void` has none.
+  //
+  // A promise is not money. `promise.resolve` covers fulfilling, rescheduling
+  // and cancelling as ONE authority rather than three, because none of them
+  // moves a rial: a promise never changes the family's financial position in
+  // any state (CLAUDE.md), so the three acts carry the same risk and splitting
+  // them would be granularity without a decision behind it. The payment that
+  // fulfils a promise is created under `payment.create` and voided under
+  // `payment.void`, which is where the money authority stays.
+  'payment.read',
+  'payment.create',
+  'payment.void',
+  'promise.read',
+  'promise.create',
+  'promise.resolve',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
