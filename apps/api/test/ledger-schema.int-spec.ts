@@ -51,13 +51,19 @@ describe('ledger schema objects', () => {
       expect(rows.map((row) => row.table_name).sort()).toEqual([...M5_TABLES].sort());
     });
 
-    it('creates no payment, credit, promise, balance or settlement table', async () => {
-      // Milestone 6 owns payments and Milestone 8 owns settlement. A table named
-      // here would be state stored before its rules are approved.
+    it('creates no credit, balance, allocation, invoice or settlement table', async () => {
+      // NARROWED ONCE, FOR MILESTONE 6, AND NO FURTHER. `payment` and
+      // `payment_promise` are approved and exist; every other financial concept
+      // this pattern names is still unapproved, and a table matching one would
+      // be state stored before its rules were agreed. `payment_allocation` in
+      // particular was refused BY NAME (DECISION_LOG, 2026-08-15 — A payment is
+      // a family fact), so it stays caught by the `allocation` alternative even
+      // though its name begins with the two words now permitted.
       const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
           AND table_name ~ '(payment|credit|promise|balance|settlement|invoice|allocation)'
+          AND table_name NOT IN ('payment', 'payment_promise')
       `;
 
       expect(rows).toEqual([]);

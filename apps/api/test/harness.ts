@@ -148,6 +148,10 @@ const PROTECTED_TABLES = [
   // born-active and immutability triggers.
   'session_charge',
   'charge_adjustment',
+  // Milestone 6. A payment is money; a promise is not, and is protected the
+  // same way because its whole value is the history it keeps.
+  'payment',
+  'payment_promise',
 ];
 
 /**
@@ -159,6 +163,10 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 6, dependents first: a promise may name a payment and another
+  // promise, and a payment names a family.
+  'payment_promise',
+  'payment',
   // Milestone 5, dependents first: an adjustment names a charge, and a charge
   // names a family, a child, an appointment and a seat in it.
   'charge_adjustment',
