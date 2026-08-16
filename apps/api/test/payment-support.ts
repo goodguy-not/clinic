@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client';
+import request from 'supertest';
 import { uuidv7 } from '../src/common/uuid';
 import type { Harness } from './harness';
-import { makeFamilyWithChild, signIn } from './appointments-support';
+import { asUser, makeFamilyWithChild, signIn } from './appointments-support';
 
 /**
  * Shared fixtures for the Milestone 6 payment and promise schema suites.
@@ -44,6 +45,27 @@ export async function seedAnotherFamily(
   });
 
   return familyId;
+}
+
+/**
+ * Recording a payment the way an operator does: over HTTP, against the frozen
+ * route, with the family named by the path and never by the body.
+ *
+ * Added in checkpoint A3, when the endpoint began to exist. The raw-SQL inserts
+ * below stay exactly as they were — the schema suites test that the database
+ * rules hold against a caller that is NOT the service, which is a different
+ * claim from this one and is not weakened by the service arriving.
+ */
+export function recordPaymentOverHttp(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/families/${familyId}/payments`)
+    .set(asUser(token))
+    .send(body);
 }
 
 /**

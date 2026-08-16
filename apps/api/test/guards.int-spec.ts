@@ -320,7 +320,9 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  (manager-only)
       // charge adjustments: grant a concession, void one (both manager-only)
       // family account:  read one family's ledger
-      expect(routes).toBe(74);
+      // payments:        record money a family paid (`payment.create`, held by
+      //                  the manager and the receptionist)
+      expect(routes).toBe(75);
     });
   });
 });
