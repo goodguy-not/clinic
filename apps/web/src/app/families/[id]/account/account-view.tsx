@@ -1,8 +1,11 @@
 import Link from 'next/link';
 import type { FamilyAccountQuery, FamilyDetailResponse } from '@clinic/contracts';
 import { Badge, ButtonLink, EmptyState, Field, Panel, SubmitButton } from '@/components/ui';
+import { FamilyFinancialPositionPanel } from '@/components/family-financial-position';
+import { FamilyMoneyNavigation } from '@/components/family-money-navigation';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/styles';
 import type { LegacyFamilyAccountResponse } from '@/ledger/family-account-legacy';
+import { hasFinalPosition } from '@/ledger/family-account-legacy';
 import {
   formatChargeMoney,
   formatAdjustmentMoney,
@@ -59,6 +62,12 @@ export function FamilyAccountView({
 
   return (
     <>
+      <FamilyMoneyNavigation familyId={familyId} active="account" />
+
+      {hasFinalPosition(account) ? (
+        <FamilyFinancialPositionPanel position={account.position} />
+      ) : null}
+
       <Panel title={COPY.familyAccountTotalsTitle}>
         <dl
           className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"

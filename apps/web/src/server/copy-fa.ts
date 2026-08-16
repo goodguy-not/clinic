@@ -372,6 +372,11 @@ export const COPY = {
   // --- family financial account -------------------------------------------
 
   familyAccountAction: 'حساب مالی',
+  familyFinancialPositionTitle: 'جایگاه مالی کل خانواده',
+  familyFinancialPositionScope:
+    'این جمع‌ها همهٔ کودکان و همهٔ سوابق ثبت‌شدهٔ خانواده را پوشش می‌دهد.',
+  familyFinancialPositionHistoricalWarning:
+    'این جایگاه مالی فقط بر پایهٔ سوابق ثبت‌شده در این سامانه است و بدهی‌های قدیمیِ کاغذی یا ماندهٔ افتتاحیه را شامل نمی‌شود.',
   familyAccountTitle: 'حساب مالی خانواده',
   familyAccountDescription: 'تاریخچهٔ مبالغ ثبت‌شده برای جلسه‌ها، تخفیف‌ها و موارد باطل‌شده.',
   familyAccountTotalsTitle: 'جمع خانواده',
