@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(47);
-    expect(stateChangingHandlers.length).toBe(46);
+    expect(handlers.length).toBe(49);
+    expect(stateChangingHandlers.length).toBe(48);
   });
 
   it('exposes no catch-all route', () => {
@@ -125,6 +125,10 @@ describe('route handler inventory', () => {
       '/api/ledger/adjustments/void',
       '/api/ledger/session-charges/post',
       '/api/ledger/session-charges/void',
+      // Milestone 6 B1 money-in writes. Promise workflows are deliberately
+      // absent until B2.
+      '/api/payments/create',
+      '/api/payments/void',
       '/api/registration-drafts/discard',
       '/api/staff/create',
       '/api/staff/password-reset',

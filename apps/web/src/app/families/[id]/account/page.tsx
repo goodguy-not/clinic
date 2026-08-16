@@ -9,6 +9,8 @@ import { COPY } from '@/server/copy-fa';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { FamilyAccountView } from './account-view';
+import { clinicToday } from '@/server/clinic-time';
+import { isoDateToJalali } from '@/server/jalali';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -24,9 +26,11 @@ export default async function FamilyAccountPage({
   const [{ id }, rawQuery, token] = await Promise.all([params, searchParams, readSessionToken()]);
   const query = parseAccountQuery(rawQuery);
   const context = { sessionToken: token ?? undefined };
-  const [familyResult, accountResult] = await Promise.all([
+  const today = clinicToday();
+  const [familyResult, accountResult, recentPaymentsResult] = await Promise.all([
     api.getFamily(id, context),
     api.getFamilyAccount(id, query, context),
+    api.listPayments(id, { page: 1, pageSize: 5, includeVoided: true }, context),
   ]);
 
   if (!familyResult.ok) {
@@ -37,6 +41,10 @@ export default async function FamilyAccountPage({
     if (accountResult.code === 'FAMILY_NOT_FOUND') notFound();
     throw new Error(`Failed to load family account: ${accountResult.code}`);
   }
+  if (!recentPaymentsResult.ok) {
+    if (recentPaymentsResult.code === 'FAMILY_NOT_FOUND') notFound();
+    throw new Error(`Failed to load recent family payments: ${recentPaymentsResult.code}`);
+  }
 
   const rawError = typeof rawQuery['error'] === 'string' ? rawQuery['error'] : null;
   const rawSuccess = typeof rawQuery['success'] === 'string' ? rawQuery['success'] : '';
@@ -44,6 +52,7 @@ export default async function FamilyAccountPage({
     'charge-voided': COPY.familyAccountChargeVoidedSuccess,
     'adjustment-created': COPY.familyAccountAdjustmentCreatedSuccess,
     'adjustment-voided': COPY.familyAccountAdjustmentVoidedSuccess,
+    'payment-created': COPY.paymentCreatedSuccess,
   };
 
   return (
@@ -68,6 +77,10 @@ export default async function FamilyAccountPage({
           csrfToken={(await readCsrfCookie()) ?? ''}
           canAdjustCharge={user.permissions.includes('charge.adjust')}
           canVoidCharge={user.permissions.includes('charge.void')}
+          canCreatePayment={user.permissions.includes('payment.create')}
+          recentPayments={recentPaymentsResult.data.payments}
+          clinicToday={today}
+          clinicTodayJalali={isoDateToJalali(today)!}
         />
       </PageShell>
     </>
