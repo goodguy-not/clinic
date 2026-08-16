@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { Payment, PaymentMethod, PaymentStatus } from '@clinic/contracts';
+import type { Payment, PaymentMethod, PaymentStatus, PaymentSummary } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
 import type { PrismaService } from '../prisma/prisma.service';
 
@@ -53,6 +53,41 @@ export type PaymentRow = {
 };
 
 export type PaymentClient = PrismaService | Prisma.TransactionClient;
+
+/**
+ * THE ONE ORDER EVERY PAYMENT READ USES, and it is total.
+ *
+ * `received_on` is the day the money arrived and is what a reader scans for;
+ * two payments on one day are then ordered by when they were entered, and the
+ * id settles the rest. Any looser order would let a row appear on two pages of
+ * the history or on neither, and would let "the last payment" be whichever row
+ * PostgreSQL happened to return first.
+ *
+ * Stated once and used by the history page (A5) and by the family position's
+ * `lastPayment`, so the newest payment on the list is the same row the position
+ * calls the latest — with `voided_at IS NULL` being the only thing the position
+ * adds.
+ */
+export const PAYMENT_ORDER = Prisma.sql`received_on DESC, created_at DESC, id DESC`;
+
+/**
+ * A family that does not exist is 404, not an empty history.
+ *
+ * The money-in module's shared precondition, so recording a payment and reading
+ * the history refuse an unknown family with the same code at the same point.
+ *
+ * A DEACTIVATED FAMILY IS READ AND PAID NORMALLY. Deactivation retires a record
+ * from the working lists; it does not cancel what that family owes or what they
+ * already handed over, which is the same reading `FamilyAccountService` takes of
+ * the account.
+ */
+export async function assertFamilyExists(client: PaymentClient, familyId: string): Promise<void> {
+  const rows = await client.$queryRaw<{ id: string }[]>`
+    SELECT id FROM family WHERE id = ${familyId}::uuid
+  `;
+
+  if (rows[0] === undefined) throw new AppError('FAMILY_NOT_FOUND');
+}
 
 export async function readPaymentRow(
   client: PaymentClient,
@@ -167,4 +202,39 @@ export function toPayment(row: PaymentRow): Payment {
 /** The two-state derivation, in one expression, used by everything that reads a payment. */
 export function paymentStatus(row: Pick<PaymentRow, 'voided_at'>): PaymentStatus {
   return row.voided_at === null ? 'CONFIRMED' : 'VOIDED';
+}
+
+/**
+ * The five columns a payment SUMMARY needs, plus the one its status is derived
+ * from.
+ *
+ * `voided_at` is selected and is not on the wire: the summary states `status`,
+ * and this is the column that word is read off — the same derivation the whole
+ * payment uses, not a second one.
+ */
+export const PAYMENT_SUMMARY_COLUMNS = Prisma.sql`
+  id, amount_toman, method::text AS method,
+  received_on::text AS received_on, voided_at
+`;
+
+export type PaymentSummaryRow = Pick<
+  PaymentRow,
+  'id' | 'amount_toman' | 'method' | 'received_on' | 'voided_at'
+>;
+
+/**
+ * A payment as everything else refers to it (frozen `paymentSummary`).
+ *
+ * The same mapping and the same status derivation as `toPayment`, narrowed to
+ * what a summary carries: no reference and no note, because a summary is what a
+ * list prints and the detail read is where those live.
+ */
+export function toPaymentSummary(row: PaymentSummaryRow): PaymentSummary {
+  return {
+    id: row.id,
+    amountToman: row.amount_toman.toString(),
+    method: row.method,
+    receivedOn: row.received_on,
+    status: paymentStatus(row),
+  };
 }

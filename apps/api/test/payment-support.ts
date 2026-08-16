@@ -69,6 +69,26 @@ export function recordPaymentOverHttp(
 }
 
 /**
+ * A family's payment history: the filters travel in the query string, the family
+ * in the path.
+ *
+ * Added in checkpoint A5, alongside the read it drives. `query` is passed
+ * straight through so a test can mistype `includeVoided` or invent a `childId`
+ * and watch the strict frozen query refuse it.
+ */
+export function familyPayments(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  query: Record<string, string | number> = {},
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get(`/families/${familyId}/payments`)
+    .query(query)
+    .set(asUser(token));
+}
+
+/**
  * Voiding a payment the way a manager does: over HTTP, against the frozen route,
  * with the payment named by the path and the mandatory reason in the body.
  *

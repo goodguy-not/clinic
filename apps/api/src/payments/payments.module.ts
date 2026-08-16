@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { PaymentHistoryService } from './payment-history.service';
 import { PaymentVoidController } from './payment-void.controller';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
@@ -15,10 +16,17 @@ import { PaymentsService } from './payments.service';
  * fact), so there is no allocation for a shared module to hold. Where they DO
  * meet is the family position, which is a read computed over both sets of rows.
  *
- * TWO CONTROLLERS AND ONE SERVICE. They differ only in which path root the
- * frozen contract puts a route on — recording money is done to a FAMILY,
- * withdrawing it is done to a PAYMENT — and both delegate to `PaymentsService`,
- * so there is exactly one place where a payment's rules are stated.
+ * TWO CONTROLLERS, AND THEY DIFFER ONLY IN WHICH PATH ROOT THE FROZEN CONTRACT
+ * PUTS A ROUTE ON — recording money and reading the history are done to a
+ * FAMILY, withdrawing money is done to a PAYMENT. Both write paths delegate to
+ * `PaymentsService`, so there is exactly one place where a payment's rules are
+ * stated.
+ *
+ * THE READ IS A SEPARATE SERVICE FROM THE WRITES (`PaymentHistoryService`),
+ * exactly as `FamilyAccountService` is separate from the ledger's writers: it
+ * takes no lock, writes no row and records no audit fact, so nothing in it can
+ * become a financial transition by accident. It is not a second description of a
+ * payment — both go through the one mapping in `payment-detail.ts`.
  *
  * IT READS `family` FOR EXISTENCE AND WRITES NOTHING IN IT. `FamiliesModule`
  * keeps owning that table and still touches no financial one, which is the same
@@ -32,6 +40,6 @@ import { PaymentsService } from './payments.service';
 @Module({
   imports: [AuditModule],
   controllers: [PaymentsController, PaymentVoidController],
-  providers: [PaymentsService],
+  providers: [PaymentsService, PaymentHistoryService],
 })
 export class PaymentsModule {}

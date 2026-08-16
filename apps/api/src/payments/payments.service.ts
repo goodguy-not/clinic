@@ -14,7 +14,12 @@ import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
-import { findFulfilledPromiseId, lockPaymentRow, readPaymentDetail } from './payment-detail';
+import {
+  assertFamilyExists,
+  findFulfilledPromiseId,
+  lockPaymentRow,
+  readPaymentDetail,
+} from './payment-detail';
 
 /**
  * Recording money that arrived.
@@ -66,7 +71,7 @@ export class PaymentsService {
     const note = canonicalOptionalText(body.note);
 
     return this.prisma.$transaction(async (tx) => {
-      await this.assertFamilyExists(tx, familyId);
+      await assertFamilyExists(tx, familyId);
       await this.assertReceivedOnNotFuture(tx, body.receivedOn);
 
       const paymentId = uuidv7();
@@ -247,23 +252,6 @@ export class PaymentsService {
 
       return { payment: await readPaymentDetail(tx, paymentId) };
     });
-  }
-
-  /**
-   * A family that does not exist is 404, not a foreign-key error.
-   *
-   * A DEACTIVATED FAMILY MAY STILL PAY. Deactivation retires a record from the
-   * working lists; it does not cancel what that family already owes, and money
-   * handed over to settle an old debt has to be recordable — refusing it would
-   * push the clinic into recording it against the wrong family or not at all.
-   * This is the same reading `FamilyAccountService` takes of the account.
-   */
-  private async assertFamilyExists(tx: Prisma.TransactionClient, familyId: string): Promise<void> {
-    const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM family WHERE id = ${familyId}::uuid
-    `;
-
-    if (rows[0] === undefined) throw new AppError('FAMILY_NOT_FOUND');
   }
 
   /**

@@ -1,9 +1,12 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { familyAccountQuerySchema, type FamilyAccountQuery } from '@clinic/contracts';
+import {
+  familyAccountQuerySchema,
+  type FamilyAccountQuery,
+  type FamilyAccountResponse,
+} from '@clinic/contracts';
 import { RequirePermissions } from '../auth/decorators/endpoint-access';
 import { FAMILY_ACCOUNT_READ_PERMISSIONS } from '../auth/permissions';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
-import type { LegacyFamilyAccountResponse } from './family-account-legacy';
 import { FamilyAccountService } from './family-account.service';
 
 /**
@@ -61,7 +64,7 @@ export class FamilyAccountController {
   async get(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodBodyPipe(familyAccountQuerySchema)) query: FamilyAccountQuery,
-  ): Promise<LegacyFamilyAccountResponse> {
+  ): Promise<FamilyAccountResponse> {
     return this.account.account(id, query);
   }
 }

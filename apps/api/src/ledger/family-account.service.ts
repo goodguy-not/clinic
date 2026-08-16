@@ -1,9 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { FamilyAccountQuery, FamilyAccountTotals, SessionChargeView } from '@clinic/contracts';
+import type {
+  FamilyAccountQuery,
+  FamilyAccountResponse,
+  FamilyAccountTotals,
+  FamilyFinancialPosition,
+  PaymentSummary,
+  SessionChargeView,
+} from '@clinic/contracts';
 import { AppError } from '../common/app-error';
+import {
+  PAYMENT_ORDER,
+  PAYMENT_SUMMARY_COLUMNS,
+  toPaymentSummary,
+  type PaymentSummaryRow,
+} from '../payments/payment-detail';
 import { PrismaService } from '../prisma/prisma.service';
-import type { LegacyFamilyAccountResponse } from './family-account-legacy';
 import {
   CHARGE_COLUMNS,
   toChargeDetail,
@@ -13,7 +25,17 @@ import {
 } from './charge-detail';
 
 /**
- * The family account: what one family was charged, and for which child.
+ * The family account: what one family was charged, for which child, and — from
+ * Milestone 6 — where the family stands.
+ *
+ * TWO KINDS OF NUMBER LIVE IN ONE RESPONSE, AND CONFUSING THEM IS THE DEFECT
+ * THIS FILE IS ORGANISED AGAINST. `totals` describes the CHARGE VIEW the query
+ * asked for and moves when the reader narrows to one child or one month;
+ * `position` answers "what does this family owe?" and is computed over EVERY
+ * valid charge and EVERY confirmed payment of the family, whatever `childId`,
+ * `from`, `to` or `includeVoided` say (frozen F1). They are derived by two
+ * separate calls with two separate narrowings for exactly that reason, and the
+ * filtered one is never reused as the whole-family one.
  *
  * A READ MODEL AND NOTHING ELSE. It takes no lock, writes no row and —
  * deliberately — writes no audit row either (see the controller). It is the
@@ -23,11 +45,19 @@ import {
  * (see `account`); it is the one read in this system whose statements must all
  * describe the same instant.
  *
- * THERE IS NO STORED BALANCE AND NO CACHE. Every number below is derived from
- * the immutable rows of `session_charge` and `charge_adjustment` on each request.
- * A maintained balance column is a second answer that drifts from the ledger the
- * first time a void or a concession is written by a path that forgot to update
- * it, and the ledger is the one that would be right.
+ * THERE IS NO STORED BALANCE, NO CREDIT COLUMN AND NO CACHE. Every number below
+ * is derived from the immutable rows of `session_charge`, `charge_adjustment`,
+ * `payment` and `payment_promise` on each request (DECISION_LOG, 2026-08-15 —
+ * Credit is derived). A maintained balance column is a second answer that drifts
+ * from the ledger the first time a void, a concession or a payment is written by
+ * a path that forgot to update it, and the ledger is the one that would be right.
+ *
+ * IT READS `payment` AND `payment_promise` AND WRITES NEITHER. `PaymentsModule`
+ * owns those tables and keeps owning them; this is the same one-way, read-only
+ * reach the ledger already has into `appointment`, `child` and `tariff`. What it
+ * does NOT do is re-derive a payment: the summary mapping and the status
+ * derivation are imported from `payment-detail.ts`, so `CONFIRMED` means the same
+ * thing on the account as it does on the payment the receptionist just recorded.
  *
  * THE TOTALS ARE NOT COMPUTED FROM THE PAGE. They are one aggregate statement
  * over every charge the filter matches, so turning the page cannot change what
@@ -44,10 +74,12 @@ import {
  * Both predicates are `voided_at IS NULL`, the same one `sumActiveAdjustments`
  * and `enforce_charge_adjustment_bounds` are written against.
  *
- * A FIXED NUMBER OF STATEMENTS, NOT ONE PER ROW. One aggregate for the totals,
- * one for the page and the names it prints, one for that page's adjustments. The
- * alternative — resolving each charge's detail individually — is an N+1 on the
- * screen a receptionist opens for every family that calls.
+ * A FIXED NUMBER OF STATEMENTS, NOT ONE PER ROW. One aggregate for the filtered
+ * totals, one for the page and the names it prints, one for that page's
+ * adjustments, and four more for the position: the whole family's charges, its
+ * payments, its latest payment and its promise counts. The alternative —
+ * resolving each charge's detail or each promise's status individually — is an
+ * N+1 on the screen a receptionist opens for every family that calls.
  */
 
 /** A charge row on the page, joined to the names an interface prints. */
@@ -66,6 +98,17 @@ type TotalsRow = {
   voided_charge_count: number;
 };
 
+type PaymentTotalsRow = {
+  paid_total: bigint;
+  payment_count: number;
+  voided_payment_count: number;
+};
+
+type PromiseCountsRow = {
+  open_count: number;
+  missed_count: number;
+};
+
 @Injectable()
 export class FamilyAccountService {
   constructor(private readonly prisma: PrismaService) {}
@@ -73,8 +116,9 @@ export class FamilyAccountService {
   /**
    * ONE ACCOUNT, ONE MOMENT.
    *
-   * `REPEATABLE READ` AND NOTHING STRONGER. This read is four statements — the
-   * family, the totals, the page, its adjustments — and under the default
+   * `REPEATABLE READ` AND NOTHING STRONGER. This read is eight statements — the
+   * family, the filtered totals, the page, its adjustments, and the four the
+   * position is derived from — and under the default
    * `READ COMMITTED` each of them takes its OWN snapshot. A manager voiding a
    * charge in the millisecond between the totals and the page would produce a
    * single response in which the sums describe one database and the rows
@@ -83,6 +127,13 @@ export class FamilyAccountService {
    * row; for an account it is a number that cannot be reconciled, so the
    * response is assembled from one snapshot taken at the first statement and
    * held to the last.
+   *
+   * THE POSITION MAKES THAT REQUIREMENT SHARPER, NOT DIFFERENT. It is charges
+   * MINUS payments, read in separate statements, so a payment committing between
+   * the two would let one response state an amount due that follows from neither
+   * the charges nor the payments beside it. A stale list is a row a reader
+   * refreshes; a balance that does not follow from its own parts is a number a
+   * family is quoted.
    *
    * IT TAKES NO LOCKS AND BLOCKS NO WRITER. `REPEATABLE READ` in PostgreSQL is
    * MVCC: concurrent voids, concessions and posts commit exactly as they would
@@ -100,7 +151,7 @@ export class FamilyAccountService {
    * that reached for `this.prisma` would open a second connection with a second
    * snapshot and silently undo all of this.
    */
-  async account(familyId: string, query: FamilyAccountQuery): Promise<LegacyFamilyAccountResponse> {
+  async account(familyId: string, query: FamilyAccountQuery): Promise<FamilyAccountResponse> {
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertFamilyExists(tx, familyId);
@@ -122,9 +173,12 @@ export class FamilyAccountService {
         const offset = (query.page - 1) * query.pageSize;
         const charges = await this.page(tx, narrowing, query, offset);
 
+        const position = await this.position(tx, familyId);
+
         return {
           familyId,
           totals,
+          position,
           charges,
           page: {
             page: query.page,
@@ -208,6 +262,170 @@ export class FamilyAccountService {
       chargeCount: row.charge_count,
       voidedChargeCount: row.voided_charge_count,
     };
+  }
+
+  /**
+   * WHERE THE FAMILY STANDS: the whole family, always, and never the filter.
+   *
+   * THE ONE NARROWING IS `family_id`. `childId`, `from`, `to` and `includeVoided`
+   * are not applied to a single statement below, because a position that moved
+   * when a receptionist clicked a child would be a filtered balance quoted to a
+   * family as their balance (frozen F1). That is the whole semantic distinction
+   * Milestone 6 froze, and it is enforced here by the narrowing this method
+   * builds itself rather than by remembering not to pass one in.
+   *
+   * THE CHARGE SIDE IS `this.totals` UNCHANGED, called with the family predicate
+   * alone. "Which charges count, and which concessions reduce them" therefore has
+   * ONE statement in this system: the filtered view and the whole-family position
+   * cannot disagree about what a voided charge or a withdrawn adjustment means,
+   * because they are the same SQL. An unfiltered read issues that aggregate twice
+   * over the same rows, which is an accepted cost — the alternative is a branch
+   * that makes the statement count depend on the query and the equality of the
+   * two answers depend on a reader noticing why it holds.
+   *
+   * THE ARITHMETIC IS UNSIGNED AND STATED ONCE. `creditToman` is what was paid
+   * beyond what was charged and `amountDueToman` what was charged beyond what was
+   * paid; both are floored at zero, so at most one is non-zero and the frozen
+   * refinement can never be violated. There is no signed balance to interpret,
+   * and a prepayment, an overpayment and a credit left over after a later charge
+   * are all the same subtraction — nothing is allocated and nothing is consumed,
+   * because there is nothing stored to consume (DECISION_LOG, 2026-08-15 — Credit
+   * is derived).
+   *
+   * PROMISES ARE COUNTED AND NEVER ENTER THE ARITHMETIC. A promise moves no money
+   * in any state (CLAUDE.md), so no branch below reads a promise amount.
+   *
+   * `BigInt` THROUGHOUT: an amount above 2^53 is storable and is not
+   * representable as a JavaScript number, and money leaves here as a canonical
+   * decimal string.
+   */
+  private async position(tx: LedgerClient, familyId: string): Promise<FamilyFinancialPosition> {
+    const whole = await this.totals(tx, Prisma.sql`c.family_id = ${familyId}::uuid`);
+    const netCharged = BigInt(whole.netChargedTotalToman);
+
+    const payments = await this.paymentTotals(tx, familyId);
+    const paid = payments.paid_total;
+
+    const lastPayment = await this.lastPayment(tx, familyId);
+    const promises = await this.promiseCounts(tx, familyId);
+
+    return {
+      netChargedTotalToman: netCharged.toString(),
+      confirmedPaymentTotalToman: paid.toString(),
+      creditToman: (paid > netCharged ? paid - netCharged : 0n).toString(),
+      amountDueToman: (netCharged > paid ? netCharged - paid : 0n).toString(),
+      paymentCount: payments.payment_count,
+      voidedPaymentCount: payments.voided_payment_count,
+      lastPayment,
+      openPromiseCount: promises.open_count,
+      missedPromiseCount: promises.missed_count,
+    };
+  }
+
+  /**
+   * What the family has actually paid, and how much of its history is reversal.
+   *
+   * `FILTER (WHERE voided_at IS NULL)` ON THE SUM IS THE WHOLE OF "A VOIDED
+   * PAYMENT COUNTS FOR NOTHING". A void does not make a payment negative — it
+   * makes it not count (frozen F1) — so the reversal is an absence from this sum
+   * rather than an entry against it, which is why no compensating row exists
+   * anywhere in `payment` and why voiding one restores the position that stood
+   * before it exactly.
+   *
+   * THE TWO COUNTS PARTITION THE FAMILY'S PAYMENTS, exactly as `chargeCount` and
+   * `voidedChargeCount` partition its charges: `paymentCount` is the confirmed
+   * money and `voidedPaymentCount` is stated beside it so a manager can see that
+   * a reversal happened without switching a list filter to look for it.
+   *
+   * Summed in `BIGINT` and carried out as a decimal string; the counts are cast
+   * to `int` because they are row counts, not money.
+   */
+  private async paymentTotals(tx: LedgerClient, familyId: string): Promise<PaymentTotalsRow> {
+    const rows = await tx.$queryRaw<PaymentTotalsRow[]>`
+      SELECT
+        coalesce(sum(amount_toman) FILTER (WHERE voided_at IS NULL), 0)::bigint AS paid_total,
+        count(*) FILTER (WHERE voided_at IS NULL)::int AS payment_count,
+        count(*) FILTER (WHERE voided_at IS NOT NULL)::int AS voided_payment_count
+      FROM payment
+      WHERE family_id = ${familyId}::uuid
+    `;
+
+    return rows[0] ?? { paid_total: 0n, payment_count: 0, voided_payment_count: 0 };
+  }
+
+  /**
+   * The most recent CONFIRMED payment, or null if the family has never paid.
+   *
+   * `voided_at IS NULL` IS THE POINT OF THIS STATEMENT. The frozen contract calls
+   * this the most recent CONFIRMED payment, and a receptionist reads it to answer
+   * "when did they last pay?" — so a payment recorded in error this morning and
+   * withdrawn this afternoon must not be what the family position offers as the
+   * money that arrived. The reversal is not hidden: it is counted in
+   * `voidedPaymentCount` and shown in full by the payment history, which is where
+   * a correction belongs. What is refused is presenting it as current money
+   * received.
+   *
+   * THE SUMMARY CAN STILL SAY `VOIDED`, AND HERE IT NEVER WILL. `paymentSummary`
+   * carries a status because a promise's fulfilling payment may be voided later
+   * and the promise stays `FULFILLED`; this field selects on the same column, so
+   * `status` here is always `CONFIRMED` — derived, not asserted, by the one
+   * mapping every payment read uses.
+   *
+   * `PAYMENT_ORDER` IS THE HISTORY'S OWN ORDER, so "the latest payment" and "the
+   * first confirmed row of the history" are the same row. It is total — received
+   * day, then entry instant, then id — so two payments received on one day
+   * resolve to the one entered later rather than to whichever PostgreSQL returned
+   * first.
+   */
+  private async lastPayment(tx: LedgerClient, familyId: string): Promise<PaymentSummary | null> {
+    const rows = await tx.$queryRaw<PaymentSummaryRow[]>`
+      SELECT ${PAYMENT_SUMMARY_COLUMNS}
+      FROM payment
+      WHERE family_id = ${familyId}::uuid AND voided_at IS NULL
+      ORDER BY ${PAYMENT_ORDER}
+      LIMIT 1
+    `;
+
+    const row = rows[0];
+    return row === undefined ? null : toPaymentSummary(row);
+  }
+
+  /**
+   * How many promises are still on time, and how many are overdue.
+   *
+   * `MISSED` IS DERIVED AND IS NEVER STORED (DECISION_LOG, 2026-08-15 — A promise
+   * is a calendar fact). The database enum has four values and the wire has five:
+   * a missed promise is a stored `OPEN` one whose due day is earlier than today
+   * at the clinic.
+   *
+   * THE TWO COUNTS DO NOT OVERLAP, AND THAT IS THE WHOLE OF THIS STATEMENT. The
+   * five wire statuses partition a family's promises, so `OPEN` means open AND
+   * not yet overdue (frozen F1): the two filters below are complements over the
+   * same stored rows, and an overdue promise is counted once, as missed. Counting
+   * it under both words would make "how many are still on time?" unanswerable,
+   * which is the question the pair exists to answer.
+   *
+   * TERMINAL PROMISES COUNT AS NEITHER. `FULFILLED`, `RESCHEDULED` and
+   * `CANCELLED` are resolved; a rescheduled promise's successor is a row of its
+   * own and is counted on its own due date, so a chain of reschedules contributes
+   * exactly one open promise.
+   *
+   * `clinic_date()` AND NOT THE NODE CLOCK. Tehran rolls over at 20:30 UTC, so
+   * the host clock, the session timezone and UTC each disagree with the clinic for
+   * three and a half hours of every day; this is the same function the payment
+   * date rule asks, and it is `STABLE`, so both counts are taken against one
+   * answer inside this snapshot.
+   */
+  private async promiseCounts(tx: LedgerClient, familyId: string): Promise<PromiseCountsRow> {
+    const rows = await tx.$queryRaw<PromiseCountsRow[]>`
+      SELECT
+        count(*) FILTER (WHERE status = 'OPEN' AND due_on >= clinic_date())::int AS open_count,
+        count(*) FILTER (WHERE status = 'OPEN' AND due_on < clinic_date())::int AS missed_count
+      FROM payment_promise
+      WHERE family_id = ${familyId}::uuid
+    `;
+
+    return rows[0] ?? { open_count: 0, missed_count: 0 };
   }
 
   /**

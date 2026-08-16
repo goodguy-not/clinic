@@ -33,14 +33,32 @@ describe('family account snapshot', () => {
    * A Prisma stand-in that records how it was used.
    *
    * `$queryRaw` answers from a queue in the order the service asks: the family,
-   * the totals, then the page. The page comes back empty, which is why no fourth
-   * statement for the adjustments is expected.
+   * the filtered totals, the page, and then the four the position is derived
+   * from — the whole family's charges, its payments, its latest payment and its
+   * promise counts. The page comes back empty, which is why no statement for the
+   * page's adjustments is expected.
+   *
+   * THE POSITION'S CHARGE AGGREGATE IS A SECOND STATEMENT, NOT THE FIRST ONE
+   * REUSED. The totals are filter-scoped and the position is the whole family
+   * (frozen F1); the queue below is what says the service really does ask twice,
+   * with two narrowings, even when this query happens to carry no filter.
    */
   function fakePrisma() {
+    const totals = {
+      charged_total: 0n,
+      adjustment_total: 0n,
+      charge_count: 0,
+      voided_charge_count: 0,
+    };
+
     const answers: unknown[][] = [
       [{ id: '00000000-0000-7000-8000-000000000001' }],
-      [{ charged_total: 0n, adjustment_total: 0n, charge_count: 0, voided_charge_count: 0 }],
+      [totals],
       [],
+      [totals],
+      [{ paid_total: 0n, payment_count: 0, voided_payment_count: 0 }],
+      [],
+      [{ open_count: 0, missed_count: 0 }],
     ];
 
     const state = {
@@ -92,9 +110,12 @@ describe('family account snapshot', () => {
 
     await new FamilyAccountService(prisma).account('00000000-0000-7000-8000-000000000001', query);
 
-    // The family, the totals and the page. A statement outside the transaction
-    // would be a second snapshot, which is the whole defect this guards.
-    expect(state.onTransaction).toBe(3);
+    // The family, the filtered totals, the page, and the position's four. A
+    // statement outside the transaction would be a second snapshot, which is the
+    // whole defect this guards — and the position is the read that most needs
+    // it, because its charges and its payments are counted separately and must
+    // still subtract to the amount the family is quoted.
+    expect(state.onTransaction).toBe(7);
     expect(state.onClient).toBe(0);
   });
 });
