@@ -69,6 +69,49 @@ export function recordPaymentOverHttp(
 }
 
 /**
+ * Voiding a payment the way a manager does: over HTTP, against the frozen route,
+ * with the payment named by the path and the mandatory reason in the body.
+ *
+ * Added in checkpoint A4. `body` is passed straight through so a test can omit
+ * the reason, blank it or overlong it and watch the request be refused.
+ */
+export function voidPaymentOverHttp(
+  harness: Harness,
+  token: string,
+  paymentId: string,
+  body: Record<string, unknown> = { reason: 'ثبت اشتباه مبلغ' },
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/payments/${paymentId}/void`)
+    .set(asUser(token))
+    .send(body);
+}
+
+/** Every `payment.voided` audit row for one payment, oldest first. */
+export async function voidedPaymentAuditRows(
+  harness: Harness,
+  paymentId: string,
+): Promise<
+  {
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    actor_user_id: string | null;
+    occurred_at: Date;
+    before: unknown;
+    after: unknown;
+    metadata: unknown;
+  }[]
+> {
+  return harness.prisma.$queryRaw`
+    SELECT action, entity_type, entity_id, actor_user_id, occurred_at, before, after, metadata
+    FROM audit_log
+    WHERE action = 'payment.voided' AND entity_id = ${paymentId}::uuid
+    ORDER BY occurred_at ASC
+  `;
+}
+
+/**
  * A clinic calendar day, offset from today.
  *
  * Read from `clinic_date()` rather than computed in Node, for the reason

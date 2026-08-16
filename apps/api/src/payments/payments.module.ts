@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { PaymentVoidController } from './payment-void.controller';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 
@@ -14,6 +15,11 @@ import { PaymentsService } from './payments.service';
  * fact), so there is no allocation for a shared module to hold. Where they DO
  * meet is the family position, which is a read computed over both sets of rows.
  *
+ * TWO CONTROLLERS AND ONE SERVICE. They differ only in which path root the
+ * frozen contract puts a route on — recording money is done to a FAMILY,
+ * withdrawing it is done to a PAYMENT — and both delegate to `PaymentsService`,
+ * so there is exactly one place where a payment's rules are stated.
+ *
  * IT READS `family` FOR EXISTENCE AND WRITES NOTHING IN IT. `FamiliesModule`
  * keeps owning that table and still touches no financial one, which is the same
  * one-way reach the ledger already has.
@@ -25,7 +31,7 @@ import { PaymentsService } from './payments.service';
  */
 @Module({
   imports: [AuditModule],
-  controllers: [PaymentsController],
+  controllers: [PaymentsController, PaymentVoidController],
   providers: [PaymentsService],
 })
 export class PaymentsModule {}
