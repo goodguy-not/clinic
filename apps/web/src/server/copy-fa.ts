@@ -475,6 +475,42 @@ export const COPY = {
   paymentCreatedSuccess: 'پرداخت دریافتی برای خانواده ثبت شد.',
   paymentVoidedSuccess: 'پرداخت باطل شد و در تاریخچه باقی ماند.',
 
+  // --- family payment promises -------------------------------------------
+
+  promisePageTitle: 'قول‌های پرداخت خانواده',
+  promisePageDescription:
+    'پیگیری قول‌های پرداخت؛ قول پرداخت خودش پرداخت یا بدهی نیست و جایگاه مالی را تغییر نمی‌دهد.',
+  promiseCreateTitle: 'ثبت قول پرداخت',
+  promiseCreateHelp:
+    'مبلغ و روزی را ثبت کنید که خانواده قول داده است. ثبت دیرهنگام با تاریخ گذشته مجاز است.',
+  promiseAmount: 'مبلغ قول (تومان)',
+  promiseDueOn: 'تاریخ سررسید',
+  promiseDueOnHelp: 'روزی که خانواده قول پرداخت داده است.',
+  promiseNote: 'یادداشت پیگیری',
+  promiseNoteHelp: 'اختیاری؛ حداکثر ۲۰۰۰ نویسه.',
+  promiseCreateAction: 'ثبت قول',
+  promiseHistoryTitle: 'پیگیری و تاریخچهٔ قول‌ها',
+  promiseHistoryEmpty: 'در این فیلتر، قولی ثبت نشده است.',
+  promiseFiltersTitle: 'فیلتر وضعیت قول‌ها',
+  promiseFulfillTitle: 'ثبت انجام قول',
+  promiseFulfillHelp:
+    'فقط پرداخت‌های تأییدشده با مبلغ کافی نشان داده می‌شوند. اتصال نهایی را سرور بررسی می‌کند.',
+  promiseFulfillPayment: 'پرداخت تأییدشده',
+  promiseFulfillAction: 'ثبت انجام قول',
+  promiseNoCandidatePayment: 'در پرداخت‌های اخیر، پرداخت تأییدشده با مبلغ کافی پیدا نشد.',
+  promiseRescheduleTitle: 'موکول‌کردن به تاریخ جدید',
+  promiseRescheduleHelp: 'ردیف فعلی در تاریخچه می‌ماند و قول جایگزین با همان مبلغ ساخته می‌شود.',
+  promiseNewDueOn: 'تاریخ جدید',
+  promiseReason: 'دلیل',
+  promiseRescheduleAction: 'ثبت تاریخ جدید',
+  promiseCancelTitle: 'پایان پیگیری این قول',
+  promiseCancelHelp: 'این کار حذف نیست؛ قول با دلیل در تاریخچه می‌ماند و اثر مالی ندارد.',
+  promiseCancelAction: 'ثبت پایان پیگیری',
+  promiseCreatedSuccess: 'قول پرداخت ثبت شد.',
+  promiseFulfilledSuccess: 'انجام قول با پرداخت انتخابی ثبت شد.',
+  promiseRescheduledSuccess: 'قول به تاریخ جدید موکول شد و ردیف قبلی در تاریخچه ماند.',
+  promiseCancelledSuccess: 'پایان پیگیری ثبت شد و قول در تاریخچه ماند.',
+
   appointmentChargeTitle: 'وضعیت مالی جلسه',
   appointmentChargePosted: 'هزینه ثبت شده',
   appointmentChargeOriginal: 'مبلغ اولیه',
