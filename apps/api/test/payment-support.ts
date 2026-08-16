@@ -107,28 +107,121 @@ export function voidPaymentOverHttp(
     .send(body);
 }
 
+export type AuditRow = {
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  actor_user_id: string | null;
+  occurred_at: Date;
+  before: unknown;
+  after: unknown;
+  metadata: unknown;
+};
+
 /** Every `payment.voided` audit row for one payment, oldest first. */
 export async function voidedPaymentAuditRows(
   harness: Harness,
   paymentId: string,
-): Promise<
-  {
-    action: string;
-    entity_type: string;
-    entity_id: string;
-    actor_user_id: string | null;
-    occurred_at: Date;
-    before: unknown;
-    after: unknown;
-    metadata: unknown;
-  }[]
-> {
+): Promise<AuditRow[]> {
   return harness.prisma.$queryRaw`
     SELECT action, entity_type, entity_id, actor_user_id, occurred_at, before, after, metadata
     FROM audit_log
     WHERE action = 'payment.voided' AND entity_id = ${paymentId}::uuid
     ORDER BY occurred_at ASC
   `;
+}
+
+/**
+ * Every audit row for one promise, oldest first, whatever the action.
+ *
+ * DELIBERATELY NOT FILTERED BY ACTION, unlike the payment helper above. The
+ * claims a promise suite makes are "exactly one transition was recorded" and
+ * "reading recorded nothing", and both are claims about the WHOLE trail for that
+ * entity — a helper that asked only for `payment_promise.fulfilled` could not see
+ * a second, wrong action written beside it.
+ *
+ * Added in checkpoint A6, with the runtime that writes these rows.
+ */
+export async function promiseAuditRows(harness: Harness, promiseId: string): Promise<AuditRow[]> {
+  return harness.prisma.$queryRaw`
+    SELECT action, entity_type, entity_id, actor_user_id, occurred_at, before, after, metadata
+    FROM audit_log
+    WHERE entity_type = 'payment_promise' AND entity_id = ${promiseId}::uuid
+    ORDER BY occurred_at ASC
+  `;
+}
+
+/**
+ * Making a promise the way an operator does: over HTTP, against the frozen route,
+ * with the family named by the path and never by the body.
+ *
+ * Added in checkpoint A6. The raw-SQL `insertPromise` below stays exactly as it
+ * was — the schema suites test that the database rules hold against a caller that
+ * is NOT the service, which is a different claim and is not weakened by the
+ * service arriving.
+ */
+export function createPromiseOverHttp(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/families/${familyId}/promises`)
+    .set(asUser(token))
+    .send(body);
+}
+
+/** A family's promise history: the filters travel in the query string, the family in the path. */
+export function familyPromises(
+  harness: Harness,
+  token: string,
+  familyId: string,
+  query: Record<string, string | number> = {},
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get(`/families/${familyId}/promises`)
+    .query(query)
+    .set(asUser(token));
+}
+
+/** Naming the payment that kept a promise. `body` is passed straight through. */
+export function fulfilPromiseOverHttp(
+  harness: Harness,
+  token: string,
+  promiseId: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/promises/${promiseId}/fulfill`)
+    .set(asUser(token))
+    .send(body);
+}
+
+/** Agreeing a new date instead of the one that was promised. */
+export function reschedulePromiseOverHttp(
+  harness: Harness,
+  token: string,
+  promiseId: string,
+  body: Record<string, unknown>,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/promises/${promiseId}/reschedule`)
+    .set(asUser(token))
+    .send(body);
+}
+
+/** Abandoning a promise, with the mandatory reason. */
+export function cancelPromiseOverHttp(
+  harness: Harness,
+  token: string,
+  promiseId: string,
+  body: Record<string, unknown> = { reason: 'انصراف خانواده از قول پرداخت' },
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/promises/${promiseId}/cancel`)
+    .set(asUser(token))
+    .send(body);
 }
 
 /**

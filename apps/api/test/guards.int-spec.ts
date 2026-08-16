@@ -324,7 +324,13 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the manager and the receptionist), read one family's
       //                  payment history (`payment.read`, held by both), void a
       //                  payment (`payment.void`, manager-only)
-      expect(routes).toBe(77);
+      // promises:        record a promise and read one family's promise history
+      //                  (`promise.create` / `promise.read`, both held by the
+      //                  manager and the receptionist), and the three ways one
+      //                  ends — fulfil, reschedule, cancel — under the single
+      //                  `promise.resolve`, held by both because none of them
+      //                  moves a rial
+      expect(routes).toBe(82);
     });
   });
 });
