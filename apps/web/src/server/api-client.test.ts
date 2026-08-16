@@ -414,3 +414,180 @@ describe('frozen ledger endpoints', () => {
     expect(captured.every((request) => request.init.cache === 'no-store')).toBe(true);
   });
 });
+
+describe('frozen payment and promise endpoints', () => {
+  const familyId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c01';
+  const paymentId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c02';
+  const promiseId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c03';
+  const successorId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c04';
+  const userId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c05';
+
+  const payment = {
+    id: paymentId,
+    familyId,
+    amountToman: '700000',
+    method: 'CARD',
+    receivedOn: '2026-08-15',
+    reference: 'synthetic-ref',
+    note: null,
+    status: 'CONFIRMED',
+    createdAt: '2026-08-15T08:00:00.000Z',
+    createdByUserId: userId,
+    voidedAt: null,
+    voidedByUserId: null,
+    voidReason: null,
+  };
+
+  const openPromise = {
+    id: promiseId,
+    familyId,
+    amountToman: '700000',
+    dueOn: '2026-08-20',
+    note: 'synthetic promise',
+    status: 'OPEN',
+    createdAt: '2026-08-15T08:00:00.000Z',
+    createdByUserId: userId,
+    resolvedAt: null,
+    resolvedByUserId: null,
+    resolutionReason: null,
+    fulfillingPayment: null,
+    rescheduledToPromiseId: null,
+    rescheduledFromPromiseId: null,
+  };
+
+  it('uses the frozen family-scoped create and list routes with typed queries', async () => {
+    mockFetch(200, { payment });
+    await api.createPayment(
+      familyId,
+      { amountToman: '700000', method: 'CARD', receivedOn: '2026-08-15' },
+      { sessionToken: 'token' },
+    );
+
+    mockFetch(200, {
+      familyId,
+      payments: [payment],
+      page: { page: 2, pageSize: 10, total: 1, hasMore: false },
+    });
+    const payments = await api.listPayments(
+      familyId,
+      { page: 2, pageSize: 10, includeVoided: false, from: '2026-08-01', to: '2026-08-15' },
+      { sessionToken: 'token' },
+    );
+
+    mockFetch(200, { promise: openPromise });
+    await api.createPromise(
+      familyId,
+      { amountToman: '700000', dueOn: '2026-08-20' },
+      { sessionToken: 'token' },
+    );
+
+    mockFetch(200, {
+      familyId,
+      promises: [openPromise],
+      page: { page: 1, pageSize: 25, total: 1, hasMore: false },
+    });
+    const promises = await api.listPromises(
+      familyId,
+      { page: 1, pageSize: 25, status: 'OPEN' },
+      { sessionToken: 'token' },
+    );
+
+    expect(payments.ok && payments.data.payments[0]?.status).toBe('CONFIRMED');
+    expect(promises.ok && promises.data.promises[0]?.status).toBe('OPEN');
+    expect(
+      captured.map((request) => {
+        const url = new URL(request.url);
+        return [request.init.method, url.pathname, Object.fromEntries(url.searchParams)];
+      }),
+    ).toEqual([
+      ['POST', `/families/${familyId}/payments`, {}],
+      [
+        'GET',
+        `/families/${familyId}/payments`,
+        { page: '2', pageSize: '10', includeVoided: 'false', from: '2026-08-01', to: '2026-08-15' },
+      ],
+      ['POST', `/families/${familyId}/promises`, {}],
+      ['GET', `/families/${familyId}/promises`, { page: '1', pageSize: '25', status: 'OPEN' }],
+    ]);
+  });
+
+  it('supports every frozen resolution route and strictly parses its response', async () => {
+    mockFetch(200, {
+      payment: {
+        ...payment,
+        status: 'VOIDED',
+        voidedAt: '2026-08-16T08:00:00.000Z',
+        voidedByUserId: userId,
+        voidReason: 'synthetic correction',
+      },
+    });
+    await api.voidPayment(paymentId, { reason: 'synthetic correction' }, {});
+
+    mockFetch(200, {
+      promise: {
+        ...openPromise,
+        status: 'FULFILLED',
+        resolvedAt: '2026-08-16T08:00:00.000Z',
+        resolvedByUserId: userId,
+        fulfillingPayment: {
+          id: paymentId,
+          amountToman: '700000',
+          method: 'CARD',
+          receivedOn: '2026-08-15',
+          status: 'CONFIRMED',
+        },
+      },
+    });
+    await api.fulfillPromise(promiseId, { paymentId }, {});
+
+    const successor = {
+      ...openPromise,
+      id: successorId,
+      dueOn: '2026-08-30',
+      rescheduledFromPromiseId: promiseId,
+    };
+    mockFetch(200, {
+      promise: {
+        ...openPromise,
+        status: 'RESCHEDULED',
+        resolvedAt: '2026-08-16T08:00:00.000Z',
+        resolvedByUserId: userId,
+        resolutionReason: 'synthetic new date',
+        rescheduledToPromiseId: successorId,
+      },
+      successor,
+    });
+    await api.reschedulePromise(
+      promiseId,
+      { dueOn: '2026-08-30', reason: 'synthetic new date' },
+      {},
+    );
+
+    mockFetch(200, {
+      promise: {
+        ...openPromise,
+        status: 'CANCELLED',
+        resolvedAt: '2026-08-16T08:00:00.000Z',
+        resolvedByUserId: userId,
+        resolutionReason: 'synthetic cancellation',
+      },
+    });
+    await api.cancelPromise(promiseId, { reason: 'synthetic cancellation' }, {});
+
+    expect(captured.map((request) => new URL(request.url).pathname)).toEqual([
+      `/payments/${paymentId}/void`,
+      `/promises/${promiseId}/fulfill`,
+      `/promises/${promiseId}/reschedule`,
+      `/promises/${promiseId}/cancel`,
+    ]);
+
+    mockFetch(200, { payment: { ...payment, status: 'VOIDED' } });
+    await expect(
+      api.createPayment(
+        familyId,
+        { amountToman: '1', method: 'CASH', receivedOn: '2026-08-15' },
+        {},
+      ),
+    ).rejects.toThrow();
+  });
+});

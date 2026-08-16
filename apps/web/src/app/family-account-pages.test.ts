@@ -177,6 +177,10 @@ describe('/families/[id]/account presentation', () => {
       csrfToken: 'synthetic-csrf',
       canAdjustCharge: false,
       canVoidCharge: false,
+      canCreatePayment: false,
+      recentPayments: [],
+      clinicToday: '2026-08-16',
+      clinicTodayJalali: { year: 1405, month: 5, day: 25 },
     }),
   );
 
@@ -231,6 +235,30 @@ describe('/families/[id]/account presentation', () => {
 });
 
 describe('family account empty state and navigation', () => {
+  it('integrates quick family-level payment entry for an authorised operator', () => {
+    const markup = renderToStaticMarkup(
+      createElement(FamilyAccountView, {
+        familyId: FAMILY_ID,
+        children,
+        account: populated,
+        query,
+        csrfToken: 'synthetic-csrf',
+        canAdjustCharge: false,
+        canVoidCharge: false,
+        canCreatePayment: true,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
+      }),
+    );
+
+    expect(markup).toContain('action="/api/payments/create"');
+    expect(markup).toContain(COPY.paymentEntryTitle);
+    expect(markup.indexOf(COPY.paymentEntryTitle)).toBeLessThan(
+      markup.indexOf(COPY.familyAccountTotalsTitle),
+    );
+  });
+
   it('shows a useful empty state while retaining filters', () => {
     const markup = renderToStaticMarkup(
       createElement(FamilyAccountView, {
@@ -252,6 +280,10 @@ describe('family account empty state and navigation', () => {
         csrfToken: 'synthetic-csrf',
         canAdjustCharge: false,
         canVoidCharge: false,
+        canCreatePayment: false,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
       }),
     );
     expect(markup).toContain(COPY.familyAccountEmpty);
@@ -289,6 +321,10 @@ describe('manager financial corrections', () => {
         csrfToken: 'synthetic-csrf',
         canAdjustCharge,
         canVoidCharge,
+        canCreatePayment: false,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
       }),
     );
   }
