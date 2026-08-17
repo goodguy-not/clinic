@@ -9,9 +9,13 @@ import {
   appointmentSeriesResponseSchema,
   appointmentResponseSchema,
   appointmentViewResponseSchema,
-  familyAccountResponseSchema,
   postSessionChargeResponseSchema,
+  paymentListResponseSchema,
+  paymentResponseSchema,
+  promiseListResponseSchema,
+  promiseResponseSchema,
   recurrencePreviewResponseSchema,
+  rescheduledPromiseResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
   loginResponseSchema,
@@ -58,6 +62,7 @@ import {
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
+  familyAccountResponseSchema,
   type FamilyAccountQuery,
   type FamilyAccountResponse,
   type FamilyDetailResponse,
@@ -68,6 +73,12 @@ import {
   type LoginResponse,
   type MoveAppointmentRequest,
   type PostSessionChargeResponse,
+  type PaymentListQuery,
+  type PaymentListResponse,
+  type PaymentResponse,
+  type PromiseListQuery,
+  type PromiseListResponse,
+  type PromiseResponse,
   type PasswordResetResponse,
   type RecordStatus,
   type RecordAttendanceRequest,
@@ -101,6 +112,13 @@ import {
   type UserRole,
   type UserStatus,
   type CreateChargeAdjustmentRequest,
+  type CreatePaymentRequest,
+  type CreatePromiseRequest,
+  type FulfillPromiseRequest,
+  type ReschedulePromiseRequest,
+  type RescheduledPromiseResponse,
+  type CancelPromiseRequest,
+  type VoidPaymentRequest,
   type VoidChargeAdjustmentRequest,
   type VoidSessionChargeRequest,
   childDetailResponseSchema,
@@ -178,6 +196,15 @@ const sessionChargeApiPath = {
     `/session-charges/${encodeURIComponent(chargeId)}/adjustments`,
   voidAdjustment: (chargeId: string, adjustmentId: string) =>
     `/session-charges/${encodeURIComponent(chargeId)}/adjustments/${encodeURIComponent(adjustmentId)}/void`,
+} as const;
+
+const familyMoneyApiPath = {
+  payments: (familyId: string) => `/families/${encodeURIComponent(familyId)}/payments`,
+  voidPayment: (paymentId: string) => `/payments/${encodeURIComponent(paymentId)}/void`,
+  promises: (familyId: string) => `/families/${encodeURIComponent(familyId)}/promises`,
+  fulfillPromise: (promiseId: string) => `/promises/${encodeURIComponent(promiseId)}/fulfill`,
+  reschedulePromise: (promiseId: string) => `/promises/${encodeURIComponent(promiseId)}/reschedule`,
+  cancelPromise: (promiseId: string) => `/promises/${encodeURIComponent(promiseId)}/cancel`,
 } as const;
 
 function buildHeaders(context: CallerContext, requestId: string, hasBody: boolean): Headers {
@@ -727,6 +754,106 @@ export const api = {
       context,
     );
   },
+
+  // --- payments and promises ------------------------------------------------
+  //
+  // These methods name only the frozen A2 wire operations, all of which are now
+  // live in NestJS. Web parses every success strictly and exposes no generic
+  // money endpoint.
+
+  createPayment: (
+    familyId: string,
+    body: CreatePaymentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PaymentResponse>> =>
+    call(familyMoneyApiPath.payments(familyId), 'POST', paymentResponseSchema, context, body),
+
+  listPayments: (
+    familyId: string,
+    query: PaymentListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<PaymentListResponse>> => {
+    const search = new URLSearchParams({
+      page: String(query.page),
+      pageSize: String(query.pageSize),
+      includeVoided: String(query.includeVoided),
+    });
+    if (query.from !== undefined) search.set('from', query.from);
+    if (query.to !== undefined) search.set('to', query.to);
+
+    return call(
+      `${familyMoneyApiPath.payments(familyId)}?${search.toString()}`,
+      'GET',
+      paymentListResponseSchema,
+      context,
+    );
+  },
+
+  voidPayment: (
+    paymentId: string,
+    body: VoidPaymentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PaymentResponse>> =>
+    call(familyMoneyApiPath.voidPayment(paymentId), 'POST', paymentResponseSchema, context, body),
+
+  createPromise: (
+    familyId: string,
+    body: CreatePromiseRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PromiseResponse>> =>
+    call(familyMoneyApiPath.promises(familyId), 'POST', promiseResponseSchema, context, body),
+
+  listPromises: (
+    familyId: string,
+    query: PromiseListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<PromiseListResponse>> => {
+    const search = new URLSearchParams({
+      page: String(query.page),
+      pageSize: String(query.pageSize),
+    });
+    if (query.status !== undefined) search.set('status', query.status);
+
+    return call(
+      `${familyMoneyApiPath.promises(familyId)}?${search.toString()}`,
+      'GET',
+      promiseListResponseSchema,
+      context,
+    );
+  },
+
+  fulfillPromise: (
+    promiseId: string,
+    body: FulfillPromiseRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PromiseResponse>> =>
+    call(
+      familyMoneyApiPath.fulfillPromise(promiseId),
+      'POST',
+      promiseResponseSchema,
+      context,
+      body,
+    ),
+
+  reschedulePromise: (
+    promiseId: string,
+    body: ReschedulePromiseRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<RescheduledPromiseResponse>> =>
+    call(
+      familyMoneyApiPath.reschedulePromise(promiseId),
+      'POST',
+      rescheduledPromiseResponseSchema,
+      context,
+      body,
+    ),
+
+  cancelPromise: (
+    promiseId: string,
+    body: CancelPromiseRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PromiseResponse>> =>
+    call(familyMoneyApiPath.cancelPromise(promiseId), 'POST', promiseResponseSchema, context, body),
 
   postSessionCharge: (
     participantId: string,

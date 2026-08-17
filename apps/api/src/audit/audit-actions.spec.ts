@@ -64,11 +64,67 @@ describe('audit vocabulary', () => {
   });
 
   it('names no entity type this milestone does not have a table for', () => {
-    // Payments are Milestone 6 and settlement is Milestone 8. An entity type is
-    // a table name, and neither table exists.
-    for (const absent of ['payment', 'payment_promise', 'family_credit', 'therapist_settlement']) {
+    // Settlement is Milestone 8, and credit is derived from rows rather than
+    // stored. An entity type is a table name, and neither table exists.
+    for (const absent of ['family_credit', 'therapist_settlement', 'payment_allocation']) {
       expect(AUDIT_ENTITY_TYPES).not.toContain(absent as never);
     }
+  });
+
+  describe('money in', () => {
+    const moneyInActions = AUDIT_ACTIONS.filter(
+      (action) => action.startsWith('payment.') || action.startsWith('payment_promise.'),
+    );
+
+    it('adds exactly the six approved actions', () => {
+      expect([...moneyInActions].sort()).toEqual(
+        [
+          'payment.recorded',
+          'payment.voided',
+          'payment_promise.created',
+          'payment_promise.fulfilled',
+          'payment_promise.rescheduled',
+          'payment_promise.cancelled',
+        ].sort(),
+      );
+    });
+
+    it('names every one of them after its table and a past-tense verb', () => {
+      for (const action of moneyInActions) {
+        expect(action).toMatch(/^(payment|payment_promise)\.[a-z_]+ed$/);
+      }
+    });
+
+    it('records the three promise resolutions as three facts, not one diff', () => {
+      // They share ONE permission, because none of them moves money; they are
+      // three audit actions, because "how often does a family reschedule rather
+      // than pay?" is a question you have to be able to count the answer to.
+      for (const absent of [
+        'payment_promise.resolved',
+        'payment_promise.status_changed',
+        'payment_promise.updated',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('never records the passage of time or a rewrite that cannot happen', () => {
+      // `MISSED` is derived from the clock and nobody performs it; nothing about
+      // a payment is ever rewritten, and a read writes no row at all.
+      for (const absent of [
+        'payment_promise.missed',
+        'payment.updated',
+        'payment.read',
+        'family_account.read',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names both Milestone 6 tables as entity types', () => {
+      expect(AUDIT_ENTITY_TYPES).toContain('payment');
+      expect(AUDIT_ENTITY_TYPES).toContain('payment_promise');
+    });
   });
 
   it('keeps every name unique', () => {

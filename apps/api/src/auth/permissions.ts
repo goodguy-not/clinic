@@ -41,6 +41,10 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * receptionist reads the family account and posts the charge for a session that
  * happened; voiding a charge and reducing one are the manager's, and no
  * time-boxed variant of either exists.
+ *
+ * MILESTONE 6 DRAWS THE SAME LINE THROUGH MONEY IN. Recording a payment and the
+ * whole promise workflow are the receptionist's; voiding a payment is the
+ * manager's alone, again with no same-day window.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,
@@ -80,9 +84,40 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     // manager-only). There is no same-day window and no expiring authority.
     'charge.read',
     'charge.post',
+
+    // Milestone 6: the receptionist takes the money and records the promise.
+    // Recording a payment — including a prepayment, for which no approval
+    // threshold exists (DECISION_LOG, 2026-08-15 — Credit is derived) — is the
+    // counter work this role owns, and the whole promise workflow is theirs
+    // because a promise moves no money in any state (CLAUDE.md).
+    //
+    // `payment.void` stays with the manager, with no same-day exception
+    // (DECISION_LOG, 2026-08-15 — Payment void is manager-only): reversing a
+    // financial record is the authority PROJECT_SPEC.md 4 keeps away from this
+    // role, and granting it here would reopen by the back door what withholding
+    // `charge.void` closed.
+    'payment.read',
+    'payment.create',
+    'promise.read',
+    'promise.create',
+    'promise.resolve',
   ],
 };
 
 export function permissionsForRole(role: UserRole): readonly Permission[] {
   return ROLE_PERMISSIONS[role];
 }
+
+/**
+ * What reading a family account requires, ALL THREE OF THEM.
+ *
+ * Re-exported rather than declared here, and the move is deliberate: the web
+ * tier gates the page that renders this response and has to name the same three
+ * authorities, so the list is stated once in `@clinic/contracts` where the
+ * permission names already live. `PermissionsGuard` remains the authoritative
+ * enforcement, and the ROLE map above stays in `apps/api` and nowhere else.
+ *
+ * `permissions.spec.ts` pins the three names and pins that both internal roles
+ * hold all of them, so nobody's access changed when it moved.
+ */
+export { FAMILY_ACCOUNT_READ_PERMISSIONS } from '@clinic/contracts';

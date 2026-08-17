@@ -98,6 +98,64 @@ describe('Persian error mapping', () => {
     });
   });
 
+  describe('the money-in messages', () => {
+    const codes = [
+      'PAYMENT_NOT_FOUND',
+      'PAYMENT_ALREADY_VOIDED',
+      'PAYMENT_VOIDED',
+      'PAYMENT_DATE_IN_FUTURE',
+      'PAYMENT_FAMILY_MISMATCH',
+      'PAYMENT_ALREADY_FULFILS_PROMISE',
+      'PROMISE_PAYMENT_TOO_SMALL',
+      'PROMISE_NOT_FOUND',
+      'PROMISE_NOT_OPEN',
+      'PROMISE_DUE_DATE_IN_PAST',
+    ] as const;
+
+    it('gives every money-in code a message of its own', () => {
+      const messages = codes.map((code) => persianMessage(code));
+
+      expect(new Set(messages).size).toBe(messages.length);
+    });
+
+    it('separates a payment that is already void from one that may not be used', () => {
+      expect(persianMessage('PAYMENT_ALREADY_VOIDED')).not.toBe(persianMessage('PAYMENT_VOIDED'));
+      // The second one has a way forward: choose a payment that actually
+      // arrived.
+      expect(persianMessage('PAYMENT_VOIDED')).toContain('انتخاب کنید');
+    });
+
+    it('points a future receipt at the promise record instead of refusing flatly', () => {
+      // A future receipt is not a payment, it is a promise, and the operator has
+      // somewhere to put it (DECISION_LOG, 2026-08-15).
+      expect(persianMessage('PAYMENT_DATE_IN_FUTURE')).toContain('قول پرداخت');
+    });
+
+    it('offers the two ways out of a payment too small to settle a promise', () => {
+      // There is no partial fulfilment: either one payment covers the promise,
+      // or the promise is moved or abandoned.
+      const message = persianMessage('PROMISE_PAYMENT_TOO_SMALL');
+
+      expect(message).toContain('کمتر');
+      expect(message).toContain('موکول');
+    });
+
+    it('never says a missed promise cannot be acted on', () => {
+      // A missed promise is stored OPEN and is resolved normally; this message
+      // is only for one that was already fulfilled, moved or cancelled.
+      expect(persianMessage('PROMISE_NOT_OPEN')).toContain('تعیین‌تکلیف');
+    });
+
+    it('names no bank reference, no amount and no identifier', () => {
+      for (const code of codes) {
+        const message = persianMessage(code);
+
+        expect(message).not.toMatch(/\d/);
+        expect(message).not.toContain('شناسه');
+      }
+    });
+  });
+
   it('contains no English in any message', () => {
     for (const code of TRANSLATED_CODES) {
       expect(persianMessage(code)).not.toMatch(/[A-Za-z]{4,}/);

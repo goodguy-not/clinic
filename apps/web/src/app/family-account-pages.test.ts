@@ -112,6 +112,25 @@ const voidedAdjustment = {
   voidReason: 'اصلاح دلیل',
 };
 
+// The whole-family position, which never moves with the charge filter above it.
+const position: FamilyAccountResponse['position'] = {
+  netChargedTotalToman: '1500000',
+  confirmedPaymentTotalToman: '500000',
+  creditToman: '0',
+  amountDueToman: '1000000',
+  paymentCount: 1,
+  voidedPaymentCount: 1,
+  lastPayment: {
+    id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b41',
+    amountToman: '500000',
+    method: 'CASH',
+    receivedOn: '2026-08-15',
+    status: 'CONFIRMED',
+  },
+  openPromiseCount: 1,
+  missedPromiseCount: 2,
+};
+
 const populated: FamilyAccountResponse = {
   familyId: FAMILY_ID,
   totals: {
@@ -121,6 +140,7 @@ const populated: FamilyAccountResponse = {
     chargeCount: 3,
     voidedChargeCount: 1,
   },
+  position,
   charges: [
     chargeView({
       id: adjustment.sessionChargeId,
@@ -176,6 +196,10 @@ describe('/families/[id]/account presentation', () => {
       csrfToken: 'synthetic-csrf',
       canAdjustCharge: false,
       canVoidCharge: false,
+      canCreatePayment: false,
+      recentPayments: [],
+      clinicToday: '2026-08-16',
+      clinicTodayJalali: { year: 1405, month: 5, day: 25 },
     }),
   );
 
@@ -218,6 +242,19 @@ describe('/families/[id]/account presentation', () => {
     expect(markup).toContain('اصلاح دلیل');
   });
 
+  it('states the whole-family position beside, and apart from, the filtered totals', () => {
+    // `position` is the family's; `totals` describes the filtered charge view.
+    // Both are the server's own numbers — nothing here adds anything up.
+    expect(markup).toContain(COPY.familyFinancialPositionTitle);
+    expect(markup).toContain(COPY.familyFinancialPositionScope);
+    expect(markup).toContain('مبلغ قابل پرداخت');
+    expect(markup).toContain('۱٬۰۰۰٬۰۰۰ تومان');
+    expect(markup).toContain(COPY.familyFinancialPositionHistoricalWarning);
+    expect(markup.indexOf(COPY.familyFinancialPositionTitle)).toBeLessThan(
+      markup.indexOf(COPY.familyAccountTotalsTitle),
+    );
+  });
+
   it('renders Jalali dates, history filtering, child filtering and pagination', () => {
     expect(markup).toContain('مرداد');
     expect(markup).not.toContain('2026-08-14');
@@ -230,6 +267,30 @@ describe('/families/[id]/account presentation', () => {
 });
 
 describe('family account empty state and navigation', () => {
+  it('integrates quick family-level payment entry for an authorised operator', () => {
+    const markup = renderToStaticMarkup(
+      createElement(FamilyAccountView, {
+        familyId: FAMILY_ID,
+        children,
+        account: populated,
+        query,
+        csrfToken: 'synthetic-csrf',
+        canAdjustCharge: false,
+        canVoidCharge: false,
+        canCreatePayment: true,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
+      }),
+    );
+
+    expect(markup).toContain('action="/api/payments/create"');
+    expect(markup).toContain(COPY.paymentEntryTitle);
+    expect(markup.indexOf(COPY.paymentEntryTitle)).toBeLessThan(
+      markup.indexOf(COPY.familyAccountTotalsTitle),
+    );
+  });
+
   it('shows a useful empty state while retaining filters', () => {
     const markup = renderToStaticMarkup(
       createElement(FamilyAccountView, {
@@ -245,12 +306,27 @@ describe('family account empty state and navigation', () => {
             chargeCount: 0,
             voidedChargeCount: 0,
           },
+          position: {
+            netChargedTotalToman: '0',
+            confirmedPaymentTotalToman: '0',
+            creditToman: '0',
+            amountDueToman: '0',
+            paymentCount: 0,
+            voidedPaymentCount: 0,
+            lastPayment: null,
+            openPromiseCount: 0,
+            missedPromiseCount: 0,
+          },
           charges: [],
           page: { page: 1, pageSize: 25, total: 0, hasMore: false },
         },
         csrfToken: 'synthetic-csrf',
         canAdjustCharge: false,
         canVoidCharge: false,
+        canCreatePayment: false,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
       }),
     );
     expect(markup).toContain(COPY.familyAccountEmpty);
@@ -288,6 +364,10 @@ describe('manager financial corrections', () => {
         csrfToken: 'synthetic-csrf',
         canAdjustCharge,
         canVoidCharge,
+        canCreatePayment: false,
+        recentPayments: [],
+        clinicToday: '2026-08-16',
+        clinicTodayJalali: { year: 1405, month: 5, day: 25 },
       }),
     );
   }

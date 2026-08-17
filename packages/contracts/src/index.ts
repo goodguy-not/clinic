@@ -36,3 +36,6 @@ export * from './appointments/recurrence';
 export * from './ledger/common';
 export * from './ledger/charges';
 export * from './ledger/family-account';
+export * from './payments/common';
+export * from './payments/payments';
+export * from './payments/promises';

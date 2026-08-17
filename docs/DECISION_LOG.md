@@ -1325,3 +1325,338 @@ a mismatch discovered after the fact.
   which it always does — it read the adjustment from that charge's detail.
 - **Revisit when:** Milestone 8 introduces a therapist-borne portion, which
   changes what the request carries and nothing about where it is addressed.
+
+---
+
+## 2026-08-15 — A payment is a family fact, and Milestone 6 allocates nothing
+
+**Status:** Accepted — refines 2026-08-02 — Therapist settlement basis
+
+A payment belongs to the **family**, not to a child, a session or a charge.
+Charges stay child-specific and session-specific; a payment moves the family's
+financial position as a whole. Milestone 6 introduces **no `payment_allocation`
+table** and no rule that decides which payment settled which charge.
+
+- **Alternatives:** allocate each payment across open charges, oldest first; let
+  the receptionist pick the charges a payment pays.
+- **Reason:** 2026-08-02 already established that therapist settlement is
+  completed-session value and is independent of payment, which removed the only
+  domain need for allocation. Nothing in Milestone 6 reintroduces it: the family
+  balance is a sum either way, and an allocation table would be a second,
+  editable account of the same money that can disagree with the first.
+- **Trade-off:** no statement line can say "this payment cleared that session".
+  A family asking "what is this payment for?" is answered by its date, amount and
+  note, not by a link.
+- **Revisit when:** the trigger recorded in 2026-08-02 fires — insurance, a
+  third-party payer, or per-invoice payment.
+
+---
+
+## 2026-08-15 — A payment is confirmed or voided, and nothing else
+
+**Status:** Accepted
+
+The stored payment lifecycle has exactly two states: `CONFIRMED` and `VOIDED`. A
+recorded payment is confirmed the moment it is recorded. **There is no stored
+`PENDING`.**
+
+- **Alternatives:** carry `PENDING` now so the column never changes; model a
+  cheque-clearing window.
+- **Reason:** `PENDING` describes money whose arrival somebody else confirms —
+  a gateway, a bank callback. In Milestone 6 the receptionist records money they
+  are holding or have already seen land, so a pending state would have no event
+  that ever resolves it, and a balance that quietly excludes pending money is a
+  balance nobody can explain. A wrong record is corrected by void, which is the
+  same shape Milestone 5 uses for charges.
+- **Trade-off:** a real external payment workflow will add a state to a live enum
+  and must decide then whether pending money counts toward the balance.
+- **Revisit when:** an online or gateway-backed payment workflow enters scope.
+
+---
+
+## 2026-08-15 — The payment method vocabulary is `CASH`, `CARD`, `TRANSFER`
+
+**Status:** Accepted
+
+Those three values, and no others. **No `CHEQUE`. No `OTHER`.** Milestone 6 does
+not support cheque as a payment method, and defines no substitute representation
+for one.
+
+- **Alternatives:** add `CHEQUE`; add `OTHER` as an escape hatch.
+- **Reason:** a cheque is an instrument whose lifecycle — presentation, clearing,
+  dishonour — is not modelled by anything in this milestone, and admitting the
+  value without that lifecycle would record as received money that may never
+  arrive. `OTHER` is the value that absorbs every case nobody thought about and
+  then cannot be reported on; refusing it means an unforeseen method is a
+  decision, not a silent bucket.
+- **Trade-off:** a clinic that takes a cheque has nothing in this system to record
+  it with.
+- **Revisit when:** the clinic needs to accept or track cheques, or the pilot
+  produces a real payment that is none of the three. The payment-method vocabulary
+  **and** the payment lifecycle policy must both be revisited explicitly before
+  any such workflow is implemented.
+
+---
+
+## 2026-08-15 — Credit is derived, and a prepayment is just a payment
+
+**Status:** Accepted
+
+A family may pay while owing nothing. **Intentional prepayment and accidental
+overpayment are the same fact** and carry no distinguishing flag: there is no
+`isPrepayment`. Credit and amount due are **derived** from confirmed payments and
+valid charges, never stored. A **receptionist** may record ordinary payments,
+including prepayments, and no approval threshold is invented.
+
+- **Alternatives:** an `isPrepayment` flag; a stored `credit_toman` column on the
+  family; an approval threshold above some amount.
+- **Reason:** intent is not observable at the counter and would be a guess
+  recorded as data; the money and its effect are identical either way. A stored
+  credit is a cached sum that can drift from the rows that produce it, and the
+  baseline decision "manual facts, automatic calculations" puts the derivation on
+  the system. A threshold would be an invented number — no approved rule names
+  one, and CLAUDE.md forbids inferring an unapproved rule.
+- **Trade-off:** a report cannot separate deliberate prepayment from overpayment,
+  and every read of a family's position sums rows rather than reading a column.
+- **Revisit when:** a real approval rule is agreed, or measured read volume makes
+  the derivation too slow — which is a materialisation question, not a change to
+  the source of truth.
+
+---
+
+## 2026-08-15 — Payment void is manager-only
+
+**Status:** Accepted — extends 2026-08-14 — Charge adjustment and void authority
+is manager-only
+
+A receptionist may **record** a payment and may not **reverse** one. Voiding a
+payment requires **manager** authority. There is no same-day receptionist
+exception in Milestone 6.
+
+- **Alternatives:** a same-day correction window for the person who entered it.
+- **Reason:** the reasoning of 2026-08-14 transfers unchanged — reversing a
+  financial record is the authority PROJECT_SPEC.md 4 keeps away from the
+  receptionist, and an expiring authority is hardest to reason about precisely
+  when it is needed. Recording is unaffected: money arriving is a fact the
+  receptionist owns.
+- **Trade-off:** a mistyped payment needs a manager, which is slower.
+- **Revisit when:** the trigger recorded in 2026-08-14 fires — managers measurably
+  becoming a bottleneck on same-day corrections.
+
+---
+
+## 2026-08-15 — A promise is a calendar fact with no financial effect
+
+**Status:** Accepted
+
+Stored lifecycle: `OPEN → FULFILLED | RESCHEDULED | CANCELLED`. **`MISSED` is
+derived** — an `OPEN` promise whose due date has passed — and is never stored. A
+promise **never changes the family's financial position** in any state.
+
+Fulfilment requires an **explicitly linked payment**, which must be `CONFIRMED`,
+must belong to the **same family**, and must satisfy
+`payment.amount_toman >= promise.amount_toman`. There is **no partial fulfilment
+model** and **no promise-payment allocation rows**; one payment fulfils **at most
+one** promise. Rescheduling **preserves** the old promise as `RESCHEDULED` and
+creates a **successor**.
+
+- **Alternatives:** store `MISSED` by a nightly job; let a promise reduce the
+  balance; fulfil a promise by any payment landing near its date; allow partial
+  fulfilment across several payments.
+- **Reason:** `MISSED` is a fact about the clock, not an event anybody performs —
+  storing it means a row whose truth depends on a job having run, and a promise
+  that reads correctly only after a job reads wrongly before it. A promise is an
+  intention, and CLAUDE.md states it does not reduce the balance, so the linked
+  payment is what moves money and the link is only evidence. Requiring the link to
+  be explicit keeps "was this kept?" a recorded human judgement rather than an
+  inference from proximity, and the one-payment rule keeps that evidence
+  unambiguous without the allocation table the entry above refused.
+- **Trade-off:** a family who pays a promised amount in two instalments cannot
+  mark the promise fulfilled until one payment covers it, and must cancel or
+  reschedule instead. A payment larger than the promise fulfils it in full with no
+  record of the surplus against that promise — the surplus is visible as credit.
+- **Revisit when:** the pilot shows instalment-settled promises are common.
+
+---
+
+## 2026-08-15 — A promise may be born late, but may not be rescheduled into the past
+
+**Status:** Accepted
+
+Creating a promise **may** use a past due date; such a promise is `OPEN` and reads
+immediately as derived `MISSED`. A **rescheduled successor** must be due **today
+or later**. There is no arbitrary limit on how old an initial due date may be.
+
+- **Alternatives:** forbid past due dates entirely; cap backdating at some number
+  of days.
+- **Reason:** a promise made last week and entered today is a real fact, and
+  refusing it would push the clinic to enter a false date. Rescheduling is the
+  opposite act — a new intention agreed now — and an intention already overdue at
+  the moment it is agreed records nothing. Any fixed age cap would be an invented
+  number.
+- **Trade-off:** a mistyped year in the past is accepted and shows as missed.
+- **Revisit when:** backdated entry is observed being used to fabricate history.
+
+---
+
+## 2026-08-15 — `follow_up_date` is removed from Milestone 6
+
+**Status:** Accepted
+
+Milestone 6 stores no `follow_up_date`, on a promise or anywhere else.
+
+- **Reason:** its semantics were never approved — whether it drives a work queue,
+  who owns it, what closes it, and how it differs from the due date are all
+  undecided. CLAUDE.md forbids inferring an unapproved rule, and a date column with
+  no workflow behind it becomes a field people fill in and nobody reads.
+- **Trade-off:** chasing an overdue promise is done from the derived `MISSED` list
+  rather than from a per-promise reminder date.
+- **Revisit when:** Milestone 7 designs the actual follow-up workflow, which may
+  add it with defined semantics.
+
+---
+
+## 2026-08-15 — A payment may be back-dated but never post-dated
+
+**Status:** Accepted
+
+`received_on` is the day the money arrived. It **may be back-dated** with no
+arbitrary age limit. A **future `received_on` is refused.** The entry time and the
+entering actor are recorded separately and stay independently auditable.
+
+- **Alternatives:** cap backdating at N days; allow a future date for an expected
+  payment.
+- **Reason:** this follows the shape 2026-08-06 already set for business dates —
+  what happened is what is recorded, and a charge posted late belongs to the
+  session it priced. Money that arrived on Thursday and is entered on Saturday
+  arrived on Thursday. A future date, by contrast, records money that does not
+  exist yet — that is a promise, and the promise record already models it. Because
+  entry time and actor are kept alongside, a suspicious back-date is always
+  visible as a back-date.
+- **Trade-off:** a wrong past date is accepted at entry and is corrected by void
+  and re-record, not by edit.
+- **Revisit when:** never for the future-date refusal.
+
+---
+
+## 2026-08-15 — Payment and promise audit carries no bank reference and no new identifiers
+
+**Status:** Accepted — refines 2026-08-09 — Identifiers are masked in audit; names
+are not
+
+A payment's bank or reference value is stored **on the payment** and is **not
+copied into audit payloads**; where the fact matters, audit records only **that a
+reference exists**. Payment and promise **notes** follow the existing policy and
+are written **in full**. No name, phone number or file number is copied into a
+payment or promise audit payload beyond the ids the entry already needs.
+
+- **Alternatives:** mask the reference to its last four digits; write it in full,
+  as the note is.
+- **Reason:** the reasoning of 2026-08-09 applies directly — `audit_log` is
+  append-only and permanent, so a value copied into it is a second undeletable
+  store of that value. A bank reference is a banking identifier, not the fact being
+  changed, and "what changed, and who changed it?" is answered by the payment id
+  and the actor. A note, by contrast, _is_ the fact, so masking it would make the
+  trail useless. Masking the reference was rejected because, unlike a phone number,
+  there is no operational question four digits answers — the payment row itself is
+  where an operator looks it up.
+- **Trade-off:** reconstructing a voided payment's reference requires the payment
+  row, not the log alone.
+- **Revisit when:** a reconciliation or regulatory need requires the reference in
+  the trail, which needs a retention and access decision first.
+
+---
+
+## 2026-08-15 — Milestone 6 knows only its own records, and produces no statements
+
+**Status:** Accepted
+
+The family financial position covers **only records held in this system**.
+Pre-Milestone-5 paper debt and opening balances are **out of scope** and are not
+entered, imported or approximated. The interface must **say so plainly** wherever
+a balance is shown. **Statements, receipts and exports remain outside Milestone 6.**
+
+- **Alternatives:** an opening-balance adjustment per family; a printable
+  statement in this milestone.
+- **Reason:** an opening balance is a number nobody can source or audit, and
+  carrying it would make every derived balance partly an assertion. Saying the
+  scope out loud is honest and cheap; a silently partial balance is the failure
+  mode that costs trust. A statement or receipt is a document with content and
+  legal requirements that have not been decided, and CLAUDE.md forbids inventing
+  such content.
+- **Trade-off:** during transition the balance on screen is not the family's whole
+  historical debt, and the clinic keeps issuing receipts by its existing means.
+- **Revisit when:** Milestone 7, for statements, receipts and exports, and for any
+  opening-balance migration agreed with the clinic.
+
+---
+
+## 2026-08-15 — Money on the wire is the canonical decimal string
+
+**Status:** Accepted — documents an already-enforced rule; refines 2026-08-02 —
+Money unit
+
+Money is stored as integer toman. Its **API wire representation is the canonical
+decimal string** defined by `tomanAmountSchema` in
+`packages/contracts/src/money.ts`: digits only, no sign, no separator, no decimal
+point, no leading zero — one spelling per amount. **No other money representation
+exists** in requests, responses or contracts, and Milestone 6 does not invent one
+for payments or promises.
+
+- **Alternatives:** a JSON number; an object carrying amount and unit.
+- **Reason:** JSON has no integer type, so an amount above 2^53 loses precision
+  silently on `JSON.parse`, and `BigInt` does not serialise at all. A single
+  canonical spelling makes two equal amounts equal strings, so responses compare
+  and snapshot without normalising first. This has been enforced since the first
+  money-carrying contract and was never written down; the milestone that adds two
+  new money-carrying records is the wrong place to discover it.
+- **Trade-off:** every consumer parses before arithmetic — and the web tier does no
+  money arithmetic anyway.
+- **Revisit when:** a payment gateway settles in rial, which is the conversion
+  boundary 2026-08-02 already flagged.
+
+## 2026-08-16 — Milestone 6 outcome: the fulfil picker proves only what the list states
+
+**Status:** Accepted — outcome note recorded at the integrated Milestone 6 review;
+adds no rule and changes no frozen contract
+
+The frozen payment list carries no "already fulfils a promise" flag, so the web
+fulfil picker filters on the **two facts it can prove from the list itself** —
+`status = CONFIRMED` and `amountToman >= promise.amountToman` — and claims nothing
+about whether a candidate is unused. `PAYMENT_ALREADY_FULFILS_PROMISE`,
+`PAYMENT_FAMILY_MISMATCH`, `PROMISE_PAYMENT_TOO_SMALL` and `PAYMENT_VOIDED` stay
+the server's alone, and the picker's Persian help text says so.
+
+- **Alternatives:** add an `unusedByPromise` field to the payment list; add a
+  dedicated "candidate payments for this promise" endpoint.
+- **Reason:** a flag or an endpoint would be a post-freeze contract change bought
+  for a refusal the server already states clearly and in Persian, and a browser
+  that pre-judged eligibility would be a second answer that can disagree with the
+  only authoritative one.
+- **Trade-off:** an operator can pick a payment that is refused on submit. The
+  refusal is one click, names the reason, and preserves the page.
+- **Revisit when:** pilot use shows the refusal happening often enough to be
+  friction — which is also when it becomes clear whether the right answer is a
+  list field or a candidate endpoint.
+
+## 2026-08-16 — Milestone 6 outcome: promise workflows are bounded by one page of history
+
+**Status:** Accepted — outcome note recorded at the integrated Milestone 6 review;
+adds no rule and changes no frozen contract
+
+Two web-only consequences of offset paging are recorded rather than engineered
+around. The promises page offers fulfilment candidates from the **first 100
+payments** (`LEDGER_PAGE_SIZE_MAX`), so a legitimate older payment can fall out of
+the picker; and a promise's predecessor/successor links are in-page anchors, so a
+reschedule chain split across two pages links to a row the reader has to page to.
+
+- **Alternatives:** a candidate-payment endpoint; server-side deep links that
+  resolve a promise to its page.
+- **Reason:** at pilot scale a family has tens of payments and single-digit promise
+  chains, so both limits are theoretical today; nothing is lost or unreachable —
+  every row is in the paginated history, and the position totals are whole-family
+  and never paged.
+- **Trade-off:** a very long-running family could need a second page to complete a
+  fulfilment or follow a chain.
+- **Revisit when:** any pilot family exceeds one page of payments, or a reschedule
+  chain crosses a page boundary in real use.

@@ -1,22 +1,27 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../dates';
 import { tomanAmountSchema } from '../money';
+import { paymentSummarySchema } from '../payments/common';
 import { sessionChargeDetailSchema } from './charges';
 import { chargeChildSummarySchema, ledgerPageQuerySchema, pageInfoSchema } from './common';
 
 /**
- * The family account: child-level session detail and family-level totals
+ * The family account: child-level session detail, filter-scoped charge totals,
+ * and — from Milestone 6 — the family's whole financial position
  * (PROJECT_SPEC.md 7).
  *
- * WHAT PROJECT_SPEC.md 7 ASKS FOR AND THIS MILESTONE DOES NOT ANSWER. That
- * section describes an account carrying valid charges, payments, credits,
- * balance, last payment, promises, adjustments and voids. Milestone 5 has the
- * charges, the adjustments and the voids, and nothing that could produce the
- * rest. There is therefore NO `balanceToman`, no `creditToman`, no
- * `lastPaymentAt` and no `outstandingToman` in this response — not as null, not
- * as zero. A balance field reading zero while payments do not exist would be a
- * claim the ledger cannot support, and it is the one number a person reading
- * this screen would trust most.
+ * WHAT MILESTONE 5 COULD NOT ANSWER AND MILESTONE 6 NOW DOES. Milestone 5 had
+ * the charges, the adjustments and the voids, and nothing that could produce a
+ * balance, so it deliberately carried no balance field at all — a zero that
+ * meant "no payments exist" is the one number a reader would most trust and
+ * most misread. Milestone 6 adds payments, so `position` states what the family
+ * has paid, what remains due and what stands to their credit, all derived by the
+ * server from valid charges and confirmed payments.
+ *
+ * `totals` IS UNCHANGED AND STAYS FILTER-SCOPED. It describes the charge view
+ * the query asked for — this child, these dates — and nothing about it moved.
+ * The addition is purely additive: an existing consumer that ignores `position`
+ * reads exactly what it read before.
  *
  * A READ MODEL, exactly as the appointment day view is: denormalised on purpose
  * so a screen listing a family's sessions can print the child, the service and
@@ -120,14 +125,105 @@ export const familyAccountTotalsSchema = z.strictObject({
 export type FamilyAccountTotals = z.infer<typeof familyAccountTotalsSchema>;
 
 /**
+ * WHERE THE FAMILY STANDS: the whole family, always, and never the filter.
+ *
+ * THIS IS THE SEMANTIC DISTINCTION MILESTONE 6 FREEZES. `totals` above answers
+ * "what does this view of the charges add up to?" and moves when the reader
+ * narrows to one child or one month. `position` answers "what does this family
+ * owe?" and does not move at all: it is computed over EVERY valid charge and
+ * EVERY confirmed payment of the family, whatever `childId`, `from`, `to` or
+ * `includeVoided` say. Two numbers that look alike and mean different things are
+ * how a screen ends up quoting a filtered balance to a family, so the two live
+ * in separate blocks with separate names and this comment between them.
+ *
+ * EVERY VALUE IS SERVER-DERIVED, AND NONE OF IT IS STORED (DECISION_LOG,
+ * 2026-08-15 — Credit is derived). There is no cached balance column to drift
+ * from the rows beneath it, and CLAUDE.md forbids the web tier from computing
+ * any of this: the browser parses these numbers, it never adds them up.
+ *
+ * THERE IS NO SIGNED `balance`, DELIBERATELY. A single number that is positive
+ * when owed and negative when in credit puts the meaning in a minus sign that
+ * every consumer must interpret and that reads wrongly the moment somebody
+ * formats it without one. `amountDueToman` and `creditToman` are both unsigned,
+ * both always present, and at most one of them is non-zero — a family either
+ * owes money or has money standing to them, and the refinement below refuses a
+ * response claiming both.
+ *
+ * PROMISES ARE COUNTED, NEVER SUMMED. A promise moves no money in any state
+ * (CLAUDE.md), so a promised TOTAL next to an amount due would be an invitation
+ * to subtract one from the other. `openPromiseCount` is the promises still on
+ * time and `missedPromiseCount` the open ones whose due date has passed —
+ * derived against the clinic's calendar day, never stored.
+ *
+ * WHAT THIS POSITION KNOWS IS ONLY WHAT THIS SYSTEM HOLDS (DECISION_LOG,
+ * 2026-08-15 — Milestone 6 knows only its own records). Paper debt from before
+ * the ledger existed is not in these numbers, and the interface says so plainly
+ * wherever it shows them.
+ */
+export const familyFinancialPositionSchema = z
+  .strictObject({
+    /**
+     * Every valid charge of the family, less the concessions still active
+     * against them. The same arithmetic as `netChargedTotalToman` above, over
+     * the whole family rather than the filtered view.
+     */
+    netChargedTotalToman: tomanAmountSchema,
+    /** Every confirmed payment of the family. Voided payments count for nothing. */
+    confirmedPaymentTotalToman: tomanAmountSchema,
+    /** Paid beyond what was charged — a prepayment and an overpayment alike. */
+    creditToman: tomanAmountSchema,
+    /** Charged beyond what was paid. */
+    amountDueToman: tomanAmountSchema,
+    paymentCount: z.number().int().nonnegative(),
+    /**
+     * Stated for the reason `voidedChargeCount` is: a manager has to be able to
+     * see that a reversal happened without switching a list filter to look for
+     * it.
+     */
+    voidedPaymentCount: z.number().int().nonnegative(),
+    /**
+     * The most recent CONFIRMED payment, by received date, or null if the family
+     * has never paid. PROJECT_SPEC.md 7 asks the account to show it, and it is
+     * the fact a receptionist answers "when did they last pay?" from without
+     * opening the history.
+     */
+    lastPayment: paymentSummarySchema.nullable(),
+    openPromiseCount: z.number().int().nonnegative(),
+    missedPromiseCount: z.number().int().nonnegative(),
+  })
+  .refine(
+    (value) => value.creditToman === '0' || value.amountDueToman === '0',
+    'a family is owed money or owes money, never both',
+  );
+
+export type FamilyFinancialPosition = z.infer<typeof familyFinancialPositionSchema>;
+
+/**
  * A family's ledger, newest session first.
  *
  * `familyId` is echoed so a cached or shared response can never be read against
  * the wrong family.
+ *
+ * `position` IS ADDITIVE. Milestone 6 adds one key and changes nothing else in
+ * this response; `totals`, `charges` and `page` mean exactly what they meant
+ * before.
+ *
+ * `position` IS REQUIRED, AND NOTHING HERE IS OPTIONAL. This is the final
+ * Milestone 6 shape of the route: a response without a position is not a thinner
+ * account, it is an account that cannot say what the family owes. Freezing it as
+ * optional and narrowing it later would be a post-freeze contract change, which
+ * is the thing a freeze exists to prevent.
+ *
+ * THE DERIVATION IS LIVE. `FamilyAccountService` computes the position on every
+ * read of `GET /families/:id/account`, and both tiers parse this schema
+ * directly; the transitional parsers that bridged the gap during Milestone 6
+ * were deleted when it closed. A caller of the frozen schema gets the final
+ * shape or a parse error, never a half-filled account.
  */
 export const familyAccountResponseSchema = z.strictObject({
   familyId: z.uuid(),
   totals: familyAccountTotalsSchema,
+  position: familyFinancialPositionSchema,
   charges: z.array(sessionChargeViewSchema),
   page: pageInfoSchema,
 });

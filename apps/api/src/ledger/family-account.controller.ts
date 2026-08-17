@@ -5,6 +5,7 @@ import {
   type FamilyAccountResponse,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../auth/decorators/endpoint-access';
+import { FAMILY_ACCOUNT_READ_PERMISSIONS } from '../auth/permissions';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
 import { FamilyAccountService } from './family-account.service';
 
@@ -17,12 +18,17 @@ import { FamilyAccountService } from './family-account.service';
  * `families/:id` next door. The code stays in `LedgerModule` because the money is
  * the ledger's, and `FamiliesModule` reads no financial table.
  *
- * `charge.read`, NOT `family.read`. Reading who a family is and reading what they
- * owe are two authorities, and a permission that conflated them could not later
- * be withheld from a role that maintains records without seeing money. Manager
- * and receptionist both hold it today (`ROLE_PERMISSIONS`); the receptionist
- * still holds neither `charge.void` nor `charge.adjust`, and nothing on this
- * route mutates anything.
+ * NOT `family.read`. Reading who a family is and reading what they owe are two
+ * authorities, and a permission that conflated them could not later be withheld
+ * from a role that maintains records without seeing money.
+ *
+ * THREE FINANCIAL READS, AND ALL THREE ARE REQUIRED
+ * (`FAMILY_ACCOUNT_READ_PERMISSIONS`). The Milestone 6 response carries the
+ * charges, the family's payment position and its promise counts, so the route
+ * names every authority it actually reads. Manager and receptionist both hold
+ * all three today, so nobody's access changes; the receptionist still holds
+ * neither `charge.void` nor `payment.void`, and nothing on this route mutates
+ * anything.
  *
  * A GET WITH THE FILTERS IN THE QUERY STRING, unlike `POST /families/search`. The
  * difference is what travels: a search term is a guardian's name or a mobile
@@ -54,7 +60,7 @@ export class FamilyAccountController {
    * history is visible unless somebody asks to hide it (frozen F1).
    */
   @Get(':id/account')
-  @RequirePermissions('charge.read')
+  @RequirePermissions(...FAMILY_ACCOUNT_READ_PERMISSIONS)
   async get(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodBodyPipe(familyAccountQuerySchema)) query: FamilyAccountQuery,

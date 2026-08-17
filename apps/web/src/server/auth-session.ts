@@ -57,8 +57,17 @@ export async function callerContext(sessionToken?: string): Promise<CallerContex
 export type SessionOptions = {
   /** Set on `/change-password` so it is reachable while a change is outstanding. */
   allowPasswordChangePending?: boolean;
-  /** Pages that need more than authentication name the permission they need. */
-  requirePermission?: Permission;
+  /**
+   * Pages that need more than authentication name the permission they need.
+   *
+   * A LIST MEANS ALL OF THEM, never any of them. A page whose response carries
+   * several kinds of information names each authority it displays — the family
+   * account is charges, money and promise counts, and `FAMILY_ACCOUNT_READ_PERMISSIONS`
+   * is exactly the list its NestJS route requires. OR semantics would let a
+   * future role holding one of three render a screen the API then refuses to
+   * fill, which is the mismatch this shape exists to make impossible.
+   */
+  requirePermission?: Permission | readonly Permission[];
 };
 
 /**
@@ -87,7 +96,12 @@ export async function requireSession(options: SessionOptions = {}): Promise<Auth
   }
 
   if (options.requirePermission !== undefined) {
-    if (!user.permissions.includes(options.requirePermission)) {
+    const required =
+      typeof options.requirePermission === 'string'
+        ? [options.requirePermission]
+        : options.requirePermission;
+
+    if (!required.every((permission) => user.permissions.includes(permission))) {
       // NestJS would refuse the underlying call anyway; this keeps a
       // receptionist from rendering a management surface they cannot use.
       redirect('/');

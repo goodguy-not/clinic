@@ -167,6 +167,13 @@ describe('guard chain (real PostgreSQL)', () => {
         'family.read',
         'family.update',
         'family.update_status',
+        // Milestone 6: recording money and the whole promise workflow.
+        // `payment.void` stays with the manager.
+        'payment.create',
+        'payment.read',
+        'promise.create',
+        'promise.read',
+        'promise.resolve',
         'room.read',
         'service.read',
         'tariff.read',
@@ -313,7 +320,17 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  (manager-only)
       // charge adjustments: grant a concession, void one (both manager-only)
       // family account:  read one family's ledger
-      expect(routes).toBe(74);
+      // payments:        record money a family paid (`payment.create`, held by
+      //                  the manager and the receptionist), read one family's
+      //                  payment history (`payment.read`, held by both), void a
+      //                  payment (`payment.void`, manager-only)
+      // promises:        record a promise and read one family's promise history
+      //                  (`promise.create` / `promise.read`, both held by the
+      //                  manager and the receptionist), and the three ways one
+      //                  ends — fulfil, reschedule, cancel — under the single
+      //                  `promise.resolve`, held by both because none of them
+      //                  moves a rial
+      expect(routes).toBe(82);
     });
   });
 });

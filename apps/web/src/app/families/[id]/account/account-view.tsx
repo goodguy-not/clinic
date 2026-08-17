@@ -3,8 +3,11 @@ import type {
   FamilyAccountQuery,
   FamilyAccountResponse,
   FamilyDetailResponse,
+  Payment,
 } from '@clinic/contracts';
 import { Badge, ButtonLink, EmptyState, Field, Panel, SubmitButton } from '@/components/ui';
+import { FamilyFinancialPositionPanel } from '@/components/family-financial-position';
+import { FamilyMoneyNavigation } from '@/components/family-money-navigation';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/styles';
 import {
   formatChargeMoney,
@@ -14,6 +17,8 @@ import {
 import { formatScheduleDate } from '@/scheduling/presentation';
 import { COPY } from '@/server/copy-fa';
 import { toPersianDigits } from '@/server/numerals-fa';
+import type { JalaliParts } from '@/server/jalali';
+import { PaymentEntryPanel } from '../payments/payment-entry';
 
 type Child = FamilyDetailResponse['children'][number];
 
@@ -49,6 +54,10 @@ export function FamilyAccountView({
   csrfToken,
   canAdjustCharge,
   canVoidCharge,
+  canCreatePayment,
+  recentPayments,
+  clinicToday,
+  clinicTodayJalali,
 }: {
   familyId: string;
   children: Child[];
@@ -57,11 +66,29 @@ export function FamilyAccountView({
   csrfToken: string;
   canAdjustCharge: boolean;
   canVoidCharge: boolean;
+  canCreatePayment: boolean;
+  recentPayments: Payment[];
+  clinicToday: string;
+  clinicTodayJalali: JalaliParts;
 }) {
   const totals = formatFamilyAccountMoney(account.totals);
 
   return (
     <>
+      <FamilyMoneyNavigation familyId={familyId} active="account" />
+
+      <FamilyFinancialPositionPanel position={account.position} />
+
+      {canCreatePayment ? (
+        <PaymentEntryPanel
+          familyId={familyId}
+          csrfToken={csrfToken}
+          clinicToday={clinicToday}
+          clinicTodayJalali={clinicTodayJalali}
+          recentPayments={recentPayments}
+        />
+      ) : null}
+
       <Panel title={COPY.familyAccountTotalsTitle}>
         <dl
           className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
