@@ -8,6 +8,9 @@
 //               and the append-only adjustment that reduces it.
 // Milestone 6 — money in: the family payment, and the promise to pay that moves
 //               no money at all.
+// Milestone 7 — dashboard and reports: NO new table, column or rule. Clinic-wide
+//               date-keyed reading is a new access pattern over existing rows,
+//               so the milestone adds three B-tree indexes and nothing else.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
 // indexes, exclusion constraints, composite foreign keys, functions and
@@ -1226,6 +1229,11 @@ model SessionCharge {
   /// what the partial unique index cannot answer, because it does not index
   /// them.
   @@index([appointmentParticipantId])
+  /// Milestone 7: the clinic-wide day, which is a new access pattern. Every
+  /// index above is keyed on a family, a child or a seat, so "what did the whole
+  /// clinic charge between these two dates" could only be a sequential scan of
+  /// every charge ever raised.
+  @@index([serviceDate])
   @@map("session_charge")
 }
 
@@ -1346,6 +1354,21 @@ model Payment {
   @@unique([id, familyId])
   /// The family account read, which is where every payment question starts.
   @@index([familyId, receivedOn])
+  /// Milestone 7, and the two indexes are two different questions about the same
+  /// row rather than one question written twice.
+  ///
+  /// `received_on` is the clinic-wide payments report: what the clinic took in
+  /// over a period, on the business day the money arrived.
+  ///
+  /// `created_at` is the DAILY RECONCILIATION — what was ENTERED on a clinic
+  /// day, which is what a till is balanced against. It is keyed on the instant
+  /// rather than on the entering user, deliberately: a day's entries are few, the
+  /// caller's own rows are filtered from that small set, and the manager's
+  /// clinic-wide view of the same day reads the same index. A leading
+  /// `created_by_user_id` would serve the first read and be useless for the
+  /// second.
+  @@index([receivedOn])
+  @@index([createdAt])
   @@map("payment")
 }
 

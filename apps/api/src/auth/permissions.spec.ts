@@ -1,6 +1,9 @@
 import { PERMISSIONS, USER_ROLES } from '@clinic/contracts';
 import {
+  DASHBOARD_READ_PERMISSIONS,
   FAMILY_ACCOUNT_READ_PERMISSIONS,
+  FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+  PAYMENT_REPORT_READ_PERMISSIONS,
   ROLE_PERMISSIONS,
   permissionsForRole,
 } from './permissions';
@@ -89,6 +92,10 @@ describe('role to permission map', () => {
       'charge.void',
       'charge.adjust',
       'payment.void',
+      // Milestone 7: the clinic's whole financial position, and carrying a file
+      // out of the system.
+      'report.read_financial',
+      'report.export',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
@@ -204,6 +211,89 @@ describe('role to permission map', () => {
         for (const permission of FAMILY_ACCOUNT_READ_PERMISSIONS) {
           expect(granted).toContain(permission);
         }
+      }
+    });
+  });
+
+  describe('reporting', () => {
+    // Milestone 7. The operational reads reuse the authorities that already
+    // describe the data; the two new names are the clinic-wide financial read
+    // and the export, and both are the manager's.
+    it('defines exactly two report permissions, and none for the operational reads', () => {
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('report.')).sort()).toEqual(
+        ['report.read_financial', 'report.export'].sort(),
+      );
+
+      // Each of these would be a second name for an authority that already
+      // exists, and a role map would have to keep the two in step forever.
+      for (const absent of [
+        'report.read',
+        'report.read_sessions',
+        'report.read_promises',
+        'report.read_therapist_activity',
+        'dashboard.read',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('grants a manager both, and a receptionist neither', () => {
+      for (const permission of ['report.read_financial', 'report.export'] as const) {
+        expect(permissionsForRole('MANAGER')).toContain(permission);
+        expect(permissionsForRole('RECEPTIONIST')).not.toContain(permission);
+      }
+    });
+
+    it('lets both roles read the dashboard, under three authorities they already hold', () => {
+      // The shared operational screen. Nothing here is new access: the point of
+      // the list is that the route names every module it aggregates.
+      expect([...DASHBOARD_READ_PERMISSIONS].sort()).toEqual(
+        ['appointment.read', 'payment.read', 'promise.read'].sort(),
+      );
+
+      for (const role of ['MANAGER', 'RECEPTIONIST'] as const) {
+        for (const permission of DASHBOARD_READ_PERMISSIONS) {
+          expect(permissionsForRole(role)).toContain(permission);
+        }
+      }
+    });
+
+    it('puts the clinic-wide financial reports behind an authority a receptionist lacks', () => {
+      // The leak this prevents: `payment.read` is what a receptionist records
+      // money with, and it must not become "every family's money, and what each
+      // colleague took in".
+      expect([...PAYMENT_REPORT_READ_PERMISSIONS].sort()).toEqual(
+        ['payment.read', 'report.read_financial'].sort(),
+      );
+      expect([...FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS].sort()).toEqual(
+        ['charge.read', 'payment.read', 'promise.read', 'report.read_financial'].sort(),
+      );
+
+      // The single-family account read stays exactly as it was: the report list
+      // is that list plus the clinic-wide authority, not a different one.
+      for (const permission of FAMILY_ACCOUNT_READ_PERMISSIONS) {
+        expect(FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS).toContain(permission);
+      }
+
+      const receptionist = permissionsForRole('RECEPTIONIST');
+      for (const list of [
+        PAYMENT_REPORT_READ_PERMISSIONS,
+        FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+      ]) {
+        expect(list.every((permission) => receptionist.includes(permission))).toBe(false);
+        expect(list.every((permission) => permissionsForRole('MANAGER').includes(permission))).toBe(
+          true,
+        );
+      }
+    });
+
+    it('names only permissions that exist, in every report authority set', () => {
+      for (const list of [
+        DASHBOARD_READ_PERMISSIONS,
+        PAYMENT_REPORT_READ_PERMISSIONS,
+        FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+      ]) {
+        for (const permission of list) expect(PERMISSIONS).toContain(permission);
       }
     });
   });

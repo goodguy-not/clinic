@@ -1660,3 +1660,119 @@ reschedule chain split across two pages links to a row the reader has to page to
   fulfilment or follow a chain.
 - **Revisit when:** any pilot family exceeds one page of payments, or a reschedule
   chain crosses a page boundary in real use.
+
+## 2026-08-18 — Milestone 7 keys each read on a named business date, and says which
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+Every Milestone 7 read states the business day it is keyed on, from a closed
+vocabulary of four (`REPORT_DATE_BASES`): `SESSION_DATE`, `PAYMENT_RECEIVED_ON`,
+`PAYMENT_RECORDED_AT` and `PROMISE_DUE_ON`. Ranged responses echo the basis
+beside the period. The consequence that matters: the dashboard's **daily
+reconciliation is keyed on `PAYMENT_RECORDED_AT`** — what this caller entered
+today, which is what a till is balanced against — while the **payments report is
+keyed on `PAYMENT_RECEIVED_ON`**, the business day the money arrived. Money taken
+last Thursday and entered this morning appears in both, under different days.
+
+- **Alternatives:** one basis for all payment reads; leaving the basis implicit in
+  the route name.
+- **Reason:** a single basis makes one of the two readings wrong, and the wrong one
+  is discovered by a receptionist whose till does not balance. Stating the basis on
+  the wire means a screen, a print header and a later export cannot disagree about
+  what was measured.
+- **Trade-off:** two payment figures for one day that are both correct and are not
+  equal, which the interface has to label clearly.
+- **Revisit when:** a settlement period or a bank reconciliation needs a third
+  basis.
+
+## 2026-08-18 — Reporting adds two permissions, and none for the operational reads
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+`report.read_financial` and `report.export` are the only new permission names.
+The dashboard, the session report, the therapist activity report and the promise
+report are read under the authorities that already describe the data —
+`appointment.read`, `payment.read`, `promise.read` — and both roles hold them.
+The clinic-wide payments report and the family-accounts report require
+`report.read_financial`, held by the manager alone, as does the dashboard's
+clinic-wide financial block, which reads `null` for anybody without it. Export
+is separate from reading and is manager-only; no export behaviour exists yet.
+
+- **Alternatives:** a `report.*` name per report; folding export into the read.
+- **Reason:** `report.read_sessions` beside `appointment.read` would be a second
+  name for one authority that the role map must keep in step forever. What is
+  genuinely new is the clinic-wide financial read and the per-user attribution that
+  comes with it: `payment.read` is what a receptionist records money with, and it
+  must not silently become every family's money and every colleague's takings.
+  Extracting a file leaves the system and outlives the session, so it is a
+  different act from looking at a screen.
+- **Trade-off:** a future role that should read sessions but not the diary cannot be
+  expressed without splitting `appointment.read`.
+- **Revisit when:** a therapist login exists, which is the first role that plausibly
+  reads its own activity without holding the diary.
+
+## 2026-08-18 — A report range is mandatory and bounded at 366 days
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+Every ranged report requires `from` and `to`, inclusive at both ends, and refuses
+a span wider than `REPORT_RANGE_MAX_DAYS` (366) as `VALIDATION_FAILED`. No new
+error code is introduced, and an empty result is a successful read — there is no
+`REPORT_NOT_FOUND` anywhere in `ERROR_CODES`.
+
+- **Alternatives:** an optional range defaulting to the current month; an unbounded
+  range.
+- **Reason:** a clinic-wide read with no period is a request to scan every session,
+  charge and payment ever recorded, and it arrives as a query string anybody can
+  edit. The period is the question, not a refinement of it.
+- **Trade-off:** a year-and-a-day comparison needs two requests.
+- **Revisit when:** an annual report is specified, which is also when it becomes
+  clear whether the answer is a wider bound or a purpose-built summary read.
+
+## 2026-08-18 — Reporting stores nothing: three indexes and no second source of truth
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+The milestone adds no table, column, constraint or trigger. Clinic-wide
+date-keyed reading is a new ACCESS PATTERN over existing rows, so it adds exactly
+three B-tree indexes — `session_charge(service_date)`, `payment(received_on)` and
+`payment(created_at)` — and nothing else. No stored balance, no reporting
+aggregate, no materialised view, no cache. Every figure is derived on the request
+that asks for it.
+
+- **Alternatives:** a nightly rollup table; a materialised daily summary; a partial
+  index over non-voided rows.
+- **Reason:** every existing index on the financial tables leads with a family, a
+  child or a seat, so a date-only predicate cannot use them at all. A stored
+  aggregate would be a second source of financial truth that can disagree with the
+  family account beside it, and a partial index over non-voided rows would be wrong
+  because reports show voided rows by default.
+- **Trade-off:** three more indexes to maintain on write, on tables whose write rate
+  is a receptionist typing.
+- **Revisit when:** a report's plan shows a sort or a join dominating at pilot data
+  volumes.
+
+## 2026-08-18 — The synthetic clinic is seeded through the real services, and deletes nothing
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+`node dist/dev/main.js --confirm` populates a synthetic multi-week clinic for
+local review. It writes through the same domain services the application uses,
+parses every request with the same contract schema the controller would, performs
+every act under a real manager account it refuses to create, and is additive: it
+never truncates, deletes or disables a trigger. It refuses to run unless
+`NODE_ENV` is not production AND the database name ends in `_dev`, `_test`, `_ci`
+or `_demo`, and it is a separate binary from the operator CLI.
+
+- **Alternatives:** raw SQL fixtures; a `--reset` flag; a subcommand of the operator
+  CLI.
+- **Reason:** a seeder with its own INSERTs is a second implementation of the domain,
+  and the first place the two disagree is a dashboard number nobody can reproduce
+  through the interface. Financial rows cannot be deleted by design, so a reset flag
+  would be a data-destroying path living one typo away from a database that matters.
+- **Trade-off:** every seeded payment carries the run's own `created_at`, so the
+  daily reconciliation is rich for the day of the run and empty for earlier days.
+  Back-dated `receivedOn` still exercises the two payment bases against each other.
+- **Revisit when:** a pilot rehearsal needs a reviewable clinic whose entry days are
+  spread across weeks, which would need a mechanism that can state an entry instant
+  without bypassing the payment's immutability rule.

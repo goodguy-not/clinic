@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "postinstall": "prisma generate",
     "test:int": "jest --config jest.integration.config.js",
-    "cli": "node dist/cli/main.js"
+    "cli": "node dist/cli/main.js",
+    "seed:synthetic": "node dist/dev/main.js"
   },
   "dependencies": {
     "@clinic/contracts": "workspace:*",

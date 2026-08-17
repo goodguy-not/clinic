@@ -135,6 +135,38 @@ export const PERMISSIONS = [
   'promise.read',
   'promise.create',
   'promise.resolve',
+
+  // Reporting. TWO NAMES, AND THE OPERATIONAL READS GET NEITHER OF THEM.
+  //
+  // Milestone 7 adds the clinic's first clinic-wide reads, and most of them are
+  // already expressible: the session report and the therapist activity report
+  // are the diary, read under `appointment.read`; the promise report is the
+  // promise workflow the receptionist owns, read under `promise.read`; the
+  // dashboard is those three authorities on one screen. Inventing
+  // `report.read_sessions` beside `appointment.read` would be a second name for
+  // one authority, and a role map would then have to keep the two in step
+  // forever.
+  //
+  // What is genuinely new is the CLINIC-WIDE FINANCIAL read and the PER-USER
+  // FINANCIAL ATTRIBUTION that comes with it: every family's balance in one
+  // page, every family's payments in one page, and what each member of staff
+  // took in. A receptionist holds `payment.read` because they record money and
+  // read the family in front of them; that is not the same authority as the
+  // clinic's whole financial position, and no existing name says so. Hence
+  // `report.read_financial`, held by the manager alone. It is what the payments
+  // report and the family-accounts report demand, and what decides whether the
+  // dashboard's clinic-wide financial block is populated or null.
+  //
+  // `report.export` is separate from reading, because extracting a file is a
+  // different act from looking at a screen: the file leaves the system, outlives
+  // the session, and is the one reporting act the accepted plan requires to be
+  // audited. A role that may read a report is not thereby a role that may carry
+  // it out of the building, and holding these as one permission would make that
+  // distinction unstateable. Manager-only, and no export behaviour exists yet —
+  // the authority is settled here, and the CSV that uses it is a later
+  // checkpoint.
+  'report.read_financial',
+  'report.export',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -168,6 +200,61 @@ export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
   'charge.read',
   'payment.read',
   'promise.read',
+] as const satisfies readonly Permission[];
+
+/**
+ * What reading the dashboard requires, ALL THREE OF THEM.
+ *
+ * The same reasoning as `FAMILY_ACCOUNT_READ_PERMISSIONS` below, applied to the
+ * screen that aggregates three modules: the dashboard states today's
+ * appointments and unresolved outcomes (`appointment.read`), the caller's own
+ * recorded payments for the day (`payment.read`) and the promises due and
+ * overdue (`promise.read`). A route that demanded only the first would serve two
+ * kinds of information its permission never mentioned.
+ *
+ * AND, NOT OR, in both tiers — `PermissionsGuard` in NestJS and `requireSession`
+ * on the page.
+ *
+ * IT IS NOT THE FINANCIAL AUTHORITY. Holding these three gets a caller the
+ * dashboard with `clinicFinancial: null`; the clinic-wide block needs
+ * `report.read_financial` as well, and that is decided inside the response
+ * rather than by refusing the request.
+ *
+ * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all three.
+ */
+export const DASHBOARD_READ_PERMISSIONS = [
+  'appointment.read',
+  'payment.read',
+  'promise.read',
+] as const satisfies readonly Permission[];
+
+/**
+ * What the clinic-wide payments report requires.
+ *
+ * `payment.read` because it reads payments, and `report.read_financial` because
+ * it reads EVERY family's payments and says who recorded each one. Naming both
+ * keeps the permission model an accurate description of the route: the second
+ * name is the one a receptionist does not hold, and it is the reason this report
+ * refuses them.
+ */
+export const PAYMENT_REPORT_READ_PERMISSIONS = [
+  'payment.read',
+  'report.read_financial',
+] as const satisfies readonly Permission[];
+
+/**
+ * What the clinic-wide family-accounts report requires: everything reading one
+ * family's account requires, plus the authority to read every family's at once.
+ *
+ * A position is charges, money and promise counts, so the same three reads are
+ * named here as on the single account; the fourth name is what makes this the
+ * manager's report rather than a bulk version of a receptionist's screen.
+ */
+export const FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS = [
+  'charge.read',
+  'payment.read',
+  'promise.read',
+  'report.read_financial',
 ] as const satisfies readonly Permission[];
 
 export const permissionSchema = z.enum(PERMISSIONS);

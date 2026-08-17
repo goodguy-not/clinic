@@ -45,6 +45,16 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * MILESTONE 6 DRAWS THE SAME LINE THROUGH MONEY IN. Recording a payment and the
  * whole promise workflow are the receptionist's; voiding a payment is the
  * manager's alone, again with no same-day window.
+ *
+ * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
+ * operational reads — the dashboard, the session report, the therapist activity
+ * report, the promise report — are the diary and the promise workflow this role
+ * already holds, read over a range instead of a day, so they need no new
+ * authority and are granted none. `report.read_financial` is the clinic's whole
+ * financial position and per-user attribution, and `report.export` is carrying a
+ * file out of the system; both stay with the manager. The dashboard is shared,
+ * and its clinic-wide financial block reads null for anybody without the first
+ * of those two.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,
@@ -107,6 +117,21 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
 export function permissionsForRole(role: UserRole): readonly Permission[] {
   return ROLE_PERMISSIONS[role];
 }
+
+/**
+ * The authority sets a route names, re-exported rather than declared here.
+ *
+ * Milestone 7 adds three more of them — the dashboard's, the payments report's
+ * and the family-accounts report's — for exactly the reason the family account's
+ * moved: the page that renders each response has to demand what the route
+ * demands, and one list stated in `@clinic/contracts` is the only way the two
+ * cannot drift.
+ */
+export {
+  DASHBOARD_READ_PERMISSIONS,
+  PAYMENT_REPORT_READ_PERMISSIONS,
+  FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+} from '@clinic/contracts';
 
 /**
  * What reading a family account requires, ALL THREE OF THEM.
