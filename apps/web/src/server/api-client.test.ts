@@ -310,6 +310,17 @@ describe('frozen ledger endpoints', () => {
         chargeCount: 1,
         voidedChargeCount: 0,
       },
+      position: {
+        netChargedTotalToman: '1500000',
+        confirmedPaymentTotalToman: '0',
+        creditToman: '0',
+        amountDueToman: '1500000',
+        paymentCount: 0,
+        voidedPaymentCount: 0,
+        lastPayment: null,
+        openPromiseCount: 0,
+        missedPromiseCount: 0,
+      },
       charges: [
         {
           charge,

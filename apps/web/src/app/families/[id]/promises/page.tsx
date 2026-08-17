@@ -5,7 +5,6 @@ import { AppHeader } from '@/components/app-header';
 import { FamilyFinancialPositionPanel } from '@/components/family-financial-position';
 import { FamilyMoneyNavigation } from '@/components/family-money-navigation';
 import { Alert, PageHeader, PageShell } from '@/components/ui';
-import { hasFinalPosition } from '@/ledger/family-account-legacy';
 import { api } from '@/server/api-client';
 import { readCsrfCookie, readSessionToken, requireSession } from '@/server/auth-session';
 import { clinicToday } from '@/server/clinic-time';
@@ -74,9 +73,7 @@ export default async function FamilyPromisesPage({
         {successes[rawSuccess] !== undefined ? (
           <Alert tone="info">{successes[rawSuccess]}</Alert>
         ) : null}
-        {hasFinalPosition(accountResult.data) ? (
-          <FamilyFinancialPositionPanel position={accountResult.data.position} />
-        ) : null}
+        <FamilyFinancialPositionPanel position={accountResult.data.position} />
         <FamilyMoneyNavigation familyId={id} active="promises" />
         {user.permissions.includes('promise.create') ? (
           <PromiseEntryPanel

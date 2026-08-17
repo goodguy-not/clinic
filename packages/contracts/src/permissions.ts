@@ -139,4 +139,35 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
+/**
+ * What reading a family account requires, ALL THREE OF THEM.
+ *
+ * The response is one screen and three authorities. It carries the charges and
+ * their concessions (`charge.read`), and from Milestone 6 a whole-family
+ * position stating what has been paid and what is due (`payment.read`) together
+ * with the open and overdue promise counts (`promise.read`). A caller that
+ * demanded only the first would receive two kinds of information its permission
+ * never mentioned, and the permission model would describe the product
+ * inaccurately — which is how a later role that should see charges but not money
+ * quietly gets both.
+ *
+ * AND, NOT OR. Every named permission is required, in both tiers: NestJS refuses
+ * the route through `PermissionsGuard`, and the account page refuses to render
+ * through `requireSession`.
+ *
+ * IT LIVES HERE FOR THE REASON `PERMISSIONS` DOES. This is not the role map —
+ * that stays in `apps/api` and nowhere else. This is the authority the frozen
+ * family-account route names, which both the guard and the page that renders its
+ * response have to state identically; two lists would be two answers, and the
+ * one on the page is the one nobody notices drifting.
+ *
+ * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all three, and
+ * a test in each tier pins that.
+ */
+export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
+  'charge.read',
+  'payment.read',
+  'promise.read',
+] as const satisfies readonly Permission[];
+
 export const permissionSchema = z.enum(PERMISSIONS);

@@ -111,25 +111,13 @@ export function permissionsForRole(role: UserRole): readonly Permission[] {
 /**
  * What reading a family account requires, ALL THREE OF THEM.
  *
- * The response is one screen and three authorities. It carries the charges and
- * their concessions (`charge.read`), and from Milestone 6 a whole-family
- * position stating what has been paid and what is due (`payment.read`) together
- * with the open and overdue promise counts (`promise.read`). A route that
- * demanded only the first would hand a caller two kinds of information its
- * permission never mentioned, and the permission model would describe the
- * product inaccurately — which is how a later role that should see charges but
- * not money quietly gets both.
+ * Re-exported rather than declared here, and the move is deliberate: the web
+ * tier gates the page that renders this response and has to name the same three
+ * authorities, so the list is stated once in `@clinic/contracts` where the
+ * permission names already live. `PermissionsGuard` remains the authoritative
+ * enforcement, and the ROLE map above stays in `apps/api` and nowhere else.
  *
- * AND, NOT OR. `PermissionsGuard` requires every named permission, so a future
- * role holding one and not the others is refused rather than served a partial
- * account.
- *
- * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all three
- * (`ROLE_PERMISSIONS`), and a test pins that. It is a statement about what the
- * response contains, made before the response contains it.
+ * `permissions.spec.ts` pins the three names and pins that both internal roles
+ * hold all of them, so nobody's access changed when it moved.
  */
-export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
-  'charge.read',
-  'payment.read',
-  'promise.read',
-] as const satisfies readonly Permission[];
+export { FAMILY_ACCOUNT_READ_PERMISSIONS } from '@clinic/contracts';

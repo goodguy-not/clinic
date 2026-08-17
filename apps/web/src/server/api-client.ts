@@ -62,7 +62,9 @@ import {
   type CreateUserRequest,
   type CreateUserResponse,
   type ErrorCode,
+  familyAccountResponseSchema,
   type FamilyAccountQuery,
+  type FamilyAccountResponse,
   type FamilyDetailResponse,
   type FamilyListResponse,
   type FamilySearchRequest,
@@ -127,10 +129,6 @@ import {
   registrationDraftResponseSchema,
 } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
-import {
-  legacyFamilyAccountResponseSchema,
-  type LegacyFamilyAccountResponse,
-} from '@/ledger/family-account-legacy';
 
 /**
  * Server-only client for the NestJS API.
@@ -739,7 +737,7 @@ export const api = {
     familyId: string,
     query: FamilyAccountQuery,
     context: CallerContext,
-  ): Promise<ApiResult<LegacyFamilyAccountResponse>> => {
+  ): Promise<ApiResult<FamilyAccountResponse>> => {
     const search = new URLSearchParams({
       page: String(query.page),
       pageSize: String(query.pageSize),
@@ -752,19 +750,16 @@ export const api = {
     return call(
       `${sessionChargeApiPath.familyAccount(familyId)}?${search.toString()}`,
       'GET',
-      // TRANSITIONAL: the frozen Milestone 6 contract requires `position`, and
-      // the read that derives it lands later in this milestone. See
-      // `family-account-legacy.ts`.
-      legacyFamilyAccountResponseSchema,
+      familyAccountResponseSchema,
       context,
     );
   },
 
   // --- payments and promises ------------------------------------------------
   //
-  // These methods compile against the frozen A2 wire contracts. Their NestJS
-  // routes may not be live yet on the parallel API lane; Web still parses every
-  // eventual success strictly and exposes no generic money endpoint.
+  // These methods name only the frozen A2 wire operations, all of which are now
+  // live in NestJS. Web parses every success strictly and exposes no generic
+  // money endpoint.
 
   createPayment: (
     familyId: string,

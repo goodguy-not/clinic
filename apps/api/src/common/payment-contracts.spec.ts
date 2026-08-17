@@ -499,9 +499,9 @@ describe('the additive family account', () => {
   it('requires the position, and is the final Milestone 6 shape', () => {
     // Nothing here is optional. A response without a position is not a thinner
     // account, it is one that cannot say what the family owes — and freezing it
-    // as optional to narrow later would itself be a post-freeze change. The
-    // interim body the API still returns is parsed by an explicitly transitional
-    // legacy schema in `apps/web`, never by this one.
+    // as optional to narrow later would itself be a post-freeze change. The live
+    // account read derives the position on every request, so this is the only
+    // shape either tier parses.
     expect(familyAccountResponseSchema.safeParse({ ...account, position }).success).toBe(true);
     expect(familyAccountResponseSchema.safeParse(account).success).toBe(false);
   });

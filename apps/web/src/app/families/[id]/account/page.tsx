@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { familyAccountQuerySchema, type FamilyAccountQuery } from '@clinic/contracts';
+import {
+  FAMILY_ACCOUNT_READ_PERMISSIONS,
+  familyAccountQuerySchema,
+  type FamilyAccountQuery,
+} from '@clinic/contracts';
 import { AppHeader } from '@/components/app-header';
 import { Alert, PageHeader, PageShell } from '@/components/ui';
 import { api } from '@/server/api-client';
@@ -22,7 +26,11 @@ export default async function FamilyAccountPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await requireSession({ requirePermission: 'charge.read' });
+  // The same three authorities the NestJS account route requires, named from the
+  // one shared list: this page reads charges, the family's payment position and
+  // its promise counts, and it also reads the payment history for the entry
+  // panel beside them.
+  const user = await requireSession({ requirePermission: FAMILY_ACCOUNT_READ_PERMISSIONS });
   const [{ id }, rawQuery, token] = await Promise.all([params, searchParams, readSessionToken()]);
   const query = parseAccountQuery(rawQuery);
   const context = { sessionToken: token ?? undefined };

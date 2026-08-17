@@ -1170,6 +1170,141 @@ scope for a later milestone.
    if measured pilot latency warrants it — a batch read, not a cache, would be the
    answer.
 
+## Family money in (Milestone 6)
+
+Money arriving. A **payment** records that a family handed the clinic money; a
+**payment promise** records that a family said it would; and the family account now states
+a **financial position** — what the whole family was charged, what it has paid, and what is
+therefore due or standing to its credit — derived on every request.
+
+Nothing here is allocated. A payment names no charge, no session and no child: balance is
+family-level, and the per-child, per-session charge detail from Milestone 5 is what still
+explains where the debt came from.
+
+### Scope, and what is deliberately absent
+
+Built: family-level payment recording in `CASH`, `CARD` or `TRANSFER` with an optional bank
+reference and note; unbounded back-dating and a server-side refusal of a future receipt
+date; manager-only payment void, which keeps the row whole and visible; paginated payment
+history with an `includeVoided` filter; payment promises with derived `MISSED`; fulfil,
+reschedule and cancel, all reasoned and audited; and the whole-family position on
+`GET /families/:id/account`.
+
+Not built, and each for a stated reason:
+
+| Absent                                                     | Why                                                                                                                                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Payment-to-charge allocation, and partial fulfilment**   | A payment is a family fact (DECISION_LOG, 2026-08-15). There is no row for a portion to live in, and one payment settles at most one promise, wholly or not at all.     |
+| **A stored balance, credit or paid-total column**          | Every figure in `position` is derived from `session_charge`, `charge_adjustment`, `payment` and `payment_promise` on each read. A cached total drifts; the rows do not. |
+| **A `PENDING` payment status**                             | Money is recorded when the receptionist is holding it. Confirmed or voided, and nothing else (DECISION_LOG, 2026-08-15).                                                |
+| **A stored `MISSED` promise status**                       | It is an `OPEN` promise whose due day is past at the clinic. Storing it would need a nightly job and would read wrongly until it ran.                                   |
+| **`CHEQUE`, `OTHER`, refunds, un-void, editing a payment** | A cheque has a lifecycle nothing here models; `OTHER` is the value no report can say anything about; a wrong payment is voided and re-recorded, never rewritten.        |
+| **Pre-Milestone-6 paper debt and opening balances**        | The position knows only this system's records, and every screen that shows it says so in Persian.                                                                       |
+| **Therapist settlement and shares**                        | Milestone 8, and not approved. No column here stores a percentage or a share.                                                                                           |
+
+No real clinic data appears anywhere. Every fixture, test and example is synthetic
+(PROJECT_SPEC.md 17).
+
+### The position, and why it sits beside a total that means something else
+
+`GET /families/:id/account` returns two blocks of money that look alike and are not.
+`totals` describes **the charge view the query asked for** and moves when the reader narrows
+to one child or one month. `position` answers **what this family owes** and is computed over
+every valid charge and every confirmed payment of the family, whatever `childId`, `from`,
+`to` or `includeVoided` say. They are derived by separate statements under one
+`REPEATABLE READ` snapshot, so a payment committing mid-read cannot produce a response whose
+balance does not follow from its own parts.
+
+`amountDueToman` and `creditToman` are both unsigned and both always present, and **at most
+one is non-zero** — there is no signed balance whose meaning lives in a minus sign. A
+prepayment, an overpayment and a credit consumed by a later charge are all the same
+subtraction over rows; nothing is stored and nothing is consumed. Promises are **counted,
+never summed**: a promised total beside an amount due would be an invitation to subtract one
+from the other.
+
+The route requires `charge.read`, `payment.read` **and** `promise.read`, because the response
+carries all three.
+
+### Voiding money, and what a void does not do
+
+A payment void is `payment.void`, the manager's alone, with no same-day receptionist window.
+It writes three columns beside a row that is otherwise untouched — the amount, method,
+family, received day, reference, note, entry instant and entry actor all survive — and it is
+one-way in both the service and the database. Voided money is an **absence from the sum**,
+not a negative entry, which is why voiding a payment restores exactly the position that
+stood before it.
+
+A void does **not** touch a promise the payment fulfilled. The promise stays `FULFILLED` and
+its linked payment now reads `VOIDED`; the web shows both, and says in Persian that the
+evidence no longer stands. Forcing the promise back open would rewrite a judgement a person
+actually made.
+
+### Audit and privacy
+
+Every financial mutation writes exactly one audit row, in the same transaction as the write,
+so an unaudited payment cannot exist. The vocabulary is `payment.recorded`,
+`payment.voided`, `payment_promise.created`, `payment_promise.fulfilled`,
+`payment_promise.rescheduled` and `payment_promise.cancelled` — three promise actions under
+one `promise.resolve` permission, because "how often does a family reschedule rather than
+pay?" is not a question you can answer from a status diff.
+
+The **bank reference is never copied into audit**; only whether one exists is recorded
+(DECISION_LOG, 2026-08-15). Notes are written in full, because the note is the fact being
+recorded. No guardian name, phone number, file number or child id appears in any payment or
+promise audit payload, and **reads write no audit rows at all** — `audit_log` is append-only
+and permanent, and a financial read copied into it would be a second undeletable store of
+what a family paid, growing with every refresh.
+
+### Verification
+
+Beside the automated suites, the integrated milestone was walked through end to end against
+the **real local API and web stack** with synthetic data only — no real clinic record, name
+or amount was used at any point.
+
+The walkthrough confirmed: a family with two children whose sessions stay individually
+explainable beside a family-level position; a partial payment leaving a due; an exact
+settlement reading as settled; an overpayment becoming credit; a prepayment on a family with
+no charges being pure credit; a later charge consuming that credit; a receptionist recording
+a back-dated payment from the browser with a Persian-digit amount and a Jalali date; a
+future receipt date refused; a receptionist seeing no void control and being refused by the
+API when the route is reached anyway; a manager void restoring the prior position while the
+row stayed visible as history; a promise born with a past due date reading as derived
+`MISSED`; an ordinary `OPEN` promise; a too-small and a voided payment both refused for
+fulfilment; an equal-or-larger payment fulfilling; the same payment refused for a second
+promise; a reschedule preserving its predecessor and linking to its successor; a successor
+date in the past refused; a cancel preserving its reason; and a fulfilled promise whose
+payment was later voided staying `FULFILLED` with the payment reading `VOIDED`. Persian RTL
+reading order, Jalali dates, Persian numerals and toman presentation were correct
+throughout, at both desktop and narrow widths, with the family money navigation scrolling
+inside its own container rather than the page.
+
+**One limitation, stated precisely.** As in Milestone 5, screenshot capture was unavailable
+in the review environment. Visual checks were made against the rendered browser state and
+layout measurements — text and reading order, computed direction, and
+element-versus-container widths at 1280 and 375 pixels — rather than against captured
+images. A pixel-level aesthetic pass remains a human step.
+
+### Accepted risks and revisit triggers
+
+None of these is a correctness, security or data-integrity issue, and none is committed
+scope for a later milestone.
+
+1. **Two identical payments entered twice are two payments.** There is no idempotency key:
+   two families really can hand over the same amount in the same way on the same day, and
+   the system cannot tell a duplicate entry from a genuine repeat. The entry panel shows
+   recent payments beside the form for exactly this reason. Revisit if pilot use produces
+   real duplicates.
+2. **The fulfil picker proves only what the payment list states.** It filters on `CONFIRMED`
+   and amount, and never claims a candidate is unused; the server remains authoritative for
+   `PAYMENT_ALREADY_FULFILS_PROMISE` (DECISION_LOG, 2026-08-16).
+3. **Promise workflows are bounded by one page of history.** Fulfilment candidates come from
+   the first 100 payments, and promise chain links are in-page anchors (DECISION_LOG,
+   2026-08-16).
+4. **The app header overflows horizontally at 1280 pixels for a manager**, whose navigation
+   carries the most items. It predates this milestone and is present on every page, not only
+   the money screens; narrow widths are unaffected. Revisit as a header change, not a
+   Milestone 6 one.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the

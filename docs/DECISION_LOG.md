@@ -1614,3 +1614,49 @@ for payments or promises.
   money arithmetic anyway.
 - **Revisit when:** a payment gateway settles in rial, which is the conversion
   boundary 2026-08-02 already flagged.
+
+## 2026-08-16 — Milestone 6 outcome: the fulfil picker proves only what the list states
+
+**Status:** Accepted — outcome note recorded at the integrated Milestone 6 review;
+adds no rule and changes no frozen contract
+
+The frozen payment list carries no "already fulfils a promise" flag, so the web
+fulfil picker filters on the **two facts it can prove from the list itself** —
+`status = CONFIRMED` and `amountToman >= promise.amountToman` — and claims nothing
+about whether a candidate is unused. `PAYMENT_ALREADY_FULFILS_PROMISE`,
+`PAYMENT_FAMILY_MISMATCH`, `PROMISE_PAYMENT_TOO_SMALL` and `PAYMENT_VOIDED` stay
+the server's alone, and the picker's Persian help text says so.
+
+- **Alternatives:** add an `unusedByPromise` field to the payment list; add a
+  dedicated "candidate payments for this promise" endpoint.
+- **Reason:** a flag or an endpoint would be a post-freeze contract change bought
+  for a refusal the server already states clearly and in Persian, and a browser
+  that pre-judged eligibility would be a second answer that can disagree with the
+  only authoritative one.
+- **Trade-off:** an operator can pick a payment that is refused on submit. The
+  refusal is one click, names the reason, and preserves the page.
+- **Revisit when:** pilot use shows the refusal happening often enough to be
+  friction — which is also when it becomes clear whether the right answer is a
+  list field or a candidate endpoint.
+
+## 2026-08-16 — Milestone 6 outcome: promise workflows are bounded by one page of history
+
+**Status:** Accepted — outcome note recorded at the integrated Milestone 6 review;
+adds no rule and changes no frozen contract
+
+Two web-only consequences of offset paging are recorded rather than engineered
+around. The promises page offers fulfilment candidates from the **first 100
+payments** (`LEDGER_PAGE_SIZE_MAX`), so a legitimate older payment can fall out of
+the picker; and a promise's predecessor/successor links are in-page anchors, so a
+reschedule chain split across two pages links to a row the reader has to page to.
+
+- **Alternatives:** a candidate-payment endpoint; server-side deep links that
+  resolve a promise to its page.
+- **Reason:** at pilot scale a family has tens of payments and single-digit promise
+  chains, so both limits are theoretical today; nothing is lost or unreachable —
+  every row is in the paginated history, and the position totals are whole-family
+  and never paged.
+- **Trade-off:** a very long-running family could need a second page to complete a
+  fulfilment or follow a chain.
+- **Revisit when:** any pilot family exceeds one page of payments, or a reschedule
+  chain crosses a page boundary in real use.

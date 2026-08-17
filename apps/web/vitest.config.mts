@@ -4,7 +4,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // Both extensions, because a suite that renders a component with JSX is a
+    // `.tsx` file and would otherwise be written, committed and silently never
+    // run. Still rooted at `src/`, so nothing generated or built is in scope.
+    include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test-setup.ts'],
   },
   // Next requires `jsx: "preserve"` in tsconfig because its own compiler handles

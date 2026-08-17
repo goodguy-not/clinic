@@ -214,14 +214,11 @@ export type FamilyFinancialPosition = z.infer<typeof familyFinancialPositionSche
  * optional and narrowing it later would be a post-freeze contract change, which
  * is the thing a freeze exists to prevent.
  *
- * THE DERIVATION ARRIVES LATER IN THIS MILESTONE, and until it does the running
- * API still answers with the Milestone 5 body. That gap is bridged by an
- * explicitly transitional parser on each side — `LegacyFamilyAccountResponse` in
- * `apps/api` and `legacyFamilyAccountResponseSchema` in `apps/web` — which are
- * named legacy, documented as temporary, and deleted when the account read
- * produces a position. Neither is exported from this package, and neither is
- * this contract: a caller of the frozen schema gets the final shape or a parse
- * error, never a half-filled account.
+ * THE DERIVATION IS LIVE. `FamilyAccountService` computes the position on every
+ * read of `GET /families/:id/account`, and both tiers parse this schema
+ * directly; the transitional parsers that bridged the gap during Milestone 6
+ * were deleted when it closed. A caller of the frozen schema gets the final
+ * shape or a parse error, never a half-filled account.
  */
 export const familyAccountResponseSchema = z.strictObject({
   familyId: z.uuid(),

@@ -1,11 +1,14 @@
 import Link from 'next/link';
-import type { FamilyAccountQuery, FamilyDetailResponse, Payment } from '@clinic/contracts';
+import type {
+  FamilyAccountQuery,
+  FamilyAccountResponse,
+  FamilyDetailResponse,
+  Payment,
+} from '@clinic/contracts';
 import { Badge, ButtonLink, EmptyState, Field, Panel, SubmitButton } from '@/components/ui';
 import { FamilyFinancialPositionPanel } from '@/components/family-financial-position';
 import { FamilyMoneyNavigation } from '@/components/family-money-navigation';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/styles';
-import type { LegacyFamilyAccountResponse } from '@/ledger/family-account-legacy';
-import { hasFinalPosition } from '@/ledger/family-account-legacy';
 import {
   formatChargeMoney,
   formatAdjustmentMoney,
@@ -58,7 +61,7 @@ export function FamilyAccountView({
 }: {
   familyId: string;
   children: Child[];
-  account: LegacyFamilyAccountResponse;
+  account: FamilyAccountResponse;
   query: FamilyAccountQuery;
   csrfToken: string;
   canAdjustCharge: boolean;
@@ -74,9 +77,7 @@ export function FamilyAccountView({
     <>
       <FamilyMoneyNavigation familyId={familyId} active="account" />
 
-      {hasFinalPosition(account) ? (
-        <FamilyFinancialPositionPanel position={account.position} />
-      ) : null}
+      <FamilyFinancialPositionPanel position={account.position} />
 
       {canCreatePayment ? (
         <PaymentEntryPanel
@@ -235,7 +236,7 @@ function ChargeCard({
   canVoidCharge,
 }: {
   familyId: string;
-  view: LegacyFamilyAccountResponse['charges'][number];
+  view: FamilyAccountResponse['charges'][number];
   csrfToken: string;
   canAdjustCharge: boolean;
   canVoidCharge: boolean;
