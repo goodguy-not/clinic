@@ -48,6 +48,43 @@ afterEach(() => {
 });
 
 describe('operational report reads', () => {
+  it('requests backend CSV with the exact filter scope and does not parse its bytes', async () => {
+    const bytes = new TextEncoder().encode('\uFEFFستون\r\nمقدار\r\n');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init: RequestInit) => {
+        captured.push({ url, init, headers: new Headers(init.headers) });
+        return Promise.resolve(
+          new Response(bytes, {
+            headers: {
+              'content-type': 'text/csv; charset=utf-8',
+              'content-disposition': 'attachment; filename="sessions.csv"',
+            },
+          }),
+        );
+      }),
+    );
+
+    const result = await api.exportReportCsv(
+      'sessions',
+      { from: '2026-08-01', to: '2026-08-18', status: 'COMPLETED' },
+      { sessionToken: 'verified-token' },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(new URL(captured[0]!.url).pathname).toBe('/reports/sessions/export');
+    expect(Object.fromEntries(new URL(captured[0]!.url).searchParams)).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-18',
+      status: 'COMPLETED',
+    });
+    expect(captured[0]!.headers.get('accept')).toBe('text/csv');
+    expect(captured[0]!.headers.get('x-session-id')).toBe('verified-token');
+    if (result.ok) {
+      expect(new Uint8Array(await result.response.arrayBuffer())).toEqual(bytes);
+    }
+  });
+
   it('serializes only the frozen report vocabulary and strictly parses empty successes', async () => {
     mockFetch(200, {
       range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'SESSION_DATE' },

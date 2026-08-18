@@ -81,7 +81,7 @@ export function PageHeader({
   return (
     <header className="flex flex-col gap-3">
       {backHref !== undefined && backLabel !== undefined ? (
-        <div>
+        <div className="print-hide">
           <Link
             href={backHref}
             className={`inline-flex min-h-11 items-center gap-1 rounded-sm py-1 text-sm font-medium text-brand-800 underline-offset-4 hover:text-brand-950 hover:underline ${FOCUS_RING}`}
@@ -100,7 +100,7 @@ export function PageHeader({
             <p className="max-w-prose text-sm text-slate-600">{description}</p>
           ) : null}
         </div>
-        {action}
+        {action !== undefined ? <div className="print-hide">{action}</div> : null}
       </div>
     </header>
   );

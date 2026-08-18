@@ -61,3 +61,108 @@ body {
   font-family: var(--font-sans);
   line-height: 1.8;
 }
+
+.print-only {
+  display: none;
+}
+
+/*
+ * M7 print treatment deliberately reuses the authenticated screen surfaces.
+ * It removes interaction and app chrome without inventing a document identity,
+ * receipt layout, letterhead, or legal footer.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #0f172a !important;
+    font-size: 10pt;
+    print-color-adjust: economy;
+  }
+
+  .app-chrome,
+  .print-hide,
+  button,
+  form,
+  details,
+  main nav {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  main > div {
+    gap: 12pt !important;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid-page;
+    color: #0f172a !important;
+  }
+
+  article,
+  dl {
+    break-inside: avoid-page;
+    box-shadow: none !important;
+  }
+
+  .report-table {
+    overflow: visible !important;
+    border-color: #94a3b8 !important;
+  }
+
+  .report-table table {
+    min-width: 0 !important;
+    table-layout: auto;
+    font-size: 8.5pt;
+  }
+
+  .report-table thead {
+    display: table-header-group;
+  }
+
+  .report-table tr {
+    break-inside: avoid;
+  }
+
+  .report-table th,
+  .report-table td {
+    border-color: #cbd5e1 !important;
+    padding: 5pt !important;
+    overflow-wrap: anywhere;
+  }
+
+  a {
+    color: #0f172a !important;
+    text-decoration: none !important;
+  }
+
+  [class*='bg-'],
+  [class*='text-'] {
+    color: #0f172a !important;
+  }
+
+  [class*='rounded'] {
+    border-color: #94a3b8 !important;
+  }
+
+  [class*='max-h-'] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

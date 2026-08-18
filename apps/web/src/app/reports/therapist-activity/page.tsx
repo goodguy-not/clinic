@@ -11,11 +11,20 @@ import {
 } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
 import { toPersianDigits } from '@/server/numerals-fa';
-import { dateLabel, defaultRange, one, type SearchParams, uuidParam } from '../report-server';
+import {
+  dateLabel,
+  defaultRange,
+  exportFilters,
+  one,
+  type SearchParams,
+  uuidParam,
+} from '../report-server';
+import { ReportActions } from '../report-actions';
 import {
   MetricGrid,
   ReportFilters,
   ReportNavigation,
+  ReportPrintContext,
   ReportTable,
   SelectField,
   TD,
@@ -57,6 +66,24 @@ export default async function TherapistActivityPage({
         <PageHeader
           title="گزارش فعالیت درمانگران"
           description={`شمارش و مدت فعالیت عملیاتی بر پایهٔ تاریخ جلسه · ${dateLabel(range.from)} تا ${dateLabel(range.to)} · این گزارش مالی یا تسویه نیست.`}
+          action={
+            <ReportActions
+              exportRequest={
+                user.permissions.includes('report.export')
+                  ? { kind: 'therapist-activity', filters: exportFilters(query), csrfToken }
+                  : undefined
+              }
+              scopeLabel={`${dateLabel(range.from)} تا ${dateLabel(range.to)}`}
+            />
+          }
+        />
+        <ReportPrintContext
+          items={[
+            `بازه: ${dateLabel(range.from)} تا ${dateLabel(range.to)}`,
+            `درمانگر: ${query.therapistId ? ((therapists.ok ? therapists.data.therapists.find((x) => x.id === query.therapistId)?.fullName : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `خدمت: ${query.serviceId ? ((services.ok ? services.data.services.find((x) => x.id === query.serviceId)?.name : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `درمانگران غیرفعال بدون فعالیت: ${query.includeInactive ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
+          ]}
         />
         <ReportNavigation
           active="/reports/therapist-activity"

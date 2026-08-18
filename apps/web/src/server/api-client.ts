@@ -193,6 +193,7 @@ export type ApiFailure = {
   details?: unknown;
 };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
+export type ApiCsvResult = { ok: true; response: Response; requestId: string } | ApiFailure;
 
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_USER_AGENT_LENGTH = 256;
@@ -315,7 +316,60 @@ function reportSearch(query: object): URLSearchParams {
   return search;
 }
 
+/**
+ * Requests the authoritative NestJS export and leaves its bytes untouched.
+ * The Web tier only supplies the validated filter vocabulary and transports
+ * the response; it never parses, reconstructs, or enriches CSV rows.
+ */
+async function exportReportCsv(
+  kind: 'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts',
+  query: object,
+  context: CallerContext,
+): Promise<ApiCsvResult> {
+  const { API_BASE_URL } = loadServerEnv();
+  const requestId = randomUUID();
+  const headers = buildHeaders(context, requestId, false);
+  headers.set('accept', 'text/csv');
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/reports/${kind}/export?${reportSearch(query).toString()}`,
+      {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        cache: 'no-store',
+      },
+    );
+  } catch {
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
+
+  if (!response.ok) {
+    const payload: unknown = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    const envelope = errorEnvelopeSchema.safeParse(payload);
+    return {
+      ok: false,
+      code: envelope.success ? envelope.data.error.code : 'API_UNREACHABLE',
+      status: response.status,
+      requestId: envelope.success ? envelope.data.error.requestId : requestId,
+    };
+  }
+
+  if (!(response.headers.get('content-type') ?? '').toLowerCase().startsWith('text/csv')) {
+    return { ok: false, code: 'API_UNREACHABLE', status: 502, requestId };
+  }
+
+  return { ok: true, response, requestId };
+}
+
 export const api = {
+  exportReportCsv,
+
   paymentReport: (
     query: PaymentReportQuery,
     context: CallerContext,

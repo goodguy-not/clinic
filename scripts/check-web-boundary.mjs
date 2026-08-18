@@ -372,6 +372,9 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.
   'src/app/reports/family-report-filter.tsx',
+  // Printing and download progress require only browser APIs and transient UI
+  // state. CSV bytes still come from the named BFF and are never assembled here.
+  'src/app/reports/report-actions.tsx',
   // A weekly set needs rows to be added and removed before its one wholesale
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.

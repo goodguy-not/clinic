@@ -15,17 +15,20 @@ import { formatToman } from '@/server/numerals-fa';
 import {
   dateLabel,
   defaultRange,
+  exportFilters,
   instantLabel,
   intParam,
   one,
   type SearchParams,
   uuidParam,
 } from '../report-server';
+import { ReportActions } from '../report-actions';
 import {
   MetricGrid,
   Pagination,
   ReportFilters,
   ReportNavigation,
+  ReportPrintContext,
   ReportTable,
   SelectField,
   TD,
@@ -64,6 +67,23 @@ export default async function PromisesReportPage({
         <PageHeader
           title="گزارش قول‌های پرداخت"
           description={`پیگیری عملیاتی بر پایهٔ تاریخ سررسید · ${dateLabel(range.from)} تا ${dateLabel(range.to)} · قول پرداخت، پرداخت یا ماندهٔ خانواده نیست.`}
+          action={
+            <ReportActions
+              exportRequest={
+                user.permissions.includes('report.export')
+                  ? { kind: 'promises', filters: exportFilters(query), csrfToken }
+                  : undefined
+              }
+              scopeLabel={`${dateLabel(range.from)} تا ${dateLabel(range.to)}`}
+            />
+          }
+        />
+        <ReportPrintContext
+          items={[
+            `بازهٔ سررسید: ${dateLabel(range.from)} تا ${dateLabel(range.to)}`,
+            familyId ? 'خانواده: انتخاب‌شده' : 'خانواده: همه',
+            `وضعیت: ${query.status ? PROMISE_STATUS_PRESENTATION[query.status].label : 'همه'}`,
+          ]}
         />
         <ReportNavigation
           active="/reports/promises"

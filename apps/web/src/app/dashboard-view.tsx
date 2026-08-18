@@ -4,6 +4,7 @@ import { Badge, ButtonLink, EmptyState, FOCUS_RING, PageHeader, PageShell } from
 import { COPY } from '@/server/copy-fa';
 import { formatToman, toPersianDigits } from '@/server/numerals-fa';
 import { dashboardDateLabel, paymentMethodLabel } from '@/dashboard/presentation';
+import { ReportActions } from '@/app/reports/report-actions';
 
 const count = (value: number): string => toPersianDigits(String(value));
 
@@ -88,7 +89,12 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResponse }) {
       <PageHeader
         title={COPY.dashboardTitle}
         description={`${dashboardDateLabel(dashboard.date)} · ${COPY.homeWelcome}`}
-        action={<ButtonLink href={dayHref}>{COPY.dashboardOpenDay}</ButtonLink>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href={dayHref}>{COPY.dashboardOpenDay}</ButtonLink>
+            <ReportActions />
+          </div>
+        }
       />
 
       <section aria-labelledby="dashboard-appointments" className="flex flex-col gap-4">

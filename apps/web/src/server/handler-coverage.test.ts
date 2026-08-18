@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(54);
-    expect(stateChangingHandlers.length).toBe(53);
+    expect(handlers.length).toBe(55);
+    expect(stateChangingHandlers.length).toBe(54);
   });
 
   it('exposes no catch-all route', () => {
@@ -133,6 +133,9 @@ describe('route handler inventory', () => {
       '/api/promises/fulfill',
       '/api/promises/reschedule',
       '/api/registration-drafts/discard',
+      // CSV bytes come only from NestJS; this named POST validates the current
+      // scope, re-authorises export, and transports the backend response.
+      '/api/reports/export',
       // Presentation-only POST: turns Jalali selects into the frozen, privacy-safe
       // report URL vocabulary. It calls no domain write endpoint.
       '/api/reports/filter',

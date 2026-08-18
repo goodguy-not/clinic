@@ -19,11 +19,13 @@ import {
 import { COPY } from '@/server/copy-fa';
 import { persianMessage } from '@/server/errors-fa';
 import { formatToman, toPersianDigits } from '@/server/numerals-fa';
-import { intParam, one, type SearchParams } from '../report-server';
+import { exportFilters, intParam, one, type SearchParams } from '../report-server';
+import { ReportActions } from '../report-actions';
 import {
   FinancialMetricGrid,
   Pagination,
   ReportNavigation,
+  ReportPrintContext,
   ReportTable,
   SelectField,
   TD,
@@ -43,7 +45,7 @@ export default async function FamilyAccountsReportPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSession({ requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS });
+  const user = await requireSession({ requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS });
   const params = await searchParams;
   const standing = FAMILY_ACCOUNT_STANDINGS.includes(one(params, 'standing') as never)
     ? one(params, 'standing')
@@ -65,6 +67,23 @@ export default async function FamilyAccountsReportPage({
         <PageHeader
           title="گزارش حساب خانواده‌ها"
           description="جایگاه مالی کل خانواده‌ها؛ بدون بازهٔ زمانی و بدون خالص‌کردن بدهی یک خانواده با اعتبار خانواده‌ای دیگر"
+          action={
+            <ReportActions
+              exportRequest={
+                user.permissions.includes('report.export')
+                  ? { kind: 'family-accounts', filters: exportFilters(query), csrfToken }
+                  : undefined
+              }
+              scopeLabel="جایگاه فعلی در همهٔ سوابق سامانه"
+            />
+          }
+        />
+        <ReportPrintContext
+          items={[
+            `جایگاه: ${query.standing ? STANDING_LABELS[query.standing] : 'همه'}`,
+            `خانواده‌های غیرفعال: ${query.includeInactive ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
+            'ارقام جایگاه: همهٔ سوابق نگهداری‌شده در این سامانه',
+          ]}
         />
         <ReportNavigation active="/reports/family-accounts" showFinancial />
         <Alert tone="info">

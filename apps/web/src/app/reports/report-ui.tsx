@@ -16,6 +16,15 @@ export const FINANCIAL_REPORT_LINKS = [
   ['/reports/family-accounts', 'حساب خانواده‌ها'],
 ] as const;
 
+export function ReportPrintContext({ items }: { items: readonly string[] }) {
+  return (
+    <section aria-label="محدودهٔ گزارش" className="print-only border-y border-slate-300 py-2">
+      <h2 className="text-sm font-bold">محدودهٔ گزارش</h2>
+      <p className="text-xs text-slate-700">{items.join(' · ')}</p>
+    </section>
+  );
+}
+
 export function ReportNavigation({
   active,
   showFinancial = false,
@@ -27,7 +36,7 @@ export function ReportNavigation({
     ? [...OPERATIONAL_REPORT_LINKS, ...FINANCIAL_REPORT_LINKS]
     : OPERATIONAL_REPORT_LINKS;
   return (
-    <nav aria-label="گزارش‌های کلینیک" className="overflow-x-auto pb-1">
+    <nav aria-label="گزارش‌های کلینیک" className="print-hide overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
         {links.map(([href, label]) => (
           <Link
@@ -66,7 +75,7 @@ export function ReportFilters({
   return (
     <section
       aria-labelledby="report-filters"
-      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+      className="print-hide rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 id="report-filters" className="text-sm font-bold text-slate-900">
@@ -181,7 +190,7 @@ export function ReportTable({ label, children }: { label: string; children: Reac
       role="region"
       aria-label={label}
       tabIndex={0}
-      className={`overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm ${FOCUS_RING}`}
+      className={`report-table overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm ${FOCUS_RING}`}
     >
       <table className="w-full min-w-[760px] border-collapse text-start text-sm">{children}</table>
     </div>
@@ -210,7 +219,7 @@ export function Pagination({
   return (
     <nav
       aria-label="صفحه‌بندی گزارش"
-      className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600"
+      className="print-hide flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600"
     >
       <span>
         صفحه {toPersianDigits(String(page.page))} · {toPersianDigits(String(page.total))} ردیف در

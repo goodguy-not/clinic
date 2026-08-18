@@ -45,3 +45,14 @@ export function instantLabel(value: string): string {
     timeStyle: 'short',
   }).format(new Date(value));
 }
+
+/** Export is for the whole validated scope, never only the visible page. */
+export function exportFilters(
+  query: object,
+): Record<string, string | number | boolean | undefined> {
+  return Object.fromEntries(
+    Object.entries(query)
+      .filter(([key]) => key !== 'page' && key !== 'pageSize')
+      .map(([key, value]) => [key, typeof value === 'boolean' ? String(value) : value]),
+  ) as Record<string, string | number | boolean | undefined>;
+}

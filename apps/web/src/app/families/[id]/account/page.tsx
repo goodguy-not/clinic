@@ -12,6 +12,7 @@ import { readCsrfCookie, readSessionToken, requireSession } from '@/server/auth-
 import { COPY } from '@/server/copy-fa';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
+import { ReportActions } from '@/app/reports/report-actions';
 import { FamilyAccountView } from './account-view';
 import { clinicToday } from '@/server/clinic-time';
 import { isoDateToJalali } from '@/server/jalali';
@@ -72,6 +73,7 @@ export default async function FamilyAccountPage({
           description={COPY.familyAccountDescription}
           backHref={`/families/${id}`}
           backLabel={COPY.back}
+          action={<ReportActions />}
         />
         {isKnownErrorCode(rawError) ? <Alert>{persianMessage(rawError)}</Alert> : null}
         {successes[rawSuccess] !== undefined ? (

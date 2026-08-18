@@ -20,17 +20,20 @@ import { FamilyReportFilter } from '../family-report-filter';
 import {
   dateLabel,
   defaultRange,
+  exportFilters,
   instantLabel,
   intParam,
   one,
   type SearchParams,
   uuidParam,
 } from '../report-server';
+import { ReportActions } from '../report-actions';
 import {
   FinancialMetricGrid,
   Pagination,
   ReportFilters,
   ReportNavigation,
+  ReportPrintContext,
   ReportTable,
   SelectField,
   TD,
@@ -44,7 +47,7 @@ export default async function PaymentsReportPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSession({ requirePermission: PAYMENT_REPORT_READ_PERMISSIONS });
+  const user = await requireSession({ requirePermission: PAYMENT_REPORT_READ_PERMISSIONS });
   const params = await searchParams;
   const range = defaultRange(params);
   const familyId = uuidParam(params, 'familyId');
@@ -79,6 +82,25 @@ export default async function PaymentsReportPage({
         <PageHeader
           title="گزارش پرداخت‌ها"
           description={`وجوه دریافتی بر پایهٔ تاریخ دریافت وجه (receivedOn) · ${dateLabel(reportedRange.from)} تا ${dateLabel(reportedRange.to)}`}
+          action={
+            <ReportActions
+              exportRequest={
+                user.permissions.includes('report.export')
+                  ? { kind: 'payments', filters: exportFilters(query), csrfToken }
+                  : undefined
+              }
+              scopeLabel={`${dateLabel(reportedRange.from)} تا ${dateLabel(reportedRange.to)}`}
+            />
+          }
+        />
+        <ReportPrintContext
+          items={[
+            `بازهٔ دریافت وجه: ${dateLabel(reportedRange.from)} تا ${dateLabel(reportedRange.to)}`,
+            query.familyId ? 'خانواده: انتخاب‌شده' : 'خانواده: همه',
+            `روش: ${query.method ? PAYMENT_METHOD_PRESENTATION[query.method].label : 'همه'}`,
+            `ثبت‌کننده: ${query.recordedByUserId ? ((users.ok ? users.data.users.find((x) => x.id === query.recordedByUserId)?.displayName : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `پرداخت‌های باطل‌شده: ${query.includeVoided ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
+          ]}
         />
         <ReportNavigation active="/reports/payments" showFinancial />
         <Alert tone="info">

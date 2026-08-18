@@ -23,16 +23,19 @@ import {
 import {
   dateLabel,
   defaultRange,
+  exportFilters,
   intParam,
   one,
   type SearchParams,
   uuidParam,
 } from '../report-server';
+import { ReportActions } from '../report-actions';
 import {
   MetricGrid,
   Pagination,
   ReportFilters,
   ReportNavigation,
+  ReportPrintContext,
   ReportTable,
   SelectField,
   TD,
@@ -80,6 +83,28 @@ export default async function SessionsReportPage({
         <PageHeader
           title="گزارش جلسه‌ها"
           description={`فعالیت عملیاتی بر پایهٔ تاریخ جلسه · ${dateLabel(range.from)} تا ${dateLabel(range.to)}`}
+          action={
+            <ReportActions
+              exportRequest={
+                user.permissions.includes('report.export')
+                  ? { kind: 'sessions', filters: exportFilters(query), csrfToken }
+                  : undefined
+              }
+              scopeLabel={`${dateLabel(range.from)} تا ${dateLabel(range.to)}`}
+            />
+          }
+        />
+        <ReportPrintContext
+          items={[
+            `بازه: ${dateLabel(range.from)} تا ${dateLabel(range.to)}`,
+            query.familyId ? 'خانواده: انتخاب‌شده' : 'خانواده: همه',
+            query.childId ? 'کودک: انتخاب‌شده' : 'کودک: همه',
+            `درمانگر: ${query.therapistId ? ((therapists.ok ? therapists.data.therapists.find((x) => x.id === query.therapistId)?.fullName : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `خدمت: ${query.serviceId ? ((services.ok ? services.data.services.find((x) => x.id === query.serviceId)?.name : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `اتاق: ${query.roomId ? ((rooms.ok ? rooms.data.rooms.find((x) => x.id === query.roomId)?.name : undefined) ?? 'انتخاب‌شده') : 'همه'}`,
+            `وضعیت: ${query.status ? APPOINTMENT_STATUS_PRESENTATION[query.status].label : 'همه'}`,
+            `حضور: ${query.attendance ? ATTENDANCE_PRESENTATION[query.attendance].label : 'همه'}`,
+          ]}
         />
         <ReportNavigation
           active="/reports/sessions"
