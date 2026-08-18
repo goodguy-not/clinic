@@ -37,7 +37,18 @@ describe('report CSV BFF', () => {
   beforeEach(() => {
     mocks.session.mockReset().mockResolvedValue({
       ok: true,
-      data: { user: { permissions: ['report.export'] } },
+      data: {
+        user: {
+          permissions: [
+            'appointment.read',
+            'promise.read',
+            'charge.read',
+            'payment.read',
+            'report.read_financial',
+            'report.export',
+          ],
+        },
+      },
     });
     mocks.exportReportCsv.mockReset().mockResolvedValue({
       ok: true,
@@ -50,14 +61,12 @@ describe('report CSV BFF', () => {
     });
   });
 
-  it('re-authorises export and forwards the exact validated scope without paging', async () => {
+  it('re-authorises export and forwards the exact unpaged validated scope', async () => {
     const response = await POST(
       request('sessions', {
         from: '2026-08-01',
         to: '2026-08-18',
         status: 'COMPLETED',
-        page: 7,
-        pageSize: 25,
       }),
     );
 
@@ -88,6 +97,31 @@ describe('report CSV BFF', () => {
     const response = await POST(request('promises', { from: '2026-08-01', to: '2026-08-18' }));
 
     expect(response.status).toBe(403);
+    expect(mocks.exportReportCsv).not.toHaveBeenCalled();
+  });
+
+  it('requires the report read authority as well as report.export', async () => {
+    mocks.session.mockResolvedValue({
+      ok: true,
+      data: { user: { permissions: ['report.export'] } },
+    });
+    const response = await POST(request('sessions', { from: '2026-08-01', to: '2026-08-18' }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.exportReportCsv).not.toHaveBeenCalled();
+  });
+
+  it('refuses page and pageSize instead of silently exporting a page', async () => {
+    const response = await POST(
+      request('sessions', {
+        from: '2026-08-01',
+        to: '2026-08-18',
+        page: 1,
+        pageSize: 25,
+      }),
+    );
+
+    expect(response.status).toBe(400);
     expect(mocks.exportReportCsv).not.toHaveBeenCalled();
   });
 

@@ -1,12 +1,18 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {
-  familyAccountReportQuerySchema,
-  paymentReportQuerySchema,
-  promiseReportQuerySchema,
-  sessionReportQuerySchema,
-  therapistActivityQuerySchema,
+  FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS,
+  PAYMENT_REPORT_EXPORT_PERMISSIONS,
+  PROMISE_REPORT_EXPORT_PERMISSIONS,
+  SESSION_REPORT_EXPORT_PERMISSIONS,
+  THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
+  familyAccountReportExportQuerySchema,
+  paymentReportExportQuerySchema,
+  promiseReportExportQuerySchema,
+  sessionReportExportQuerySchema,
+  therapistActivityExportQuerySchema,
+  type Permission,
 } from '@clinic/contracts';
-import { api } from '@/server/api-client';
+import { api, type ReportExportQuery } from '@/server/api-client';
 import {
   guardFailureResponse,
   guardStateChanging,
@@ -46,14 +52,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   };
   const session = await api.session(context);
   if (!session.ok) return secureJson({ error: { code: session.code } }, session.status);
-  if (!session.data.user.permissions.includes('report.export')) {
-    return secureJson({ error: { code: 'AUTH_FORBIDDEN' } }, 403);
-  }
-
-  if (!KINDS.includes(body['kind'] as Kind)) {
+  const kind = kindFrom(body);
+  if (kind === null) {
     return secureJson({ error: { code: 'VALIDATION_FAILED' } }, 400);
   }
-  const kind = body['kind'] as Kind;
+  if (
+    !permissionsFor(kind).every((permission) => session.data.user.permissions.includes(permission))
+  ) {
+    return secureJson({ error: { code: 'AUTH_FORBIDDEN' } }, 403);
+  }
   let rawFilters: unknown;
   try {
     rawFilters = JSON.parse(body['filters'] ?? '{}');
@@ -77,23 +84,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   return applySecurityHeaders(response);
 }
 
-function validateFilters(
-  kind: Kind,
-  filters: Record<string, unknown>,
-): Record<string, unknown> | null {
-  const paged = { ...filters, page: 1, pageSize: 25 };
+function validateFilters(kind: Kind, filters: Record<string, unknown>): ReportExportQuery | null {
   const parsed =
     kind === 'sessions'
-      ? sessionReportQuerySchema.safeParse(paged)
+      ? sessionReportExportQuerySchema.safeParse(filters)
       : kind === 'promises'
-        ? promiseReportQuerySchema.safeParse(paged)
+        ? promiseReportExportQuerySchema.safeParse(filters)
         : kind === 'therapist-activity'
-          ? therapistActivityQuerySchema.safeParse(filters)
+          ? therapistActivityExportQuerySchema.safeParse(filters)
           : kind === 'payments'
-            ? paymentReportQuerySchema.safeParse(paged)
-            : familyAccountReportQuerySchema.safeParse(paged);
+            ? paymentReportExportQuerySchema.safeParse(filters)
+            : familyAccountReportExportQuerySchema.safeParse(filters);
   if (!parsed.success) return null;
 
-  const { page: _page, pageSize: _pageSize, ...scope } = parsed.data as Record<string, unknown>;
-  return scope;
+  return parsed.data;
+}
+
+function kindFrom(body: Record<string, string>): Kind | null {
+  return KINDS.includes(body['kind'] as Kind) ? (body['kind'] as Kind) : null;
+}
+
+function permissionsFor(kind: Kind): readonly Permission[] {
+  if (kind === 'sessions') return SESSION_REPORT_EXPORT_PERMISSIONS;
+  if (kind === 'promises') return PROMISE_REPORT_EXPORT_PERMISSIONS;
+  if (kind === 'therapist-activity') return THERAPIST_ACTIVITY_EXPORT_PERMISSIONS;
+  if (kind === 'payments') return PAYMENT_REPORT_EXPORT_PERMISSIONS;
+  return FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS;
 }

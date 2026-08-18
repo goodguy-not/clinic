@@ -70,14 +70,19 @@ import {
   type DashboardQuery,
   type DashboardResponse,
   type FamilyAccountReportQuery,
+  type FamilyAccountReportExportQuery,
   type FamilyAccountReportResponse,
   type PaymentReportQuery,
+  type PaymentReportExportQuery,
   type PaymentReportResponse,
   type SessionReportQuery,
+  type SessionReportExportQuery,
   type SessionReportResponse,
   type PromiseReportQuery,
+  type PromiseReportExportQuery,
   type PromiseReportResponse,
   type TherapistActivityQuery,
+  type TherapistActivityExportQuery,
   type TherapistActivityResponse,
   type ErrorCode,
   familyAccountResponseSchema,
@@ -194,6 +199,12 @@ export type ApiFailure = {
 };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 export type ApiCsvResult = { ok: true; response: Response; requestId: string } | ApiFailure;
+export type ReportExportQuery =
+  | SessionReportExportQuery
+  | PromiseReportExportQuery
+  | TherapistActivityExportQuery
+  | PaymentReportExportQuery
+  | FamilyAccountReportExportQuery;
 
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_USER_AGENT_LENGTH = 256;
@@ -323,7 +334,7 @@ function reportSearch(query: object): URLSearchParams {
  */
 async function exportReportCsv(
   kind: 'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts',
-  query: object,
+  query: ReportExportQuery,
   context: CallerContext,
 ): Promise<ApiCsvResult> {
   const { API_BASE_URL } = loadServerEnv();
