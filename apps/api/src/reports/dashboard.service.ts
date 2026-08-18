@@ -44,7 +44,9 @@ import { PrismaService } from '../prisma/prisma.service';
  *   * a payment on the wire is `toPaymentSummary`, so `CONFIRMED` means here
  *     what it means on the payment a receptionist just recorded;
  *   * derived `MISSED` is `status = 'OPEN' AND due_on < clinic_date()`, written
- *     exactly as `FamilyAccountService` writes it.
+ *     exactly as `FamilyAccountService` writes it;
+ *   * the authorised availability overrides are the appointment's own recorded
+ *     override fact, read off the day rows rather than re-queried.
  *
  * ONE DAY, ONE SNAPSHOT. `REPEATABLE READ`, for the reason the family account
  * takes one: this response is up to nine statements, and under `READ COMMITTED`
@@ -120,6 +122,7 @@ export class DashboardService {
           // counts the total, the scheduled, the completed, the cancelled, the
           // unresolved outcomes and the no-shows for a clinic date.
           appointments: day.summary,
+          availabilityOverrideCount: availabilityOverrides(day.appointments),
           promises: await this.promises(tx, date),
           dataIssues: await this.dataIssues(tx, day.appointments),
           reconciliation: await this.reconciliation(tx, date, session.userId),
@@ -536,6 +539,40 @@ export class DashboardService {
       voidedCount: row.voided_count,
     }));
   }
+}
+
+/**
+ * THE SESSIONS SOMEBODY HAD TO AUTHORISE TO BOOK, counted off the day the
+ * dashboard has already read.
+ *
+ * NO QUERY OF ITS OWN, AND THAT IS WHY THIS FACT COSTS NOTHING. The recorded
+ * override — reason, actor and instant, which a CHECK requires to move as one —
+ * is already on every appointment the day read returns, because
+ * `/appointment-day` prints it. Asking the database a second time would be a
+ * second reading of a fact this response is already holding.
+ *
+ * `availabilityOverrideReason` IS THE FACT, NOT A SEPARATE FLAG. It is null
+ * exactly when no override was exercised, because the three columns are written
+ * and cleared together; testing the reason is therefore testing the whole fact,
+ * and there is no state in which one of the three disagrees with it.
+ *
+ * CANCELLED IS EXCLUDED, both statuses, exactly as `missingTariffCount` excludes
+ * them: the session is not happening, so the authority exercised to place it is
+ * no longer something to review this morning. The appointment keeps its recorded
+ * override — nothing is rewritten, it is simply off today's list.
+ *
+ * A DATED AVAILABILITY EXCEPTION IS NOT AN OVERRIDE AND IS NOT COUNTED. A closed
+ * day or a dated window on `therapist_availability_exception` is schedule
+ * configuration; most are never booked against at all, and no statement in this
+ * file reads that table. Only an APPOINTMENT carrying the override fact appears
+ * here, because only that is a session somebody placed outside the hours.
+ */
+function availabilityOverrides(appointments: readonly AppointmentView[]): number {
+  return appointments.filter(
+    (view) =>
+      !view.appointment.status.startsWith('CANCELLED_') &&
+      view.appointment.availabilityOverrideReason !== null,
+  ).length;
 }
 
 /**

@@ -203,27 +203,38 @@ export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
 ] as const satisfies readonly Permission[];
 
 /**
- * What reading the dashboard requires, ALL THREE OF THEM.
+ * What reading the dashboard requires, ALL FOUR OF THEM.
  *
  * The same reasoning as `FAMILY_ACCOUNT_READ_PERMISSIONS` below, applied to the
- * screen that aggregates three modules: the dashboard states today's
- * appointments and unresolved outcomes (`appointment.read`), the caller's own
+ * screen that aggregates four modules: the dashboard states today's appointments
+ * and unresolved outcomes (`appointment.read`), whether this day's completed and
+ * attended sessions carry a valid charge (`charge.read`), the caller's own
  * recorded payments for the day (`payment.read`) and the promises due and
- * overdue (`promise.read`). A route that demanded only the first would serve two
- * kinds of information its permission never mentioned.
+ * overdue (`promise.read`). A route that demanded only the first would serve
+ * three kinds of information its permission never mentioned.
+ *
+ * `charge.read` IS HERE BECAUSE `unchargedCompletedSessionCount` IS A LEDGER
+ * FACT. That count is `session_charge` read through the ledger's own
+ * `voided_at IS NULL` predicate, and a route that stated it without naming the
+ * authority to read a charge would be a side channel: a future role holding the
+ * diary and the promise workflow but not the ledger would learn, seat by seat,
+ * which of the clinic's sessions are unbilled. The permission model has to be an
+ * accurate description of what the route reads, or withholding an authority
+ * stops meaning anything.
  *
  * AND, NOT OR, in both tiers — `PermissionsGuard` in NestJS and `requireSession`
  * on the page.
  *
- * IT IS NOT THE FINANCIAL AUTHORITY. Holding these three gets a caller the
- * dashboard with `clinicFinancial: null`; the clinic-wide block needs
- * `report.read_financial` as well, and that is decided inside the response
- * rather than by refusing the request.
+ * IT IS NOT THE FINANCIAL AUTHORITY. Holding these four gets a caller the
+ * `OWN_ENTRIES_ONLY` variant, whose clinic-wide financial key is absent rather
+ * than empty; the `CLINIC_WIDE` variant needs `report.read_financial` as well,
+ * and that is decided inside the response rather than by refusing the request.
  *
- * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all three.
+ * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all four.
  */
 export const DASHBOARD_READ_PERMISSIONS = [
   'appointment.read',
+  'charge.read',
   'payment.read',
   'promise.read',
 ] as const satisfies readonly Permission[];

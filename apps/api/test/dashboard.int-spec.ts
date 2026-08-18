@@ -17,6 +17,7 @@ import {
   seedClinic,
   signIn,
   SATURDAY,
+  SATURDAY_20_00,
 } from './appointments-support';
 import { voidChargeOverHttp } from './ledger-support';
 import { recordPaymentOverHttp, voidPaymentOverHttp } from './payment-support';
@@ -532,6 +533,138 @@ describe('the dashboard', () => {
     });
   });
 
+  describe('the authorised availability overrides, which are not a conflict backlog', () => {
+    /**
+     * PROJECT_SPEC.md 10's "conflicts" item, as the accepted plan resolved it. A
+     * hard therapist, room or child overlap is refused by a PostgreSQL exclusion
+     * constraint at the moment of booking, so no conflicting appointment ever
+     * exists to be counted; what a manager reviews is the sessions somebody was
+     * AUTHORISED to place outside a therapist's hours, with a recorded reason.
+     *
+     * BOTH VARIANTS CARRY IT. It states no money, so no financial authority
+     * gates it — and the receptionist who booked under the override is exactly
+     * who reviews it.
+     */
+    it('counts an authorised override for both authorities, and an ordinary booking for neither', async () => {
+      const manager = await signIn(harness, 'MANAGER');
+      const receptionist = await signIn(harness, 'RECEPTIONIST');
+      const clinic = await seedClinic(harness, manager.token);
+
+      // Inside the 09:00–13:00 window: no authority was needed, so nothing is
+      // counted.
+      await bookId(harness, receptionist.token, bookingPayload(clinic));
+
+      const before = await okDashboard(receptionist.token, { date: SATURDAY });
+      expect(before.availabilityOverrideCount).toBe(0);
+      expect(before.appointments.total).toBe(1);
+
+      // 20:00 Tehran, outside the therapist's hours, booked with the recorded
+      // reason `appointment.override_availability` requires.
+      await bookId(
+        harness,
+        receptionist.token,
+        bookingPayload(clinic, {
+          startsAt: SATURDAY_20_00,
+          availabilityOverrideReason: 'هماهنگی با درمانگر',
+        }),
+      );
+
+      const own = await okDashboard(receptionist.token, { date: SATURDAY });
+      const wide = await okDashboard(manager.token, { date: SATURDAY });
+
+      expect(own.availabilityOverrideCount).toBe(1);
+      expect(wide.availabilityOverrideCount).toBe(1);
+      expect(own.appointments.total).toBe(2);
+
+      // It is NOT a data issue: an override is a decision somebody was
+      // authorised to make, not an error to fix.
+      expect(Object.keys(own.dataIssues)).toEqual([
+        'missingTariffCount',
+        'unchargedCompletedSessionCount',
+      ]);
+      // And it is not on the Milestone 4 day summary either.
+      expect(Object.keys(own.appointments)).not.toContain('availabilityOverrideCount');
+    });
+
+    /**
+     * A CANCELLED SESSION IS NOT ON THIS MORNING'S LIST. The session is not
+     * happening, so the authority exercised to place it is no longer something
+     * to review — and the appointment keeps its recorded override, because
+     * nothing rewrites history.
+     */
+    it('stops counting an override once the session is cancelled', async () => {
+      const manager = await signIn(harness, 'MANAGER');
+      const clinic = await seedClinic(harness, manager.token);
+
+      const appointmentId = await bookId(
+        harness,
+        manager.token,
+        bookingPayload(clinic, {
+          startsAt: SATURDAY_20_00,
+          availabilityOverrideReason: 'هماهنگی با درمانگر',
+        }),
+      );
+
+      expect((await okDashboard(manager.token, { date: SATURDAY })).availabilityOverrideCount).toBe(
+        1,
+      );
+
+      await cancel(harness, manager.token, appointmentId, {
+        cancelledBy: 'FAMILY',
+        reason: 'لغو آزمایشی',
+      }).expect(200);
+
+      const after = await okDashboard(manager.token, { date: SATURDAY });
+      expect(after.availabilityOverrideCount).toBe(0);
+      expect(after.appointments.cancelled).toBe(1);
+
+      // The record itself is untouched: the count dropped, the history did not.
+      const row = await harness.prisma.appointment.findUniqueOrThrow({
+        where: { id: appointmentId },
+      });
+      expect(row.availabilityOverrideReason).not.toBeNull();
+    });
+
+    /**
+     * ORDINARY SCHEDULE CONFIGURATION IS NOT AN OVERRIDE. A dated closed day or
+     * an extra window on `therapist_availability_exception` says when somebody
+     * works; most are never booked against at all, and a booking that lands
+     * INSIDE a dated extra window needed no authority. Counting exceptions would
+     * put a configuration fact on a screen whose purpose is work requiring
+     * attention.
+     */
+    it('does not mistake a dated availability exception for an appointment override', async () => {
+      const manager = await signIn(harness, 'MANAGER');
+      const clinic = await seedClinic(harness, manager.token);
+
+      // An extra evening window on the dashboard's day, and a booking inside it.
+      await request(harness.app.getHttpServer())
+        .post(`/availability/therapists/${clinic.therapistId}/exceptions`)
+        .set(asUser(manager.token))
+        .send({
+          isAvailable: true,
+          exceptionDate: SATURDAY,
+          startTime: '19:00',
+          endTime: '21:00',
+          reason: null,
+        })
+        .expect(201);
+
+      await bookId(harness, manager.token, bookingPayload(clinic, { startsAt: SATURDAY_20_00 }));
+
+      const day = await okDashboard(manager.token, { date: SATURDAY });
+
+      // The session was booked inside the therapist's declared hours for that
+      // date, so no override exists and nothing is counted — even though a dated
+      // exception very much does exist.
+      expect(day.availabilityOverrideCount).toBe(0);
+      expect(day.appointments.total).toBe(1);
+
+      const exceptions = await harness.prisma.therapistAvailabilityException.count();
+      expect(exceptions).toBe(1);
+    });
+  });
+
   describe('a quiet day', () => {
     /**
      * AN EMPTY DASHBOARD IS A SUCCESSFUL READ, in both variants. A day the
@@ -549,6 +682,7 @@ describe('the dashboard', () => {
       const emptyish = (response: DashboardResponse) => {
         expect(response.date).toBe(quiet);
         expect(response.appointments.total).toBe(0);
+        expect(response.availabilityOverrideCount).toBe(0);
         expect(response.dataIssues).toEqual({
           missingTariffCount: 0,
           unchargedCompletedSessionCount: 0,

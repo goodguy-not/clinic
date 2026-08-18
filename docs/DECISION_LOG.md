@@ -1896,43 +1896,73 @@ and carries no user parameter.
 - **Revisit when:** a third financial visibility level exists — a therapist reading
   their own activity is the plausible one.
 
-## 2026-08-18 — Recorded availability overrides are missing from the frozen dashboard contract
+## 2026-08-18 — The dashboard counts authorised availability overrides
 
-**Status:** OPEN — raised in Milestone 7, checkpoint C2; needs an owner decision
-before it can be implemented
+**Status:** Accepted — Milestone 7, checkpoint C2 (a narrow correction of a C1
+omission, not a new owner decision)
+
+`dashboardResponseSchema` gains one server-stated count, `availabilityOverrideCount`,
+present in BOTH authority variants: appointments on the dashboard's clinic day,
+not cancelled, carrying the recorded appointment availability-override fact.
 
 The accepted M7 plan resolved PROJECT_SPEC.md 10's "conflicts" dashboard item as
-AUTHORISED, RECORDED AVAILABILITY OVERRIDES, on the ground that hard therapist,
-room and child conflicts are refused by exclusion constraints at booking time and
-therefore have no backlog. The frozen C1 `dashboardResponseSchema` carries no
-field for them: its comment dismisses "booking conflicts" on the hard-conflict
-ground alone and does not address the override reading the plan accepted. C2
-implemented the contract as frozen and did not invent a field.
+AUTHORISED, RECORDED AVAILABILITY OVERRIDES — hard therapist, room and child
+conflicts are refused by exclusion constraints at booking time and have no
+backlog to list. The frozen C1 contract carried no field for that reading; its
+comment dismissed "booking conflicts" on the hard-conflict ground alone. C2
+implemented the contract as frozen, raised the omission rather than inventing a
+field, and the coordinator accepted the minimal correction.
 
-The condition is representable and cheap. `appointment.availability_override_
-reason` / `_by_user_id` / `_at` move as one CHECK-enforced fact, are written only
-by a caller holding `appointment.override_availability`, and are already on the
-rows the dashboard reads for its appointment counts — so the count costs no new
-query and introduces no new semantics.
+The count costs no query. `appointment.availability_override_reason` /
+`_by_user_id` / `_at` move as one CHECK-enforced fact, are written only by a
+caller holding `appointment.override_availability`, and are already on the rows
+the dashboard reads for its appointment counts.
 
-The smallest correction is ONE count on the dashboard's common fields, present in
-both variants:
+- **Alternatives:** a field inside `dataIssues`; a field on
+  `appointmentDaySummarySchema`; a count over `therapist_availability_exception`;
+  a list of the overridden appointments.
+- **Reason:** an override is a decision somebody was authorised to make and
+  recorded a reason for, so putting it in `dataIssues` would tell a manager to fix
+  something the clinic approved and would break the frozen promise that
+  `dataIssues` states exactly two conditions. `appointmentDaySummary` belongs to
+  `GET /appointment-day` and to Milestone 4; widening an operational read to carry
+  a figure the dashboard wanted is how one screen's requirement becomes another's
+  contract. A dated closed day or extra window is schedule CONFIGURATION — most
+  are never booked against, and a booking inside a dated extra window needed no
+  authority at all — so counting exceptions would put a configuration fact on a
+  screen whose purpose is work requiring attention. A list is the day view's job.
+- **Trade-off:** a cancelled session drops out of the count while keeping its
+  recorded override, so the number answers "what is still to review this morning?"
+  rather than "how many overrides were ever exercised on this day"; the second
+  question belongs to a report, not to this screen.
+- **Revisit when:** the pilot shows the override being used routinely, which is
+  already the revisit trigger on the override authority itself — a count that is
+  never zero is a count nobody reads.
 
-    availabilityOverrideCount: z.number().int().nonnegative()
+## 2026-08-18 — Reading the dashboard requires `charge.read`
 
-— appointments on the dashboard's clinic day, not cancelled, whose
-`availabilityOverrideReason` is not null.
+**Status:** Accepted — Milestone 7, checkpoint C2 (corrects the C1
+`DASHBOARD_READ_PERMISSIONS` list, which named three of the four)
 
-- **It must not go in `dataIssues`.** An override is an authorised act with a
-  recorded actor and reason, not an error; folding it into a data-issue count
-  would tell a manager to fix something somebody deliberately approved, and would
-  break the frozen promise that `dataIssues` states exactly two conditions.
-- **It must not go in `appointmentDaySummary`.** That shape is Milestone 4's and
-  is returned by `GET /appointment-day`; widening it would change a frozen
-  operational read to serve a dashboard.
-- **`therapist_availability_exception` is NOT the fact to count.** A dated closed
-  day or dated window is schedule CONFIGURATION, not an appointment that needed
-  authority; counting it would put "this therapist has a dated exception today" on
-  a screen whose purpose is work requiring attention.
-- **Consumers:** the Web dashboard lane (Agent B) must consume the amendment, and
-  the union has two variants that stay in step.
+`DASHBOARD_READ_PERMISSIONS` is `appointment.read`, `charge.read`, `payment.read`
+and `promise.read`, AND not OR, as the accepted M7 plan stated. No report
+permission gates the route; `report.read_financial` remains a separate optional
+authority that selects the clinic-wide RESPONSE VARIANT rather than access.
+
+- **Alternatives:** leaving the three-name list; adding a `report.read_operational`
+  permission; gating the route on `report.read_financial`.
+- **Reason:** `unchargedCompletedSessionCount` is `session_charge` read through the
+  ledger's own `voided_at IS NULL` predicate, so the dashboard states a ledger fact.
+  A route that stated it without naming the authority to read a charge would be a
+  side channel: a future role holding the diary and the promise workflow but not
+  the ledger would learn, seat by seat, which of the clinic's sessions are
+  unbilled. The permission model has to be an accurate description of what a route
+  reads, or withholding an authority stops meaning anything. A new report
+  permission would be new access for a screen that aggregates reads both internal
+  roles already hold.
+- **Trade-off:** the dashboard now names four authorities and would be refused to a
+  future role lacking any one of them, which is the intended behaviour and is a
+  refusal rather than a partial screen.
+- **Revisit when:** a role exists that should see the diary and the promises but
+  not the ledger — which would be an argument for splitting the dashboard, not for
+  loosening this list.

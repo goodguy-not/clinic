@@ -244,12 +244,25 @@ describe('role to permission map', () => {
       }
     });
 
-    it('lets both roles read the dashboard, under three authorities they already hold', () => {
+    it('lets both roles read the dashboard, under four authorities they already hold', () => {
       // The shared operational screen. Nothing here is new access: the point of
       // the list is that the route names every module it aggregates.
       expect([...DASHBOARD_READ_PERMISSIONS].sort()).toEqual(
-        ['appointment.read', 'payment.read', 'promise.read'].sort(),
+        ['appointment.read', 'charge.read', 'payment.read', 'promise.read'].sort(),
       );
+
+      // `charge.read` IS PART OF IT, and its absence would be a side channel.
+      // `unchargedCompletedSessionCount` is `session_charge` read through the
+      // ledger's own valid-charge predicate, so a role holding the diary and the
+      // promise workflow but not the ledger would otherwise learn, seat by seat,
+      // which of the clinic's sessions are unbilled.
+      expect(DASHBOARD_READ_PERMISSIONS).toContain('charge.read');
+
+      // AND STILL NO REPORT PERMISSION. The dashboard is the operational reads a
+      // receptionist already holds, aggregated for one day; `report.read_financial`
+      // selects the clinic-wide RESPONSE VARIANT and does not gate the route.
+      expect(DASHBOARD_READ_PERMISSIONS).not.toContain('report.read_financial');
+      expect(DASHBOARD_READ_PERMISSIONS).not.toContain('report.export');
 
       for (const role of ['MANAGER', 'RECEPTIONIST'] as const) {
         for (const permission of DASHBOARD_READ_PERMISSIONS) {

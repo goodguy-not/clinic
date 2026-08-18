@@ -48,13 +48,13 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
- * report, the promise report — are the diary and the promise workflow this role
- * already holds, read over a range instead of a day, so they need no new
- * authority and are granted none. `report.read_financial` is the clinic's whole
- * financial position and per-user attribution, and `report.export` is carrying a
- * file out of the system; both stay with the manager. The dashboard is shared,
- * and its clinic-wide financial block reads null for anybody without the first
- * of those two.
+ * report, the promise report — are the diary, the ledger read and the promise
+ * workflow this role already holds, read over a range instead of a day, so they
+ * need no new authority and are granted none. `report.read_financial` is the
+ * clinic's whole financial position and per-user attribution, and
+ * `report.export` is carrying a file out of the system; both stay with the
+ * manager. The dashboard is shared, and a caller without the first of those two
+ * receives a response with no clinic-wide financial key at all.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   MANAGER: PERMISSIONS,

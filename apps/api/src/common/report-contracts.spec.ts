@@ -72,6 +72,7 @@ const quietDashboard = {
     unresolvedOutcomes: 0,
     noShows: 0,
   },
+  availabilityOverrideCount: 0,
   promises: { dueTodayCount: 0, missedCount: 0 },
   dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
   reconciliation: emptyReconciliation,
@@ -418,7 +419,15 @@ describe('the dashboard', () => {
     // And the own-scoped variant carries no clinic-wide figure under any other
     // spelling either.
     expect(Object.keys(ownScopedDashboardResponseSchema.shape).sort()).toEqual(
-      ['financialScope', 'date', 'appointments', 'promises', 'dataIssues', 'reconciliation'].sort(),
+      [
+        'financialScope',
+        'date',
+        'appointments',
+        'availabilityOverrideCount',
+        'promises',
+        'dataIssues',
+        'reconciliation',
+      ].sort(),
     );
   });
 
@@ -482,6 +491,73 @@ describe('the dashboard', () => {
           unchargedCompletedSessionCount: 0,
           severity: 'WARNING',
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('counts the authorised availability overrides in both authority variants', () => {
+    // PROJECT_SPEC.md 10's "conflicts" item, as the accepted plan resolved it: a
+    // hard therapist, room or child overlap is refused by an exclusion
+    // constraint and can never be listed, so what a manager reviews at the end
+    // of a day is the bookings somebody was authorised to place outside the
+    // hours (PROJECT_SPEC.md 5).
+    //
+    // IT IS AN OPERATIONAL FACT, SO IT IS IN BOTH VARIANTS. The receptionist who
+    // booked under the override is exactly who reviews it, and no money is
+    // stated by it.
+    expect(
+      dashboardResponseSchema.safeParse({ ...quietDashboard, availabilityOverrideCount: 2 })
+        .success,
+    ).toBe(true);
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...managerDashboard,
+        clinicFinancial,
+        availabilityOverrideCount: 2,
+      }).success,
+    ).toBe(true);
+
+    // Required, not optional: a response that omitted it would leave a screen
+    // unable to tell "no overrides today" from "this server does not say".
+    const { availabilityOverrideCount: _omitted, ...withoutIt } = quietDashboard;
+    expect(dashboardResponseSchema.safeParse(withoutIt).success).toBe(false);
+
+    // A count, never negative and never a list of the appointments themselves —
+    // those are read on `GET /appointment-day`, where each one already carries
+    // its own `availabilityOverrideReason`.
+    expect(
+      dashboardResponseSchema.safeParse({ ...quietDashboard, availabilityOverrideCount: -1 })
+        .success,
+    ).toBe(false);
+    expect(
+      dashboardResponseSchema.safeParse({ ...quietDashboard, availabilityOverrideCount: [UUID] })
+        .success,
+    ).toBe(false);
+  });
+
+  it('keeps the override count out of dataIssues, because it is not an error', () => {
+    // An override is a decision somebody held `appointment.override_availability`
+    // to make and recorded a reason for. Folding it into `dataIssues` would tell
+    // a manager to fix something the clinic approved, and `dataIssues` states
+    // exactly two conditions and nothing broader.
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...quietDashboard,
+        dataIssues: {
+          missingTariffCount: 0,
+          unchargedCompletedSessionCount: 0,
+          availabilityOverrideCount: 1,
+        },
+      }).success,
+    ).toBe(false);
+
+    // Nor is it on the Milestone 4 day summary, which `GET /appointment-day`
+    // returns: widening an operational read to carry a figure the dashboard
+    // wanted is how one screen's requirement becomes another screen's contract.
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...quietDashboard,
+        appointments: { ...quietDashboard.appointments, availabilityOverrideCount: 1 },
       }).success,
     ).toBe(false);
   });

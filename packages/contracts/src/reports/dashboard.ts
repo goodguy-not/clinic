@@ -106,10 +106,12 @@ export type DashboardPromiseSummary = z.infer<typeof dashboardPromiseSummarySche
  *
  * THE OTHER TWO ITEMS ON PROJECT_SPEC.md 10's LIST ARE NOT HERE, AND THAT IS NOT
  * AN OVERSIGHT. Website requests belong to the public-site inbox, which is
- * Milestone 9 and has no table yet. Booking conflicts have no backlog to count:
- * a therapist, room or child overlap is refused by a PostgreSQL exclusion
- * constraint at the moment of booking, so a conflicting appointment never exists
- * to be listed.
+ * Milestone 9 and has no table yet. And the spec's "conflicts" item is not a
+ * DATA ISSUE at all: a therapist, room or child overlap is refused by a
+ * PostgreSQL exclusion constraint at the moment of booking, so a conflicting
+ * appointment never exists to be listed, and the reading the accepted plan
+ * settled on — an authorised, recorded availability override — is a deliberate
+ * act rather than an error, and is counted by `availabilityOverrideCount` below.
  */
 export const dashboardDataIssuesSchema = z.strictObject({
   /**
@@ -128,6 +130,50 @@ export const dashboardDataIssuesSchema = z.strictObject({
 });
 
 export type DashboardDataIssues = z.infer<typeof dashboardDataIssuesSchema>;
+
+/**
+ * THE SESSIONS SOMEBODY HAD TO AUTHORISE TO BOOK — PROJECT_SPEC.md 10's
+ * "conflicts" item, as the accepted Milestone 7 plan resolved it.
+ *
+ * WHY A COUNT OF OVERRIDES AND NOT A CONFLICT BACKLOG. A therapist, room or
+ * child overlap cannot exist: it is refused by a PostgreSQL exclusion constraint
+ * at the moment of booking, so there is nothing to list and nothing for a
+ * manager to resolve afterwards. The one out-of-availability booking this system
+ * permits is the approved override (PROJECT_SPEC.md 5 — "blocked or requires an
+ * authorized, recorded override"), which is written only by a caller holding
+ * `appointment.override_availability` and only with a reason, an actor and an
+ * instant that a CHECK requires to be present or absent as ONE fact. That is the
+ * fact a manager reviews at the end of a day, and it is what this counts.
+ *
+ * IT IS DELIBERATELY NOT IN `dataIssues`. An override is a decision somebody was
+ * authorised to make and recorded a reason for, not a defect: putting it beside
+ * a missing tariff would tell a manager to fix something the clinic approved,
+ * and would break the frozen promise that `dataIssues` states exactly two
+ * conditions and nothing broader.
+ *
+ * IT IS NOT ON `appointmentDaySummary` EITHER. That shape belongs to
+ * `GET /appointment-day` and to Milestone 4; widening an operational read to
+ * carry a figure the dashboard wanted is how one screen's requirement becomes
+ * another screen's contract.
+ *
+ * A DATED AVAILABILITY EXCEPTION IS NOT COUNTED HERE. A closed day or a dated
+ * window on `therapist_availability_exception` is schedule CONFIGURATION — it
+ * says when somebody works, and most of them are never booked against at all.
+ * Only an APPOINTMENT that carries the recorded override fact appears in this
+ * number, because only that is a session somebody placed outside the hours.
+ *
+ * CANCELLED APPOINTMENTS ARE EXCLUDED, for the reason they are excluded from
+ * `missingTariffCount`: the session is not happening, so the authority that was
+ * exercised to place it is no longer a thing to review. Both cancellation
+ * statuses are excluded, and the appointment keeps its recorded override — the
+ * history is not rewritten, it is simply not on this morning's list.
+ *
+ * A COUNT, NOT A LIST. The appointments themselves are read on
+ * `GET /appointment-day`, where each one already carries its
+ * `availabilityOverrideReason`; the dashboard states how many there are, exactly
+ * as it states counts and never rows for everything else.
+ */
+export const dashboardAvailabilityOverrideCountSchema = z.number().int().nonnegative();
 
 /**
  * One method's share of a day's money.
@@ -301,6 +347,10 @@ export const dashboardFinancialScopeSchema = z.enum(DASHBOARD_FINANCIAL_SCOPES);
  * second shape counting the same six things would be a second place for
  * "unresolved" to mean something slightly different.
  *
+ * `availabilityOverrideCount` IS AN OPERATIONAL FACT AND IS IN BOTH VARIANTS. It
+ * is not money, so no authority beyond `appointment.read` gates it, and the
+ * receptionist who booked under the override is exactly who reviews it.
+ *
  * `reconciliation` IS ALWAYS THE CALLER'S OWN, in both variants below. A manager
  * balancing their own till reads the same block a receptionist does.
  *
@@ -312,6 +362,7 @@ export const dashboardFinancialScopeSchema = z.enum(DASHBOARD_FINANCIAL_SCOPES);
 const dashboardCommonFields = {
   date: isoDateSchema,
   appointments: appointmentDaySummarySchema,
+  availabilityOverrideCount: dashboardAvailabilityOverrideCountSchema,
   promises: dashboardPromiseSummarySchema,
   dataIssues: dashboardDataIssuesSchema,
   reconciliation: dashboardReconciliationSchema,
