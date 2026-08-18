@@ -4,6 +4,7 @@ import {
   availabilityExceptionListResponseSchema,
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
+  dashboardResponseSchema,
   appointmentDayResponseSchema,
   appointmentSeriesOperationResponseSchema,
   appointmentSeriesResponseSchema,
@@ -61,6 +62,8 @@ import {
   type CreateTherapistRequest,
   type CreateUserRequest,
   type CreateUserResponse,
+  type DashboardQuery,
+  type DashboardResponse,
   type ErrorCode,
   familyAccountResponseSchema,
   type FamilyAccountQuery,
@@ -288,6 +291,17 @@ async function call<T>(
 }
 
 export const api = {
+  dashboard: (
+    query: DashboardQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<DashboardResponse>> => {
+    const search = new URLSearchParams();
+    if (query.date !== undefined) search.set('date', query.date);
+    const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+
+    return call(`/dashboard${suffix}`, 'GET', dashboardResponseSchema, context);
+  },
+
   login: (body: LoginRequest, context: CallerContext): Promise<ApiResult<LoginResponse>> =>
     call('/auth/login', 'POST', loginResponseSchema, context, body),
 

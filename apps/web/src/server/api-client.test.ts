@@ -186,6 +186,62 @@ describe('response handling', () => {
   });
 });
 
+describe('frozen dashboard endpoint', () => {
+  const ownDashboard = {
+    financialScope: 'OWN_ENTRIES_ONLY',
+    date: '2026-08-18',
+    appointments: {
+      total: 0,
+      scheduled: 0,
+      completed: 0,
+      cancelled: 0,
+      unresolvedOutcomes: 0,
+      noShows: 0,
+    },
+    promises: { dueTodayCount: 0, missedCount: 0 },
+    dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+    reconciliation: {
+      scope: 'RECORDED_BY_ME',
+      dateBasis: 'PAYMENT_RECORDED_AT',
+      confirmedCount: 0,
+      confirmedTotalToman: '0',
+      voidedCount: 0,
+      byMethod: [
+        { method: 'CASH', count: 0, totalToman: '0' },
+        { method: 'CARD', count: 0, totalToman: '0' },
+        { method: 'TRANSFER', count: 0, totalToman: '0' },
+      ],
+      entries: [],
+    },
+  };
+
+  it('uses the named no-store GET and lets NestJS choose the default clinic day', async () => {
+    mockFetch(200, ownDashboard);
+
+    const result = await api.dashboard({}, { sessionToken: 'verified-token' });
+
+    expect(result.ok && result.data.financialScope).toBe('OWN_ENTRIES_ONLY');
+    expect(new URL((captured[0] as Captured).url).pathname).toBe('/dashboard');
+    expect(new URL((captured[0] as Captured).url).search).toBe('');
+    expect(captured[0]?.init.method).toBe('GET');
+    expect(captured[0]?.init.cache).toBe('no-store');
+  });
+
+  it('passes an explicit review date without adding any local aggregate input', async () => {
+    mockFetch(200, ownDashboard);
+
+    await api.dashboard({ date: '2026-08-17' }, { sessionToken: 'verified-token' });
+
+    expect(new URL((captured[0] as Captured).url).searchParams.toString()).toBe('date=2026-08-17');
+  });
+
+  it('rejects an own-scoped response that leaks a clinic financial key', async () => {
+    mockFetch(200, { ...ownDashboard, clinicFinancial: null });
+
+    await expect(api.dashboard({}, { sessionToken: 'verified-token' })).rejects.toThrow();
+  });
+});
+
 describe('availability endpoints', () => {
   const therapistId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
   const exceptionId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61';

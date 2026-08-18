@@ -29,6 +29,7 @@ export async function AppHeader() {
   const csrfToken = (await readCsrfCookie()) ?? '';
 
   const links: { href: string; label: string }[] = [];
+  links.push({ href: '/', label: COPY.dashboardTitle });
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/appointments', label: COPY.appointmentsTitle });
   }
@@ -54,7 +55,10 @@ export async function AppHeader() {
     links.push({ href: '/staff', label: COPY.staffTitle });
   }
 
-  const navLinkClass = `whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-900 ${FOCUS_RING}`;
+  const primaryLinks = links.slice(0, 3);
+  const managementLinks = links.slice(3);
+
+  const navLinkClass = `whitespace-nowrap rounded-md px-2.5 py-2 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-900 ${FOCUS_RING}`;
 
   const userActions = (
     <>
@@ -75,7 +79,7 @@ export async function AppHeader() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-4 py-2.5 sm:px-6">
+      <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-2.5 sm:px-6">
         <Link
           href="/"
           className={`flex items-center gap-2 whitespace-nowrap rounded-md px-1 py-1 text-base font-bold text-brand-900 ${FOCUS_RING}`}
@@ -90,15 +94,40 @@ export async function AppHeader() {
         </Link>
 
         {/* Wide screens: inline navigation and user actions. */}
-        <nav aria-label={COPY.menuLabel} className="ms-4 hidden items-center gap-1 lg:flex">
-          {links.map((link) => (
+        <nav
+          aria-label={COPY.menuLabel}
+          className="ms-3 hidden min-w-0 items-center gap-0.5 lg:flex"
+        >
+          {primaryLinks.map((link) => (
             <Link key={link.href} href={link.href} className={navLinkClass}>
               {link.label}
             </Link>
           ))}
+          {managementLinks.length > 0 ? (
+            <details className="group relative">
+              <summary
+                className={`flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-2 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-900 [&::-webkit-details-marker]:hidden ${FOCUS_RING}`}
+              >
+                {COPY.moreSections}
+                <span
+                  aria-hidden="true"
+                  className="text-xs transition-transform group-open:rotate-180"
+                >
+                  ⌄
+                </span>
+              </summary>
+              <div className="absolute start-0 top-full mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                {managementLinks.map((link) => (
+                  <Link key={link.href} href={link.href} className={`block ${navLinkClass}`}>
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </details>
+          ) : null}
         </nav>
         <div className="ms-auto hidden items-center gap-2 lg:flex">
-          <span className="whitespace-nowrap text-sm font-medium text-slate-600">
+          <span className="hidden whitespace-nowrap text-sm font-medium text-slate-600 2xl:inline">
             {user.displayName}
           </span>
           {userActions}
@@ -121,7 +150,7 @@ export async function AppHeader() {
               <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
             </svg>
           </summary>
-          <div className="absolute end-0 top-full mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+          <div className="absolute end-0 top-full mt-2 max-h-[calc(100dvh-5rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
             <nav aria-label={COPY.menuLabel} className="flex flex-col">
               {links.map((link) => (
                 <Link key={link.href} href={link.href} className={navLinkClass}>

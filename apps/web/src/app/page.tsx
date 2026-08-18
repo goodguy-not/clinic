@@ -1,102 +1,53 @@
-import Link from 'next/link';
-import { FOCUS_RING, PageHeader, PageShell } from '@/components/ui';
-import { requireSession } from '@/server/auth-session';
+import type { Metadata } from 'next';
+import { DASHBOARD_READ_PERMISSIONS, type DashboardResponse } from '@clinic/contracts';
+import { Alert, ButtonLink, PageHeader, PageShell } from '@/components/ui';
+import { api } from '@/server/api-client';
+import { callerContext, readSessionToken, requireSession } from '@/server/auth-session';
 import { COPY } from '@/server/copy-fa';
 import { AppHeader } from '@/components/app-header';
+import { DashboardView } from './dashboard-view';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /**
- * The signed-in landing page: a dashboard of the surfaces this user may open.
+ * The signed-in landing page: one server-aggregated view of the clinic day.
  *
  * Protected: `requireSession` redirects an anonymous or stale visitor to
  * `/session-expired`, and anyone owing a password change to
- * `/change-password`. Cards are rendered from the permission list NestJS
- * resolved for this request — a receptionist holds none of the management
- * permissions, so those cards simply do not appear (and the API would refuse
- * them anyway). Sign-out lives in the app header, on every page.
+ * `/change-password`. The shared dashboard permission list is required as an
+ * AND gate in the page and the API. NestJS decides which financial response
+ * variant is returned; this page does not infer authority from the user role.
  */
 export default async function Home() {
-  const user = await requireSession();
+  await requireSession({ requirePermission: DASHBOARD_READ_PERMISSIONS });
+  const token = await readSessionToken();
+  let dashboard: DashboardResponse | null = null;
 
-  const sections: { href: string; title: string; description?: string }[] = [];
-  if (user.permissions.includes('appointment.read')) {
-    sections.push({
-      href: '/appointments',
-      title: COPY.appointmentsTitle,
-      description: COPY.appointmentsDescription,
-    });
-  }
-  if (user.permissions.includes('family.read')) {
-    sections.push({
-      href: '/families',
-      title: COPY.familiesTitle,
-      description: COPY.familiesDescription,
-    });
-  }
-  if (user.permissions.includes('service.read')) {
-    sections.push({
-      href: '/services',
-      title: COPY.servicesTitle,
-      description: COPY.servicesDescription,
-    });
-  }
-  if (user.permissions.includes('room.read')) {
-    sections.push({
-      href: '/rooms',
-      title: COPY.roomsTitle,
-      description: COPY.roomsDescription,
-    });
-  }
-  if (user.permissions.includes('therapist.read')) {
-    sections.push({
-      href: '/therapists',
-      title: COPY.therapistsTitle,
-      description: COPY.therapistsDescription,
-    });
-  }
-  if (user.permissions.includes('availability.read')) {
-    sections.push({
-      href: '/availability',
-      title: COPY.availabilityTitle,
-      description: COPY.availabilityDescription,
-    });
-  }
-  if (user.permissions.includes('tariff.read')) {
-    sections.push({
-      href: '/tariffs',
-      title: COPY.tariffsTitle,
-      description: COPY.tariffsDescription,
-    });
-  }
-  if (user.permissions.includes('user.read')) {
-    sections.push({ href: '/staff', title: COPY.staffTitle });
+  try {
+    const result = await api.dashboard({}, await callerContext(token ?? undefined));
+    dashboard = result.ok ? result.data : null;
+  } catch {
+    // A malformed success must fail closed just like an unavailable endpoint:
+    // no partial dashboard is safer than rendering a response outside C1.
   }
 
   return (
     <>
       <AppHeader />
-      <PageShell>
-        <PageHeader title={user.displayName} description={COPY.homeWelcome} />
-
-        <nav aria-label={COPY.menuLabel}>
-          <ul className="grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
-            {sections.map((section) => (
-              <li key={section.href}>
-                <Link
-                  href={section.href}
-                  className={`flex h-full flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-brand-300 hover:bg-brand-50 ${FOCUS_RING}`}
-                >
-                  <span className="text-base font-semibold text-slate-900">{section.title}</span>
-                  {section.description !== undefined ? (
-                    <span className="text-sm text-slate-600">{section.description}</span>
-                  ) : null}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </PageShell>
+      {dashboard !== null ? (
+        <DashboardView dashboard={dashboard} />
+      ) : (
+        <PageShell>
+          <PageHeader title={COPY.dashboardTitle} description={COPY.homeWelcome} />
+          <Alert>{COPY.dashboardLoadFailure}</Alert>
+          <div>
+            <ButtonLink href="/" tone="secondary">
+              {COPY.dashboardRetry}
+            </ButtonLink>
+          </div>
+        </PageShell>
+      )}
     </>
   );
 }

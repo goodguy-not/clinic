@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FAMILY_ACCOUNT_READ_PERMISSIONS, type Permission } from '@clinic/contracts';
+import {
+  DASHBOARD_READ_PERMISSIONS,
+  FAMILY_ACCOUNT_READ_PERMISSIONS,
+  type Permission,
+} from '@clinic/contracts';
 
 /**
  * The page gate, and the one place a page's authority can drift from its API's.
@@ -113,5 +117,27 @@ describe('the family money pages name the authority their API route requires', (
     expect(source(join('families', '[id]', 'promises', 'page.tsx'))).toContain(
       "requirePermission: 'promise.read'",
     );
+  });
+});
+
+describe('the dashboard page names every authority in its aggregated response', () => {
+  it('gates the page on the frozen shared list with AND semantics', async () => {
+    expect([...DASHBOARD_READ_PERMISSIONS]).toEqual([
+      'appointment.read',
+      'payment.read',
+      'promise.read',
+    ]);
+
+    const user = await requireWith([...DASHBOARD_READ_PERMISSIONS], DASHBOARD_READ_PERMISSIONS);
+    expect(user.permissions).toEqual([...DASHBOARD_READ_PERMISSIONS]);
+
+    await expect(
+      requireWith(['appointment.read', 'payment.read'], DASHBOARD_READ_PERMISSIONS),
+    ).rejects.toThrow('REDIRECT:/');
+  });
+
+  it('uses the shared dashboard permission constant on the landing page', () => {
+    const page = readFileSync(join(APP_ROOT, 'page.tsx'), 'utf8');
+    expect(page).toContain('requirePermission: DASHBOARD_READ_PERMISSIONS');
   });
 });
