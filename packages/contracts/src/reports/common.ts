@@ -3,8 +3,8 @@ import { isoDateSchema } from '../dates';
 
 /**
  * The vocabulary every Milestone 7 read is spoken in: which day a report is
- * keyed on, how wide a window it may ask for, and the small identifying shapes
- * a report row prints instead of a uuid.
+ * keyed on, what a range means, and the small identifying shapes a report row
+ * prints instead of a uuid.
  *
  * WHAT MILESTONE 7 IS, AND IS NOT. It is the first clinic-wide READ of facts
  * Milestones 4, 5 and 6 already own. Nothing in this directory records anything,
@@ -79,24 +79,24 @@ export type ReportDateBasis = (typeof REPORT_DATE_BASES)[number];
 export const reportDateBasisSchema = z.enum(REPORT_DATE_BASES);
 
 /**
- * The widest window a single report request may ask for: one year and a day.
+ * THERE IS NO MAXIMUM SPAN, AND THAT IS AN ACCEPTED DECISION RATHER THAN AN
+ * OMISSION.
  *
- * A BOUND ON THE QUESTION, NOT A PERFORMANCE FEATURE. These reads are
- * clinic-wide and date-keyed, which is a new access pattern for this system: an
- * unbounded range is a request to scan every session, charge and payment the
- * clinic has ever recorded, and it arrives as a query string anybody can edit.
- * Refusing it in the contract turns a silently enormous read into a validation
- * error naming the limit.
+ * A ranged report requires both ends and refuses an inverted range; it does not
+ * refuse a legitimately long one. A clinic asking for a whole year, or for two,
+ * is asking a real question, and a server that answered "no, ask again in
+ * smaller pieces" would be enforcing a number nobody measured — the shape of
+ * limit that gets copied into later reads and is discovered by the manager who
+ * needed the widest report of the year.
  *
- * 366 rather than 365 so a whole year — including a leap one, and including both
- * endpoints of a full Persian year — fits without the reader discovering an
- * off-by-one at the boundary. Both ends are INCLUSIVE everywhere in this
- * directory: `from = to` is one day, and is the narrowest legal range.
+ * A DEFAULT WINDOW IS A PRESENTATION CONCERN. Opening a report on the last
+ * month, or on this week, belongs to the Web tier that renders it: a default is
+ * something a reader can widen, and a refusal is not.
  *
- * It is a range bound and nothing else. No caching, no pre-aggregation and no
- * analytics infrastructure is implied by it or permitted behind it.
+ * A numeric server-side bound may only be introduced later on measured evidence
+ * and with owner approval — and it would be a bound on cost, argued from a query
+ * plan, not a guess written into a schema.
  */
-export const REPORT_RANGE_MAX_DAYS = 366;
 
 /**
  * The window a ranged report was actually run over, echoed back with the day it

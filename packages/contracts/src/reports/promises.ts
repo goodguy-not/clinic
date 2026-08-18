@@ -3,7 +3,7 @@ import { isoDateSchema } from '../dates';
 import { ledgerPageQuerySchema, pageInfoSchema } from '../ledger/common';
 import { tomanAmountSchema } from '../money';
 import { promiseStatusSchema } from '../payments/common';
-import { REPORT_RANGE_MAX_DAYS, reportFamilySummarySchema, reportRangeSchema } from './common';
+import { reportFamilySummarySchema, reportRangeSchema } from './common';
 
 /**
  * Promises due, overdue, fulfilled, rescheduled and cancelled, across the whole
@@ -46,8 +46,10 @@ import { REPORT_RANGE_MAX_DAYS, reportFamilySummarySchema, reportRangeSchema } f
  * and due before today at the clinic", and `OPEN` is the complement — still on
  * time. The five statuses partition the result, so the counts below add up.
  *
- * The two refinements restate the shared range bounds; a paged query cannot
- * extend a refined schema, and the limit itself is the shared constant.
+ * THERE IS NO MAXIMUM SPAN. The one range rule is that a range may not end
+ * before it starts. A clinic asking for a year is asking a real question, and a
+ * default opening window belongs to the surface that renders the report, not to
+ * a refusal here (`reports/common.ts`).
  */
 export const promiseReportQuerySchema = ledgerPageQuerySchema
   .extend({
@@ -56,13 +58,7 @@ export const promiseReportQuerySchema = ledgerPageQuerySchema
     familyId: z.uuid().optional(),
     status: promiseStatusSchema.optional(),
   })
-  .refine((value) => value.from <= value.to, 'the range must not end before it starts')
-  .refine(
-    (value) =>
-      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 <
-      REPORT_RANGE_MAX_DAYS,
-    `the range may not exceed ${REPORT_RANGE_MAX_DAYS} days`,
-  );
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type PromiseReportQuery = z.infer<typeof promiseReportQuerySchema>;
 

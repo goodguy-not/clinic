@@ -4,9 +4,10 @@ import {
   LEDGER_PAGE_SIZE_MAX,
   PAYMENT_METHODS,
   REPORT_DATE_BASES,
-  REPORT_RANGE_MAX_DAYS,
+  clinicWideDashboardResponseSchema,
   dashboardQuerySchema,
   dashboardResponseSchema,
+  ownScopedDashboardResponseSchema,
   familyAccountReportQuerySchema,
   familyAccountReportResponseSchema,
   paymentReportQuerySchema,
@@ -28,7 +29,8 @@ import {
  * against one description. What is asserted here is not "the schema parses" but
  * the properties the freeze is worth having: which business day each report is
  * keyed on and that the two payment bases stay apart, that a range is mandatory
- * and bounded, that no filter carries personal free text, that the operational
+ * and ordered but never capped, that no filter carries personal free text, that
+ * the operational
  * reports carry no money at all, that a promise is never summed, that the
  * dashboard cannot leak the clinic's finances to a receptionist, and that an
  * empty period is a successful read.
@@ -60,6 +62,7 @@ const emptyReconciliation = {
 };
 
 const quietDashboard = {
+  financialScope: 'OWN_ENTRIES_ONLY' as const,
   date: '2026-08-18',
   appointments: {
     total: 0,
@@ -70,10 +73,12 @@ const quietDashboard = {
     noShows: 0,
   },
   promises: { dueTodayCount: 0, missedCount: 0 },
-  dataIssues: { missingTariffCount: 0 },
+  dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
   reconciliation: emptyReconciliation,
-  clinicFinancial: null,
 };
+
+/** The same day, as the caller who may see the clinic's money receives it. */
+const managerDashboard = { ...quietDashboard, financialScope: 'CLINIC_WIDE' as const };
 
 const clinicFinancial = {
   payments: {
@@ -157,19 +162,14 @@ describe('a report range', () => {
     ).toBe(false);
   });
 
-  it('bounds the width at the one shared limit, in every ranged report', () => {
-    // The limit is a bound on the QUESTION. An unbounded range is a request to
-    // scan every session, charge and payment the clinic has ever recorded, and
-    // it arrives as a query string anybody can edit.
-    expect(REPORT_RANGE_MAX_DAYS).toBe(366);
-
+  it('never refuses a range for being long, in any ranged report', () => {
+    // THE ACCEPTED DECISION: no server-side maximum span. A clinic asking for a
+    // whole year — or for three — is asking a real question, and a refusal would
+    // be a number nobody measured. A default opening window is the Web tier's,
+    // where a reader can widen it.
     const start = Date.UTC(2026, 0, 1);
     const day = (offset: number) =>
       new Date(start + offset * 86_400_000).toISOString().slice(0, 10);
-
-    // Inclusive: the last legal range is exactly REPORT_RANGE_MAX_DAYS days.
-    const widest = { from: day(0), to: day(REPORT_RANGE_MAX_DAYS - 1) };
-    const wider = { from: day(0), to: day(REPORT_RANGE_MAX_DAYS) };
 
     for (const schema of [
       sessionReportQuerySchema,
@@ -177,8 +177,19 @@ describe('a report range', () => {
       paymentReportQuerySchema,
       therapistActivityQuerySchema,
     ]) {
-      expect(schema.safeParse(widest).success).toBe(true);
-      expect(schema.safeParse(wider).success).toBe(false);
+      for (const span of [366, 367, 400, 1_200]) {
+        expect(schema.safeParse({ from: day(0), to: day(span) }).success).toBe(true);
+      }
+    }
+  });
+
+  it('states no maximum-span constant for anybody to enforce', async () => {
+    // A constant left behind is a limit waiting to be reintroduced by a consumer
+    // that finds it and assumes it means something.
+    const contracts: Record<string, unknown> = await import('@clinic/contracts');
+
+    for (const name of Object.keys(contracts)) {
+      expect(name).not.toMatch(/RANGE_MAX|MAX_DAYS|MAX_SPAN/i);
     }
   });
 
@@ -387,24 +398,98 @@ describe('the dashboard', () => {
     ).toBe(false);
   });
 
-  it('states the clinic-wide financial block as null rather than omitting it', () => {
-    // Null means "not authorised", never "zero". A response that omitted the key
-    // would make a day with no money indistinguishable from a day the caller may
-    // not see.
-    expect(dashboardResponseSchema.parse(quietDashboard).clinicFinancial).toBeNull();
+  it('leaves clinic-wide financial content OUT of an unauthorised response', () => {
+    // ABSENT, NOT NULL AND NOT EMPTY. The unauthorised variant is a strict object
+    // with no `clinicFinancial` key, so a response carrying one — even a null,
+    // even a zeroed block — cannot be parsed by either tier. A leak would have to
+    // change this schema rather than slip past a nullable field somebody forgot
+    // to check.
+    const parsed = dashboardResponseSchema.parse(quietDashboard);
 
-    const { clinicFinancial: _absent, ...withoutKey } = quietDashboard;
-    expect(dashboardResponseSchema.safeParse(withoutKey).success).toBe(false);
+    expect(parsed.financialScope).toBe('OWN_ENTRIES_ONLY');
+    expect('clinicFinancial' in parsed).toBe(false);
 
-    expect(dashboardResponseSchema.safeParse({ ...quietDashboard, clinicFinancial }).success).toBe(
-      true,
+    for (const leaked of [null, clinicFinancial]) {
+      expect(
+        dashboardResponseSchema.safeParse({ ...quietDashboard, clinicFinancial: leaked }).success,
+      ).toBe(false);
+    }
+
+    // And the own-scoped variant carries no clinic-wide figure under any other
+    // spelling either.
+    expect(Object.keys(ownScopedDashboardResponseSchema.shape).sort()).toEqual(
+      ['financialScope', 'date', 'appointments', 'promises', 'dataIssues', 'reconciliation'].sort(),
     );
+  });
+
+  it('gives the authorised caller the clinic-wide variant, where the block is required', () => {
+    const authorised = { ...managerDashboard, clinicFinancial };
+    const parsed = dashboardResponseSchema.parse(authorised);
+
+    expect(parsed.financialScope).toBe('CLINIC_WIDE');
+    expect(parsed).toHaveProperty('clinicFinancial.payments.byUser');
+
+    // Not optional and not nullable: a CLINIC_WIDE response that cannot state the
+    // clinic's day would be a variant that means nothing. A quiet day is zeros.
+    const { clinicFinancial: _absent, ...withoutBlock } = authorised;
+    expect(dashboardResponseSchema.safeParse(withoutBlock).success).toBe(false);
+    expect(
+      dashboardResponseSchema.safeParse({ ...authorised, clinicFinancial: null }).success,
+    ).toBe(false);
+  });
+
+  it('makes the caller branch on a server-stated word, not on a missing key', () => {
+    // The scope is the discriminator, so a consumer cannot accidentally treat an
+    // unauthorised response as an empty clinic.
+    expect(
+      dashboardResponseSchema.safeParse({ ...quietDashboard, financialScope: 'BOTH' }).success,
+    ).toBe(false);
+
+    const { financialScope: _absent, ...withoutScope } = quietDashboard;
+    expect(dashboardResponseSchema.safeParse(withoutScope).success).toBe(false);
+
+    expect(clinicWideDashboardResponseSchema.safeParse(quietDashboard).success).toBe(false);
+    expect(
+      ownScopedDashboardResponseSchema.safeParse({ ...managerDashboard, clinicFinancial }).success,
+    ).toBe(false);
+  });
+
+  it('reports both actionable data conditions, which are not the same condition', () => {
+    // A voided charge leaves a completed, attended seat uncharged with a price
+    // list that resolves perfectly; a tariff recorded after the fact removes the
+    // MISSING reading and leaves the charge still unposted. Neither count implies
+    // the other, so the dashboard states both.
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...quietDashboard,
+        dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 3 },
+      }).success,
+    ).toBe(true);
+
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...quietDashboard,
+        dataIssues: { missingTariffCount: 2 },
+      }).success,
+    ).toBe(false);
+
+    // And nothing broader: no severity, no category vocabulary, no issue rows.
+    expect(
+      dashboardResponseSchema.safeParse({
+        ...quietDashboard,
+        dataIssues: {
+          missingTariffCount: 0,
+          unchargedCompletedSessionCount: 0,
+          severity: 'WARNING',
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it('keeps the clinic-wide charge and payment figures on their own bases', () => {
     expect(
       dashboardResponseSchema.safeParse({
-        ...quietDashboard,
+        ...managerDashboard,
         clinicFinancial: {
           ...clinicFinancial,
           charges: { ...clinicFinancial.charges, dateBasis: 'PAYMENT_RECEIVED_ON' },

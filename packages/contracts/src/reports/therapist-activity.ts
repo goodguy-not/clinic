@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../dates';
-import { REPORT_RANGE_MAX_DAYS, reportRangeSchema, reportTherapistSummarySchema } from './common';
+import { reportRangeSchema, reportTherapistSummarySchema } from './common';
 
 /**
  * Therapist activity: how much work each therapist did, and NOT what it was
@@ -62,13 +62,7 @@ export const therapistActivityQuerySchema = z
       .default('false')
       .transform((value) => value === 'true'),
   })
-  .refine((value) => value.from <= value.to, 'the range must not end before it starts')
-  .refine(
-    (value) =>
-      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 <
-      REPORT_RANGE_MAX_DAYS,
-    `the range may not exceed ${REPORT_RANGE_MAX_DAYS} days`,
-  );
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type TherapistActivityQuery = z.infer<typeof therapistActivityQuerySchema>;
 

@@ -3,12 +3,7 @@ import { isoDateSchema } from '../dates';
 import { ledgerPageQuerySchema, pageInfoSchema } from '../ledger/common';
 import { tomanAmountSchema } from '../money';
 import { paymentMethodSchema, paymentStatusSchema } from '../payments/common';
-import {
-  REPORT_RANGE_MAX_DAYS,
-  reportFamilySummarySchema,
-  reportRangeSchema,
-  reportUserSummarySchema,
-} from './common';
+import { reportFamilySummarySchema, reportRangeSchema, reportUserSummarySchema } from './common';
 
 /**
  * Payments by date, method and user (PROJECT_SPEC.md 10).
@@ -70,13 +65,7 @@ export const paymentReportQuerySchema = ledgerPageQuerySchema
       .default('true')
       .transform((value) => value === 'true'),
   })
-  .refine((value) => value.from <= value.to, 'the range must not end before it starts')
-  .refine(
-    (value) =>
-      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 <
-      REPORT_RANGE_MAX_DAYS,
-    `the range may not exceed ${REPORT_RANGE_MAX_DAYS} days`,
-  );
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type PaymentReportQuery = z.infer<typeof paymentReportQuerySchema>;
 

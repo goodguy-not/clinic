@@ -20,12 +20,13 @@ import { reportFamilySummarySchema, reportUserSummarySchema } from './common';
  * badge and the list beneath it can be guaranteed to agree
  * (`outcomeUnresolved`, the same reasoning, on the appointment day view).
  *
- * IT IS ROLE-SENSITIVE, AND THE SENSITIVITY IS IN THE RESPONSE RATHER THAN IN
- * TWO ROUTES. `clinicFinancial` is null for a caller without
- * `report.read_financial`, and `reconciliation` is always and only the caller's
- * own recorded payments. Two routes would mean two aggregations of one screen
- * and a second place for the authority rule to be stated — and a second place is
- * where it drifts.
+ * IT IS ROLE-SENSITIVE, AND THE SENSITIVITY IS IN THE SHAPE OF THE RESPONSE.
+ * The response is a discriminated union: a caller without
+ * `report.read_financial` receives the `OWN_ENTRIES_ONLY` variant, which has no
+ * clinic-wide financial key at all, and a caller who holds it receives the
+ * `CLINIC_WIDE` variant, which carries one. `reconciliation` is always and only
+ * the caller's own recorded payments, in both. Unauthorised clinic-wide content
+ * is therefore ABSENT from the response rather than present and empty.
  */
 
 /**
@@ -69,23 +70,61 @@ export const dashboardPromiseSummarySchema = z.strictObject({
 export type DashboardPromiseSummary = z.infer<typeof dashboardPromiseSummarySchema>;
 
 /**
- * The data errors PROJECT_SPEC.md 10 asks the dashboard to show, as far as this
- * product can currently produce any.
+ * The pricing and data errors PROJECT_SPEC.md 10 asks the dashboard to show,
+ * bounded to the two conditions this system can state from facts it already
+ * holds.
  *
- * ONE COUNT, AND IT IS THE PRICING ONE. A session whose date and service no
- * tariff covers reads `MISSING` on the day view already (PROJECT_SPEC.md 5 — a
- * missing tariff is a visible error, never a silent zero), and the dashboard
- * says how many of today's sessions are in that state so somebody records the
- * tariff before the sessions are completed and cannot be priced.
+ * TWO COUNTS, BECAUSE THEY ARE TWO DIFFERENT PROBLEMS WITH TWO DIFFERENT FIXES —
+ * and neither one implies the other in either direction. The repository makes
+ * that concrete:
  *
- * THE OTHER TWO ITEMS ON THAT LIST ARE NOT HERE, AND THAT IS NOT AN OVERSIGHT.
- * Website requests belong to the public-site inbox, which is Milestone 9 and has
- * no table yet. Booking conflicts have no backlog to count: a therapist, room or
- * child overlap is refused by a PostgreSQL exclusion constraint at the moment of
- * booking, so a conflicting appointment never exists to be listed.
+ *   * A SESSION WHOSE PRICE CANNOT BE RESOLVED reads `MISSING` on the day view
+ *     already (PROJECT_SPEC.md 5 — a missing tariff is a visible error, never a
+ *     silent zero). It is usually still SCHEDULED when it matters: the fix is to
+ *     record the tariff BEFORE the session is completed, because completing an
+ *     unpriced session raises no charge at all —
+ *     `ChargePostingService.post` returns `TARIFF_MISSING` and writes nothing,
+ *     without failing the completion. A scheduled session with no price is
+ *     therefore a warning, and it is not an uncharged completed session.
+ *   * A COMPLETED, ATTENDED SEAT WITH NO VALID CHARGE is money the clinic has
+ *     earned and not recorded. It survives the tariff being fixed: once the
+ *     manager records the missing price, `MISSING` disappears from the day view
+ *     and the charge still does not exist until somebody posts it, because
+ *     nothing re-posts retrospectively. It also arises where no tariff was ever
+ *     missing — a manager voids a charge (`charge.void`), and the seat is
+ *     completed, attended and uncharged with a price list that resolves
+ *     perfectly; `findValidChargeForParticipant` ignores voided rows, which is
+ *     exactly what makes the re-post idempotent rather than blocked.
+ *
+ * So one count is "a price is missing" and the other is "a session is unbilled",
+ * a state can be in either, both or neither, and a dashboard carrying only the
+ * first would hide the backlog that actually costs the clinic money. Both are
+ * scoped to the dashboard's day.
+ *
+ * THIS IS NOT A DATA-QUALITY SUBSYSTEM. Two counts over existing facts, no
+ * severity, no category vocabulary, no rule engine and no stored issue record.
+ *
+ * THE OTHER TWO ITEMS ON PROJECT_SPEC.md 10's LIST ARE NOT HERE, AND THAT IS NOT
+ * AN OVERSIGHT. Website requests belong to the public-site inbox, which is
+ * Milestone 9 and has no table yet. Booking conflicts have no backlog to count:
+ * a therapist, room or child overlap is refused by a PostgreSQL exclusion
+ * constraint at the moment of booking, so a conflicting appointment never exists
+ * to be listed.
  */
 export const dashboardDataIssuesSchema = z.strictObject({
+  /**
+   * Appointments on this clinic day, not cancelled, whose service, length and
+   * date no tariff covers. The same `MISSING` the day view's tariff suggestion
+   * states, counted.
+   */
   missingTariffCount: z.number().int().nonnegative(),
+  /**
+   * Seats on this clinic day whose appointment is `COMPLETED` and whose
+   * attendance is `ATTENDED`, carrying no charge that has not been voided. The
+   * fix is a re-post (`charge.post`), which is idempotent — or, where the price
+   * is also missing, recording the tariff first.
+   */
+  unchargedCompletedSessionCount: z.number().int().nonnegative(),
 });
 
 export type DashboardDataIssues = z.infer<typeof dashboardDataIssuesSchema>;
@@ -129,7 +168,7 @@ export type DashboardPaymentEntry = z.infer<typeof dashboardPaymentEntrySchema>;
  * no other user's payments, no clinic-wide payment total and no clinic-wide
  * charge or revenue figure. A manager reading the dashboard sees their own
  * entries here too, exactly as a receptionist does; what a manager additionally
- * receives is `clinicFinancial` below, under a dedicated authority. `scope` is
+ * receives is the `CLINIC_WIDE` variant below, under a dedicated authority. `scope` is
  * carried on the wire so the screen can label the block honestly rather than
  * letting a reader assume they are looking at the clinic's day.
  *
@@ -235,7 +274,22 @@ export const dashboardClinicFinancialSchema = z.strictObject({
 export type DashboardClinicFinancial = z.infer<typeof dashboardClinicFinancialSchema>;
 
 /**
- * One clinic day, as both roles read it.
+ * WHICH FINANCIAL VIEW THIS RESPONSE IS, STATED BY THE SERVER AS A WORD.
+ *
+ * The discriminator of the response below, and the reason a receptionist's
+ * dashboard does not merely hide the clinic's finances — it does not contain
+ * them. `OWN_ENTRIES_ONLY` is a response with no clinic-wide financial key at
+ * all; `CLINIC_WIDE` is one that carries it, and only a caller holding
+ * `report.read_financial` ever receives that variant.
+ */
+export const DASHBOARD_FINANCIAL_SCOPES = ['OWN_ENTRIES_ONLY', 'CLINIC_WIDE'] as const;
+
+export type DashboardFinancialScope = (typeof DASHBOARD_FINANCIAL_SCOPES)[number];
+
+export const dashboardFinancialScopeSchema = z.enum(DASHBOARD_FINANCIAL_SCOPES);
+
+/**
+ * What every dashboard carries, whoever asked for it.
  *
  * `date` IS ECHOED because the request may not have stated one, and a screen
  * that cannot say which day it is showing is a screen that will eventually show
@@ -247,18 +301,77 @@ export type DashboardClinicFinancial = z.infer<typeof dashboardClinicFinancialSc
  * second shape counting the same six things would be a second place for
  * "unresolved" to mean something slightly different.
  *
+ * `reconciliation` IS ALWAYS THE CALLER'S OWN, in both variants below. A manager
+ * balancing their own till reads the same block a receptionist does.
+ *
  * NO ROW LIST OF APPOINTMENTS. The dashboard states the counts and the day view
  * — `GET /appointments/day` — is where the sessions themselves are read. One
  * request that returned both would return the busiest screen in the clinic twice
  * over on every poll.
  */
-export const dashboardResponseSchema = z.strictObject({
+const dashboardCommonFields = {
   date: isoDateSchema,
   appointments: appointmentDaySummarySchema,
   promises: dashboardPromiseSummarySchema,
   dataIssues: dashboardDataIssuesSchema,
   reconciliation: dashboardReconciliationSchema,
-  clinicFinancial: dashboardClinicFinancialSchema.nullable(),
+} as const;
+
+/**
+ * The dashboard a caller WITHOUT `report.read_financial` receives.
+ *
+ * THE CLINIC-WIDE FINANCIAL CONTENT IS ABSENT, NOT NULL, AND NOT EMPTY. This is
+ * a strict object with no `clinicFinancial` key, so a response carrying one —
+ * even a null one, even a zeroed one — fails to parse in both tiers. An
+ * unauthorised caller therefore cannot be sent clinic-wide totals, per-user
+ * attribution or another user's payment rows by a serialisation mistake, and no
+ * consumer has to remember to check a nullable field before rendering.
+ *
+ * The caller still gets everything the screen needs to work: the day's
+ * appointments, the promises to chase, the two data-issue counts, and their own
+ * recorded payments — scoped by NestJS to the authenticated actor, never to a
+ * user id the request could state.
+ */
+export const ownScopedDashboardResponseSchema = z.strictObject({
+  financialScope: z.literal('OWN_ENTRIES_ONLY'),
+  ...dashboardCommonFields,
 });
+
+export type OwnScopedDashboardResponse = z.infer<typeof ownScopedDashboardResponseSchema>;
+
+/**
+ * The dashboard a caller WITH `report.read_financial` receives.
+ *
+ * `clinicFinancial` IS REQUIRED HERE, not optional and not nullable: this
+ * variant exists precisely because the caller is authorised, so a `CLINIC_WIDE`
+ * response that could not state the clinic's day would be a variant that means
+ * nothing. A quiet day is zeros.
+ */
+export const clinicWideDashboardResponseSchema = z.strictObject({
+  financialScope: z.literal('CLINIC_WIDE'),
+  ...dashboardCommonFields,
+  clinicFinancial: dashboardClinicFinancialSchema,
+});
+
+export type ClinicWideDashboardResponse = z.infer<typeof clinicWideDashboardResponseSchema>;
+
+/**
+ * One clinic day, in whichever of the two shapes the caller's authority allows.
+ *
+ * A DISCRIMINATED UNION RATHER THAN A NULLABLE FIELD. The authority decision is
+ * made once, in NestJS, and travels as a word the consumer branches on — which
+ * is the same reason `status` is stated on a payment instead of being inferred
+ * from a null. It also makes the leak structurally impossible rather than
+ * merely avoided: there is no shape in this package in which an
+ * `OWN_ENTRIES_ONLY` response carries a clinic-wide figure.
+ *
+ * ONE ROUTE, TWO SHAPES. Two routes would mean two aggregations of one screen
+ * and a second place for the authority rule to be stated — and a second place is
+ * where it drifts.
+ */
+export const dashboardResponseSchema = z.discriminatedUnion('financialScope', [
+  ownScopedDashboardResponseSchema,
+  clinicWideDashboardResponseSchema,
+]);
 
 export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;

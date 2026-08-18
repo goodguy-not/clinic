@@ -3,7 +3,6 @@ import { appointmentStatusSchema, attendanceOutcomeSchema } from '../appointment
 import { isoDateSchema } from '../dates';
 import { chargeChildSummarySchema, ledgerPageQuerySchema, pageInfoSchema } from '../ledger/common';
 import {
-  REPORT_RANGE_MAX_DAYS,
   reportFamilySummarySchema,
   reportNamedSchema,
   reportRangeSchema,
@@ -59,10 +58,10 @@ import {
  * completed one may still carry `PENDING`, which is the unresolved-outcome
  * backlog the dashboard counts.
  *
- * The two refinements below restate the bounds `reportRangeSchema` documents. A
- * paged query cannot extend a refined schema, so they are written out here; the
- * limit itself is the shared constant, so the two can never disagree about the
- * number.
+ * THERE IS NO MAXIMUM SPAN. The one range rule is that a range may not end
+ * before it starts. A clinic asking for a year is asking a real question, and a
+ * default opening window belongs to the surface that renders the report, not to
+ * a refusal here (`reports/common.ts`).
  */
 export const sessionReportQuerySchema = ledgerPageQuerySchema
   .extend({
@@ -76,13 +75,7 @@ export const sessionReportQuerySchema = ledgerPageQuerySchema
     status: appointmentStatusSchema.optional(),
     attendance: attendanceOutcomeSchema.optional(),
   })
-  .refine((value) => value.from <= value.to, 'the range must not end before it starts')
-  .refine(
-    (value) =>
-      (Date.parse(`${value.to}T00:00:00Z`) - Date.parse(`${value.from}T00:00:00Z`)) / 86_400_000 <
-      REPORT_RANGE_MAX_DAYS,
-    `the range may not exceed ${REPORT_RANGE_MAX_DAYS} days`,
-  );
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type SessionReportQuery = z.infer<typeof sessionReportQuerySchema>;
 

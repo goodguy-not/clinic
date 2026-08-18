@@ -1711,23 +1711,32 @@ is separate from reading and is manager-only; no export behaviour exists yet.
 - **Revisit when:** a therapist login exists, which is the first role that plausibly
   reads its own activity without holding the diary.
 
-## 2026-08-18 — A report range is mandatory and bounded at 366 days
+## 2026-08-18 — A report range is mandatory and ordered, and is never capped
 
-**Status:** Accepted — Milestone 7, checkpoint C1
+**Status:** Accepted — Milestone 7, checkpoint C1 (supersedes the same day's
+proposal of a 366-day maximum span, which conflicted with the accepted M7 plan and
+was removed before the checkpoint closed)
 
 Every ranged report requires `from` and `to`, inclusive at both ends, and refuses
-a span wider than `REPORT_RANGE_MAX_DAYS` (366) as `VALIDATION_FAILED`. No new
-error code is introduced, and an empty result is a successful read — there is no
-`REPORT_NOT_FOUND` anywhere in `ERROR_CODES`.
+only a range that ends before it starts, as `VALIDATION_FAILED`. **There is no
+maximum span and no `REPORT_RANGE_MAX_DAYS` constant.** A default opening window
+— last month, this week — belongs to the Web surface that renders the report. No
+new error code is introduced, and an empty result is a successful read; there is
+no `REPORT_NOT_FOUND` anywhere in `ERROR_CODES`.
 
-- **Alternatives:** an optional range defaulting to the current month; an unbounded
-  range.
-- **Reason:** a clinic-wide read with no period is a request to scan every session,
-  charge and payment ever recorded, and it arrives as a query string anybody can
-  edit. The period is the question, not a refinement of it.
-- **Trade-off:** a year-and-a-day comparison needs two requests.
-- **Revisit when:** an annual report is specified, which is also when it becomes
-  clear whether the answer is a wider bound or a purpose-built summary read.
+- **Alternatives:** a numeric maximum span (proposed and rejected); an optional
+  range defaulting to the current month.
+- **Reason:** the accepted M7 plan explicitly rejected a server-side maximum span.
+  A clinic asking for a year, or for three, is asking a real question, and a
+  refusal built on an unmeasured number becomes the limit the manager hits on the
+  one day they need the widest report. A default is something a reader can widen;
+  a refusal is not. The range stays mandatory because a clinic-wide read with no
+  period is every row ever written, which is a different argument.
+- **Trade-off:** a deliberately enormous range is answerable and therefore
+  expensive; nothing in the contract stops it.
+- **Revisit when:** measured evidence at pilot volumes shows a range wide enough to
+  hurt — at which point any numeric bound is a cost bound argued from a query plan,
+  and needs owner approval.
 
 ## 2026-08-18 — Reporting stores nothing: three indexes and no second source of truth
 
@@ -1776,3 +1785,58 @@ or `_demo`, and it is a separate binary from the operator CLI.
 - **Revisit when:** a pilot rehearsal needs a reviewable clinic whose entry days are
   spread across weeks, which would need a mechanism that can state an entry instant
   without bypassing the payment's immutability rule.
+
+## 2026-08-18 — An unauthorised dashboard has no clinic-wide financial content at all
+
+**Status:** Accepted — Milestone 7, checkpoint C1 (supersedes the same day's
+`clinicFinancial: null` shape, corrected before the checkpoint closed)
+
+`GET /dashboard` returns a **discriminated union** on a server-stated
+`financialScope`. A caller without `report.read_financial` receives
+`OWN_ENTRIES_ONLY`, a strict object with **no clinic-wide financial key at all**;
+a caller holding it receives `CLINIC_WIDE`, where `clinicFinancial` is required
+and non-nullable. `reconciliation` is in both variants and is always the
+authenticated actor's own recorded payments — never a user id the request states.
+
+- **Alternatives:** a nullable `clinicFinancial` block (the earlier shape); two
+  routes; one route returning a zeroed block to unauthorised callers.
+- **Reason:** the accepted authority boundary is that unauthorised clinic-wide
+  financial content is not delivered, not that it is delivered empty. A nullable
+  field puts the boundary in every consumer's null check and leaves a shape in
+  which a serialisation mistake can carry another user's takings to a
+  receptionist; an absent key makes that a parse failure in both tiers. Two routes
+  would be two aggregations of one screen and a second place for the rule to drift.
+- **Trade-off:** consumers branch on a word instead of reading one optional field,
+  and the two variants must stay in step as the dashboard grows.
+- **Revisit when:** a third financial visibility level exists — a therapist reading
+  their own activity is the plausible one.
+
+## 2026-08-18 — The dashboard states two data conditions, because they are not one
+
+**Status:** Accepted — Milestone 7, checkpoint C1
+
+`dataIssues` carries `missingTariffCount` **and**
+`unchargedCompletedSessionCount`, both scoped to the dashboard's clinic day. The
+two were checked against the repository and are not equivalent in either
+direction:
+
+- completing a session no tariff covers writes no charge and does not fail —
+  `ChargePostingService.post` returns `TARIFF_MISSING` — so recording the tariff
+  afterwards clears the `MISSING` reading and leaves the seat uncharged, because
+  nothing re-posts retrospectively;
+- voiding a charge (`charge.void`) leaves a completed, attended seat with no valid
+  charge while the price list resolves perfectly —
+  `findValidChargeForParticipant` ignores voided rows, which is what makes the
+  re-post idempotent;
+- a scheduled session with no price is a warning to fix before it is completed,
+  and is not an uncharged completed session.
+
+- **Alternatives:** the missing-tariff count alone; a general data-quality issue
+  list with severities and categories.
+- **Reason:** the first hides the backlog that actually costs the clinic money; the
+  second is a subsystem nobody approved. Two counts over facts the system already
+  holds is the smallest correct answer.
+- **Trade-off:** the two counts overlap for a session that is both unpriced and
+  completed, so they must not be added together; the contract says so.
+- **Revisit when:** a no-show charging policy is approved, which would add a third
+  actionable condition.
