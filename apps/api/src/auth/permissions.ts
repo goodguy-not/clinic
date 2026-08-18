@@ -46,6 +46,16 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * whole promise workflow are the receptionist's; voiding a payment is the
  * manager's alone, again with no same-day window.
  *
+ * MILESTONE 8 ADDS SEVEN AND GRANTS THE RECEPTIONIST NONE OF THEM EITHER.
+ * Therapist settlement — the share rules, the per-session ratings and the
+ * period close — is the clinic's first authority over what a THERAPIST earns
+ * rather than what a family owes, and PROJECT_SPEC.md 4 keeps clinic
+ * configuration and financial correction with the manager. There is no
+ * therapist-facing permission of any kind: a therapist has no account in this
+ * product, so a name they could hold would describe a role that cannot log in.
+ * The receptionist's list is therefore unchanged for the fourth milestone
+ * running, and the test that states it exactly is what proves it.
+ *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
  * report, the promise report — are the diary, the ledger read and the promise
@@ -164,3 +174,23 @@ export {
  * hold all of them, so nobody's access changed when it moved.
  */
 export { FAMILY_ACCOUNT_READ_PERMISSIONS } from '@clinic/contracts';
+
+/**
+ * The two Milestone 8 settlement authority sets, re-exported for the reason the
+ * others are: the surfaces that call these routes have to demand exactly what
+ * the routes demand, and one list stated in `@clinic/contracts` is the only way
+ * the two cannot drift.
+ *
+ * `SETTLEMENT_EXPORT_PERMISSIONS` is the Milestone 7 export shape applied to the
+ * settlement statement — the read AND `report.export`. `SETTLEMENT_RATING_
+ * CORRECTION_PERMISSIONS` is the AND-list that exists because rating and
+ * withdrawing a rating are two names: the atomic correction genuinely does both,
+ * so it demands both.
+ *
+ * Neither grants anything. The manager holds every name in both; the
+ * receptionist holds none of them, and `permissions.spec.ts` pins that.
+ */
+export {
+  SETTLEMENT_EXPORT_PERMISSIONS,
+  SETTLEMENT_RATING_CORRECTION_PERMISSIONS,
+} from '@clinic/contracts';

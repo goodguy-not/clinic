@@ -26,10 +26,11 @@ describe('error vocabulary', () => {
     }
   });
 
-  it('carries exactly the eight approved ledger codes', () => {
-    // Stated as an exact list: a ninth ledger code is a rule invented outside
+  it('carries exactly the nine approved ledger codes', () => {
+    // Stated as an exact list: a tenth ledger code is a rule invented outside
     // the approved milestone, and it must fail here rather than appear in a
-    // response.
+    // response. It was eight through Milestones 5 to 7; Milestone 8 adds the
+    // split code below, and nothing else.
     const ledgerCodes = ERROR_CODES.filter(
       (code) => code.startsWith('CHARGE_') || code.startsWith('ADJUSTMENT_'),
     );
@@ -39,6 +40,7 @@ describe('error vocabulary', () => {
         'ADJUSTMENT_ALREADY_VOIDED',
         'ADJUSTMENT_EXCEEDS_CHARGE',
         'ADJUSTMENT_NOT_FOUND',
+        'ADJUSTMENT_SPLIT_INVALID',
         'CHARGE_ALREADY_VOIDED',
         'CHARGE_EXISTS_FOR_PARTICIPANT',
         'CHARGE_NOT_ELIGIBLE',
@@ -48,10 +50,60 @@ describe('error vocabulary', () => {
     );
   });
 
-  it('never adds a split-validation code, because a split cannot be submitted', () => {
-    // The Milestone 5 adjustment request carries no therapist portion
-    // (DECISION_LOG, 2026-08-14), so there is nothing for such a code to report.
-    expect(ERROR_CODES).not.toContain('ADJUSTMENT_SPLIT_INVALID' as ErrorCode);
+  it('adds a split-validation code only now that a split can be submitted', () => {
+    // Through Milestone 5 there was deliberately no such code: the adjustment
+    // request carried no therapist portion, so an invalid split was not
+    // expressible (DECISION_LOG, 2026-08-14). Milestone 8 approves the portion,
+    // so the code arrives with it — and it reports what only the server can
+    // know, since a portion larger than the concession is still refused by the
+    // request schema as VALIDATION_FAILED.
+    expect(ERROR_CODES).toContain('ADJUSTMENT_SPLIT_INVALID');
+  });
+
+  it('carries exactly the twelve approved settlement codes', () => {
+    // The same exact-list discipline the ledger gets. A thirteenth is a rule
+    // invented outside the approved plan, and CLAUDE.md forbids inferring a
+    // settlement rule — a speculative error code is a rule inferred in the one
+    // place nobody reviews.
+    const settlementCodes = ERROR_CODES.filter((code) =>
+      /^(?:SHARE_RULE_|SESSION_(?:ALREADY_RATED|NOT_RATED)|RATING_|SETTLEMENT_)/.test(code),
+    );
+
+    expect([...settlementCodes].sort()).toEqual(
+      [
+        'SHARE_RULE_MISSING',
+        'SHARE_RULE_OVERLAP',
+        'SHARE_RULE_SCOPE_MISMATCH',
+        'SHARE_RULE_ALREADY_VOIDED',
+        'SESSION_ALREADY_RATED',
+        'SESSION_NOT_RATED',
+        'RATING_ALREADY_VOIDED',
+        'RATING_HAS_THERAPIST_ALLOCATIONS',
+        'SETTLEMENT_PERIOD_OVERLAP',
+        'RATING_REPLACEMENT_REQUIRED',
+        'RATING_SCOPE_MISMATCH',
+      ].sort(),
+    );
+
+    // The twelfth is the ledger's, because what makes a split invalid is a
+    // settlement fact but the record it is refused against is a concession.
+    expect(ERROR_CODES).toContain('ADJUSTMENT_SPLIT_INVALID');
+  });
+
+  it('names no settlement failure the approved plan does not contain', () => {
+    for (const absent of [
+      // A close succeeds with unrated sessions and records how many it left out.
+      'SETTLEMENT_PERIOD_HAS_UNRATED_SESSIONS',
+      'SETTLEMENT_UNRATED_SESSIONS',
+      // A closed period is never reopened, so there is no operation to refuse.
+      'SETTLEMENT_PERIOD_CLOSED',
+      'SETTLEMENT_PERIOD_NOT_CLOSED',
+      // Milestone 8 records no therapist payout at all.
+      'SETTLEMENT_ALREADY_PAID',
+      'THERAPIST_PAYMENT_NOT_FOUND',
+    ] as const) {
+      expect(ERROR_CODES).not.toContain(absent as unknown as ErrorCode);
+    }
   });
 
   it('reuses the existing missing-tariff code rather than a charge-shaped copy', () => {

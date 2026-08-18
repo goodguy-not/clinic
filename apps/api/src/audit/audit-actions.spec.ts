@@ -67,11 +67,89 @@ describe('audit vocabulary', () => {
   });
 
   it('names no entity type this milestone does not have a table for', () => {
-    // Settlement is Milestone 8, and credit is derived from rows rather than
-    // stored. An entity type is a table name, and neither table exists.
-    for (const absent of ['family_credit', 'therapist_settlement', 'payment_allocation']) {
+    // Credit is derived from rows rather than stored, and payment allocation is
+    // not part of this product at all. An entity type is a table name, and
+    // neither table exists.
+    for (const absent of ['family_credit', 'payment_allocation', 'therapist_settlement']) {
       expect(AUDIT_ENTITY_TYPES).not.toContain(absent as never);
     }
+  });
+
+  describe('therapist settlement', () => {
+    const settlementActions = AUDIT_ACTIONS.filter((action) =>
+      /^(?:therapist_share_rule|session_settlement|settlement_period)\./.test(action),
+    );
+
+    it('adds exactly the five approved actions', () => {
+      expect([...settlementActions].sort()).toEqual(
+        [
+          'therapist_share_rule.created',
+          'therapist_share_rule.voided',
+          'session_settlement.rated',
+          'session_settlement.voided',
+          'settlement_period.closed',
+        ].sort(),
+      );
+    });
+
+    it('names every one of them after its table and a past-tense verb', () => {
+      for (const action of settlementActions) {
+        expect(action).toMatch(
+          /^(?:therapist_share_rule|session_settlement|settlement_period)\.[a-z_]+ed$/,
+        );
+      }
+    });
+
+    it('records a share correction as two facts, not as an edit', () => {
+      // A share rule is never rewritten: a correction voids the row and writes a
+      // replacement, so the percentage that stopped applying and the one that
+      // replaced it are both readable. The tariff decision, applied to the other
+      // side of the money.
+      for (const absent of [
+        'therapist_share_rule.updated',
+        'therapist_share_rule.status_changed',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('describes an atomic rating correction with the two actions it performs', () => {
+      // A correction withdraws a rating and writes its replacement in one
+      // transaction, and writes BOTH actions there. A third name would describe
+      // one act as three, and the request id already ties the pair together.
+      expect(AUDIT_ACTIONS).not.toContain('session_settlement.corrected' as never);
+      expect(AUDIT_ACTIONS).not.toContain('session_settlement.updated' as never);
+    });
+
+    it('names no act the product refuses to have', () => {
+      // A closed period is immutable and is never reopened, so there is no
+      // action for it — vocabulary for a capability that does not exist reads as
+      // a capability that does. And Milestone 8 records no therapist payout of
+      // any kind, so nothing here names money leaving the clinic.
+      for (const absent of [
+        'settlement_period.reopened',
+        'settlement_period.updated',
+        'settlement.paid',
+        'therapist_payment.recorded',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('does not name its entity types until checkpoint C2 creates their tables', () => {
+      // THE TRIPWIRE, AND IT POINTS BOTH WAYS. `AUDIT_ENTITY_TYPES` is asserted
+      // against the real schema in `catalog-schema.int-spec.ts` — every entry is
+      // a table, except the declared non-row subjects, which must NOT be
+      // (DECISION_LOG, 2026-08-18) — and checkpoint C1 deliberately creates no
+      // migration. Adding these three now would fail that assertion for as long
+      // as the tables were missing; forgetting them in C2 would leave the writes
+      // with nothing to name. This test fails in the second case, so the pairing
+      // has to be done deliberately in the checkpoint that owns it.
+      for (const pending of ['therapist_share_rule', 'session_settlement', 'settlement_period']) {
+        expect(AUDIT_ENTITY_TYPES).not.toContain(pending as never);
+        expect(AUDIT_ACTIONS.some((action) => action.startsWith(`${pending}.`))).toBe(true);
+      }
+    });
   });
 
   describe('money in', () => {

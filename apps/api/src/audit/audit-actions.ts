@@ -197,6 +197,56 @@ export const AUDIT_ACTIONS = [
   // rather than an audit fact (`common/security-log.ts`) — auditing refusals
   // would let an unauthenticated caller fill the table by asking.
   'report.exported',
+
+  // Therapist settlement (Milestone 8, checkpoint C1). FIVE ACTIONS OVER THREE
+  // RECORDS, named after the tables they will describe, exactly as the ledger's
+  // and the payment's are. Nothing writes any of them yet: the vocabulary is
+  // fixed here so the audit contract cannot change underneath the services that
+  // arrive in the later checkpoints, which is the same reason every previous
+  // milestone fixed its actions a checkpoint early.
+  //
+  // A SHARE RULE IS NEVER EDITED, so there is no `therapist_share_rule.updated`.
+  // A correction voids the row and writes a replacement, and a percentage change
+  // is therefore two audited facts — the share that stopped applying and the one
+  // that replaced it — rather than one entry a reader has to interpret as a
+  // diff. It is the tariff decision, applied to the other side of the money.
+  //
+  // RATING AND VOIDING ARE SEPARATE FACTS, for the reason posting and voiding a
+  // charge are. "How often is a therapist's rating withdrawn, and why?" is
+  // exactly the question PROJECT_SPEC.md 9 exists to let a manager ask about
+  // somebody's earnings, and an answer buried in a JSON diff is not something
+  // you can count. A CORRECTION — withdrawal and replacement in one transaction
+  // — writes BOTH of them in that transaction rather than a third
+  // `session_settlement.corrected` action: the two facts are what actually
+  // happened, they share the request id that ties them together, and a third
+  // name would describe one act as three.
+  //
+  // `settlement_period.closed` IS THE ONLY PERIOD ACTION, because closing is the
+  // only thing that ever happens to a period. There is deliberately no
+  // `settlement_period.reopened`: a closed period is immutable and is never
+  // reopened, so an action naming that act would be vocabulary for a capability
+  // the product refuses to have — and the first person to read the list would
+  // reasonably assume it exists.
+  //
+  // NOTHING HERE RECORDS A PAYOUT. Milestone 8 does not record money leaving the
+  // clinic, so there is no `settlement.paid`, no `therapist_payment.recorded`
+  // and no action of any kind naming a payment to a therapist.
+  //
+  // THE MATCHING ENTITY TYPES ARRIVE WITH THEIR TABLES IN CHECKPOINT C2, NOT
+  // HERE. `AUDIT_ENTITY_TYPES` is asserted against the real schema — every entry
+  // is a table, except the declared non-row subjects, which must NOT be
+  // (DECISION_LOG, 2026-08-18) — and C1 creates no migration, so adding
+  // `therapist_share_rule`, `session_settlement` and `settlement_period` now
+  // would fail that assertion for exactly as long as the tables were missing.
+  // The action names carry no such coupling: `audit_log.action` is TEXT with a
+  // format CHECK, so a name is legal the moment it has the right shape. A
+  // tripwire in `audit-actions.spec.ts` pins the split, so the entity types
+  // cannot be forgotten and cannot arrive early.
+  'therapist_share_rule.created',
+  'therapist_share_rule.voided',
+  'session_settlement.rated',
+  'session_settlement.voided',
+  'settlement_period.closed',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

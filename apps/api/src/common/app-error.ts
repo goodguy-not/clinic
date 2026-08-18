@@ -147,6 +147,30 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   PROMISE_PAYMENT_TOO_SMALL: 422,
   PROMISE_DUE_DATE_IN_PAST: 422,
 
+  // Therapist settlement. The same three-way split the ledger and the payment
+  // codes use: 404 for a record that is not there, 409 for a well-formed act
+  // against a row that is already in another state — which a refreshed screen
+  // explains — and 422 for a request whose values the domain simply does not
+  // permit, where an identical retry always fails identically.
+  SHARE_RULE_MISSING: 422,
+  SHARE_RULE_OVERLAP: 409,
+  SHARE_RULE_SCOPE_MISMATCH: 422,
+  SHARE_RULE_ALREADY_VOIDED: 409,
+  SESSION_ALREADY_RATED: 409,
+  // 422 rather than 404: the SESSION exists and the CHARGE exists; what is
+  // absent is a decision nobody has made yet, which is a property of the
+  // referenced data rather than a missing route target.
+  SESSION_NOT_RATED: 422,
+  RATING_ALREADY_VOIDED: 409,
+  RATING_HAS_THERAPIST_ALLOCATIONS: 409,
+  ADJUSTMENT_SPLIT_INVALID: 422,
+  SETTLEMENT_PERIOD_OVERLAP: 409,
+  // 409: the rating is in a state — settled inside a closed period — that this
+  // act cannot be performed against. The fix is a different request, not a
+  // corrected value.
+  RATING_REPLACEMENT_REQUIRED: 409,
+  RATING_SCOPE_MISMATCH: 422,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -241,6 +265,24 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   PROMISE_NOT_FOUND: 'Payment promise not found',
   PROMISE_NOT_OPEN: 'This payment promise has already been resolved',
   PROMISE_DUE_DATE_IN_PAST: 'A rescheduled due date must not be before the current date',
+
+  SHARE_RULE_MISSING: 'No therapist share rule covers this session date',
+  SHARE_RULE_OVERLAP: 'The effective range overlaps an existing share rule for this therapist',
+  SHARE_RULE_SCOPE_MISMATCH:
+    'A replacement share rule must keep the scope of the rule it supersedes',
+  SHARE_RULE_ALREADY_VOIDED: 'Share rule is already voided',
+  SESSION_ALREADY_RATED: 'This session already carries a valid settlement rating',
+  SESSION_NOT_RATED: 'This session has no settlement rating',
+  RATING_ALREADY_VOIDED: 'Settlement rating is already voided',
+  RATING_HAS_THERAPIST_ALLOCATIONS:
+    'A therapist-borne discount is allocated against this rating and must be withdrawn first',
+  ADJUSTMENT_SPLIT_INVALID:
+    'The therapist portion of this concession cannot be applied to this session',
+  SETTLEMENT_PERIOD_OVERLAP:
+    'The range overlaps a settlement period already closed for this therapist',
+  RATING_REPLACEMENT_REQUIRED:
+    'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
+  RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',
 
   INTERNAL_ERROR: 'Internal error',
 };

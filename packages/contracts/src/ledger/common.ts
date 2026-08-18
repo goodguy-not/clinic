@@ -50,6 +50,44 @@ export const adjustmentAmountTomanSchema = tomanAmountSchema
   );
 
 /**
+ * How much of one concession the THERAPIST bears, when the clinic and the
+ * therapist have agreed to share it (Milestone 8, checkpoint C1).
+ *
+ * ZERO IS LEGITIMATE HERE, unlike on `adjustmentAmountTomanSchema` above, and
+ * the difference is the whole distinction between the two fields. A zero
+ * ADJUSTMENT is a row that records nothing; a zero THERAPIST PORTION is the
+ * ordinary, overwhelmingly common case — a concession the clinic bears in full,
+ * stated explicitly instead of left to be inferred. CLAUDE.md requires exactly
+ * that for a therapist who does not participate in discounts: the therapist
+ * amount is zero and the clinic bears all of it, even when that makes the
+ * clinic net negative.
+ *
+ * THE CLINIC PORTION IS NEVER SUBMITTED, AND THAT IS WHAT MAKES AN INVALID
+ * SPLIT UNREPRESENTABLE. CLAUDE.md requires the therapist amount plus the
+ * clinic amount to equal the total family discount, always. A request carrying
+ * both halves could state a pair that does not add up, and the server would
+ * then have to decide which of the caller's two numbers to believe. So the
+ * request carries the TOTAL and the THERAPIST'S SHARE OF IT, and the clinic
+ * takes the exact residual — the same residual discipline the therapist/clinic
+ * gross split uses, for the same reason.
+ *
+ * BOUNDED BY THE CONCESSION ITSELF, and that bound is stated on the request
+ * rather than here, because it is a relationship between two fields. What is
+ * bounded here is the plausibility of the number in isolation, exactly as
+ * everywhere else in this package.
+ *
+ * WHAT IS STILL NOT STATED ANYWHERE IN THE REQUEST is whether the therapist has
+ * a share to bear the portion against at all, and whether bearing it would
+ * drive their net below zero — which CLAUDE.md forbids. Both depend on the
+ * session's rating, which this request cannot see; the server decides them and
+ * answers `ADJUSTMENT_SPLIT_INVALID`.
+ */
+export const therapistDiscountPortionTomanSchema = tomanAmountSchema.refine(
+  (value) => /^\d+$/.test(value) && BigInt(value) <= BigInt(TARIFF_MAX_PRICE_TOMAN),
+  'exceeds the maximum amount the ledger accepts',
+);
+
+/**
  * The child a charge belongs to, as a family account prints them.
  *
  * Balance is family-level and every charge identifies the child (CLAUDE.md,

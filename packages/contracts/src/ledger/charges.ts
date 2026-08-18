@@ -3,7 +3,11 @@ import { durationMinutesSchema } from '../catalog/common';
 import { tariffPriceModeSchema } from '../catalog/tariffs';
 import { isoDateSchema } from '../dates';
 import { tomanAmountSchema } from '../money';
-import { adjustmentAmountTomanSchema, ledgerReasonSchema } from './common';
+import {
+  adjustmentAmountTomanSchema,
+  ledgerReasonSchema,
+  therapistDiscountPortionTomanSchema,
+} from './common';
 
 /**
  * The financial records of Milestone 5, as the wire carries them.
@@ -226,25 +230,56 @@ export type VoidSessionChargeRequest = z.infer<typeof voidSessionChargeRequestSc
  * is what CLAUDE.md forbids outright, so `reason` is not optional and not
  * defaulted.
  *
- * THERE IS NO THERAPIST PORTION IN THIS REQUEST, AND NO SPLIT TO SUBMIT. Every
- * Milestone 5 discount is genuinely clinic-borne: the server writes
- * `therapistDiscountToman = 0` and `clinicDiscountToman = amountToman`, and
- * PostgreSQL refuses anything else (DECISION_LOG, 2026-08-14). A therapist can
- * only be said to bear part of a concession once Milestone 8 has approved
- * settlement and an effective-dated share to bear it against; a field accepting
- * one now would record an unfunded liability as a fact. `strictObject` means a
- * caller that sends one is refused rather than ignored — which is also why
- * there is no `ADJUSTMENT_SPLIT_INVALID` error code: an invalid split is not
- * expressible.
+ * THE THERAPIST PORTION IS OPTIONAL, AND CLINIC-BORNE IS STILL THE DEFAULT
+ * (Milestone 8, checkpoint C1). Through Milestone 5 this request had no
+ * therapist portion at all: every concession was genuinely clinic-borne,
+ * because a therapist could only be said to bear part of one once settlement
+ * and an effective-dated share existed to bear it against, and a field
+ * accepting one before then would have recorded an unfunded liability as a fact
+ * (DECISION_LOG, 2026-08-14). Milestone 8 approves exactly that share, so the
+ * field arrives — OPTIONAL, never defaulted to anything but zero, and never
+ * required. A caller that omits it is stating the same clinic-borne concession
+ * this request has always meant, and the overwhelming majority of concessions
+ * stay that way: CLAUDE.md requires a therapist who does not participate in
+ * discounts to bear nothing, with the clinic taking all of it even when that
+ * makes the clinic net negative.
+ *
+ * THE CLINIC PORTION REMAINS UNSUBMITTABLE, WHICH IS WHAT KEEPS AN INVALID
+ * SPLIT UNREPRESENTABLE. The two portions must sum to the total (CLAUDE.md), so
+ * the request carries the TOTAL and the THERAPIST'S SHARE OF IT and the server
+ * writes the clinic's as the exact residual. There is no pair of numbers a
+ * caller can send that fails to add up, and `strictObject` refuses a
+ * `clinicDiscountToman` outright rather than ignoring it. The one relationship
+ * this schema does check is that the portion is not larger than the concession
+ * it is a portion of; `ADJUSTMENT_SPLIT_INVALID` covers what only the server can
+ * know — that the session has a rating to bear the portion against, and that
+ * bearing it leaves the therapist net at or above zero.
+ *
+ * NO RUNTIME BEHAVIOUR CHANGES IN C1. This checkpoint freezes the contract; the
+ * service and the database CHECK that currently pin every concession to
+ * clinic-borne are a later checkpoint's work, and until then a request carrying
+ * a non-zero portion is refused by the server rather than silently written.
  *
  * A `FREE` charge cannot be adjusted at all. There is no concession to record on
  * a session that was never priced, and the attempt is refused as
  * `ADJUSTMENT_EXCEEDS_CHARGE` — any positive amount exceeds a zero charge.
  */
-export const createChargeAdjustmentRequestSchema = z.strictObject({
-  amountToman: adjustmentAmountTomanSchema,
-  reason: ledgerReasonSchema,
-});
+export const createChargeAdjustmentRequestSchema = z
+  .strictObject({
+    amountToman: adjustmentAmountTomanSchema,
+    reason: ledgerReasonSchema,
+    therapistDiscountToman: therapistDiscountPortionTomanSchema.optional(),
+  })
+  // The digit shape is re-tested before each conversion, because Zod runs
+  // remaining checks after a failed one and `BigInt('')` throws.
+  .refine(
+    (value) =>
+      value.therapistDiscountToman == null ||
+      !/^\d+$/.test(value.therapistDiscountToman) ||
+      !/^\d+$/.test(value.amountToman) ||
+      BigInt(value.therapistDiscountToman) <= BigInt(value.amountToman),
+    'the therapist portion must not exceed the concession it is part of',
+  );
 
 export type CreateChargeAdjustmentRequest = z.infer<typeof createChargeAdjustmentRequestSchema>;
 

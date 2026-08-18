@@ -23,10 +23,15 @@ import {
  *
  * Checkpoint A2 freezes these shapes so the web workstream can build against
  * them without guessing. What is asserted here is therefore not "the schema
- * parses" but the handful of properties the freeze is worth having: no
- * therapist portion is submittable, money stays a canonical decimal string, a
- * free session stays distinct from a waived one, and nothing that belongs to
- * payments or settlement has crept in.
+ * parses" but the handful of properties the freeze is worth having: money stays
+ * a canonical decimal string, a free session stays distinct from a waived one,
+ * and nothing that belongs to payments has crept in.
+ *
+ * The adjustment request has since gained ONE field — the optional
+ * therapist-borne portion Milestone 8 approves (checkpoint C1) — and the tests
+ * below pin both halves of that change: clinic-borne remains the default, and
+ * the clinic portion is still unsubmittable, which is what keeps an invalid
+ * split unrepresentable rather than merely refused.
  *
  * Every value below is synthetic.
  */
@@ -83,16 +88,44 @@ describe('ledger contracts', () => {
       ).toEqual({ amountToman: '50000', reason: 'تخفیف' });
     });
 
-    it('has no therapist portion, and refuses one', () => {
-      // The rule this test exists for: every Milestone 5 discount is genuinely
-      // clinic-borne (DECISION_LOG, 2026-08-14). A therapist can only be said to
-      // bear part of a concession once Milestone 8 approves settlement, so the
-      // request must not even have a place to say so.
+    it('takes an optional therapist portion, and clinic-borne stays the default', () => {
+      // Milestone 8, checkpoint C1. Through Milestone 5 the request had no place
+      // to say a therapist bore part of a concession, because no approved share
+      // existed to bear it against (DECISION_LOG, 2026-08-14). Milestone 8
+      // approves one, so the field arrives — OPTIONAL, and omitting it is still
+      // the clinic-borne concession this request has always meant.
+      expect(
+        createChargeAdjustmentRequestSchema.parse({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '20000',
+        }),
+      ).toEqual({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '20000' });
+
+      // Zero is legitimate and is not the same shape as omitting it: a therapist
+      // who does not participate in discounts bears nothing, stated explicitly,
+      // and the clinic takes all of it even where that makes the clinic net
+      // negative (CLAUDE.md).
+      expect(
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '0',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('makes an invalid split unrepresentable rather than merely refused', () => {
+      // The two portions must sum to the total, always (CLAUDE.md). The request
+      // therefore carries the TOTAL and the THERAPIST'S SHARE OF IT and the
+      // server writes the clinic's as the exact residual — so there is no pair of
+      // numbers a caller can send that fails to add up, and the clinic's half is
+      // refused outright rather than ignored.
       for (const field of [
-        'therapistDiscountToman',
         'clinicDiscountToman',
         'therapistShareToman',
         'therapistSharePercent',
+        'therapistShareBasisPoints',
         'splitMode',
         'borneBy',
       ]) {
@@ -104,11 +137,41 @@ describe('ledger contracts', () => {
           }).success,
         ).toBe(false);
       }
+    });
 
-      expect(Object.keys(createChargeAdjustmentRequestSchema.shape).sort()).toEqual([
-        'amountToman',
-        'reason',
-      ]);
+    it('refuses a therapist portion larger than the concession it is part of', () => {
+      // The one relationship the request itself can check. Whether the session
+      // has a rating to bear the portion against, and whether bearing it leaves
+      // the therapist net at or above zero, only the server knows — those are
+      // `ADJUSTMENT_SPLIT_INVALID`.
+      expect(
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '50001',
+        }).success,
+      ).toBe(false);
+
+      // Equal is allowed: a therapist may bear the whole of a concession.
+      expect(
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '50000',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('refuses a therapist portion that is not canonical or is out of bounds', () => {
+      for (const portion of ['-1', '5000.5', '۵۰۰۰', '05000', '5 000', '', '2000000000']) {
+        expect(
+          createChargeAdjustmentRequestSchema.safeParse({
+            amountToman: '50000',
+            reason: 'تخفیف',
+            therapistDiscountToman: portion,
+          }).success,
+        ).toBe(false);
+      }
     });
 
     it('requires a reason that is not blank', () => {

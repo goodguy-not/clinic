@@ -170,11 +170,15 @@ export const ERROR_CODES = [
   // Also what a `FREE` charge produces: any positive amount exceeds a zero
   // charge, and there is no concession to record on a session never priced.
   'ADJUSTMENT_EXCEEDS_CHARGE',
-  // There is deliberately no `ADJUSTMENT_SPLIT_INVALID`. The Milestone 5
-  // adjustment request carries no therapist portion and no split to validate:
-  // every discount is clinic-borne, the server writes both allocation columns
-  // itself, and a strict request schema refuses a caller that tries to state
-  // one (DECISION_LOG, 2026-08-14).
+  // `ADJUSTMENT_SPLIT_INVALID` NOW EXISTS, AND IT IS LISTED WITH SETTLEMENT
+  // BELOW RATHER THAN HERE. Through Milestone 5 there was deliberately no such
+  // code: the adjustment request carried no therapist portion and there was no
+  // split to validate, because every discount was genuinely clinic-borne
+  // (DECISION_LOG, 2026-08-14). Milestone 8 approves a therapist-borne portion,
+  // so a split becomes submittable and therefore refusable — but what makes it
+  // invalid is a settlement fact (no rating, no share to bear the portion
+  // against, or a portion that would drive a therapist net below zero), which is
+  // why the code sits with the settlement vocabulary and not with the ledger.
 
   // Money in. Ten codes over two records, and each one names a situation with a
   // fix of its own — the reasoning that gave the ledger eight rather than one
@@ -226,6 +230,68 @@ export const ERROR_CODES = [
   // amount in this package is. And no `FAMILY_CREDIT_*` code of any kind —
   // credit is derived from rows, never recorded, so there is no operation on it
   // to refuse.
+
+  // Therapist settlement (Milestone 8). TWELVE CODES, AND EVERY ONE OF THEM IS
+  // RAISED BY AN ENDPOINT THE ACCEPTED PLAN CONTAINS. Nothing here anticipates a
+  // rule that has not been approved — CLAUDE.md is explicit that a settlement
+  // rule not explicitly approved must not be inferred, and a speculative error
+  // code is a rule inferred in the one place nobody reviews.
+  //
+  // The share rule is effective-dated and immutable, exactly as a tariff is, so
+  // its four codes mirror the tariff's four almost name for name. They are
+  // separate codes rather than reused ones because they are separate mistakes
+  // with separate fixes, and because a Persian message that said "tariff" while
+  // a manager was editing a share percentage would be worse than useless.
+  'SHARE_RULE_MISSING',
+  'SHARE_RULE_OVERLAP',
+  'SHARE_RULE_SCOPE_MISMATCH',
+  'SHARE_RULE_ALREADY_VOIDED',
+  // Rating a session that already carries a valid rating. The fix is to correct
+  // the existing one, not to add a second: a session has at most one rating that
+  // stands, for the reason a participant has at most one valid primary charge.
+  'SESSION_ALREADY_RATED',
+  // Acting on a session that has never been rated — reading its settlement
+  // figures, or withdrawing a rating that is not there. It is the UNRATED state
+  // surfacing as a refusal, and it exists precisely so that state is never
+  // answered with a zero.
+  'SESSION_NOT_RATED',
+  // Withdrawing a rating that is already withdrawn: the correction has already
+  // happened and the caller is looking at a stale screen. Separate from
+  // `SESSION_NOT_RATED` for the reason `CHARGE_ALREADY_VOIDED` is separate from
+  // `CHARGE_VOIDED`.
+  'RATING_ALREADY_VOIDED',
+  // The rating cannot be withdrawn on its own, because a therapist-borne
+  // discount has already been allocated against it. Withdrawing it would leave a
+  // concession apportioned to a share that no longer exists, so the fix is to
+  // withdraw the concession first or to correct the rating.
+  'RATING_HAS_THERAPIST_ALLOCATIONS',
+  // The concession's therapist portion cannot be honoured: the session carries
+  // no rating to bear it, or the portion would drive the therapist net below
+  // zero, which CLAUDE.md forbids outright. It is NOT raised for a portion
+  // larger than the concession itself — that shape is refused by the request
+  // schema as `VALIDATION_FAILED`, like every other bounded amount here.
+  'ADJUSTMENT_SPLIT_INVALID',
+  // The range being closed overlaps a period already closed for this therapist.
+  // Refused rather than merged or trimmed: an overlap would settle some sessions
+  // twice, and silently succeeding is how somebody is paid for one session in
+  // two months. Repeating the IDENTICAL request is not an overlap — it is
+  // idempotent and answers `ALREADY_CLOSED`.
+  'SETTLEMENT_PERIOD_OVERLAP',
+  // A rating a closed period depends on cannot simply be withdrawn: the closed
+  // figure would be left standing with nothing behind it, and a closed period is
+  // immutable and never reopened. The fix is the atomic correction, which
+  // withdraws and re-rates in one act.
+  'RATING_REPLACEMENT_REQUIRED',
+  // The replacement rating in a correction does not name the same session charge
+  // as the rating being withdrawn. Correcting one therapist's month by re-rating
+  // a different session is a mistake only ever noticed by whoever ends up short.
+  'RATING_SCOPE_MISMATCH',
+  // There is deliberately NO `SETTLEMENT_PERIOD_HAS_UNRATED_SESSIONS`. A close
+  // does not fail merely because unrated sessions exist (the frozen Milestone 8
+  // rule): it succeeds and records how many it left out, on the period, forever.
+  // There is no `SETTLEMENT_PERIOD_CLOSED` either — a closed period is never
+  // reopened, so there is no operation on it to refuse — and no code of any kind
+  // about a therapist payout, which this milestone does not record.
 
   'INTERNAL_ERROR',
 ] as const;

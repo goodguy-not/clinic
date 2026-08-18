@@ -46,3 +46,7 @@ export * from './reports/promises';
 export * from './reports/therapist-activity';
 export * from './reports/payments';
 export * from './reports/family-accounts';
+export * from './settlement/common';
+export * from './settlement/ratings';
+export * from './settlement/statement';
+export * from './settlement/close';

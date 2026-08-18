@@ -9,6 +9,8 @@ import {
   PROMISE_REPORT_EXPORT_PERMISSIONS,
   ROLE_PERMISSIONS,
   SESSION_REPORT_EXPORT_PERMISSIONS,
+  SETTLEMENT_EXPORT_PERMISSIONS,
+  SETTLEMENT_RATING_CORRECTION_PERMISSIONS,
   THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
   permissionsForRole,
 } from './permissions';
@@ -101,6 +103,15 @@ describe('role to permission map', () => {
       // out of the system.
       'report.read_financial',
       'report.export',
+      // Milestone 8: what a THERAPIST earns. Every one of the seven, because
+      // this role holds none of them.
+      'therapist_share.read',
+      'therapist_share.create',
+      'therapist_share.void',
+      'settlement.read',
+      'settlement.rate',
+      'settlement.void_rating',
+      'settlement.close',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
@@ -386,6 +397,125 @@ describe('role to permission map', () => {
     // PROJECT_SPEC.md 4 keeps away from this role.
     expect(permissionsForRole('RECEPTIONIST')).not.toContain('appointment.reopen');
     expect(permissionsForRole('MANAGER')).toContain('appointment.reopen');
+  });
+
+  describe('therapist settlement', () => {
+    // Milestone 8, checkpoint C1. The permission model is frozen before any
+    // settlement behaviour exists, so the surfaces built against it in the later
+    // checkpoints cannot each decide what authority they need.
+    const SETTLEMENT_PERMISSIONS = [
+      'therapist_share.read',
+      'therapist_share.create',
+      'therapist_share.void',
+      'settlement.read',
+      'settlement.rate',
+      'settlement.void_rating',
+      'settlement.close',
+    ] as const;
+
+    it('defines exactly the seven approved names', () => {
+      expect(
+        PERMISSIONS.filter((permission) =>
+          /^(?:therapist_share|settlement)\./.test(permission),
+        ).sort(),
+      ).toEqual([...SETTLEMENT_PERMISSIONS].sort());
+    });
+
+    it('names nothing this milestone did not approve', () => {
+      for (const absent of [
+        // A share rule is never edited: a correction voids it and writes a
+        // replacement, exactly as a tariff does.
+        'therapist_share.update',
+        // Rating and un-rating are two authorities on purpose — folding them into
+        // one would make the correction's AND-list inexpressible.
+        'settlement.manage',
+        'settlement.write',
+        // A closed period is never reopened, so there is no authority to do it.
+        'settlement.reopen',
+        // Taking the file out of the building is `report.export`, ANDed with the
+        // settlement read. A second export name would be a second answer.
+        'settlement.export',
+        // Milestone 8 records no payout, so there is nothing to authorise.
+        'settlement.pay',
+        'therapist_payment.create',
+        // A therapist has no account in this product.
+        'settlement.read_own',
+        'therapist.self_read',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('gives every one of them to the manager and none of them to the receptionist', () => {
+      const manager = permissionsForRole('MANAGER');
+      const receptionist = permissionsForRole('RECEPTIONIST');
+
+      for (const permission of SETTLEMENT_PERMISSIONS) {
+        expect(manager).toContain(permission);
+        expect(receptionist).not.toContain(permission);
+      }
+    });
+
+    it('leaves the receptionist with no settlement name of any kind', () => {
+      // The blanket half of the assertion above: not "none of these seven" but
+      // "nothing in either namespace", so a future name added to the list cannot
+      // reach this role by being granted before anybody notices.
+      for (const permission of permissionsForRole('RECEPTIONIST')) {
+        expect(permission).not.toMatch(/^(?:therapist_share|settlement)\./);
+      }
+    });
+
+    it('exports a settlement statement under the read authority plus report.export', () => {
+      // The Milestone 7 export shape, unchanged: the read AND the act. Revoking
+      // `settlement.read` takes the file with it.
+      expect([...SETTLEMENT_EXPORT_PERMISSIONS]).toEqual(['settlement.read', 'report.export']);
+
+      for (const permission of SETTLEMENT_EXPORT_PERMISSIONS) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+
+      expect(
+        SETTLEMENT_EXPORT_PERMISSIONS.every((permission) =>
+          permissionsForRole('MANAGER').includes(permission),
+        ),
+      ).toBe(true);
+      expect(
+        SETTLEMENT_EXPORT_PERMISSIONS.every((permission) =>
+          permissionsForRole('RECEPTIONIST').includes(permission),
+        ),
+      ).toBe(false);
+    });
+
+    it('requires both halves of the act to correct a rating', () => {
+      // AND, not OR. The correction withdraws a rating and writes its
+      // replacement in one transaction, so it names both authorities: a caller
+      // who may rate but not withdraw must not reach it, and neither must one who
+      // may withdraw but not rate.
+      expect([...SETTLEMENT_RATING_CORRECTION_PERMISSIONS]).toEqual([
+        'settlement.void_rating',
+        'settlement.rate',
+      ]);
+
+      for (const permission of SETTLEMENT_RATING_CORRECTION_PERMISSIONS) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+    });
+
+    it('grants nothing by way of the two lists that the names do not already grant', () => {
+      // A list is a demand, never a grant. Both are satisfied by the manager
+      // alone, which is the same thing the seven names say.
+      for (const list of [
+        SETTLEMENT_EXPORT_PERMISSIONS,
+        SETTLEMENT_RATING_CORRECTION_PERMISSIONS,
+      ]) {
+        expect(list.every((permission) => permissionsForRole('MANAGER').includes(permission))).toBe(
+          true,
+        );
+        expect(
+          list.some((permission) => permissionsForRole('RECEPTIONIST').includes(permission)),
+        ).toBe(false);
+      }
+    });
   });
 
   it('names only permissions that exist in the contract', () => {

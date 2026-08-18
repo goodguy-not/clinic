@@ -167,6 +167,61 @@ export const PERMISSIONS = [
   // checkpoint.
   'report.read_financial',
   'report.export',
+
+  // Therapist settlement (Milestone 8). SEVEN NAMES, EVERY ONE OF THEM
+  // MANAGER-ONLY, AND THE RECEPTIONIST RECEIVES NONE OF THEM.
+  //
+  // This is the first authority in the product over what a THERAPIST earns
+  // rather than what a FAMILY owes, and the two are different enough that not
+  // one existing name stretches to cover it. A receptionist holds `charge.read`
+  // because they read the account of the family in front of them; that says
+  // nothing about whether they may see what each therapist takes home, and
+  // PROJECT_SPEC.md 4 keeps clinic configuration and financial correction away
+  // from the role. Every name below therefore stays with the manager, and the
+  // negative half is pinned by a test.
+  //
+  // THREE NAMES FOR THE RULE AND THREE FOR THE FACT, plus one for the close.
+  // The split is the same authority boundary the ledger draws: setting the
+  // agreed percentage (`therapist_share.create`) is configuration, withdrawing
+  // one (`therapist_share.void`) is a correction to configuration, and neither
+  // is the same act as deciding what one particular session earned
+  // (`settlement.rate`). A share rule is never edited — a correction voids the
+  // row and writes a replacement, exactly as a tariff does — which is why there
+  // is no `therapist_share.update`.
+  //
+  // `settlement.void_rating` IS SEPARATE FROM `settlement.rate` AND THAT
+  // SEPARATION IS LOAD-BEARING. Deciding a session's share and WITHDRAWING a
+  // decision somebody has already been shown are different authorities, for the
+  // reason `charge.post` and `charge.void` are; and because they are two names,
+  // the atomic correction can require BOTH of them
+  // (`SETTLEMENT_RATING_CORRECTION_PERMISSIONS`), which is a demand that could
+  // not be expressed at all if rating and un-rating were one permission.
+  //
+  // `settlement.close` IS ITS OWN AUTHORITY because closing is irreversible.
+  // There is no un-close anywhere in this product: a closed period is immutable
+  // and is never reopened, so the act of closing is the one act in this
+  // milestone that cannot be corrected by a later act of the same kind. An
+  // authority that irreversible does not travel as a side effect of being
+  // allowed to read a statement.
+  //
+  // THERE IS NO THERAPIST-FACING PERMISSION OF ANY KIND HERE, and none is
+  // withheld pending a decision either — a therapist has no account in this
+  // product (PROJECT_SPEC.md: no parent or therapist portal in the initial
+  // scope), so a name they could hold would be vocabulary describing a role
+  // that cannot log in. A therapist sees their settlement because a manager
+  // shows it to them.
+  //
+  // NO EXPORT NAME IS ADDED. Taking the settlement file out of the building is
+  // `report.export`, the authority Milestone 7 already settled for exactly this
+  // purpose, ANDed with `settlement.read` below. A `settlement.export` would be
+  // a second answer to a question that already has one.
+  'therapist_share.read',
+  'therapist_share.create',
+  'therapist_share.void',
+  'settlement.read',
+  'settlement.rate',
+  'settlement.void_rating',
+  'settlement.close',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -326,6 +381,50 @@ export const PAYMENT_REPORT_EXPORT_PERMISSIONS = [
 export const FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS = [
   ...FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
   'report.export',
+] as const satisfies readonly Permission[];
+
+/**
+ * WHAT EXPORTING A SETTLEMENT STATEMENT REQUIRES: reading it, plus carrying it
+ * out of the building.
+ *
+ * The Milestone 7 export shape applied unchanged to the first Milestone 8 file
+ * (see the five lists above): the read authority AND `report.export`, so
+ * revoking `settlement.read` takes the download with it and no single
+ * permission is ever the widest door in the building.
+ *
+ * NO NEW EXPORT NAME WAS INVENTED FOR SETTLEMENT. `report.export` already means
+ * "may take facts out of this system as a file", which is exactly what this is;
+ * a `settlement.export` would be a second answer to a question that has one,
+ * and the two would have to be kept in step by hand forever.
+ */
+export const SETTLEMENT_EXPORT_PERMISSIONS = [
+  'settlement.read',
+  'report.export',
+] as const satisfies readonly Permission[];
+
+/**
+ * WHAT CORRECTING A RATING REQUIRES: BOTH HALVES OF THE ACT.
+ *
+ * `correctSessionRatingRequestSchema` withdraws a rating and writes its
+ * replacement in one transaction, because a closed period depends on the
+ * original and the gap between two separate calls is observable — a statement
+ * read in that gap reports the session as unrated, and a close performed in it
+ * excludes the session permanently. An act that genuinely does two things names
+ * both authorities.
+ *
+ * AND, NOT OR, in both tiers. A caller holding `settlement.rate` alone must not
+ * reach a request that withdraws somebody's recorded earnings, and a caller
+ * holding `settlement.void_rating` alone must not reach one that decides a new
+ * percentage. Folding the two into a single `settlement.manage` would have made
+ * this demand inexpressible — which is the reason they are two names in
+ * `PERMISSIONS` at all.
+ *
+ * IT GRANTS NOTHING NEW. The manager holds both; the receptionist holds
+ * neither, and holds no settlement permission of any kind.
+ */
+export const SETTLEMENT_RATING_CORRECTION_PERMISSIONS = [
+  'settlement.void_rating',
+  'settlement.rate',
 ] as const satisfies readonly Permission[];
 
 export const permissionSchema = z.enum(PERMISSIONS);
