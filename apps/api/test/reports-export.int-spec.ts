@@ -20,9 +20,11 @@ import {
   clinicDay,
   insertPayment,
   insertPromise,
+  seedAnotherFamily,
   seedPayingFamily,
   voidPayment,
 } from './payment-support';
+import { FAMILY_ACCOUNT_SCOPE } from '../src/reports/report-export-columns';
 import { createHarness, resetDatabase, type Harness } from './harness';
 
 /**
@@ -422,6 +424,87 @@ describe('the report CSV exports (real PostgreSQL)', () => {
       expect(cell('قول باز — کاهندهٔ بدهی نیست')).toBe(String(position?.openPromiseCount));
     });
 
+    it('says in the file itself that the figures are only this system records', async () => {
+      // The screen prints the qualification beside the report; a CSV leaves the
+      // application and is read months later beside no screen at all, and an
+      // amount due read without it looks like a complete statement of what a
+      // family owes. There is no opening balance and no pre-system paper debt in
+      // any of these numbers, because no such row exists.
+      const fixture = await seedPayingFamily(harness);
+      const other = await seedAnotherFamily(harness, fixture);
+      const today = await clinicDay(harness);
+      await insertPayment(harness, fixture, { amountToman: '500000', receivedOn: today });
+      await insertPayment(harness, fixture, {
+        familyId: other,
+        amountToman: '10000',
+        receivedOn: today,
+      });
+
+      const { header, rows, response } = await okExport(fixture.managerToken, 'family-accounts');
+      const scopeColumn = header.findIndex((heading) => heading.startsWith('دامنهٔ ارقام'));
+
+      // It is a column of the table, not a preamble line and not a note row:
+      // the file stays ordinary CSV that sorts, filters and copies.
+      expect(scopeColumn).toBe(0);
+      expect(header[0]).toContain('فقط سوابق ثبت‌شده در سامانه');
+      expect(header[0]).toContain('بدون مانده افتتاحیه');
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row[scopeColumn] === FAMILY_ACCOUNT_SCOPE)).toBe(true);
+
+      // It is a property of the report and not of any family, so it cannot vary
+      // per row and no reader may read a difference between two rows as meaning
+      // anything about either family.
+      expect(new Set(rows.map((row) => row[scopeColumn])).size).toBe(1);
+
+      // It states where the numbers came from and claims nothing else. The check
+      // is on the disclosure itself rather than on the whole file, because the
+      // file legitimately contains «جمع پرداخت تأییدشده» — the C4 report's own
+      // name for confirmed payments, which is a financial fact and not a claim
+      // about this document.
+      const disclosure = `${header[0] ?? ''} ${rows[0]?.[scopeColumn] ?? ''}`;
+      expect(disclosure).not.toMatch(/رسید|صورت‌?حساب|تسویه|قطعی|سند|گواهی|بدهکار است/);
+      expect(response.text).not.toMatch(/رسید رسمی|صورت‌?حساب رسمی|گواهی/);
+    });
+
+    it('carries the scope on a family that owes nothing, without implying a balance was carried in', async () => {
+      // A family with no records at all is a zero position, and the qualification
+      // is the same sentence: the zero means "nothing in this system", not "this
+      // family started at zero".
+      const fixture = await seedPayingFamily(harness);
+      const { header, rows } = await okExport(fixture.managerToken, 'family-accounts');
+
+      expect(rows[0]?.[0]).toBe(FAMILY_ACCOUNT_SCOPE);
+      expect(rows[0]?.[header.indexOf('مبلغ قابل پرداخت (تومان)')]).toBe('0');
+      // No opening-balance column was introduced to carry the disclosure.
+      expect(header.some((heading) => heading.includes('مانده افتتاحیه'))).toBe(true);
+      expect(header.filter((heading) => heading.includes('مانده افتتاحیه'))).toHaveLength(1);
+    });
+
+    it('stays valid, deterministic CSV: the same request gives byte-identical files', async () => {
+      const fixture = await seedPayingFamily(harness);
+      const today = await clinicDay(harness);
+      await insertPayment(harness, fixture, { amountToman: '500000', receivedOn: today });
+
+      const first = await okExport(fixture.managerToken, 'family-accounts');
+      const second = await okExport(fixture.managerToken, 'family-accounts');
+
+      expect(second.response.text).toBe(first.response.text);
+      // Every line has the same number of fields, the added column included.
+      expect(first.rows.every((row) => row.length === first.header.length)).toBe(true);
+    });
+
+    it('adds the scope column to this file alone', async () => {
+      // The other four exports are untouched: the qualification is about a
+      // financial POSITION, and no other report states one.
+      const manager = await signIn(harness, 'MANAGER');
+      const range = { from: '2026-08-01', to: '2026-08-31' };
+
+      for (const report of ['sessions', 'promises', 'therapist-activity', 'payments']) {
+        const { header } = await okExport(manager.token, report, range);
+        expect(header.some((heading) => heading.startsWith('دامنهٔ ارقام'))).toBe(false);
+      }
+    });
+
     it('takes no date range, because a position is not a period', async () => {
       const fixture = await seedPayingFamily(harness);
       const response = await exportOf(fixture.managerToken, 'family-accounts', {
@@ -561,19 +644,26 @@ describe('the report CSV exports (real PostgreSQL)', () => {
       expect(serialised).not.toContain('یادداشت آزمایشی');
     });
 
-    it('states an absent range explicitly on the report that has none', async () => {
+    it('states an absent range explicitly on the report that has none, and copies no file content', async () => {
       const fixture = await seedPayingFamily(harness);
+      const today = await clinicDay(harness);
+      await insertPayment(harness, fixture, { amountToman: '500000', receivedOn: today });
 
-      await okExport(fixture.managerToken, 'family-accounts', { standing: 'OWING' });
+      await okExport(fixture.managerToken, 'family-accounts');
 
       const [row] = await exportAudits();
+      // The act and its scope, unchanged by the file gaining a column: the trail
+      // records WHAT was exported, and copies neither the scope value the file
+      // carries nor any other cell of it.
       expect(row?.metadata).toEqual({
         report: 'FAMILY_ACCOUNTS',
         format: 'CSV',
         range: null,
-        filters: { standing: 'OWING', includeInactive: false },
-        rowCount: 0,
+        filters: { includeInactive: false },
+        rowCount: 1,
       });
+      expect(JSON.stringify(row?.metadata)).not.toContain(FAMILY_ACCOUNT_SCOPE);
+      expect(JSON.stringify(row?.metadata)).not.toContain('500000');
     });
 
     it('names the surface in the payload rather than in five different actions', async () => {

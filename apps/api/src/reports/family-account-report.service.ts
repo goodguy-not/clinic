@@ -130,9 +130,11 @@ export class FamilyAccountReportService {
    * is one in the report.
    *
    * WHAT THE FILE KNOWS IS ONLY WHAT THIS SYSTEM HOLDS. No opening balance and no
-   * pre-system paper debt is in these numbers, because no such row exists — the
-   * same disclosure the interface prints beside the report, and the one fact a
-   * spreadsheet has nowhere to print (see the C5 report).
+   * pre-system paper debt is in these numbers, because no such row exists. The
+   * interface prints that beside the report, and the FILE CARRIES IT TOO, in a
+   * constant first column — a CSV is read months later beside no screen, and an
+   * amount due read without that qualification looks like a complete statement of
+   * what a family owes (`report-export-columns.ts`, `FAMILY_ACCOUNT_SCOPE`).
    */
   async exportRows(
     tx: Prisma.TransactionClient,

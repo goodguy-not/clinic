@@ -71,6 +71,41 @@ const count = <Row>(header: string, value: (row: Row) => number): CsvColumn<Row>
 });
 
 /**
+ * THE SCOPE OF EVERY FIGURE IN THE FAMILY-ACCOUNTS FILE, AS A VALUE THE FILE
+ * CARRIES ITSELF.
+ *
+ * A financial position in this system is derived from the records this system
+ * holds, and from nothing else: there is no opening balance, no migrated
+ * starting figure and no paper debt from before the ledger existed, because no
+ * such row exists anywhere (DECISION_LOG, 2026-08-15 — Milestone 6 knows only its
+ * own records). The interface prints that beside the report. A FILE HAS TO CARRY
+ * IT, because a CSV leaves the application and is read months later beside no
+ * screen at all — and an amount due, read without it, is indistinguishable from
+ * a complete statement of what a family owes the clinic.
+ *
+ * A CONSTANT IN A COLUMN, NOT A PREAMBLE AND NOT A NOTE ROW. The obvious way to
+ * put prose in a CSV — a banner line above the header — makes the file
+ * unparseable by every ordinary reader, which is the one thing an export may not
+ * do. A trailing note row would be worse: it is a data row that is not data, and
+ * a reader who sorts the sheet finds it stranded among the families. A column is
+ * ordinary CSV, survives sorting, filtering and a copied range, and is the only
+ * form in which the qualification stays attached to the numbers it qualifies.
+ *
+ * THE VALUE IS THE SAME ON EVERY ROW AND IS A CLOSED TOKEN, NOT A SENTENCE. It
+ * says what the figures are derived from; it is a property of the report, not of
+ * any family, so it cannot vary per row and no reader may take a difference
+ * between two rows to mean anything. It is written as a server enum for the
+ * reason every other value in these files is — a machine can group on it, and it
+ * cannot be mistaken for prose somebody wrote about a particular family.
+ *
+ * IT IS NOT A RECEIPT AND SAYS NOTHING A RECEIPT WOULD. No confirmation, no
+ * settlement, no legal or clinic wording, no claim about what is payable and no
+ * demand: it is one factual statement about where the numbers came from, which
+ * is exactly what a spreadsheet detached from its screen is missing.
+ */
+export const FAMILY_ACCOUNT_SCOPE = 'SYSTEM_RECORDS_ONLY';
+
+/**
  * Sessions: the operational file, and there is NO MONEY IN IT.
  *
  * No price, no tariff, no charge and no "was this billed?" flag — the report
@@ -165,13 +200,20 @@ export const PAYMENT_EXPORT_COLUMNS: readonly CsvColumn<PaymentReportRow>[] = [
  * only place it can be said, and a bare "open promises" column beside an amount
  * due is precisely the pair somebody would subtract.
  *
- * WHAT THIS FILE CANNOT SAY is that these numbers know only what this system
- * holds — no opening balance and no pre-system paper debt (DECISION_LOG,
- * 2026-08-15). A CSV has nowhere to put a disclosure that is not a column, and a
- * note row would corrupt the table. It is stated on the screen the file is taken
- * from, and it is recorded as a risk in the C5 report.
+ * THE FIRST COLUMN SAYS WHAT THESE NUMBERS ARE DERIVED FROM. They know only what
+ * this system holds — no opening balance and no pre-system paper debt
+ * (DECISION_LOG, 2026-08-15) — and a file read months later beside no screen has
+ * to carry that itself. `FAMILY_ACCOUNT_SCOPE` above is why it is a constant
+ * column rather than a preamble or a note row.
  */
 export const FAMILY_ACCOUNT_EXPORT_COLUMNS: readonly CsvColumn<FamilyAccountReportRow>[] = [
+  // FIRST, so the scope of the figures is read before the first figure — and
+  // before the family the reader came for. The heading states the qualification
+  // in the language of the product; the value is the constant above.
+  plain(
+    'دامنهٔ ارقام — فقط سوابق ثبت‌شده در سامانه، بدون مانده افتتاحیه و بدهی پیش از سامانه',
+    () => FAMILY_ACCOUNT_SCOPE,
+  ),
   text('خانواده', (row) => row.family.familyName),
   plain('مبلغ خالص بدهکارشده (تومان)', (row) => row.position.netChargedTotalToman),
   plain('جمع پرداخت تأییدشده (تومان)', (row) => row.position.confirmedPaymentTotalToman),
