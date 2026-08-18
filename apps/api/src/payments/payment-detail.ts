@@ -238,3 +238,42 @@ export function toPaymentSummary(row: PaymentSummaryRow): PaymentSummary {
     status: paymentStatus(row),
   };
 }
+
+/** What a family has paid, and how much of its payment history is reversal. */
+export type PaymentTotalsRow = {
+  paid_total: bigint;
+  payment_count: number;
+  voided_payment_count: number;
+};
+
+/**
+ * WHAT A SET OF PAYMENTS IS WORTH — one statement of "a voided payment counts
+ * for nothing", written once.
+ *
+ * `FILTER (WHERE p.voided_at IS NULL)` ON THE SUM IS THE WHOLE OF THAT RULE. A
+ * void does not make a payment negative, it makes it not count (frozen F1), so
+ * the reversal is an ABSENCE from the sum rather than an entry against it —
+ * which is why no compensating row exists anywhere in `payment` and why
+ * un-voiding one would restore the position that stood before it exactly.
+ *
+ * THE TWO COUNTS PARTITION THE SET, exactly as `chargeCount` and
+ * `voidedChargeCount` partition a family's charges: the confirmed money, and the
+ * reversals stated beside it so a manager can see that a correction happened
+ * without switching a list filter to look for it.
+ *
+ * A FRAGMENT RATHER THAN A FUNCTION, because its two callers ask it of different
+ * shapes of query — the family position asks it of one family, and the
+ * Milestone 7 family-accounts report asks it once per family inside a lateral,
+ * so it can order and page families by what each of them owes. A second copy of
+ * these three expressions is a second answer to "what has this family paid?".
+ *
+ * Summed in `BIGINT` because an amount above 2^53 is storable and is not
+ * representable as a JavaScript number; the counts are cast to `int` because
+ * they are row counts, not money. Written against the alias `p`, as every shared
+ * payment fragment in this file is.
+ */
+export const PAYMENT_TOTALS_COLUMNS = Prisma.sql`
+  coalesce(sum(p.amount_toman) FILTER (WHERE p.voided_at IS NULL), 0)::bigint AS paid_total,
+  count(*) FILTER (WHERE p.voided_at IS NULL)::int AS payment_count,
+  count(*) FILTER (WHERE p.voided_at IS NOT NULL)::int AS voided_payment_count
+`;

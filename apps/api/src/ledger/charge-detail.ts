@@ -350,6 +350,42 @@ export type ChargeTotalsRow = {
 };
 
 /**
+ * THE FOUR AGGREGATES, AND THE ROWS THEY ARE TAKEN OVER, AS TWO FRAGMENTS.
+ *
+ * SPLIT OUT OF `readChargeTotals` BELOW WITHOUT CHANGING A CHARACTER OF THE SQL,
+ * so that a caller needing the same arithmetic PER FAMILY rather than over one
+ * set — the Milestone 7 family-accounts report, which has to order and page
+ * families by what each of them owes — adds a narrowing of its own and reuses
+ * these, instead of writing a second `FILTER (WHERE c.voided_at IS NULL)` that a
+ * later correction could forget to apply twice.
+ *
+ * THIS IS NOT A QUERY BUILDER. Two fragments exist because there are exactly two
+ * shapes of this question in the system — over a set, and once per family — and
+ * both are answered from one statement of what a valid charge and an active
+ * concession are.
+ *
+ * WRITTEN AGAINST THE ALIAS `c`, exactly as `narrowing` always has been;
+ * `active` is the lateral the adjustment sum rides on.
+ */
+export const CHARGE_TOTALS_COLUMNS = Prisma.sql`
+  coalesce(sum(c.amount_toman) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
+    AS charged_total,
+  coalesce(sum(active.total) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
+    AS adjustment_total,
+  count(*) FILTER (WHERE c.voided_at IS NULL)::int AS charge_count,
+  count(*) FILTER (WHERE c.voided_at IS NOT NULL)::int AS voided_charge_count
+`;
+
+export const CHARGE_TOTALS_SOURCE = Prisma.sql`
+  FROM session_charge c
+  JOIN LATERAL (
+    SELECT coalesce(sum(a.amount_toman), 0)::bigint AS total
+    FROM charge_adjustment a
+    WHERE a.session_charge_id = c.id AND a.voided_at IS NULL
+  ) active ON TRUE
+`;
+
+/**
  * WHAT A SET OF CHARGES IS WORTH, IN ONE STATEMENT AND ONE PLACE.
  *
  * Lifted out of `FamilyAccountService` unchanged when Milestone 7 needed the
@@ -380,19 +416,8 @@ export async function readChargeTotals(
   narrowing: Prisma.Sql,
 ): Promise<ChargeTotalsRow> {
   const rows = await client.$queryRaw<ChargeTotalsRow[]>`
-    SELECT
-      coalesce(sum(c.amount_toman) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
-        AS charged_total,
-      coalesce(sum(active.total) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
-        AS adjustment_total,
-      count(*) FILTER (WHERE c.voided_at IS NULL)::int AS charge_count,
-      count(*) FILTER (WHERE c.voided_at IS NOT NULL)::int AS voided_charge_count
-    FROM session_charge c
-    JOIN LATERAL (
-      SELECT coalesce(sum(a.amount_toman), 0)::bigint AS total
-      FROM charge_adjustment a
-      WHERE a.session_charge_id = c.id AND a.voided_at IS NULL
-    ) active ON TRUE
+    SELECT ${CHARGE_TOTALS_COLUMNS}
+    ${CHARGE_TOTALS_SOURCE}
     WHERE ${narrowing}
   `;
 

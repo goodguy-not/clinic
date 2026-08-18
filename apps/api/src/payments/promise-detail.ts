@@ -127,6 +127,40 @@ export function promiseStatusFilter(status: PromiseStatus): Prisma.Sql {
   return Prisma.sql`p.status = ${status}::payment_promise_status`;
 }
 
+/** How many of a family's promises are still on time, and how many are overdue. */
+export type PromiseCountsRow = {
+  open_count: number;
+  missed_count: number;
+};
+
+/**
+ * THE TWO COUNTS A FAMILY'S FINANCIAL POSITION CARRIES, AS ONE FRAGMENT.
+ *
+ * `promiseStatusFilter` TWICE AND NOTHING ELSE, so the counts a position states
+ * and the counts the clinic-wide promise report states are the same predicate
+ * asked of different rows. The two are complements over the stored `OPEN` rows,
+ * so an overdue promise is counted once — as missed — and "how many are still on
+ * time?" is a number a reader can read rather than a subtraction they perform.
+ *
+ * TERMINAL PROMISES COUNT AS NEITHER. `FULFILLED`, `RESCHEDULED` and `CANCELLED`
+ * are resolved; a rescheduled promise's successor is a row of its own and is
+ * counted on its own due date, so a chain of reschedules contributes exactly one
+ * open promise.
+ *
+ * NO AMOUNT APPEARS HERE, AND NONE MAY. A promise moves no money in any state
+ * (CLAUDE.md), so a promised total sitting beside an amount due would be an
+ * invitation to subtract one from the other.
+ *
+ * A FRAGMENT SO THE MILESTONE 7 FAMILY-ACCOUNTS REPORT ASKS IT ONCE PER FAMILY
+ * INSIDE A LATERAL, against the same `clinic_date()` the single-family account
+ * asks it against. Written for the alias `p`, which `promiseStatusFilter`
+ * establishes.
+ */
+export const PROMISE_COUNT_COLUMNS = Prisma.sql`
+  count(*) FILTER (WHERE ${promiseStatusFilter('OPEN')})::int AS open_count,
+  count(*) FILTER (WHERE ${promiseStatusFilter('MISSED')})::int AS missed_count
+`;
+
 export const PROMISE_COLUMNS = Prisma.sql`
   p.id,
   p.family_id,

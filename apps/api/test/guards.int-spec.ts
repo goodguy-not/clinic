@@ -339,7 +339,13 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  new `report.*` permission: each carries no money at
       //                  all, which is why both roles read them under the
       //                  authorities they already hold
-      expect(routes).toBe(86);
+      // reports:         the two FINANCIAL reads (Milestone 7, checkpoint C4) —
+      //                  payments under `payment.read` + `report.read_financial`,
+      //                  family accounts under `charge.read` + `payment.read` +
+      //                  `promise.read` + `report.read_financial`. Both are
+      //                  manager-only, and the refusal is this guard's rather
+      //                  than a thinner response
+      expect(routes).toBe(88);
     });
   });
 });

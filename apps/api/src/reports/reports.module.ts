@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
+import { FamilyAccountReportService } from './family-account-report.service';
+import { FinancialReportsController } from './financial-reports.controller';
 import { OperationalReportsController } from './operational-reports.controller';
+import { PaymentReportService } from './payment-report.service';
 import { PromiseReportService } from './promise-report.service';
 import { SessionReportService } from './session-report.service';
 import { TherapistActivityService } from './therapist-activity.service';
@@ -40,24 +43,35 @@ import { TherapistActivityService } from './therapist-activity.service';
  * statement of derived `MISSED` — both imported, so a report can never mean
  * something slightly different by a word the rest of the system already owns.
  *
- * NONE OF THE THREE READS MONEY. No charge, no tariff, no payment, no share and
- * no settlement: the operational reports are shared by both roles precisely
- * because they carry none, and the financial reports (C4) arrive under their own
- * authorities. `PaymentsModule` is deliberately NOT imported — the promise report
- * needs two SQL fragments from `payments/promise-detail`, which is a plain module
- * of read helpers, and not a service that can write one.
+ * NONE OF THE THREE OPERATIONAL READS TOUCHES MONEY. No charge, no tariff, no
+ * payment, no share and no settlement: they are shared by both roles precisely
+ * because they carry none. `PaymentsModule` is deliberately NOT imported — the
+ * promise report needs two SQL fragments from `payments/promise-detail`, which is
+ * a plain module of read helpers, and not a service that can write one.
  *
- * The financial reports (C4) join this module as they are built; export
- * behaviour is a separate authority and a later decision.
+ * C4 ADDS THE TWO FINANCIAL READS, under `report.read_financial` and in a
+ * controller of their own so the manager-only authority sits beside the only
+ * routes that need it. They keep this module's defining property and sharpen it:
+ * the family-accounts report derives NOTHING. Every position it prints comes out
+ * of `ledger/family-position`, the same code `GET /families/:id/account` answers
+ * with, so the clinic-wide report and the single-family account cannot state two
+ * different answers to "what does this family owe?" — which is precisely the
+ * second source of financial truth this module must never become. The payments
+ * report borrows the payment module's own status derivation and read order for
+ * the same reason.
+ *
+ * Export behaviour is a separate authority and a later decision.
  */
 @Module({
   imports: [AppointmentsModule],
-  controllers: [DashboardController, OperationalReportsController],
+  controllers: [DashboardController, OperationalReportsController, FinancialReportsController],
   providers: [
     DashboardService,
     SessionReportService,
     PromiseReportService,
     TherapistActivityService,
+    PaymentReportService,
+    FamilyAccountReportService,
   ],
 })
 export class ReportsModule {}

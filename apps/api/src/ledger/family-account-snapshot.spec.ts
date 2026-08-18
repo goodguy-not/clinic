@@ -33,15 +33,17 @@ describe('family account snapshot', () => {
    * A Prisma stand-in that records how it was used.
    *
    * `$queryRaw` answers from a queue in the order the service asks: the family,
-   * the filtered totals, the page, and then the four the position is derived
-   * from — the whole family's charges, its payments, its latest payment and its
-   * promise counts. The page comes back empty, which is why no statement for the
-   * page's adjustments is expected.
+   * the filtered totals, the page, and then the two the position is derived from
+   * — the family's parts, and its latest payment. The page comes back empty,
+   * which is why no statement for the page's adjustments is expected, and the
+   * last-payment statement comes back empty, which is the family that has never
+   * paid.
    *
-   * THE POSITION'S CHARGE AGGREGATE IS A SECOND STATEMENT, NOT THE FIRST ONE
-   * REUSED. The totals are filter-scoped and the position is the whole family
-   * (frozen F1); the queue below is what says the service really does ask twice,
-   * with two narrowings, even when this query happens to carry no filter.
+   * THE POSITION IS `readFamilyPosition` AND NOT THIS FILE'S ARITHMETIC (C4). It
+   * is the same two statements the clinic-wide family-accounts report runs, which
+   * is what makes the two reads agree by construction; the filtered `totals`
+   * above stays a separate statement with a separate narrowing, because it
+   * answers the other question (frozen F1).
    */
   function fakePrisma() {
     const totals = {
@@ -55,10 +57,21 @@ describe('family account snapshot', () => {
       [{ id: '00000000-0000-7000-8000-000000000001' }],
       [totals],
       [],
-      [totals],
-      [{ paid_total: 0n, payment_count: 0, voided_payment_count: 0 }],
+      [
+        {
+          family_id: '00000000-0000-7000-8000-000000000001',
+          family_name: 'خانوادهٔ آزمایشی',
+          net_charged_total: 0n,
+          paid_total: 0n,
+          amount_due_total: 0n,
+          credit_total: 0n,
+          payment_count: 0,
+          voided_payment_count: 0,
+          open_count: 0,
+          missed_count: 0,
+        },
+      ],
       [],
-      [{ open_count: 0, missed_count: 0 }],
     ];
 
     const state = {
@@ -110,12 +123,12 @@ describe('family account snapshot', () => {
 
     await new FamilyAccountService(prisma).account('00000000-0000-7000-8000-000000000001', query);
 
-    // The family, the filtered totals, the page, and the position's four. A
+    // The family, the filtered totals, the page, and the position's two. A
     // statement outside the transaction would be a second snapshot, which is the
     // whole defect this guards — and the position is the read that most needs
     // it, because its charges and its payments are counted separately and must
     // still subtract to the amount the family is quoted.
-    expect(state.onTransaction).toBe(7);
+    expect(state.onTransaction).toBe(5);
     expect(state.onClient).toBe(0);
   });
 });
