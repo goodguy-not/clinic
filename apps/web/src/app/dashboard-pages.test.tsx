@@ -24,6 +24,7 @@ const methods = [
 const own: OwnScopedDashboardResponse = {
   financialScope: 'OWN_ENTRIES_ONLY',
   date: '2026-08-18',
+  availabilityOverrideCount: 1,
   appointments: {
     total: 4,
     scheduled: 2,
@@ -130,6 +131,24 @@ describe('daily dashboard operational states', () => {
     expect(markup).not.toContain('مجموع خطا');
   });
 
+  it('renders recorded availability overrides as an operational fact, not a data issue', () => {
+    const markup = render({
+      ...own,
+      appointments: { ...own.appointments, unresolvedOutcomes: 0 },
+      availabilityOverrideCount: 1,
+      promises: { dueTodayCount: 0, missedCount: 0 },
+      dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+    });
+
+    expect(markup).toContain(COPY.dashboardAvailabilityOverrides);
+    expect(markup).toContain(COPY.dashboardAvailabilityOverridesHelp);
+    expect(markup).toContain(COPY.dashboardAttentionClear);
+    expect(markup).toContain('/appointments?date=2026-08-18');
+    expect(markup.indexOf(COPY.dashboardAvailabilityOverrides)).toBeLessThan(
+      markup.indexOf(COPY.dashboardAttention),
+    );
+  });
+
   it('provides useful quiet-day, no-payment and loading states', () => {
     const quiet = render({
       ...own,
@@ -142,6 +161,7 @@ describe('daily dashboard operational states', () => {
         noShows: 0,
       },
       promises: { dueTodayCount: 0, missedCount: 0 },
+      availabilityOverrideCount: 0,
       dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
       reconciliation: {
         ...own.reconciliation,
@@ -154,6 +174,7 @@ describe('daily dashboard operational states', () => {
 
     expect(quiet).toContain(COPY.dashboardNoAppointments);
     expect(quiet).toContain(COPY.dashboardAttentionClear);
+    expect(quiet).toContain(COPY.dashboardAvailabilityOverrides);
     expect(quiet).toContain(COPY.dashboardNoPayments);
     expect(loading).toContain('aria-busy="true"');
     expect(loading).toContain(COPY.dashboardLoading);

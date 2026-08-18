@@ -45,6 +45,9 @@ export const COPY = {
   dashboardCancelledAppointments: 'لغوشده',
   dashboardNoShows: 'عدم حضور',
   dashboardUnresolvedAppointments: 'نتیجهٔ ثبت‌نشده',
+  dashboardAvailabilityOverrides: 'نوبت خارج از برنامه با مجوز ثبت‌شده',
+  dashboardAvailabilityOverridesHelp:
+    'این عدد یک تصمیم مجاز و ثبت‌شده است، نه تداخل برنامه یا خطای داده‌ای.',
   dashboardNoAppointments: 'برای این روز نوبتی ثبت نشده است.',
   dashboardAttention: 'نیازمند پیگیری',
   dashboardAttentionClear: 'مورد باز یا خطای داده‌ای برای پیگیری وجود ندارد.',

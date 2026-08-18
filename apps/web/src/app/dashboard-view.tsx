@@ -117,6 +117,20 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResponse }) {
             tone={appointment.unresolvedOutcomes > 0 ? 'danger' : 'neutral'}
           />
         </div>
+        <Link
+          href={dayHref}
+          className={`flex min-h-12 items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 transition-colors hover:border-brand-300 hover:bg-brand-50 ${FOCUS_RING}`}
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-brand-950">
+              {COPY.dashboardAvailabilityOverrides}
+            </span>
+            <span className="block text-xs leading-6 text-slate-600">
+              {COPY.dashboardAvailabilityOverridesHelp}
+            </span>
+          </span>
+          <Badge tone="info">{count(dashboard.availabilityOverrideCount)}</Badge>
+        </Link>
         {appointment.total === 0 ? (
           <EmptyState message={COPY.dashboardNoAppointments} />
         ) : (

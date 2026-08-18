@@ -190,6 +190,7 @@ describe('frozen dashboard endpoint', () => {
   const ownDashboard = {
     financialScope: 'OWN_ENTRIES_ONLY',
     date: '2026-08-18',
+    availabilityOverrideCount: 0,
     appointments: {
       total: 0,
       scheduled: 0,

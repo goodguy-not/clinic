@@ -124,6 +124,7 @@ describe('the dashboard page names every authority in its aggregated response', 
   it('gates the page on the frozen shared list with AND semantics', async () => {
     expect([...DASHBOARD_READ_PERMISSIONS]).toEqual([
       'appointment.read',
+      'charge.read',
       'payment.read',
       'promise.read',
     ]);
@@ -132,7 +133,7 @@ describe('the dashboard page names every authority in its aggregated response', 
     expect(user.permissions).toEqual([...DASHBOARD_READ_PERMISSIONS]);
 
     await expect(
-      requireWith(['appointment.read', 'payment.read'], DASHBOARD_READ_PERMISSIONS),
+      requireWith(['appointment.read', 'payment.read', 'promise.read'], DASHBOARD_READ_PERMISSIONS),
     ).rejects.toThrow('REDIRECT:/');
   });
 
