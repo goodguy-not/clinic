@@ -52,6 +52,18 @@ type DayRow = AppointmentRow & {
   outcome_unresolved: boolean;
 };
 
+/**
+ * The connection a read runs on: this module's own, or a caller's transaction.
+ *
+ * Milestone 7's dashboard states the day's appointment counts and its money in
+ * one response, and derives them from ONE `REPEATABLE READ` snapshot. Passing
+ * its transaction in is what keeps that true — a helper that reached for
+ * `this.prisma` would open a second connection with a second snapshot and
+ * silently undo it. The parameter is optional and defaults to this module's own
+ * client, so `GET /appointment-day` is unchanged in every respect.
+ */
+export type AppointmentReadClient = PrismaService | Prisma.TransactionClient;
+
 type SeatRow = {
   id: string;
   appointment_id: string;
@@ -147,7 +159,10 @@ export class AppointmentReadService {
    * follow one room down the page, then by id so two appointments that begin in
    * the same room-less tie never swap places between two identical requests.
    */
-  async day(query: AppointmentDayQuery): Promise<AppointmentDayResponse> {
+  async day(
+    query: AppointmentDayQuery,
+    client: AppointmentReadClient = this.prisma,
+  ): Promise<AppointmentDayResponse> {
     const filters: Prisma.Sql[] = [];
 
     if (query.therapistId !== undefined) {
@@ -159,7 +174,7 @@ export class AppointmentReadService {
 
     const narrowing = filters.length === 0 ? Prisma.empty : Prisma.join(filters, ' ');
 
-    const rows = await this.prisma.$queryRaw<DayRow[]>`
+    const rows = await client.$queryRaw<DayRow[]>`
       SELECT ${DAY_COLUMNS}
       ${DAY_SOURCE}
       WHERE a.starts_at >= clinic_day_start(${query.date}::date)
@@ -168,7 +183,7 @@ export class AppointmentReadService {
       ORDER BY a.starts_at ASC, r.name ASC, a.id ASC
     `;
 
-    const appointments = await this.withSeats(rows);
+    const appointments = await this.withSeats(rows, client);
 
     return { date: query.date, summary: summarize(appointments), appointments };
   }
@@ -194,7 +209,7 @@ export class AppointmentReadService {
 
     if (rows.length === 0) throw new AppError('APPOINTMENT_NOT_FOUND');
 
-    const views = await this.withSeats(rows);
+    const views = await this.withSeats(rows, this.prisma);
     const view = views[0];
     // Unreachable: `withSeats` maps one view per row and there is exactly one.
     if (view === undefined) throw new AppError('APPOINTMENT_NOT_FOUND');
@@ -202,10 +217,13 @@ export class AppointmentReadService {
   }
 
   /** The seats for a set of appointments, in one statement, with their children. */
-  private async withSeats(rows: readonly DayRow[]): Promise<AppointmentView[]> {
+  private async withSeats(
+    rows: readonly DayRow[],
+    client: AppointmentReadClient,
+  ): Promise<AppointmentView[]> {
     if (rows.length === 0) return [];
 
-    const seats = await this.prisma.$queryRaw<SeatRow[]>`
+    const seats = await client.$queryRaw<SeatRow[]>`
       SELECT ap.id, ap.appointment_id, ap.child_id,
              ap.attendance::text AS attendance, ap.attendance_recorded_at,
              c.family_id, c.first_name, c.last_name, c.file_number

@@ -330,7 +330,10 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  ends — fulfil, reschedule, cancel — under the single
       //                  `promise.resolve`, held by both because none of them
       //                  moves a rial
-      expect(routes).toBe(82);
+      // dashboard:       the clinic day at a glance — one route, whose response
+      //                  SHAPE depends on `report.read_financial` rather than
+      //                  whose access does (Milestone 7, checkpoint C2)
+      expect(routes).toBe(83);
     });
   });
 });

@@ -16,6 +16,7 @@ import { NoStoreInterceptor } from './common/no-store.interceptor';
 import { ConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ReportsModule } from './reports/reports.module';
 import { UsersModule } from './users/users.module';
 
 /**
@@ -44,6 +45,7 @@ import { UsersModule } from './users/users.module';
     LedgerModule,
     PaymentsModule,
     FamiliesModule,
+    ReportsModule,
     HealthModule,
   ],
   providers: [

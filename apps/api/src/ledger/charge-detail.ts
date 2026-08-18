@@ -302,3 +302,106 @@ function toAdjustment(row: AdjustmentRow): ChargeAdjustment {
     voidReason: row.void_reason,
   };
 }
+
+/**
+ * WHICH OF THESE SEATS CARRY A VALID CHARGE — the plural of
+ * `findValidChargeForParticipant`, and deliberately the SAME predicate.
+ *
+ * `voided_at IS NULL` is the whole of "valid" in this system: it is what
+ * `session_charge_one_valid_per_participant_uq` is partial on, what
+ * `ChargeLifecycleGuard` refuses on, and what makes a re-post idempotent rather
+ * than blocked. The Milestone 7 dashboard has to answer "which completed,
+ * attended seats of this clinic day are unbilled?", which is that predicate
+ * asked of a set instead of a row.
+ *
+ * IT RETURNS THE CHARGED SEATS, NOT A COUNT OF THE UNCHARGED ONES. The caller
+ * knows which seats it asked about; deriving "uncharged" here would put a
+ * dashboard's reading of eligibility inside the ledger, and eligibility —
+ * `COMPLETED` and `ATTENDED` — is the appointment's fact, not this file's.
+ *
+ * ONE STATEMENT FOR THE WHOLE DAY. Calling the singular form per seat is an N+1
+ * on the screen the clinic keeps open all morning.
+ *
+ * IT IS A READ AND CREATES NOTHING. No lock is taken: the dashboard decides
+ * nothing, so a charge posted a millisecond later is simply the next refresh's
+ * answer.
+ */
+export async function findParticipantsWithValidCharge(
+  client: LedgerClient,
+  participantIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (participantIds.length === 0) return new Set();
+
+  const rows = await client.$queryRaw<{ appointment_participant_id: string }[]>`
+    SELECT appointment_participant_id FROM session_charge
+    WHERE appointment_participant_id = ANY(${[...participantIds]}::uuid[])
+      AND voided_at IS NULL
+  `;
+
+  return new Set(rows.map((row) => row.appointment_participant_id));
+}
+
+/** What a set of charges is worth, before and after the concessions against them. */
+export type ChargeTotalsRow = {
+  charged_total: bigint;
+  adjustment_total: bigint;
+  charge_count: number;
+  voided_charge_count: number;
+};
+
+/**
+ * WHAT A SET OF CHARGES IS WORTH, IN ONE STATEMENT AND ONE PLACE.
+ *
+ * Lifted out of `FamilyAccountService` unchanged when Milestone 7 needed the
+ * same arithmetic over a clinic day rather than over one family. "Which charges
+ * count, and which concessions reduce them" now has ONE implementation in this
+ * system: the family account's filtered totals, the whole-family position and
+ * the dashboard's clinic-wide charge block cannot disagree about what a voided
+ * charge or a withdrawn concession means, because they are the same SQL.
+ *
+ * `FILTER (WHERE c.voided_at IS NULL)` on both sums is the whole of "a voided
+ * charge contributes nothing": it removes the charge from `charged_total` and,
+ * because the lateral total rides on the same row, removes every concession
+ * against it from `adjustment_total` in the same breath. The lateral sums only
+ * unvoided adjustments, so a withdrawn concession stays in the history and
+ * reduces nothing here.
+ *
+ * `narrowing` IS THE CALLER'S WHOLE PREDICATE, written against the alias `c`.
+ * It is the one thing that differs between a family's account and a clinic's
+ * day, and it is a `Prisma.Sql` fragment the caller builds from parameterised
+ * values — never string concatenation.
+ *
+ * Counted and summed in `BIGINT`, because an amount above 2^53 is storable and
+ * is not representable as a JavaScript number. The two COUNTs are cast to `int`
+ * because they are row counts, not money.
+ */
+export async function readChargeTotals(
+  client: LedgerClient,
+  narrowing: Prisma.Sql,
+): Promise<ChargeTotalsRow> {
+  const rows = await client.$queryRaw<ChargeTotalsRow[]>`
+    SELECT
+      coalesce(sum(c.amount_toman) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
+        AS charged_total,
+      coalesce(sum(active.total) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
+        AS adjustment_total,
+      count(*) FILTER (WHERE c.voided_at IS NULL)::int AS charge_count,
+      count(*) FILTER (WHERE c.voided_at IS NOT NULL)::int AS voided_charge_count
+    FROM session_charge c
+    JOIN LATERAL (
+      SELECT coalesce(sum(a.amount_toman), 0)::bigint AS total
+      FROM charge_adjustment a
+      WHERE a.session_charge_id = c.id AND a.voided_at IS NULL
+    ) active ON TRUE
+    WHERE ${narrowing}
+  `;
+
+  return (
+    rows[0] ?? {
+      charged_total: 0n,
+      adjustment_total: 0n,
+      charge_count: 0,
+      voided_charge_count: 0,
+    }
+  );
+}

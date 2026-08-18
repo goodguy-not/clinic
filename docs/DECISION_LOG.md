@@ -1840,3 +1840,99 @@ direction:
   completed, so they must not be added together; the contract says so.
 - **Revisit when:** a no-show charging policy is approved, which would add a third
   actionable condition.
+
+## 2026-08-18 — The dashboard is derived on one snapshot and reuses every existing read
+
+**Status:** Accepted — Milestone 7, checkpoint C2
+
+`GET /dashboard` is implemented as a single aggregation inside one
+`REPEATABLE READ` transaction, and holds no reading of its own. The appointment
+counts and the `MISSING` tariff verdict are `AppointmentReadService.day`; "does
+this seat carry money?" is the ledger's `voided_at IS NULL` predicate; "what is a
+day of charges worth?" is the same SQL the family account's totals and position
+use, lifted into `charge-detail.ts` as `readChargeTotals`; a payment on the wire
+is `toPaymentSummary`; derived `MISSED` is
+`status = 'OPEN' AND due_on < clinic_date()`. `AppointmentReadService.day` gained
+an optional client parameter so the dashboard's day is read on its snapshot;
+`GET /appointment-day` is unchanged.
+
+- **Alternatives:** dashboard-owned SQL for each block; separate read-committed
+  statements; a stored or cached daily aggregate.
+- **Reason:** a second statement of "which sessions are unresolved" or "which
+  charges count" is a second answer, and the disagreement surfaces as a badge that
+  contradicts the list beneath it or a total that contradicts the family account.
+  Under `READ COMMITTED` each statement takes its own snapshot, so a void
+  committing mid-response yields sums describing one database and rows describing
+  another — a till that cannot be balanced against the screen that produced it.
+- **Trade-off:** the dashboard reads the day's full appointment rows to state six
+  counts and one tariff verdict, which is more data than a bespoke aggregate would
+  move; and one more caller now depends on the day read's signature.
+- **Revisit when:** a clinic day is large enough that moving the day's rows to
+  count them shows up in the response time, which would argue for a counting form
+  of the day read rather than for a second definition of the counts.
+
+## 2026-08-18 — The dashboard's financial authority selects a variant, not access
+
+**Status:** Accepted — Milestone 7, checkpoint C2
+
+The route requires `DASHBOARD_READ_PERMISSIONS` — `appointment.read`,
+`payment.read`, `promise.read` — and no new authority. `report.read_financial` is
+checked in the SERVICE, where it decides which variant is returned: for a caller
+without it the clinic-wide statements are never executed, so the totals and the
+per-user attribution do not exist in the process to be serialised by mistake. The
+reconciliation scope is the session's `userId`; `dashboardQuerySchema` is strict
+and carries no user parameter.
+
+- **Alternatives:** `report.read_financial` on the route decorator; a second
+  manager-only dashboard route; querying the clinic totals always and stripping
+  them during serialisation.
+- **Reason:** a route-level requirement would refuse the receptionist the screen
+  entirely, and two routes would be two aggregations of one screen with the
+  authority rule stated twice. Querying and then stripping leaves a shape in which
+  one serialisation mistake carries the clinic's takings to a receptionist.
+- **Trade-off:** the authority rule is enforced in a service rather than declared
+  on the handler, so it is proved by an integration test rather than by a
+  decorator anybody can read.
+- **Revisit when:** a third financial visibility level exists — a therapist reading
+  their own activity is the plausible one.
+
+## 2026-08-18 — Recorded availability overrides are missing from the frozen dashboard contract
+
+**Status:** OPEN — raised in Milestone 7, checkpoint C2; needs an owner decision
+before it can be implemented
+
+The accepted M7 plan resolved PROJECT_SPEC.md 10's "conflicts" dashboard item as
+AUTHORISED, RECORDED AVAILABILITY OVERRIDES, on the ground that hard therapist,
+room and child conflicts are refused by exclusion constraints at booking time and
+therefore have no backlog. The frozen C1 `dashboardResponseSchema` carries no
+field for them: its comment dismisses "booking conflicts" on the hard-conflict
+ground alone and does not address the override reading the plan accepted. C2
+implemented the contract as frozen and did not invent a field.
+
+The condition is representable and cheap. `appointment.availability_override_
+reason` / `_by_user_id` / `_at` move as one CHECK-enforced fact, are written only
+by a caller holding `appointment.override_availability`, and are already on the
+rows the dashboard reads for its appointment counts — so the count costs no new
+query and introduces no new semantics.
+
+The smallest correction is ONE count on the dashboard's common fields, present in
+both variants:
+
+    availabilityOverrideCount: z.number().int().nonnegative()
+
+— appointments on the dashboard's clinic day, not cancelled, whose
+`availabilityOverrideReason` is not null.
+
+- **It must not go in `dataIssues`.** An override is an authorised act with a
+  recorded actor and reason, not an error; folding it into a data-issue count
+  would tell a manager to fix something somebody deliberately approved, and would
+  break the frozen promise that `dataIssues` states exactly two conditions.
+- **It must not go in `appointmentDaySummary`.** That shape is Milestone 4's and
+  is returned by `GET /appointment-day`; widening it would change a frozen
+  operational read to serve a dashboard.
+- **`therapist_availability_exception` is NOT the fact to count.** A dated closed
+  day or dated window is schedule CONFIGURATION, not an appointment that needed
+  authority; counting it would put "this therapist has a dated exception today" on
+  a screen whose purpose is work requiring attention.
+- **Consumers:** the Web dashboard lane (Agent B) must consume the amendment, and
+  the union has two variants that stay in step.

@@ -18,6 +18,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CHARGE_COLUMNS,
+  readChargeTotals,
   toChargeDetail,
   type AdjustmentRow,
   type ChargeRow,
@@ -89,13 +90,6 @@ type AccountRow = ChargeRow & {
   file_number: string;
   service_name: string;
   therapist_name: string;
-};
-
-type TotalsRow = {
-  charged_total: bigint;
-  adjustment_total: bigint;
-  charge_count: number;
-  voided_charge_count: number;
 };
 
 type PaymentTotalsRow = {
@@ -212,48 +206,20 @@ export class FamilyAccountService {
   /**
    * What the family was charged over the WHOLE filtered account.
    *
-   * `FILTER (WHERE c.voided_at IS NULL)` on both sums is the whole of "a voided
-   * charge contributes nothing": it removes the charge from `charged_total` and,
-   * because the lateral total rides on the same row, removes every concession
-   * against it from `adjustment_total` in the same breath. There is no second
-   * rule to keep in step.
-   *
-   * The lateral sums only unvoided adjustments, so a withdrawn concession stays
-   * in the history the page returns and reduces nothing here.
+   * THE SQL IS `readChargeTotals` AND LIVES IN `charge-detail.ts`. It moved
+   * there when the Milestone 7 dashboard needed the same arithmetic over a
+   * clinic day: "which charges count, and which concessions reduce them" has one
+   * statement in this system, and this method is the mapping of its answer onto
+   * the frozen family-account shape. The narrowing — everything except
+   * `includeVoided`, which filters the list alone — is still this file's.
    *
    * `netChargedTotalToman` IS NOT A BALANCE. Nothing in this milestone has been
    * paid, so this says what was asked for and not what is owed (frozen F1).
    * It cannot go negative: each charge's effective amount is floored at zero by
    * `enforce_charge_adjustment_bounds`, so a sum of them is too.
-   *
-   * Counted and summed in `BIGINT`, carried out as decimal strings: an amount
-   * above 2^53 is storable and is not representable as a JavaScript number. The
-   * two COUNTs are cast to `int` because they are row counts, not money.
    */
   private async totals(tx: LedgerClient, narrowing: Prisma.Sql): Promise<FamilyAccountTotals> {
-    const rows = await tx.$queryRaw<TotalsRow[]>`
-      SELECT
-        coalesce(sum(c.amount_toman) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
-          AS charged_total,
-        coalesce(sum(active.total) FILTER (WHERE c.voided_at IS NULL), 0)::bigint
-          AS adjustment_total,
-        count(*) FILTER (WHERE c.voided_at IS NULL)::int AS charge_count,
-        count(*) FILTER (WHERE c.voided_at IS NOT NULL)::int AS voided_charge_count
-      FROM session_charge c
-      JOIN LATERAL (
-        SELECT coalesce(sum(a.amount_toman), 0)::bigint AS total
-        FROM charge_adjustment a
-        WHERE a.session_charge_id = c.id AND a.voided_at IS NULL
-      ) active ON TRUE
-      WHERE ${narrowing}
-    `;
-
-    const row = rows[0] ?? {
-      charged_total: 0n,
-      adjustment_total: 0n,
-      charge_count: 0,
-      voided_charge_count: 0,
-    };
+    const row = await readChargeTotals(tx, narrowing);
 
     return {
       chargedTotalToman: row.charged_total.toString(),
