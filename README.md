@@ -1300,10 +1300,451 @@ scope for a later milestone.
 3. **Promise workflows are bounded by one page of history.** Fulfilment candidates come from
    the first 100 payments, and promise chain links are in-page anchors (DECISION_LOG,
    2026-08-16).
-4. **The app header overflows horizontally at 1280 pixels for a manager**, whose navigation
-   carries the most items. It predates this milestone and is present on every page, not only
-   the money screens; narrow widths are unaffected. Revisit as a header change, not a
-   Milestone 6 one.
+
+## Dashboard and reports (Milestone 7)
+
+One operational screen and five reports, all of them reads. Milestone 7 adds no
+table, column, constraint or trigger, stores no balance and no aggregate, and
+derives every figure on the request that asks for it.
+
+```text
+GET /dashboard                            today, at a glance
+GET /reports/sessions                     operational
+GET /reports/promises                     operational
+GET /reports/therapist-activity           operational
+GET /reports/payments                     financial, manager-only
+GET /reports/family-accounts              financial, manager-only
+GET /reports/{report}/export              CSV, manager-only, audited
+```
+
+### Scope, and what is deliberately absent
+
+Present: the dashboard, the five reports, a readable print treatment, manager-only
+CSV export with one audit row per export, and a synthetic-clinic seeder for local
+review at a realistic size.
+
+Absent, and each of these is a decision rather than an omission:
+
+- **no therapist share, settlement or session value anywhere**, including in the
+  therapist activity report and its CSV — the rules are unapproved (CLAUDE.md);
+- **no payment-to-charge allocation**, because a payment names no charge;
+- **no opening balance and no pre-system paper debt**, because no such row exists;
+- **no PDF, no receipt and no formal statement** — print is a stylesheet;
+- **no charts and no analytics**;
+- **no `follow_up_date`, no reminder queue and no automated follow-up**;
+- **no new financial correction authority** — nothing in Milestone 7 writes a
+  financial fact;
+- **no stored or cached figure of any kind**;
+- **no free-text search on any report.** Every filter is an opaque id, a calendar
+  date or a closed enum, so no child's or guardian's name reaches a query string,
+  the browser history, a `Referer` header or an access log. A family is chosen by
+  search — which is a POST — and then filtered by id.
+
+### Which business day a figure is keyed on
+
+This is the one thing to read before comparing two numbers. Every ranged response
+states its basis on the wire, from a closed vocabulary of four:
+
+- **`SESSION_DATE`** — the clinic day the session sits on. The session report, the
+  therapist activity report, and the dashboard's clinic-wide charge block.
+- **`PAYMENT_RECEIVED_ON`** — the business day the money arrived. The payments
+  report.
+- **`PAYMENT_RECORDED_AT`** — the clinic day a payment was **entered**. The
+  dashboard's daily reconciliation.
+- **`PROMISE_DUE_ON`** — the day the family said it would pay. The promise report.
+
+**The dashboard's reconciliation and the payments report will disagree, and both
+are correct.** Money taken last Thursday and entered this morning is in this
+morning's reconciliation — what a till is balanced against — and in last
+Thursday's takings. Neither is a correction of the other.
+
+Every clinic day is `Asia/Tehran`, decided by PostgreSQL's `clinic_date()`, never
+by the reader's timezone.
+
+### The dashboard
+
+`GET /dashboard` is a single aggregation inside one `REPEATABLE READ` transaction,
+so the badge and the list beneath it cannot describe two different states of the
+clinic. It reuses the authoritative reads rather than restating them: the
+appointment counts and the `MISSING` tariff verdict are `AppointmentReadService.day`,
+the charge totals are the same SQL the family account uses, and derived `MISSED` is
+written exactly as the family position writes it.
+
+It states, for one clinic day: the appointment counts including unresolved
+outcomes, the count of **authorised availability overrides**, promises due today
+and every overdue promise clinic-wide, two data conditions, and the caller's own
+recorded payments.
+
+- **The two data conditions are not one condition counted twice.**
+  `missingTariffCount` counts appointments no price list covers — a warning to fix
+  before completion — and `unchargedCompletedSessionCount` counts completed,
+  attended seats carrying no valid charge, which is money the clinic has earned and
+  not recorded. Recording a tariff clears the first and leaves the second standing,
+  because nothing re-posts retrospectively; voiding a charge produces the second
+  with no tariff ever missing. **They must not be added together.**
+- **`availabilityOverrideCount` is not a conflict backlog.** Hard therapist, room
+  and child conflicts are refused by exclusion constraints at booking time, so
+  there is nothing to list. What the count answers is "how many of today's sessions
+  did somebody have to authorise?" A cancelled session drops out while keeping its
+  recorded override.
+
+**The response has two shapes, and which one you get is your authority.** A caller
+without `report.read_financial` receives `financialScope: 'OWN_ENTRIES_ONLY'` — a
+strict object with **no clinic-wide financial key at all**, not a nulled or zeroed
+one. A caller holding it receives `CLINIC_WIDE`, where `clinicFinancial` is
+required. For an unauthorised caller the clinic-wide statements are never executed,
+so those totals do not exist in the process to be serialised by mistake.
+`reconciliation` is in both shapes and is always the authenticated actor's own
+entries; the query carries no user parameter and a caller that invents one is
+refused.
+
+### Operational reports
+
+Read under the authorities that already describe the data, and **both roles hold
+them**. None reads a single field of money, which is exactly why.
+
+- **`GET /reports/sessions`** (`appointment.read`) — sessions by date, family,
+  child, therapist, service, room, booking status and attendance. `status` filters
+  the booking and `attendance` filters the seat: they are two different questions,
+  and a completed booking may still carry `PENDING`, which is the unresolved-outcome
+  backlog. Cancelled sessions stay visible.
+- **`GET /reports/promises`** (`promise.read`) — promises across the clinic, keyed
+  on the due date. `MISSED` is accepted as a filter and returned as a status though
+  **PostgreSQL has no such value**: the server derives it from `OPEN` plus a due
+  date before the clinic's today. The five wire statuses partition the result, so
+  the counts add up. A promise reduces no balance in any state.
+- **`GET /reports/therapist-activity`** (`appointment.read`) — counts and durations
+  per therapist, unpaged because the rows are read against one another.
+  `attendedDurationMinutes` is the only duration and counts attended seats alone;
+  cancelled and no-show counts sit beside it, unsummed. **No share, rate, session
+  value or settlement figure appears anywhere in it.**
+
+### Financial reports, and the permission boundary
+
+Manager-only, in a controller of their own, refused by `PermissionsGuard` on a
+direct call. Milestone 7 adds two permission names and grants the receptionist
+neither: **`report.read_financial`** and **`report.export`**.
+
+- **`GET /reports/payments`** — every payment in a period on `receivedOn`, with
+  totals by method and by recording user. `recordedByUserId` is an id, never a
+  username. `includeVoided` defaults to **true**, as every financial list in this
+  system does: history is visible unless somebody asks to hide it, and it is a
+  filter on the list only — a voided payment is in no confirmed total either way.
+  No row says what a payment settled, because no allocation exists.
+- **`GET /reports/family-accounts`** — every family's position on one page,
+  largest amount due first. **Each row's position is the same code
+  `GET /families/:id/account` answers with**, so the report and the single-family
+  account reconcile by construction; an integration test asserts that equality
+  family by family against a whole synthetic clinic. It **takes no date range** —
+  a position is not a period — and `standing` / `includeInactive` select which
+  families are listed and narrow no figure. `totalAmountDue` and `totalCredit` are
+  never netted against each other, and no clinic-wide balance is stated anywhere in
+  Milestone 7.
+
+**What these figures know is only what this system holds.** There is no opening
+balance and no pre-system paper debt in them. The screen prints that qualification
+beside the report, and the CSV carries it too.
+
+A report READ writes **no audit row**. `audit_log` is append-only and permanent,
+and copying a financial read into it would build a second undeletable store of who
+owes what, growing with every refresh.
+
+### Print
+
+Every report, the dashboard and the family account offer a print control. The
+treatment is one `@media print` block: application chrome, filter forms and
+controls are hidden, table headings repeat across pages, rows avoid breaking, the
+page prints A4 landscape, and Persian RTL, Persian numerals, Jalali dates and
+toman are preserved. Where a financial position appears, the system-record-only
+disclosure prints with it.
+
+**No PDF is generated and nothing is framed as a receipt or a formal statement** —
+no receipt number, no "official statement" wording, no signature block.
+
+### CSV export, and the one audit row
+
+Five reports export as `text/csv; charset=utf-8` with an attachment disposition and
+`nosniff`. **All five are manager-only, including the three operational reports a
+receptionist reads all day**: each route names its report's read authorities _plus_
+`report.export`, so revoking a read takes its export with it and `report.export`
+alone opens nothing. Errors stay JSON — a caller never receives a `.csv` file
+containing an error. The dashboard is deliberately not exportable.
+
+A file is the **whole filtered result**: the export schemas refuse `page` and
+`pageSize`, and nothing truncates. Every row comes from the owning report service's
+`exportRows`, which is the screen's own statement with the paging window removed —
+there is no second reporting implementation behind a download, so the same request
+gives byte-identical files and a spreadsheet cannot disagree with the screen.
+
+The bytes are written for a Persian Windows spreadsheet: a **UTF-8 BOM** (without
+it Excel opens every Persian name as mojibake), CRLF terminators, every field
+quoted, ASCII digits, and money exactly as the wire carries it — a plain integer
+string of whole toman. Cells beginning `=`, `+`, `-`, `@`, a tab or a carriage
+return are neutralised in free-text columns only, so the server's own numbers stay
+machine-parseable. **One caveat:** Excel splits a `.csv` on the reader's Windows
+list separator rather than on the comma, so a machine configured with a semicolon
+opens these files in one column until the reader imports them or changes the
+setting. The files are RFC 4180, which is what every other consumer reads.
+
+The **family-accounts CSV carries its scope in the file** — a constant first
+column, `SYSTEM_RECORDS_ONLY`, under a Persian heading saying these figures are
+only this system's records with no opening balance or pre-system debt. A CSV is
+read months later beside no screen.
+
+**Exactly one `report.exported` audit row per successful export**, written in the
+same transaction as the read, so `rowCount` is provably the count the caller
+received. A refused export writes nothing. The row records the **act, never the
+contents**: surface, `format`, the range and its basis (explicitly `null` for
+family accounts), the filters supplied, and the row count. It is structurally
+impossible to pass a row to the payload builder, so no amount, total, balance,
+resolved name, personal identifier, bank reference or free text can reach the
+trail.
+
+### Permissions
+
+| Permission              | Manager | Receptionist |
+| ----------------------- | ------- | ------------ |
+| `report.read_financial` | yes     | no           |
+| `report.export`         | yes     | no           |
+
+The operational reads and the dashboard add no permission. Reading the dashboard
+requires `appointment.read`, `charge.read`, `payment.read` **and** `promise.read`
+— all four, because it states a ledger fact among the others.
+`report.read_financial` does not gate the dashboard route; it selects the response
+variant.
+
+### Persian pages
+
+| Path                          | Who                      |
+| ----------------------------- | ------------------------ |
+| `/` (the signed-in landing)   | both roles, two variants |
+| `/reports/sessions`           | both roles               |
+| `/reports/promises`           | both roles               |
+| `/reports/therapist-activity` | both roles               |
+| `/reports/payments`           | manager                  |
+| `/reports/family-accounts`    | manager                  |
+
+Each page gates on exactly the authorities its route demands, from the same list
+in `@clinic/contracts` the route names, so the two cannot drift. The export button
+appears only for a holder of `report.export` and carries the page's current
+filters, never only the visible page. Filter submission is a POST that redirects
+with ids and enums in the URL; no name is ever placed there. **The web tier
+performs no financial arithmetic** — every total, balance and derived status
+arrives from NestJS.
+
+### Database objects
+
+Three B-tree indexes, and nothing else:
+
+```text
+session_charge(service_date)   what the clinic charged for a day's sessions
+payment(received_on)           what the clinic took in, by business day
+payment(created_at)            what was entered on a clinic day
+```
+
+Every existing index on the financial tables leads with a family, a child or a
+seat, so a date-only predicate could not use one at all. Nothing is added to
+`payment_promise` or `appointment`, whose existing indexes already serve these
+predicates, and no partial index over non-voided rows exists — reports show voided
+rows by default.
+
+### The synthetic clinic
+
+For local review at a realistic size. It writes through the **real domain
+services**, parses every request with the same contract schema the controller
+would, and is additive — it never truncates, deletes or disables a trigger.
+
+```bash
+pnpm --filter @clinic/api build
+```
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --weeks 5 --families 12
+```
+
+It refuses to run unless `NODE_ENV` is not production **and** the database name
+ends in `_dev`, `_test`, `_ci` or `_demo`, **and** `--confirm` was passed. It is a
+separate binary from the operator CLI on purpose. It needs a real manager account
+to act as and refuses to create one — bootstrap one first. Synthetic staff
+accounts it creates print their temporary password once to stdout, never through
+the logger.
+
+Everything it writes is invented in `apps/api/src/dev/synthetic-clinic.ts`. There
+is no import path, fixture file or argument through which real data could reach it.
+**Never point anything at real clinic data.**
+
+To start clean, drop and recreate the local database and re-run the migrations —
+there is no `--reset`, because financial rows cannot be deleted by design.
+
+One consequence worth knowing: every seeded payment carries the run's own
+`created_at`, so the **daily reconciliation is rich for the day of the run and
+empty for earlier days**. Back-dated `receivedOn` still exercises the two payment
+bases against each other.
+
+### Verifying Milestone 7 locally
+
+The repository-wide gate, which needs no database:
+
+```bash
+pnpm check
+```
+
+The database-backed suite, which is where the reporting invariants are proved —
+see [Integration tests](#integration-tests) for the disposable-database setup:
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> pnpm test:int
+```
+
+Migration status and schema drift, exactly as
+[CI](.github/workflows/ci.yml) runs them — `migrate status` catches an unapplied
+migration and `migrate diff` exits 2 if `schema.prisma` was edited without one:
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate status
+```
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-schema-datasource prisma/schema.prisma --exit-code
+```
+
+Neither sees the hand-written CHECKs, triggers or the protected-row function;
+those are pinned by name in the integration suite's catalogue assertions.
+
+The Milestone 7 suites, and what each one is for:
+
+- **`dashboard`** — both authority shapes, the own-entries reconciliation, the two
+  data conditions, the override count, and a quiet day.
+- **`reports-sessions`, `reports-promises`, `reports-therapist-activity`** — the
+  operational reads, derived `MISSED`, and the absence of money.
+- **`reports-payments`, `reports-family-accounts`** — the financial reads and the
+  manager-only refusal.
+- **`reports-operational-synthetic`** — the operational reports against a whole
+  synthetic clinic.
+- **`reports-financial-synthetic`** — **every family's report row equals that
+  family's own account**, and the two payment bases against each other.
+- **`reports-export`** — the receptionist refusal, exactly one audit row per
+  successful export, no exported value in audit, byte-identical repeat exports, and
+  the family-accounts scope column.
+- **`reporting-schema`** — the three indexes, and the absence of any new object.
+- **`synthetic-clinic`** — the seeder's preconditions, and that it writes through
+  the real services.
+
+For a screen-level review, seed the synthetic clinic (above), sign in, and read
+`/` — the dashboard is the signed-in landing page, not `/dashboard` — and
+`/reports/*`, as a manager and again as a receptionist. The receptionist must be
+refused `/reports/payments` and `/reports/family-accounts`, and must see no export
+control anywhere.
+
+### Verification
+
+Beside the automated suites, the integrated milestone was walked through end to end
+against the **real local NestJS, PostgreSQL and Next.js stack** with synthetic data
+only — a seeded clinic of 12 families, 16 children, 4 therapists, 372 appointments
+across six weeks, 150 charges, 15 payments and 12 promises. No real clinic record,
+name or amount was used at any point.
+
+Every figure below was reconciled against the rows underneath it, by SQL or by the
+authoritative read it claims to agree with:
+
+- **the dashboard** — appointment totals, cancellations and unresolved outcomes
+  against the diary; the availability-override count against the recorded override
+  fact; `missingTariffCount` against the day view's own badge and
+  `unchargedCompletedSessionCount` against the ledger's `voided_at IS NULL`
+  predicate, the two staying distinct and unsummed; promises due today and derived
+  `MISSED` against `payment_promise`, with **no stored `MISSED` row anywhere**; a
+  manager's own reconciliation (5 entries) as a strict subset of the clinic-wide
+  block (14), with the per-user attribution summing exactly to the clinic total;
+- **the authority boundary** — a receptionist's dashboard carrying **no
+  clinic-wide financial key at all**, and an invented `userId` parameter refused as
+  `VALIDATION_FAILED`;
+- **the operational reports** — 372 seats matching the diary; booking status and
+  seat attendance preserved as two separately filterable facts; cancelled sessions
+  still listed; the five promise statuses partitioning the period exactly;
+  therapist activity summing to the same 210 attended seats with no money, share,
+  rate or settlement field anywhere in it;
+- **the financial reports** — payments keyed on `receivedOn`, with 10 genuinely
+  back-dated payments in the data and one confirmed to appear under the day the
+  money arrived rather than the day it was entered; voided rows shown by default
+  and excluded from every confirmed total, and hiding them changing the list
+  without moving a figure; **every one of the 12 families' report rows equal to
+  that family's own `GET /families/:id/account` position**, covering 7 owing, 3 in
+  credit and 2 exactly settled;
+- **export and audit** — a receptionist refused all five exports on direct API
+  calls; a manager's CSV arriving with a UTF-8 BOM, CRLF, every field quoted and
+  ASCII digits; two identical requests producing byte-identical files; the whole
+  filtered period in the file with no paging; **exactly one `report.exported` audit
+  row per successful export and none for a refusal, a validation failure or any
+  read**; that row naming the surface, format, range, basis, filters and row count
+  and carrying no family name, no amount and no identifier; and the
+  system-record-only scope column present on the family-accounts file alone.
+
+On the Web tier, the production build was driven through the real BFF with real
+sessions. Persian RTL (`dir="rtl"`, `lang="fa"`), Persian numerals, Jalali dates
+(`۲۴ مرداد ۱۴۰۵`) and toman were correct on the dashboard, all five reports and the
+family account, with no Gregorian year and no Latin digit in any formatted value.
+The print control is present on all seven surfaces; the system-record-only
+disclosure prints with the family account; no receipt or formal-statement framing
+appears anywhere. A receptionist received a content-free shell on both financial
+report pages — no money, no amount key, no family name in the payload — while
+receiving the full page on the reports they may read, and saw no export control on
+any page. Layout was measured at **1280 and 375 pixels on every M7 page**: no
+body-level overflow and no element wider than the narrow viewport.
+
+**Two limitations, stated precisely.** Screenshot capture and native print preview
+were both unavailable in the review environment — the browser pane does not
+composite frames, so client-side React never finishes and each page shows its
+loading fallback in the live DOM. Every observation above was therefore made
+against the **server-rendered HTML fetched over an authenticated session**, and the
+layout measurements against that same markup rendered with the shipped stylesheet
+in a sized frame, rather than against captured images or a real print dialogue. The
+print rules were verified as present and correctly targeted in the production CSS
+bundle — A4 landscape, chrome and controls hidden, table headings repeating via
+`display: table-header-group`, rows avoiding breaks, tables unclipped — and the
+markup carries the classes those rules target. **A pixel-level pass and a real
+printed page remain human steps.**
+
+### Accepted risks and revisit triggers
+
+None of these is a correctness, security or data-integrity issue, and none is
+committed scope for a later milestone.
+
+1. **No server-side maximum report span.** A deliberately enormous range is
+   answerable and therefore expensive; nothing in the contract stops it. Revisit on
+   measured evidence at pilot volumes — any numeric bound is a cost bound argued
+   from a query plan and needs owner approval (DECISION_LOG, 2026-08-18).
+2. **Every figure is derived per request, over three indexes and no stored
+   aggregate.** A wide clinic-wide read costs a wide read. Revisit when a report's
+   plan shows a sort or a join dominating at real data volumes — the answer is a
+   query plan, not a stored balance, which would be a second source of financial
+   truth.
+3. **A CSV export materialises the whole file in memory.** Nothing pages and
+   nothing truncates, so several years of sessions builds every row and the string
+   made from them. A silently shortened financial file is the worse failure.
+   Revisit when an export is large enough to strain the process, at which point
+   streaming from a cursor is the change to make.
+4. **Excel may open these CSVs in a single column.** The files are RFC 4180 with a
+   comma delimiter; Excel splits on the reader's Windows list separator. A machine
+   configured with a semicolon needs an import step or a settings change
+   (DECISION_LOG, 2026-08-18).
+5. **The financial position covers only this system's records.** No opening balance
+   and no pre-system paper debt exists to include. The screen states this and the
+   family-accounts CSV carries it as a constant column; it stops being true, and has
+   to change, if opening balances ever enter scope.
+6. **The synthetic clinic's reconciliation is rich only for the day of the run**,
+   because a payment's entry instant cannot be back-dated without bypassing its
+   immutability rule. Revisit if a pilot rehearsal needs entry days spread across
+   weeks (DECISION_LOG, 2026-08-18).
+7. **Print output is the browser's.** Pagination and margins vary a little between
+   browsers, and no artefact of what was printed is archived. The rules are verified
+   as present and correctly targeted in the shipped CSS; a real printed page and a
+   pixel-level pass remain human steps (see Verification).
+8. **One integration assertion is sensitive to host/container clock skew.**
+   `payment-void.int-spec.ts` brackets a PostgreSQL `transaction_timestamp()`
+   against Node's `Date.now()`, so a few milliseconds of drift between the host and
+   the database container can fail it; it passed 5/5 on re-run. It is a Milestone 6
+   test and the fix — read the instant from the database, as the fixtures already do
+   (DECISION_LOG, 2026-08-06) — is left to whoever next touches that suite.
 
 ## Environment variables
 

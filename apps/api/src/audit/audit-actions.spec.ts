@@ -24,7 +24,10 @@ describe('audit vocabulary', () => {
     }
   });
 
-  it('names every entity type as a real table', () => {
+  // Whether each one is a real table is a question about the database, and is
+  // asserted in `catalog-schema.int-spec.ts` — including the single non-row
+  // subject, `report`. Here the check is the one the CHECK constraint makes.
+  it('gives every entity type the identifier shape the entity_type CHECK demands', () => {
     for (const entityType of AUDIT_ENTITY_TYPES) {
       expect(entityType).toMatch(/^[a-z][a-z0-9_]*$/);
     }

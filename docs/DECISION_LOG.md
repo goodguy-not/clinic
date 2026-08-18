@@ -1511,8 +1511,11 @@ Milestone 6 stores no `follow_up_date`, on a promise or anywhere else.
   no workflow behind it becomes a field people fill in and nobody reads.
 - **Trade-off:** chasing an overdue promise is done from the derived `MISSED` list
   rather than from a per-promise reminder date.
-- **Revisit when:** Milestone 7 designs the actual follow-up workflow, which may
-  add it with defined semantics.
+- **Revisit when:** a milestone designs the actual follow-up workflow, which may add
+  it with defined semantics. **Milestone 7 did not.** Its promise report and
+  dashboard chase overdue promises from the derived `MISSED` reading and introduce
+  no reminder date, no work queue and no automated follow-up, so the semantics
+  remain unapproved and the field remains out of scope.
 
 ---
 
@@ -1966,3 +1969,295 @@ authority that selects the clinic-wide RESPONSE VARIANT rather than access.
 - **Revisit when:** a role exists that should see the diary and the promises but
   not the ledger — which would be an argument for splitting the dashboard, not for
   loosening this list.
+
+## 2026-08-18 — Therapist activity stays non-financial, and its only duration is attended
+
+**Status:** Accepted — Milestone 7, checkpoint C3
+
+`GET /reports/therapist-activity` states counts and durations and reads no money
+of any kind: no share, no percentage, no rate, no session value, no settlement
+figure, on the screen or in the file. `attendedDurationMinutes` is the ONLY
+duration and it counts attended seats alone; the cancelled and no-show counts sit
+beside it, unsummed.
+
+- **Alternatives:** a session-value column "for the accountant"; one
+  `bookedMinutes` total spanning attended, cancelled and no-show seats.
+- **Reason:** the settlement basis, the discount effect and the percentages are
+  unapproved, and CLAUDE.md forbids inferring a settlement rule. A single
+  "hours" figure that included a released slot reads as time delivered, is not,
+  and is the number somebody eventually multiplies by a rate — which is how an
+  unapproved settlement arrives through a report rather than through a decision.
+  Keeping the report free of money is also what lets it be read under
+  `appointment.read`, which both roles hold.
+- **Trade-off:** a manager comparing therapists cannot see value per therapist
+  anywhere in Milestone 7, which is the intended state until the policy exists.
+- **Revisit when:** Milestone 8 approves the settlement basis — at which point the
+  share belongs to a settlement surface with its own authority, not to this report.
+
+## 2026-08-18 — A financial report is refused whole, never served with the money removed
+
+**Status:** Accepted — Milestone 7, checkpoint C4
+
+`GET /reports/payments` and `GET /reports/family-accounts` are manager-only and
+live in a controller of their own. A caller without `report.read_financial` is
+refused by `PermissionsGuard` on the route, before any service runs. The
+dashboard's discriminated-union design — one screen, two shapes — is deliberately
+NOT copied here.
+
+Each route names `report.read_financial` AND the ordinary read authorities its
+facts require: `payment.read` for payments, and `charge.read`, `payment.read` and
+`promise.read` for a position, which is made of all three.
+
+- **Alternatives:** one route per surface returning a money-free variant; the
+  financial name alone on the decorator; a page-level check in Next.
+- **Reason:** the dashboard is a shared screen with a manager-only BLOCK, so a
+  variant is the whole answer there. These two are financial in their entirety, so
+  there is no useful response to give somebody who may not read them, and a
+  stripped variant would be a shape in which one serialisation mistake carries
+  every family's balance to a receptionist. Requiring the ordinary reads as well
+  keeps the permission model an accurate description of what the route touches:
+  revoking `payment.read` has to take payment REPORTS with it.
+- **Trade-off:** a future role that should read clinic-wide money without holding
+  one of the underlying reads cannot be expressed without splitting a list.
+- **Revisit when:** a third financial visibility level exists — a therapist reading
+  their own activity is the plausible one.
+
+## 2026-08-18 — The family-accounts report is the family account, read many at a time
+
+**Status:** Accepted — Milestone 7, checkpoint C4
+
+Every row's `position` in `GET /reports/family-accounts`, on the screen and in the
+CSV, comes from `ledger/family-position.ts` — the same SQL and the same mapping
+`GET /families/:id/account` answers with. Not one charge predicate, payment
+predicate, promise predicate or subtraction is written in the report service. The
+two reads therefore reconcile BY CONSTRUCTION rather than by agreement, and this
+equality is a correctness invariant an integration test asserts family by family
+against a whole synthetic clinic.
+
+Three consequences are part of the decision:
+
+- **it takes no date range, and the strict schema refuses one.** A position is not
+  a period; "the balance as at last month" is a concept nobody has approved;
+- **`standing` and `includeInactive` select FAMILIES and narrow no figure.** No
+  filter on this route can produce a narrowed balance, on either surface;
+- **`totalAmountDue` and `totalCredit` are never netted, and there is no clinic
+  balance.** One family's credit does not reduce another family's debt.
+
+- **Alternatives:** a reporting statement of charges-minus-payments; a stored or
+  nightly balance; one signed clinic-wide figure.
+- **Reason:** a second definition of "what does this family owe?" agrees on the day
+  it is written and drifts the first time either side is corrected — and the drift
+  is discovered by a family quoted two different balances by two screens of one
+  system. A stored aggregate would be a second source of financial truth beside the
+  account it contradicts.
+- **Trade-off:** the report derives every position on the request that asks for it,
+  so a wide clinic costs a wide read; nothing is cached.
+- **Revisit when:** measured evidence at pilot volumes shows the derivation
+  dominating the response, which argues for a query plan, not for a stored balance.
+
+## 2026-08-18 — Export is manager-only for all five surfaces, and the dashboard is not one of them
+
+**Status:** Accepted — Milestone 7, checkpoint C5
+
+Five reports are exportable as CSV — sessions, promises, therapist activity,
+payments and family accounts — and each route names its report's READ authorities
+PLUS `report.export`, which the receptionist has never held. That includes the
+three operational reports a receptionist reads all day: they may read them and may
+not extract them. The refusal is `PermissionsGuard`'s, in NestJS, on a direct
+call, and the web tier's hidden button is a convenience rather than the boundary.
+The export schemas are the read filters with `page` and `pageSize` refused: a file
+is the whole filtered result. Every row comes from the owning report service's
+`exportRows`, which is the screen's statement with the paging window removed, so
+there is no second reporting implementation behind a download.
+
+**The dashboard is deliberately not exportable.** It is a screen of blocks rather
+than a table of rows, so a "CSV of the dashboard" would have to invent a shape
+nobody approved; what a manager would export from it is one of the five reports
+underneath it, filtered.
+
+- **Alternatives:** folding export into each report's read authority; allowing the
+  operational exports under the diary authority; a dashboard export.
+- **Reason:** extracting a file leaves the system and outlives the session, so it
+  is a different act from looking at a screen — a printed session list stays on a
+  desk, a spreadsheet of it travels. Naming the read authorities as well means
+  revoking a read takes its export with it, and `report.export` alone opens
+  nothing.
+- **Trade-off:** a receptionist who legitimately needs an operational list in a
+  spreadsheet has to ask a manager, and prints in the meantime.
+- **Revisit when:** pilot use shows a receptionist workflow that genuinely needs a
+  file, which is an owner decision about `report.export` and not a route change.
+
+## 2026-08-18 — One successful export writes exactly one audit row, and it records the act
+
+**Status:** Accepted — Milestone 7, checkpoint C5
+
+A report READ writes no audit row anywhere in Milestone 7. A successful export
+writes exactly one `report.exported` row, inside the same `REPEATABLE READ`
+transaction that read the rows — so `rowCount` is provably the count the caller
+received, and a failure between the two leaves neither. A refused export writes
+nothing, because the guard rejects the caller before the service runs. One action
+covers all five surfaces, with the surface in the payload.
+
+The payload is assembled from the REQUEST plus one number the server counted:
+surface, `format: 'CSV'`, the range and its date basis (explicitly `null` for
+family accounts, which has none), the filters the caller supplied, and
+`rowCount`. It is deliberately impossible to pass a row to the payload builder,
+which rules out by construction — not by review — every amount, total, balance,
+resolved name, personal identifier, bank reference and free-text value. There is
+no `truncated` flag, because nothing truncates.
+
+- **Alternatives:** auditing report reads too; five actions, one per surface; a
+  payload carrying the exported dataset or its totals.
+- **Reason:** `audit_log` is append-only and permanent, so a value copied into it
+  becomes a second undeletable store of exactly the data the clinic was careful
+  about — and a read copied into it would grow that store with every refresh, to
+  answer a question that never needed the values. "Did somebody take this data
+  out, and what was it about?" is answerable from ids, closed enums, dates and a
+  count. Recording the filters is safe precisely because every Milestone 7 filter
+  is an opaque id, a calendar date or a closed enum: reporting has no name search
+  anywhere, for the reason family search is a POST.
+- **Trade-off:** the trail cannot reproduce what a given file contained, only what
+  it was about and how large it was.
+- **Revisit when:** a legal or regulatory requirement demands the contents of an
+  export be reconstructable, which would be a different store than `audit_log`.
+
+## 2026-08-18 — The CSV bytes are RFC 4180 with a BOM, and the reader's list separator is the accepted cost
+
+**Status:** Accepted — Milestone 7, checkpoint C5
+
+One formatter writes every export: a UTF-8 byte order mark, CRLF terminators,
+every field unconditionally quoted with embedded quotes doubled, a comma
+delimiter, and ASCII digits everywhere — money exactly as the wire carries it, a
+plain integer string of whole toman. Formula injection is neutralised per column,
+on `freeText` columns only, by an apostrophe prefix; the server's own amounts,
+counts, dates, enums and uuids are left machine-parseable. The download filename
+is ASCII and server-built. Nothing truncates and there is no row cap.
+
+**Excel splits a `.csv` on the reader's Windows list separator, not on the comma**,
+so a machine configured with a semicolon separator opens these files in a single
+column until the reader imports them or changes the setting.
+
+- **Alternatives:** a `sep=,` preamble; a semicolon delimiter; Persian digits in
+  the file; a global formula guard on every column.
+- **Reason:** the BOM is what stops Persian headings and family names opening as
+  mojibake, and it costs three bytes. `sep=,` is a Microsoft extension every other
+  parser reads as a data row, and choosing the semicolon would break
+  standard-conforming consumers to please one configuration of one product.
+  Persian digits are text in every cell a spreadsheet parses. Guarding the
+  server's own numbers against a risk they cannot carry would corrupt the figures
+  the file exists to deliver.
+- **Trade-off:** one Windows locale needs an import step or a settings change.
+- **Revisit when:** pilot reviewers actually hit the single-column behaviour often
+  enough that a documented import step is not enough, which is a packaging
+  decision rather than a format one.
+
+## 2026-08-18 — The family-accounts CSV carries its system-record-only scope in the file
+
+**Status:** Accepted — Milestone 7, checkpoint C5
+
+`FAMILY_ACCOUNT_SCOPE` is a constant first column, `SYSTEM_RECORDS_ONLY`, under a
+Persian heading that states the qualification in the language of the product:
+these figures are only the records this system holds, with no opening balance and
+no pre-system paper debt. It is a column rather than a preamble or a note row, and
+it appears on this one export alone. The interface prints the same qualification
+beside the report.
+
+- **Alternatives:** a `sep`-style preamble line; a trailing note row; relying on
+  the screen's disclosure alone.
+- **Reason:** a CSV is read months later beside no screen, and an amount due read
+  without that qualification looks like a complete statement of what a family
+  owes. A preamble or a note row is a line every parser has to be told to skip; a
+  constant column survives sorting, filtering and a copy into another sheet. It is
+  on this file alone because it is the only export that states a financial
+  position.
+- **Trade-off:** one repeated column in every row of one file.
+- **Revisit when:** opening balances or pre-system debt enter scope, at which point
+  the qualification is no longer true and the column has to change with it.
+
+## 2026-08-18 — Print is a stylesheet, and no document is generated
+
+**Status:** Accepted — Milestone 7, checkpoint C5
+
+The readable print treatment PROJECT_SPEC.md 10 requires is one `@media print`
+block plus a `ReportActions` control that calls `window.print()`, offered on the
+dashboard, all five reports and the family account. It hides the application
+chrome, filter forms and controls, repeats table headings across pages, avoids
+breaking a row, prints A4 landscape, and keeps the page RTL with Persian
+numerals, Jalali dates and toman as the screen does. Where a financial position
+appears, the system-record-only disclosure prints with it.
+
+**No PDF is generated, and nothing is framed as a receipt or a formal statement.**
+There is no receipt number, no "official statement" wording and no signature
+block anywhere in the print output.
+
+- **Alternatives:** server-side PDF rendering; a dedicated print route per report;
+  a formal statement layout.
+- **Reason:** PROJECT_SPEC.md 10 says PDF is not initially required, and a
+  document that looks like a receipt is a financial instrument the clinic has not
+  approved issuing — the first person to hand one to a family has created an
+  expectation the system cannot honour. A stylesheet over the page the reader is
+  already looking at also cannot disagree with it.
+- **Trade-off:** the output is the browser's, so pagination and margins vary a
+  little between browsers, and there is no archived artefact of what was printed.
+- **Revisit when:** the clinic approves issuing a formal receipt or statement,
+  which is a product decision with its own audit and numbering requirements.
+
+## 2026-08-18 — An audited entity type may name no table, and `report` is the only one
+
+**Status:** Accepted — Milestone 7, checkpoint C6 (a narrow correction of a C5
+omission found by the integrated gate, not a new owner decision)
+
+`AUDIT_ENTITY_TYPES` had been every table name in the schema, and
+`catalog-schema.int-spec.ts` asserted exactly that. C5 added `report` — which names
+no table, because an export changes no row and carries a null `entity_id` — and
+reconciled neither the assertion nor the list's own doc comment, so the full
+integration suite failed at closure.
+
+The invariant is now stated as it is actually meant: **every audited entity type is
+a real table, except the declared non-row subjects, which must NOT be tables.** The
+exception is an allow-list of one, and the second half is what keeps it honest — if
+a `report` table is ever created, the test fails and the decision has to be made
+again deliberately.
+
+- **Alternatives:** dropping the assertion; skipping `report`; inventing an `export`
+  table so the original rule held.
+- **Reason:** the original rule existed because `entity_id` has no foreign key, so
+  the entity type is the only thing tying an audit row to what it describes — and
+  that rule is still right for every row that names one. Weakening it to a skip
+  would lose the check for the next entity type somebody adds; an `export` table
+  would be the stored export C5 is forbidden to create.
+- **Trade-off:** one allow-list to maintain, and a reviewer must read two assertions
+  instead of one to know what the rule is.
+- **Revisit when:** a second non-row audit subject is proposed — at which point the
+  question is whether "an act with no row" is becoming a category rather than an
+  exception.
+
+## 2026-08-18 — Milestone 7 outcome: reporting cost is unbounded by design, and measured later
+
+**Status:** Accepted — outcome note recorded at the integrated Milestone 7 review;
+adds no rule and changes no frozen contract
+
+Three related pilot-scale costs are accepted rather than engineered around, and
+they share one revisit trigger — measured evidence from real data volumes:
+
+- **no server-side maximum report span** (the C1 range decision), so a
+  deliberately enormous range is answerable and therefore expensive;
+- **every figure is derived on the request that asks for it**, over three B-tree
+  indexes and no stored aggregate, so a wide clinic-wide read costs a wide read;
+- **a CSV export materialises the whole file in memory**, because nothing pages and
+  nothing truncates.
+
+- **Alternatives:** a numeric span cap; a nightly rollup; streaming an export out
+  of a cursor now.
+- **Reason:** at pilot volumes — a clinic whose write rate is a receptionist
+  typing — none of the three is measurable, and each mitigation trades a real
+  correctness property for an unmeasured performance one. A silently shortened
+  financial file is a far worse failure than a slow one, and a refusal built on an
+  invented number becomes the limit the manager hits on the day they need the
+  widest report.
+- **Trade-off:** the first genuinely large report is discovered in use rather than
+  refused in advance.
+- **Revisit when:** a report's plan shows a sort or a join dominating at real data
+  volumes, or an export is large enough to strain the process — at which point
+  streaming from a cursor is the change to make, and any numeric bound is a cost
+  bound argued from a query plan and needs owner approval.

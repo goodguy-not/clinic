@@ -164,13 +164,33 @@ describe('catalog schema objects', () => {
     });
   });
 
-  it('names every audited entity type as a real table', async () => {
+  /**
+   * The audited subjects that name no table, and there is exactly one.
+   *
+   * `report` is Milestone 7 checkpoint C5's deliberate exception: an export
+   * changes no row, so `entity_id` is null on every `report.exported` row and
+   * there is no id to point at. Inventing an `export` table to have something to
+   * name would be the stored export that checkpoint is forbidden to create
+   * (`src/audit/audit-actions.ts`).
+   */
+  const NON_ROW_AUDIT_SUBJECTS: readonly string[] = ['report'];
+
+  it('names every audited entity type as a real table, or as a declared non-row subject', async () => {
     const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
     `;
     const tables = rows.map((row) => row.table_name);
 
     for (const entityType of AUDIT_ENTITY_TYPES) {
+      // The exception is an allow-list rather than a skip, and this is the
+      // assertion that keeps it honest: if a `report` table is ever created, the
+      // entity type stops being a non-row subject and the decision to record an
+      // export without naming a row has to be made again, deliberately.
+      if (NON_ROW_AUDIT_SUBJECTS.includes(entityType)) {
+        expect(tables).not.toContain(entityType);
+        continue;
+      }
+
       expect(tables).toContain(entityType);
     }
   });

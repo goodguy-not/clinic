@@ -206,6 +206,12 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
  *
  * These are table names, and deliberately so: an audit row names the row it
  * describes, and `entity_id` has no foreign key to enforce that pairing.
+ *
+ * `report` IS THE ONE EXCEPTION, and it is stated as one rather than left to be
+ * discovered — an export names no row, so that entry carries a null `entity_id`
+ * and points at no table. The reasoning is at the entry itself, below, and
+ * `catalog-schema.int-spec.ts` pins both halves: every other entity type IS a
+ * table, and this one is NOT.
  */
 export const AUDIT_ENTITY_TYPES = [
   'app_user',
