@@ -77,14 +77,40 @@ type SeatRow = {
 };
 
 /**
+ * ONE SEAT WHOSE OUTCOME NOBODY HAS RECORDED, AND THE ONLY STATEMENT OF WHAT
+ * THAT MEANS.
+ *
+ * "The session is over and nobody said what happened" is the receptionist
+ * dashboard's outstanding-work list (PROJECT_SPEC.md 10) and a column of the
+ * Milestone 7 session and therapist-activity reports. Written once, here, and
+ * shared by all of them: two screens deciding for themselves what "already over"
+ * means eventually disagree, and the disagreement would be about which sessions
+ * are on somebody's worklist.
+ *
+ * IT IS A FACT ABOUT A SEAT. Attendance lives on the participant and never on
+ * the appointment, so the predicate is stated at seat level and the day view
+ * lifts it to the booking with an `EXISTS` — an appointment is unresolved when
+ * any of its seats is. The two readings are the same predicate rather than two
+ * copies of it.
+ *
+ * COMPUTED IN SQL AGAINST THE DATABASE'S OWN CLOCK, not in Node and not in a
+ * browser. A cancelled appointment is never unresolved — nothing happened, so
+ * there is no outcome to record — and a session still in progress is not either.
+ *
+ * It reads the aliases `a` (the appointment) and `ap` (the seat), which every
+ * statement that uses it establishes.
+ */
+export const SEAT_OUTCOME_UNRESOLVED = Prisma.sql`(
+  a.status IN ('SCHEDULED', 'COMPLETED')
+  AND a.ends_at <= statement_timestamp()
+  AND ap.attendance = 'PENDING'
+)`;
+
+/**
  * Everything the read model selects, in one place.
  *
- * `outcome_unresolved` is computed in SQL against the database's own clock, not
- * in Node and not in a browser: "the session is over and nobody said what
- * happened" is the receptionist dashboard's outstanding-work list
- * (PROJECT_SPEC.md 10), and two screens must not disagree about which sessions
- * are on it. A cancelled appointment is never on it — nothing happened, so
- * there is no outcome to record — and a session still in progress is not either.
+ * `outcome_unresolved` is the shared seat predicate above, lifted to the
+ * booking: an appointment is unresolved when any seat in it is.
  */
 const DAY_COLUMNS = Prisma.sql`
   a.id, a.service_id, a.duration_minutes, a.therapist_id, a.room_id,
@@ -97,13 +123,9 @@ const DAY_COLUMNS = Prisma.sql`
   tariff.id AS tariff_id,
   tariff.price_mode::text AS tariff_price_mode,
   tariff.price_toman AS tariff_price_toman,
-  (
-    a.status IN ('SCHEDULED', 'COMPLETED')
-    AND a.ends_at <= statement_timestamp()
-    AND EXISTS (
-      SELECT 1 FROM appointment_participant ap
-      WHERE ap.appointment_id = a.id AND ap.attendance = 'PENDING'
-    )
+  EXISTS (
+    SELECT 1 FROM appointment_participant ap
+    WHERE ap.appointment_id = a.id AND ${SEAT_OUTCOME_UNRESOLVED}
   ) AS outcome_unresolved
 `;
 

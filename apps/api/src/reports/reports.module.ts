@@ -2,6 +2,10 @@ import { Module } from '@nestjs/common';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
+import { OperationalReportsController } from './operational-reports.controller';
+import { PromiseReportService } from './promise-report.service';
+import { SessionReportService } from './session-report.service';
+import { TherapistActivityService } from './therapist-activity.service';
 
 /**
  * Reporting: the clinic-wide READ of facts Milestones 4, 5 and 6 already own.
@@ -27,13 +31,33 @@ import { DashboardService } from './dashboard.service';
  * report is the last reader in the chain, and no domain rule may ever come to
  * depend on one.
  *
- * MILESTONE 7 CHECKPOINT C2 ADDS THE DASHBOARD AND NOTHING ELSE. The ranged
- * operational reports (C3) and the financial reports (C4) join this module as
- * they are built; export behaviour is a separate authority and a later decision.
+ * C2 ADDED THE DASHBOARD; C3 ADDS THE THREE RANGED OPERATIONAL READS — sessions,
+ * promises and therapist activity. They keep the same property: nothing is
+ * written, nothing is stored, and every derivation is somebody else's, borrowed
+ * rather than copied. `SEAT_OUTCOME_UNRESOLVED` is the appointment read model's
+ * statement of "the session is over and nobody said what happened", and
+ * `PROMISE_WIRE_STATUS`/`promiseStatusFilter` are the payments module's
+ * statement of derived `MISSED` — both imported, so a report can never mean
+ * something slightly different by a word the rest of the system already owns.
+ *
+ * NONE OF THE THREE READS MONEY. No charge, no tariff, no payment, no share and
+ * no settlement: the operational reports are shared by both roles precisely
+ * because they carry none, and the financial reports (C4) arrive under their own
+ * authorities. `PaymentsModule` is deliberately NOT imported — the promise report
+ * needs two SQL fragments from `payments/promise-detail`, which is a plain module
+ * of read helpers, and not a service that can write one.
+ *
+ * The financial reports (C4) join this module as they are built; export
+ * behaviour is a separate authority and a later decision.
  */
 @Module({
   imports: [AppointmentsModule],
-  controllers: [DashboardController],
-  providers: [DashboardService],
+  controllers: [DashboardController, OperationalReportsController],
+  providers: [
+    DashboardService,
+    SessionReportService,
+    PromiseReportService,
+    TherapistActivityService,
+  ],
 })
 export class ReportsModule {}

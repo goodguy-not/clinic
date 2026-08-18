@@ -333,7 +333,13 @@ describe('guard chain (real PostgreSQL)', () => {
       // dashboard:       the clinic day at a glance — one route, whose response
       //                  SHAPE depends on `report.read_financial` rather than
       //                  whose access does (Milestone 7, checkpoint C2)
-      expect(routes).toBe(83);
+      // reports:         the three OPERATIONAL reads (Milestone 7, checkpoint
+      //                  C3) — sessions and therapist activity under
+      //                  `appointment.read`, promises under `promise.read`. No
+      //                  new `report.*` permission: each carries no money at
+      //                  all, which is why both roles read them under the
+      //                  authorities they already hold
+      expect(routes).toBe(86);
     });
   });
 });

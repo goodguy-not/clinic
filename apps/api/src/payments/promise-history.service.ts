@@ -7,6 +7,7 @@ import {
   PROMISE_COLUMNS,
   PROMISE_FROM,
   PROMISE_ORDER,
+  promiseStatusFilter,
   toPromise,
   type PromiseRow,
 } from './promise-detail';
@@ -144,31 +145,16 @@ export class PromiseHistoryService {
  * The filter the count and the page share, so one can never narrow and not the
  * other.
  *
- * `status=MISSED` IS NOT A LOOKUP FOR A STORED VALUE — there is none. It is
- * "stored `OPEN`, and due before today at the clinic", and `status=OPEN` is the
- * complement of exactly that predicate over exactly the same rows. The two are
- * written here as one pair for that reason: stating them apart is how they drift
- * into overlapping or leaving a gap, and either would break the partition the
- * frozen contract promises.
- *
- * `clinic_date()` AND NOT THE NODE CLOCK, for the reason stated on the read model:
- * Tehran rolls over at 20:30 UTC, and a promise's overdueness is a fact about the
- * clinic's calendar rather than about the server's.
- *
- * THE OTHER THREE ARE PLAIN ENUM COMPARISONS. `FULFILLED`, `RESCHEDULED` and
- * `CANCELLED` are stored words, and a promise in one of them is terminal, so no
- * date enters the predicate.
+ * `status=MISSED` IS NOT A LOOKUP FOR A STORED VALUE — there is none, and the
+ * derivation is not restated here: `promiseStatusFilter` is the one place the
+ * five wire words are turned into predicates, shared with the clinic-wide
+ * promise report, and it is the filtering half of the same `CASE` every promise
+ * row is labelled by.
  */
 function historyFilters(familyId: string, query: PromiseListQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [Prisma.sql`p.family_id = ${familyId}::uuid`];
 
-  if (query.status === 'OPEN') {
-    filters.push(Prisma.sql`p.status = 'OPEN' AND p.due_on >= clinic_date()`);
-  } else if (query.status === 'MISSED') {
-    filters.push(Prisma.sql`p.status = 'OPEN' AND p.due_on < clinic_date()`);
-  } else if (query.status !== undefined) {
-    filters.push(Prisma.sql`p.status = ${query.status}::payment_promise_status`);
-  }
+  if (query.status !== undefined) filters.push(promiseStatusFilter(query.status));
 
   return Prisma.join(filters, ' AND ');
 }

@@ -76,6 +76,57 @@ export const PROMISE_FROM = Prisma.sql`
  * or cancelled normally. Keeping both in one row is what stops a caller reaching
  * for the wire word to make that decision.
  */
+/**
+ * THE FIVE WIRE WORDS, DERIVED FROM THE FOUR STORED ONES, IN ONE PLACE.
+ *
+ * `MISSED` is a stored `OPEN` promise whose due day is earlier than today AT THE
+ * CLINIC. Written once and read by every promise route — the writes, the family
+ * history and the Milestone 7 clinic-wide report — so the derivation cannot be
+ * spelled one way on one route and another way on the next.
+ *
+ * The comparison is `clinic_date()`, the same `STABLE` function the payment date
+ * rule asks and the family position counts against, because Tehran rolls over at
+ * 20:30 UTC and the Node clock disagrees with the clinic for three and a half
+ * hours of every day.
+ *
+ * It reads the alias `p`, which every statement that uses it establishes.
+ */
+export const PROMISE_WIRE_STATUS = Prisma.sql`
+  CASE
+    WHEN p.status = 'OPEN' AND p.due_on < clinic_date() THEN 'MISSED'
+    ELSE p.status::text
+  END
+`;
+
+/**
+ * "Which promises read as this word?", as a predicate over the same rows.
+ *
+ * THE EXACT COMPLEMENT PAIR, STATED AS ONE FUNCTION. `OPEN` is "stored open and
+ * not yet due"; `MISSED` is "stored open and overdue". Stating them apart is how
+ * they drift into overlapping or leaving a gap, and either would break the
+ * partition the frozen contracts promise — the family promise list's five
+ * filters, and the clinic-wide report's five counts, which must add up to its
+ * total.
+ *
+ * THE OTHER THREE ARE PLAIN ENUM COMPARISONS. `FULFILLED`, `RESCHEDULED` and
+ * `CANCELLED` are stored words and terminal, so no date enters the predicate.
+ *
+ * It is the filtering half of `PROMISE_WIRE_STATUS` above and agrees with it by
+ * construction: a row this predicate matches is a row that column labels the
+ * same way.
+ */
+export function promiseStatusFilter(status: PromiseStatus): Prisma.Sql {
+  if (status === 'OPEN') {
+    return Prisma.sql`(p.status = 'OPEN' AND p.due_on >= clinic_date())`;
+  }
+
+  if (status === 'MISSED') {
+    return Prisma.sql`(p.status = 'OPEN' AND p.due_on < clinic_date())`;
+  }
+
+  return Prisma.sql`p.status = ${status}::payment_promise_status`;
+}
+
 export const PROMISE_COLUMNS = Prisma.sql`
   p.id,
   p.family_id,
@@ -83,10 +134,7 @@ export const PROMISE_COLUMNS = Prisma.sql`
   p.due_on::text AS due_on,
   p.note,
   p.status::text AS stored_status,
-  CASE
-    WHEN p.status = 'OPEN' AND p.due_on < clinic_date() THEN 'MISSED'
-    ELSE p.status::text
-  END AS wire_status,
+  ${PROMISE_WIRE_STATUS} AS wire_status,
   p.resolved_at,
   p.resolved_by_user_id,
   p.resolution_reason,
