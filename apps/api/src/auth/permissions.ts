@@ -134,6 +134,24 @@ export {
 } from '@clinic/contracts';
 
 /**
+ * The five export authorities, re-exported for the same reason and named on the
+ * five C5 routes.
+ *
+ * Each is its report's READ list plus `report.export`, which is what makes the
+ * receptionist's refusal a property of the permission model rather than of a
+ * hidden control: they hold `appointment.read` and `promise.read`, they have
+ * never held `report.export`, and `PermissionsGuard` therefore refuses them
+ * every one of these routes before a statement runs.
+ */
+export {
+  SESSION_REPORT_EXPORT_PERMISSIONS,
+  PROMISE_REPORT_EXPORT_PERMISSIONS,
+  THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
+  PAYMENT_REPORT_EXPORT_PERMISSIONS,
+  FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS,
+} from '@clinic/contracts';
+
+/**
  * What reading a family account requires, ALL THREE OF THEM.
  *
  * Re-exported rather than declared here, and the move is deliberate: the web

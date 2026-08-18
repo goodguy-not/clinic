@@ -345,7 +345,14 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  `promise.read` + `report.read_financial`. Both are
       //                  manager-only, and the refusal is this guard's rather
       //                  than a thinner response
-      expect(routes).toBe(88);
+      // reports:         the five CSV EXPORTS (Milestone 7, checkpoint C5) — one
+      //                  per report, each naming its report's own read
+      //                  authorities PLUS `report.export`. All five are
+      //                  manager-only, including the three operational reports a
+      //                  receptionist may read on the screen: carrying data out
+      //                  of the building is a separate authority, and the refusal
+      //                  is this guard's
+      expect(routes).toBe(93);
     });
   });
 });

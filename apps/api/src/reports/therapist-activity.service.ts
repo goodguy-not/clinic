@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  TherapistActivityExportQuery,
   TherapistActivityQuery,
   TherapistActivityResponse,
   TherapistActivityRow,
@@ -51,6 +52,12 @@ import { PrismaService } from '../prisma/prisma.service';
  * aggregate, which is what makes it impossible for the two to describe different
  * databases. No transaction is opened because there is nothing for a second
  * statement to disagree with.
+ *
+ * C5 ADDS THE CSV EXPORT AND CHANGES NOTHING ABOUT ANY OF THAT. The export runs
+ * the same statement through the same private method, inside the transaction
+ * that writes its audit row; the screen keeps running it with no transaction.
+ * There is no second query, no second filter and no second money-free promise to
+ * keep.
  */
 
 type ActivityRow = {
@@ -77,7 +84,56 @@ export class TherapistActivityService {
    * returns `200` with an empty array and zeroed totals.
    */
   async report(query: TherapistActivityQuery): Promise<TherapistActivityResponse> {
-    const rows = await this.prisma.$queryRaw<ActivityRow[]>`
+    const therapists = await this.rows(this.prisma, query);
+
+    return {
+      range: { from: query.from, to: query.to, dateBasis: 'SESSION_DATE' },
+      totals: totalsOf(therapists),
+      therapists,
+    };
+  }
+
+  /**
+   * EVERY MATCHING THERAPIST, FOR THE CSV EXPORT (checkpoint C5).
+   *
+   * IT IS THE REPORT'S OWN STATEMENT, UNCHANGED AND UNPAGED — which it already
+   * was, because this report was never paged: the screen answers with every
+   * therapist the filter matched, so the file and the screen return the same
+   * rows in the same order from the same query.
+   *
+   * NO TOTALS ROW IS WRITTEN INTO THE FILE. `totalsOf` is the column sum of these
+   * rows, and a spreadsheet adds a column up for itself; a totals line inside the
+   * data would break sorting and filtering, and a reader who sorted the sheet
+   * would find it in the middle of the therapists.
+   *
+   * NOT ONE FIELD OF MONEY, HERE EITHER. No share, no rate, no session value —
+   * the settlement rules are unapproved (CLAUDE.md), and an export is exactly
+   * where a "value" column would first be added for somebody's accountant.
+   *
+   * IT TAKES THE CALLER'S TRANSACTION so the rows and the audit row that records
+   * the export are one atomic act.
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: TherapistActivityExportQuery,
+  ): Promise<TherapistActivityRow[]> {
+    return this.rows(tx, query);
+  }
+
+  /**
+   * The roster and its counts, in one statement.
+   *
+   * TAKES A CLIENT RATHER THAN USING `this.prisma`, so the export can run it
+   * inside the transaction that also writes its audit row while the screen keeps
+   * running it with no transaction at all. `PrismaClient` satisfies
+   * `TransactionClient` structurally, which is what lets one statement serve both
+   * without a second copy of it existing anywhere.
+   */
+  private async rows(
+    client: Prisma.TransactionClient,
+    query: TherapistActivityExportQuery,
+  ): Promise<TherapistActivityRow[]> {
+    const rows = await client.$queryRaw<ActivityRow[]>`
       WITH activity AS (
         SELECT
           a.therapist_id,
@@ -113,13 +169,7 @@ export class TherapistActivityService {
       ORDER BY t.full_name ASC, t.id ASC
     `;
 
-    const therapists = rows.map(toRow);
-
-    return {
-      range: { from: query.from, to: query.to, dateBasis: 'SESSION_DATE' },
-      totals: totalsOf(therapists),
-      therapists,
-    };
+    return rows.map(toRow);
   }
 }
 
@@ -146,7 +196,7 @@ export class TherapistActivityService {
  * counted seats as well as the listed rows means the same statement does less
  * work, and the two predicates are the same value so they cannot disagree.
  */
-function activityFilters(query: TherapistActivityQuery): Prisma.Sql {
+function activityFilters(query: TherapistActivityExportQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [
     Prisma.sql`a.starts_at >= clinic_day_start(${query.from}::date)`,
     Prisma.sql`a.starts_at < clinic_day_start((${query.to}::date + 1))`,
@@ -186,7 +236,7 @@ function activityFilters(query: TherapistActivityQuery): Prisma.Sql {
  * consulted at all when a therapist is named; it decides who joins a roster, and
  * a roster of one has already been decided.
  */
-function rosterFilter(query: TherapistActivityQuery): Prisma.Sql {
+function rosterFilter(query: TherapistActivityExportQuery): Prisma.Sql {
   if (query.therapistId !== undefined) {
     return Prisma.sql`t.id = ${query.therapistId}::uuid`;
   }

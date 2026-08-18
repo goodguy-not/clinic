@@ -268,4 +268,64 @@ export const FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS = [
   'report.read_financial',
 ] as const satisfies readonly Permission[];
 
+/**
+ * WHAT EXPORTING A REPORT REQUIRES: everything READING it requires, plus
+ * `report.export`.
+ *
+ * THE FIVE LISTS BELOW ARE THE C5 AUTHORITY MODEL, AND THE SHAPE IS THE POINT.
+ * An export is not a weaker read and it is not a stronger one: it is the same
+ * facts leaving the system as a file, so the route names every authority the
+ * READ names and adds the one authority the ACT needs. Two consequences follow,
+ * and both are deliberate:
+ *
+ *   * A RECEPTIONIST IS REFUSED EVERY EXPORT, including the three operational
+ *     reports they may read all day on the screen. That is the frozen owner
+ *     decision — export is manager-only — and it is the whole reason
+ *     `report.export` was made a separate name rather than folded into a read
+ *     (see the comment on the permission itself, above).
+ *   * REVOKING A READ TAKES ITS EXPORT WITH IT. Somebody who loses
+ *     `payment.read` cannot keep downloading the payments file, because the
+ *     export names `payment.read` too. A list that named `report.export` ALONE
+ *     would have made the file the widest door in the building: one permission
+ *     that opens every report regardless of what its holder may look at.
+ *
+ * THE LISTS LIVE HERE FOR THE REASON THE READ LISTS DO. The web tier gates the
+ * download control that renders beside each report and has to demand exactly
+ * what the route demands; one list stated once is the only way the two cannot
+ * drift. `PermissionsGuard` in NestJS remains the authoritative refusal, and no
+ * hidden button is ever the enforcement.
+ *
+ * THEY CHANGE NO EXISTING ACCESS. `report.export` is a name the receptionist has
+ * never held and none of these lists grants it to anybody; the manager holds
+ * every permission and therefore holds all five.
+ */
+export const SESSION_REPORT_EXPORT_PERMISSIONS = [
+  'appointment.read',
+  'report.export',
+] as const satisfies readonly Permission[];
+
+export const PROMISE_REPORT_EXPORT_PERMISSIONS = [
+  'promise.read',
+  'report.export',
+] as const satisfies readonly Permission[];
+
+export const THERAPIST_ACTIVITY_EXPORT_PERMISSIONS = [
+  'appointment.read',
+  'report.export',
+] as const satisfies readonly Permission[];
+
+/**
+ * The financial exports name the financial read as well, so the file cannot be
+ * taken by somebody who may not open the screen it comes from.
+ */
+export const PAYMENT_REPORT_EXPORT_PERMISSIONS = [
+  ...PAYMENT_REPORT_READ_PERMISSIONS,
+  'report.export',
+] as const satisfies readonly Permission[];
+
+export const FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS = [
+  ...FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+  'report.export',
+] as const satisfies readonly Permission[];
+
 export const permissionSchema = z.enum(PERMISSIONS);

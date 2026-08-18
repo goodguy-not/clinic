@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   PAYMENT_METHODS,
   type PaymentMethod,
+  type PaymentReportExportQuery,
   type PaymentReportMethodTotal,
   type PaymentReportQuery,
   type PaymentReportResponse,
@@ -12,6 +13,7 @@ import {
 } from '@clinic/contracts';
 import { PAYMENT_ORDER, paymentStatus } from '../payments/payment-detail';
 import { PrismaService } from '../prisma/prisma.service';
+import { pageWindow, windowClause, type ReportWindow } from './report-window';
 
 /**
  * WHAT THE CLINIC TOOK IN OVER A PERIOD, BY METHOD AND BY THE PERSON WHO
@@ -114,6 +116,7 @@ export class PaymentReportService {
    */
   async report(query: PaymentReportQuery): Promise<PaymentReportResponse> {
     const filters = paymentFilters(query);
+    const window = pageWindow(query);
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -123,8 +126,7 @@ export class PaymentReportService {
           ? totals.confirmedCount + totals.voidedCount
           : totals.confirmedCount;
 
-        const offset = (query.page - 1) * query.pageSize;
-        const payments = await this.page(tx, filters, query, offset);
+        const payments = await this.rows(tx, filters, query, window);
 
         return {
           range: { from: query.from, to: query.to, dateBasis: 'PAYMENT_RECEIVED_ON' },
@@ -134,12 +136,38 @@ export class PaymentReportService {
             page: query.page,
             pageSize: query.pageSize,
             total: listed,
-            hasMore: offset + payments.length < listed,
+            hasMore: window.offset + payments.length < listed,
           },
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  /**
+   * EVERY MATCHING PAYMENT, FOR THE CSV EXPORT (checkpoint C5).
+   *
+   * IT IS `rows` WITH NO WINDOW. The same `received_on` range — the clinic
+   * business day the money ARRIVED, never the day it was typed in — the same
+   * `PAYMENT_ORDER`, the same `paymentStatus` derivation and the same
+   * `includeVoided` meaning, so a file and the screen it was taken from cannot
+   * place a back-dated payment in two different weeks or disagree about which
+   * rows are reversals.
+   *
+   * THE FILE CARRIES ROWS AND NO TOTALS, which is how "a voided payment is
+   * summed nowhere" survives the format: there is no sum in the file to protect.
+   * A voided row prints its own amount beside `status = VOIDED`, exactly as the
+   * screen shows it, and any figure a reader adds up in the spreadsheet is one
+   * they built themselves from rows whose status is on the same line.
+   *
+   * NO BANK REFERENCE AND NO NOTE, HERE EITHER (frozen C1). The columns are the
+   * frozen report row, and nothing is added because the destination is a file.
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: PaymentReportExportQuery,
+  ): Promise<PaymentReportRow[]> {
+    return this.rows(tx, paymentFilters(query), query, null);
   }
 
   /**
@@ -255,7 +283,8 @@ export class PaymentReportService {
   }
 
   /**
-   * One page of payments, newest received day first.
+   * The matched payments, newest received day first — one page of them for a
+   * screen, all of them for an export (windowClause).
    *
    * THE PAGE IS TAKEN BEFORE THE JOINS, as the family account's is: `LIMIT` and
    * `OFFSET` sit in the subquery, so the family and user lookups touch the rows
@@ -277,11 +306,11 @@ export class PaymentReportService {
    * value, and the amount as a decimal string because a Toman value above 2^53 is
    * storable and is not representable as a JSON number.
    */
-  private async page(
+  private async rows(
     tx: Prisma.TransactionClient,
     filters: Prisma.Sql,
-    query: PaymentReportQuery,
-    offset: number,
+    query: PaymentReportExportQuery,
+    window: ReportWindow | null,
   ): Promise<PaymentReportRow[]> {
     const visible = query.includeVoided ? Prisma.empty : Prisma.sql`AND p.voided_at IS NULL`;
 
@@ -298,7 +327,7 @@ export class PaymentReportService {
         FROM payment p
         WHERE ${filters} ${visible}
         ORDER BY ${PAYMENT_ORDER}
-        LIMIT ${query.pageSize} OFFSET ${offset}
+        ${windowClause(window)}
       ) p
       JOIN family f ON f.id = p.family_id
       JOIN app_user u ON u.id = p.created_by_user_id
@@ -358,7 +387,7 @@ const CONFIRMED_TOTALS_COLUMNS = Prisma.sql`
  * put a colleague's name in a query string, a browser history and every access
  * log. No free text of any kind reaches this query.
  */
-function paymentFilters(query: PaymentReportQuery): Prisma.Sql {
+function paymentFilters(query: PaymentReportExportQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [
     Prisma.sql`p.received_on >= ${query.from}::date`,
     Prisma.sql`p.received_on <= ${query.to}::date`,

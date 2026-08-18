@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type {
   AppointmentStatus,
   AttendanceOutcome,
+  SessionReportExportQuery,
   SessionReportQuery,
   SessionReportResponse,
   SessionReportRow,
@@ -10,6 +11,7 @@ import type {
 } from '@clinic/contracts';
 import { SEAT_OUTCOME_UNRESOLVED } from '../appointments/appointment-read.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { pageWindow, windowClause, type ReportWindow } from './report-window';
 
 /**
  * SESSIONS ACROSS THE WHOLE CLINIC, OVER A PERIOD.
@@ -122,12 +124,12 @@ export class SessionReportService {
    */
   async report(query: SessionReportQuery): Promise<SessionReportResponse> {
     const filters = sessionFilters(query);
+    const window = pageWindow(query);
 
     return this.prisma.$transaction(
       async (tx) => {
         const summary = await this.summary(tx, filters);
-        const offset = (query.page - 1) * query.pageSize;
-        const sessions = await this.page(tx, filters, query, offset);
+        const sessions = await this.rows(tx, filters, window);
 
         return {
           range: { from: query.from, to: query.to, dateBasis: 'SESSION_DATE' },
@@ -139,12 +141,34 @@ export class SessionReportService {
             total: summary.total,
             // Stated by the server rather than re-derived from the three numbers
             // above it by every consumer (frozen `pageInfo`).
-            hasMore: offset + sessions.length < summary.total,
+            hasMore: window.offset + sessions.length < summary.total,
           },
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  /**
+   * EVERY MATCHING SEAT, FOR THE CSV EXPORT (checkpoint C5).
+   *
+   * IT IS `rows` WITH NO WINDOW, AND THAT IS THE WHOLE METHOD. The same
+   * predicate, the same joins, the same total order and the same mapping the
+   * screen is drawn from — so an exported file cannot key a session on a
+   * different day, resolve a name from a different row or classify a seat by a
+   * different rule than the report it was taken from. There is no second
+   * statement here to drift, and there is deliberately no summary: the file is
+   * the rows.
+   *
+   * IT TAKES THE CALLER'S TRANSACTION rather than opening one. The export writes
+   * its audit row in the same transaction that read these rows, so the recorded
+   * row count describes the snapshot that was actually delivered.
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: SessionReportExportQuery,
+  ): Promise<SessionReportRow[]> {
+    return this.rows(tx, sessionFilters(query), null);
   }
 
   /**
@@ -210,7 +234,8 @@ export class SessionReportService {
   }
 
   /**
-   * One page of seats, oldest first.
+   * The matched seats, oldest first — one page of them for a screen, all of
+   * them for an export (`windowClause`).
    *
    * THE ORDER IS TOTAL, so a seat cannot appear on two pages or on neither: the
    * instant the session starts, then the booking, then the seat within it. Both
@@ -223,11 +248,10 @@ export class SessionReportService {
    * every conversion back through a local timezone is a chance for the day to
    * move by one.
    */
-  private async page(
+  private async rows(
     tx: Prisma.TransactionClient,
     filters: Prisma.Sql,
-    query: SessionReportQuery,
-    offset: number,
+    window: ReportWindow | null,
   ): Promise<SessionReportRow[]> {
     const rows = await tx.$queryRaw<SessionRow[]>`
       SELECT
@@ -246,7 +270,7 @@ export class SessionReportService {
       ${SESSION_SOURCE}
       WHERE ${filters}
       ORDER BY a.starts_at ASC, a.id ASC, ap.id ASC
-      LIMIT ${query.pageSize} OFFSET ${offset}
+      ${windowClause(window)}
     `;
 
     return rows.map((row) => ({
@@ -307,7 +331,7 @@ export class SessionReportService {
  * family, and `appointment` carries no family column at all, so the predicate is
  * stated where the fact lives rather than by a second copy of the relation.
  */
-function sessionFilters(query: SessionReportQuery): Prisma.Sql {
+function sessionFilters(query: SessionReportExportQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [
     Prisma.sql`a.starts_at >= clinic_day_start(${query.from}::date)`,
     Prisma.sql`a.starts_at < clinic_day_start((${query.to}::date + 1))`,

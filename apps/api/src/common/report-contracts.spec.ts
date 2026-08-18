@@ -8,15 +8,20 @@ import {
   dashboardQuerySchema,
   dashboardResponseSchema,
   ownScopedDashboardResponseSchema,
+  familyAccountReportExportQuerySchema,
   familyAccountReportQuerySchema,
   familyAccountReportResponseSchema,
+  paymentReportExportQuerySchema,
   paymentReportQuerySchema,
   paymentReportResponseSchema,
+  promiseReportExportQuerySchema,
   promiseReportQuerySchema,
   promiseReportResponseSchema,
   reportRangeSchema,
+  sessionReportExportQuerySchema,
   sessionReportQuerySchema,
   sessionReportResponseSchema,
+  therapistActivityExportQuerySchema,
   therapistActivityQuerySchema,
   therapistActivityResponseSchema,
 } from '@clinic/contracts';
@@ -770,5 +775,86 @@ describe('an empty period', () => {
         page: emptyPage,
       }).success,
     ).toBe(true);
+  });
+});
+
+/**
+ * The CSV export queries (checkpoint C5), which are the read queries minus the
+ * page.
+ */
+describe('the report export queries', () => {
+  const range = { from: '2026-08-01', to: '2026-08-31' };
+
+  it('refuses a page, because a file is the whole filtered result', () => {
+    // A paged download would silently omit the rest of the period, which is the
+    // quiet disagreement between a file and its report that C5 exists to prevent.
+    for (const schema of [
+      sessionReportExportQuerySchema,
+      promiseReportExportQuerySchema,
+      paymentReportExportQuerySchema,
+    ]) {
+      expect(schema.safeParse({ ...range }).success).toBe(true);
+      expect(schema.safeParse({ ...range, page: '2' }).success).toBe(false);
+      expect(schema.safeParse({ ...range, pageSize: '100' }).success).toBe(false);
+    }
+
+    expect(familyAccountReportExportQuerySchema.safeParse({}).success).toBe(true);
+    expect(familyAccountReportExportQuerySchema.safeParse({ page: '2' }).success).toBe(false);
+  });
+
+  it('keeps every filter the report has, and adds none', () => {
+    // One filter object builds each pair, so an export cannot narrow differently
+    // from the screen it was taken from.
+    const exported = sessionReportExportQuerySchema.parse({
+      ...range,
+      therapistId: '0199a0f5-0000-7000-8000-000000000001',
+      status: 'COMPLETED',
+    });
+
+    expect(exported.therapistId).toBe('0199a0f5-0000-7000-8000-000000000001');
+    expect(exported.status).toBe('COMPLETED');
+
+    // And nothing new: an unknown filter is refused, exactly as on the read.
+    expect(sessionReportExportQuerySchema.safeParse({ ...range, childName: 'x' }).success).toBe(
+      false,
+    );
+  });
+
+  it('keeps the range rules of the read: mandatory, ordered, uncapped', () => {
+    expect(paymentReportExportQuerySchema.safeParse({ from: '2026-08-01' }).success).toBe(false);
+    expect(
+      paymentReportExportQuerySchema.safeParse({ from: '2026-08-31', to: '2026-08-01' }).success,
+    ).toBe(false);
+    expect(
+      paymentReportExportQuerySchema.safeParse({ from: '2020-01-01', to: '2030-12-31' }).success,
+    ).toBe(true);
+  });
+
+  it('takes no date range on family accounts, because a position is not a period', () => {
+    // "The balances as at last month" is a different concept nobody has approved,
+    // and an export is exactly where somebody would first try to ask for it.
+    expect(familyAccountReportExportQuerySchema.safeParse({ ...range }).success).toBe(false);
+  });
+
+  it('is the read schema itself where the report was never paged', () => {
+    // Therapist activity answers with every matched therapist on the screen too,
+    // so the file and the screen are one question with no `page` to drop.
+    expect(therapistActivityExportQuerySchema).toBe(therapistActivityQuerySchema);
+  });
+
+  it('carries the same defaults, so a file and a screen show the same rows', () => {
+    expect(paymentReportExportQuerySchema.parse({ ...range }).includeVoided).toBe(
+      paymentReportQuerySchema.parse({ ...range }).includeVoided,
+    );
+    expect(familyAccountReportExportQuerySchema.parse({}).includeInactive).toBe(
+      familyAccountReportQuerySchema.parse({}).includeInactive,
+    );
+  });
+
+  it('refuses free text in an export filter, as every reporting query does', () => {
+    for (const schema of [promiseReportExportQuerySchema, paymentReportExportQuerySchema]) {
+      expect(schema.safeParse({ ...range, familyName: 'خانوادهٔ آزمایشی' }).success).toBe(false);
+      expect(schema.safeParse({ ...range, familyId: 'not-a-uuid' }).success).toBe(false);
+    }
   });
 });

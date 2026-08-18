@@ -53,21 +53,46 @@ import { reportFamilySummarySchema, reportRangeSchema, reportUserSummarySchema }
  * disagree with the audit trail. It is a filter on the LIST ONLY — a voided
  * payment is excluded from every confirmed total whether or not it is shown.
  */
+const paymentReportFilters = {
+  from: isoDateSchema,
+  to: isoDateSchema,
+  familyId: z.uuid().optional(),
+  method: paymentMethodSchema.optional(),
+  recordedByUserId: z.uuid().optional(),
+  includeVoided: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+} as const;
+
 export const paymentReportQuerySchema = ledgerPageQuerySchema
-  .extend({
-    from: isoDateSchema,
-    to: isoDateSchema,
-    familyId: z.uuid().optional(),
-    method: paymentMethodSchema.optional(),
-    recordedByUserId: z.uuid().optional(),
-    includeVoided: z
-      .enum(['true', 'false'])
-      .default('true')
-      .transform((value) => value === 'true'),
-  })
+  .extend(paymentReportFilters)
   .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type PaymentReportQuery = z.infer<typeof paymentReportQuerySchema>;
+
+/**
+ * The same question, asked for a file instead of a screen (Milestone 7,
+ * checkpoint C5).
+ *
+ *   GET /reports/payments/export   `paymentReportExportQuerySchema` -> text/csv
+ *
+ * ONE FILTER OBJECT BUILDS BOTH SCHEMAS. The range is still compared against
+ * `receivedOn` and never against the entry instant, so a file and the screen it
+ * was taken from cannot key a back-dated payment on two different days.
+ *
+ * `includeVoided` KEEPS ITS EXACT MEANING: it decides which rows the file
+ * carries and changes no number, because the file carries rows and no totals at
+ * all. A voided row prints with `status = VOIDED` beside its amount, which is
+ * how a reader tells a reversal from money the clinic kept.
+ *
+ * NO PAGING: a file is the whole filtered result.
+ */
+export const paymentReportExportQuerySchema = z
+  .strictObject(paymentReportFilters)
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
+
+export type PaymentReportExportQuery = z.infer<typeof paymentReportExportQuerySchema>;
 
 /**
  * One payment, as the report prints it.

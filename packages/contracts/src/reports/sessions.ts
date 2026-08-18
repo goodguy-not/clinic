@@ -63,21 +63,50 @@ import {
  * default opening window belongs to the surface that renders the report, not to
  * a refusal here (`reports/common.ts`).
  */
+const sessionReportFilters = {
+  from: isoDateSchema,
+  to: isoDateSchema,
+  familyId: z.uuid().optional(),
+  childId: z.uuid().optional(),
+  therapistId: z.uuid().optional(),
+  serviceId: z.uuid().optional(),
+  roomId: z.uuid().optional(),
+  status: appointmentStatusSchema.optional(),
+  attendance: attendanceOutcomeSchema.optional(),
+} as const;
+
 export const sessionReportQuerySchema = ledgerPageQuerySchema
-  .extend({
-    from: isoDateSchema,
-    to: isoDateSchema,
-    familyId: z.uuid().optional(),
-    childId: z.uuid().optional(),
-    therapistId: z.uuid().optional(),
-    serviceId: z.uuid().optional(),
-    roomId: z.uuid().optional(),
-    status: appointmentStatusSchema.optional(),
-    attendance: attendanceOutcomeSchema.optional(),
-  })
+  .extend(sessionReportFilters)
   .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type SessionReportQuery = z.infer<typeof sessionReportQuerySchema>;
+
+/**
+ * The same question, asked for a file instead of a screen (Milestone 7,
+ * checkpoint C5).
+ *
+ *   GET /reports/sessions/export   `sessionReportExportQuerySchema` -> text/csv
+ *
+ * IT IS THE READ'S FILTERS AND NOTHING ELSE. One `sessionReportFilters` object
+ * builds both schemas, so an export can never narrow differently from the screen
+ * it was taken from — which is the whole of "an exported answer must not
+ * disagree with its report".
+ *
+ * IT TAKES NO `page` OR `pageSize`, AND THE STRICT OBJECT REFUSES EITHER. A
+ * file is the whole filtered result: paging a download would produce a
+ * spreadsheet that silently omitted the rest of the period, which is precisely
+ * the kind of quiet disagreement this checkpoint exists to prevent.
+ *
+ * THE AUTHORITY IS DIFFERENT FROM THE READ'S, and that is the frozen owner
+ * decision rather than a shape: `SESSION_REPORT_EXPORT_PERMISSIONS` names
+ * `report.export` beside the diary authority, and the receptionist holds only
+ * the second.
+ */
+export const sessionReportExportQuerySchema = z
+  .strictObject(sessionReportFilters)
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
+
+export type SessionReportExportQuery = z.infer<typeof sessionReportExportQuerySchema>;
 
 /**
  * One session, as the report prints it.

@@ -67,6 +67,28 @@ export const therapistActivityQuerySchema = z
 export type TherapistActivityQuery = z.infer<typeof therapistActivityQuerySchema>;
 
 /**
+ * The same question, asked for a file instead of a screen (Milestone 7,
+ * checkpoint C5).
+ *
+ *   GET /reports/therapist-activity/export
+ *     `therapistActivityExportQuerySchema` -> text/csv
+ *
+ * IT IS THE READ'S SCHEMA ITSELF, not a copy of it, and it can be because this
+ * report was never paged: the screen already answers with every therapist the
+ * filter matched, so the file and the screen are the same question with no
+ * `page` to drop. An alias rather than a second declaration is what keeps a
+ * later filter from reaching one surface and not the other.
+ *
+ * THE FILE CARRIES NO MONEY, BECAUSE THE REPORT HAS NONE. No share, no
+ * settlement, no session value and no rate — the rules are unapproved
+ * (CLAUDE.md), and an export is the likeliest place for somebody to add a
+ * column "just for the accountant".
+ */
+export const therapistActivityExportQuerySchema = therapistActivityQuerySchema;
+
+export type TherapistActivityExportQuery = TherapistActivityQuery;
+
+/**
  * One therapist's period.
  *
  * THE COUNTS ARE SEATS, AS THE SESSION REPORT'S ARE. `attendedCount` is the work

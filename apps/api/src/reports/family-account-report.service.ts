@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  FamilyAccountReportExportQuery,
   FamilyAccountReportQuery,
   FamilyAccountReportResponse,
   FamilyAccountReportRow,
@@ -13,6 +14,7 @@ import {
   type FamilyPositionPartsRow,
 } from '../ledger/family-position';
 import { PrismaService } from '../prisma/prisma.service';
+import { pageWindow, windowClause, type ReportWindow } from './report-window';
 
 /**
  * WHAT EVERY FAMILY OWES OR STANDS IN CREDIT FOR, ON ONE PAGE.
@@ -89,23 +91,14 @@ export class FamilyAccountReportService {
    * could disagree with it.
    */
   async report(query: FamilyAccountReportQuery): Promise<FamilyAccountReportResponse> {
-    // Which FAMILIES are listed. Neither of these narrows a single financial
-    // statement: `includeInactive` is about the family RECORD — a deactivated
-    // family that still owes money is a real situation and the flag is how a
-    // manager finds it — and `standing` selects on a position that has already
-    // been derived over the whole family.
-    const selection = query.includeInactive
-      ? Prisma.sql`TRUE`
-      : Prisma.sql`f.status = 'ACTIVE'::record_status`;
-
+    const selection = familySelection(query);
     const standing = standingFilter(query);
+    const window = pageWindow(query);
 
     return this.prisma.$transaction(
       async (tx) => {
         const totals = await this.totals(tx, selection, standing);
-
-        const offset = (query.page - 1) * query.pageSize;
-        const families = await this.page(tx, selection, standing, query, offset);
+        const families = await this.rows(tx, selection, standing, window);
 
         return {
           totals,
@@ -114,12 +107,38 @@ export class FamilyAccountReportService {
             page: query.page,
             pageSize: query.pageSize,
             total: totals.familyCount,
-            hasMore: offset + families.length < totals.familyCount,
+            hasMore: window.offset + families.length < totals.familyCount,
           },
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  /**
+   * EVERY MATCHING FAMILY, FOR THE CSV EXPORT (checkpoint C5).
+   *
+   * IT IS `rows` WITH NO WINDOW, so every position in the file is still
+   * `toFamilyPosition` over `familyPositionParts` — the same code
+   * `GET /families/:id/account` answers with. A family quoted a balance from a
+   * spreadsheet and a balance from the screen is being quoted one number derived
+   * once, which is the entire reason this service was written the way it was.
+   *
+   * NO DATE RANGE REACHES ANY OF IT. `standing` and `includeInactive` select
+   * FAMILIES, exactly as on the screen; no filter on this route can produce a
+   * narrowed balance, and there is no "as at" date in a file any more than there
+   * is one in the report.
+   *
+   * WHAT THE FILE KNOWS IS ONLY WHAT THIS SYSTEM HOLDS. No opening balance and no
+   * pre-system paper debt is in these numbers, because no such row exists — the
+   * same disclosure the interface prints beside the report, and the one fact a
+   * spreadsheet has nowhere to print (see the C5 report).
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: FamilyAccountReportExportQuery,
+  ): Promise<FamilyAccountReportRow[]> {
+    return this.rows(tx, familySelection(query), standingFilter(query), null);
   }
 
   /**
@@ -171,7 +190,8 @@ export class FamilyAccountReportService {
   }
 
   /**
-   * One page of families, in the worklist order the server chooses.
+   * The matched families, in the worklist order the server chooses — one page of
+   * them for a screen, all of them for an export (windowClause).
    *
    * THE ORDER IS STATED BY THE SERVER RATHER THAN BY THE CALLER (frozen C1): the
    * report exists to answer "who should we call first?", and a sort parameter
@@ -194,19 +214,18 @@ export class FamilyAccountReportService {
    * `readLastPayments` is the position's own `DISTINCT ON`, so "the latest
    * payment" is the same row here as on the family's own account.
    */
-  private async page(
+  private async rows(
     tx: Prisma.TransactionClient,
     selection: Prisma.Sql,
     standing: Prisma.Sql,
-    query: FamilyAccountReportQuery,
-    offset: number,
+    window: ReportWindow | null,
   ): Promise<FamilyAccountReportRow[]> {
     const rows = await tx.$queryRaw<FamilyPositionPartsRow[]>`
       WITH position AS (${familyPositionParts(selection)})
       SELECT * FROM position
       WHERE ${standing}
       ORDER BY amount_due_total DESC, family_name ASC, family_id ASC
-      LIMIT ${query.pageSize} OFFSET ${offset}
+      ${windowClause(window)}
     `;
 
     const lastPayments = await readLastPayments(
@@ -219,6 +238,22 @@ export class FamilyAccountReportService {
       position: toFamilyPosition(row, lastPayments.get(row.family_id) ?? null),
     }));
   }
+}
+
+/**
+ * WHICH FAMILIES ARE LISTED, which is not a financial statement at all.
+ *
+ * `includeInactive` is about the family RECORD — a deactivated family that still
+ * owes money is a real situation and the flag is how a manager finds it. It
+ * narrows no charge, no payment and no promise, on the screen or in a file,
+ * which is why the position each row carries is always the whole family's.
+ *
+ * Extracted so the report and the export state it once. Two copies of "which
+ * families" would be two places for a later filter to reach one surface and not
+ * the other.
+ */
+function familySelection(query: FamilyAccountReportExportQuery): Prisma.Sql {
+  return query.includeInactive ? Prisma.sql`TRUE` : Prisma.sql`f.status = 'ACTIVE'::record_status`;
 }
 
 /**
@@ -238,7 +273,7 @@ export class FamilyAccountReportService {
  * two managers quote two different "families in arrears" counts, and the
  * arithmetic behind it belongs to the server.
  */
-function standingFilter(query: FamilyAccountReportQuery): Prisma.Sql {
+function standingFilter(query: FamilyAccountReportExportQuery): Prisma.Sql {
   if (query.standing === 'OWING') return Prisma.sql`amount_due_total > 0`;
   if (query.standing === 'IN_CREDIT') return Prisma.sql`credit_total > 0`;
   if (query.standing === 'SETTLED') {

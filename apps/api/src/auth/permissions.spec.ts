@@ -2,9 +2,14 @@ import { PERMISSIONS, USER_ROLES } from '@clinic/contracts';
 import {
   DASHBOARD_READ_PERMISSIONS,
   FAMILY_ACCOUNT_READ_PERMISSIONS,
+  FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS,
   FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+  PAYMENT_REPORT_EXPORT_PERMISSIONS,
   PAYMENT_REPORT_READ_PERMISSIONS,
+  PROMISE_REPORT_EXPORT_PERMISSIONS,
   ROLE_PERMISSIONS,
+  SESSION_REPORT_EXPORT_PERMISSIONS,
+  THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
   permissionsForRole,
 } from './permissions';
 
@@ -305,9 +310,65 @@ describe('role to permission map', () => {
         DASHBOARD_READ_PERMISSIONS,
         PAYMENT_REPORT_READ_PERMISSIONS,
         FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+        SESSION_REPORT_EXPORT_PERMISSIONS,
+        PROMISE_REPORT_EXPORT_PERMISSIONS,
+        THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
+        PAYMENT_REPORT_EXPORT_PERMISSIONS,
+        FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS,
       ]) {
         for (const permission of list) expect(PERMISSIONS).toContain(permission);
       }
+    });
+
+    describe('the CSV exports (checkpoint C5)', () => {
+      const exportSets = [
+        SESSION_REPORT_EXPORT_PERMISSIONS,
+        PROMISE_REPORT_EXPORT_PERMISSIONS,
+        THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
+        PAYMENT_REPORT_EXPORT_PERMISSIONS,
+        FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS,
+      ];
+
+      it('refuses a receptionist every export, including the reports they may read', () => {
+        // The frozen owner decision: export is manager-only. A receptionist reads
+        // sessions, promises and therapist activity on the screen all day and may
+        // carry none of them out of the building, because `report.export` is a
+        // name they have never held.
+        const receptionist = permissionsForRole('RECEPTIONIST');
+
+        for (const list of exportSets) {
+          expect(list).toContain('report.export');
+          expect(list.every((permission) => receptionist.includes(permission))).toBe(false);
+          expect(
+            list.every((permission) => permissionsForRole('MANAGER').includes(permission)),
+          ).toBe(true);
+        }
+      });
+
+      it('names each report own read authorities as well, so revoking a read revokes its file', () => {
+        // `report.export` alone would be the widest door in the building: one
+        // permission opening every report regardless of what its holder may look
+        // at. Each list is its report READ list plus the export authority.
+        expect(SESSION_REPORT_EXPORT_PERMISSIONS).toContain('appointment.read');
+        expect(PROMISE_REPORT_EXPORT_PERMISSIONS).toContain('promise.read');
+        expect(THERAPIST_ACTIVITY_EXPORT_PERMISSIONS).toContain('appointment.read');
+
+        for (const permission of PAYMENT_REPORT_READ_PERMISSIONS) {
+          expect(PAYMENT_REPORT_EXPORT_PERMISSIONS).toContain(permission);
+        }
+        for (const permission of FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS) {
+          expect(FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS).toContain(permission);
+        }
+      });
+
+      it('introduces no new permission name for exporting', () => {
+        // C5 spends the authority C1 froze and adds none: `report.export` was
+        // settled when the permission model was, and the CSV is what uses it.
+        expect(PERMISSIONS.filter((permission) => permission.startsWith('report.'))).toEqual([
+          'report.read_financial',
+          'report.export',
+        ]);
+      });
     });
   });
 

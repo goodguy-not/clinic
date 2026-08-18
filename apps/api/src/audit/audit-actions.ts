@@ -166,6 +166,37 @@ export const AUDIT_ACTIONS = [
   'payment_promise.fulfilled',
   'payment_promise.rescheduled',
   'payment_promise.cancelled',
+
+  // Reporting. ONE ACTION, AND IT IS THE MILESTONE 7 EXCEPTION TO "A READ IS
+  // NOT AUDITED" (checkpoint C5). Every other report route writes nothing at
+  // all, deliberately: copying a read into an append-only permanent table would
+  // build a second, undeletable store of who was seen and what they owe, growing
+  // with every screen refresh. An EXPORT is a different kind of event — the
+  // facts leave the system as a file, the file outlives the session, and nothing
+  // in this application can observe it again — so what is recorded is the ACT of
+  // taking it, once, at the moment it succeeded.
+  //
+  // IT RECORDS THAT AN EXPORT HAPPENED AND WHAT IT WAS SCOPED TO, NEVER WHAT WAS
+  // IN IT. The payload is the report name, the format, the range and basis where
+  // the report has one, the opaque entity ids the caller filtered by, and the
+  // number of rows. No amount, no total, no family, child, therapist or user
+  // name, no file number, no identifier and no free text of any kind — see
+  // `reports/report-export-audit.ts`, which builds the payload and is the only
+  // place that may.
+  //
+  // ONE ACTION RATHER THAN ONE PER REPORT. "How often does anybody take data out
+  // of this system?" is the question this row exists to answer, and it is asked
+  // of exports as a class; WHICH report is a value in the payload, which is
+  // exactly the shape a reviewer filters on. That is the opposite of the
+  // completion-versus-cancellation split above, and for the reason that
+  // distinguishes them: those are two different state changes, while these are
+  // one act performed on five surfaces.
+  //
+  // A REFUSED EXPORT WRITES NOTHING HERE. `PermissionsGuard` rejects it before
+  // any service runs, and an authorisation failure is a security-log concern
+  // rather than an audit fact (`common/security-log.ts`) — auditing refusals
+  // would let an unauthenticated caller fill the table by asking.
+  'report.exported',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -214,6 +245,17 @@ export const AUDIT_ENTITY_TYPES = [
   //
   // `registration_draft` is absent for a different reason: a draft is transient
   // workflow state that is deleted within ten minutes, not a historical fact.
+  //
+  // `report` IS THE ONE ENTRY THAT NAMES NO TABLE, AND IT NAMES NONE BECAUSE AN
+  // EXPORT NAMES NO ROW (Milestone 7, checkpoint C5). Every other entity type
+  // here is a table because every other audited fact is a change to a row in it;
+  // an export changes nothing anywhere and is about a REPORT — a question asked
+  // of many tables — so `entity_id` is null on every one of these rows and there
+  // is deliberately no id to put there. Inventing an `export` table to have
+  // something to point at would be exactly the stored-export this checkpoint is
+  // forbidden to create; naming the surface in the payload instead keeps the
+  // audit a record of an act rather than a copy of its result.
+  'report',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

@@ -77,15 +77,39 @@ export const familyAccountStandingSchema = z.enum(FAMILY_ACCOUNT_STANDINGS);
  * Not `z.coerce.boolean()`, for the reason stated on every other flag in this
  * package: `Boolean('false')` is `true`.
  */
-export const familyAccountReportQuerySchema = ledgerPageQuerySchema.extend({
+const familyAccountReportFilters = {
   standing: familyAccountStandingSchema.optional(),
   includeInactive: z
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
-});
+} as const;
+
+export const familyAccountReportQuerySchema = ledgerPageQuerySchema.extend(
+  familyAccountReportFilters,
+);
 
 export type FamilyAccountReportQuery = z.infer<typeof familyAccountReportQuerySchema>;
+
+/**
+ * The same question, asked for a file instead of a screen (Milestone 7,
+ * checkpoint C5).
+ *
+ *   GET /reports/family-accounts/export
+ *     `familyAccountReportExportQuerySchema` -> text/csv
+ *
+ * IT TAKES NO DATE RANGE EITHER, AND THE STRICT OBJECT REFUSES ONE. A position
+ * is not a period, on a screen or in a file: "the balances as at last month" is
+ * a different concept nobody has approved, and an export is exactly where
+ * somebody would first try to ask for it.
+ *
+ * ONE FILTER OBJECT BUILDS BOTH SCHEMAS, so `standing` and `includeInactive`
+ * keep selecting FAMILIES and never narrow a balance — the frozen Milestone 6
+ * distinction, held across a third surface.
+ */
+export const familyAccountReportExportQuerySchema = z.strictObject(familyAccountReportFilters);
+
+export type FamilyAccountReportExportQuery = z.infer<typeof familyAccountReportExportQuerySchema>;
 
 /**
  * One family's whole standing.

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AppointmentsModule } from '../appointments/appointments.module';
+import { AuditModule } from '../audit/audit.module';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { FamilyAccountReportService } from './family-account-report.service';
@@ -7,6 +8,8 @@ import { FinancialReportsController } from './financial-reports.controller';
 import { OperationalReportsController } from './operational-reports.controller';
 import { PaymentReportService } from './payment-report.service';
 import { PromiseReportService } from './promise-report.service';
+import { ReportExportController } from './report-export.controller';
+import { ReportExportService } from './report-export.service';
 import { SessionReportService } from './session-report.service';
 import { TherapistActivityService } from './therapist-activity.service';
 
@@ -60,11 +63,30 @@ import { TherapistActivityService } from './therapist-activity.service';
  * report borrows the payment module's own status derivation and read order for
  * the same reason.
  *
- * Export behaviour is a separate authority and a later decision.
+ * C5 ADDS THE CSV EXPORTS, AND WITH THEM THE ONE ROW THIS MODULE EVER WRITES.
+ * `AuditModule` is imported for exactly that: a `report.exported` row per
+ * successful export, written in the transaction that read the file's rows. It is
+ * the deliberate Milestone 7 exception to "a read is not audited" — an export is
+ * an ACT, because the data leaves the system — and it is the ONLY write this
+ * module may ever make. The module still owns no table, stores no file, keeps no
+ * aggregate and holds no domain rule; if a reporting service ever needs a second
+ * kind of write, that is the moment to stop and ask whether a second source of
+ * financial truth is being created.
+ *
+ * THE EXPORTS ADD NO REPORTING LOGIC. `ReportExportService` chooses columns and
+ * writes bytes; every row it writes comes from the five services above, through
+ * their own statements with the paging window removed. There is no export
+ * pipeline, no generated-file table, no materialised view and no background job:
+ * a file is built on the request that asks for it and is never seen again.
  */
 @Module({
-  imports: [AppointmentsModule],
-  controllers: [DashboardController, OperationalReportsController, FinancialReportsController],
+  imports: [AppointmentsModule, AuditModule],
+  controllers: [
+    DashboardController,
+    OperationalReportsController,
+    FinancialReportsController,
+    ReportExportController,
+  ],
   providers: [
     DashboardService,
     SessionReportService,
@@ -72,6 +94,7 @@ import { TherapistActivityService } from './therapist-activity.service';
     TherapistActivityService,
     PaymentReportService,
     FamilyAccountReportService,
+    ReportExportService,
   ],
 })
 export class ReportsModule {}

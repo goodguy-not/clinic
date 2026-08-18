@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  PromiseReportExportQuery,
   PromiseReportQuery,
   PromiseReportResponse,
   PromiseReportRow,
@@ -9,6 +10,7 @@ import type {
 } from '@clinic/contracts';
 import { PROMISE_WIRE_STATUS, promiseStatusFilter } from '../payments/promise-detail';
 import { PrismaService } from '../prisma/prisma.service';
+import { pageWindow, windowClause, type ReportWindow } from './report-window';
 
 /**
  * PROMISES ACROSS THE WHOLE CLINIC: who said they would pay, when, and what
@@ -82,12 +84,12 @@ export class PromiseReportService {
    */
   async report(query: PromiseReportQuery): Promise<PromiseReportResponse> {
     const filters = promiseFilters(query);
+    const window = pageWindow(query);
 
     return this.prisma.$transaction(
       async (tx) => {
         const summary = await this.summary(tx, filters);
-        const offset = (query.page - 1) * query.pageSize;
-        const promises = await this.page(tx, filters, query, offset);
+        const promises = await this.rows(tx, filters, window);
 
         return {
           range: { from: query.from, to: query.to, dateBasis: 'PROMISE_DUE_ON' },
@@ -97,12 +99,34 @@ export class PromiseReportService {
             page: query.page,
             pageSize: query.pageSize,
             total: summary.total,
-            hasMore: offset + promises.length < summary.total,
+            hasMore: window.offset + promises.length < summary.total,
           },
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  /**
+   * EVERY MATCHING PROMISE, FOR THE CSV EXPORT (checkpoint C5).
+   *
+   * IT IS `rows` WITH NO WINDOW. The same predicate, the same `PROMISE_WIRE_STATUS`
+   * derivation and the same total order the screen is drawn from, so a file
+   * cannot call a promise `OPEN` that the report calls `MISSED` — `MISSED` is
+   * derived in PostgreSQL against the clinic's calendar day here exactly as it is
+   * there, and the caller's transaction pins `clinic_date()` for the file and its
+   * audit row alike.
+   *
+   * STILL NO SUM ANYWHERE. The file carries each promise's own amount and no
+   * total of them, because a promise moves no money in any state (CLAUDE.md) and
+   * a column footer in a spreadsheet is exactly where a promised total would be
+   * added to real ones.
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: PromiseReportExportQuery,
+  ): Promise<PromiseReportRow[]> {
+    return this.rows(tx, promiseFilters(query), null);
   }
 
   /**
@@ -155,7 +179,8 @@ export class PromiseReportService {
   }
 
   /**
-   * One page of promises, soonest due date first.
+   * The matched promises, soonest due date first — one page of them for a
+   * screen, all of them for an export (`windowClause`).
    *
    * DELIBERATELY NOT `PROMISE_ORDER`. That order is a family worklist — the
    * unresolved promises hoisted above the terminal ones — and it is the right
@@ -177,11 +202,10 @@ export class PromiseReportService {
    * above 2^53 is storable and is not representable as a JSON number. `due_on` is
    * read `::text`, because the digits are the value.
    */
-  private async page(
+  private async rows(
     tx: Prisma.TransactionClient,
     filters: Prisma.Sql,
-    query: PromiseReportQuery,
-    offset: number,
+    window: ReportWindow | null,
   ): Promise<PromiseReportRow[]> {
     const rows = await tx.$queryRaw<ReportRow[]>`
       SELECT
@@ -196,7 +220,7 @@ export class PromiseReportService {
       JOIN family f ON f.id = p.family_id
       WHERE ${filters}
       ORDER BY p.due_on ASC, p.created_at ASC, p.id ASC
-      LIMIT ${query.pageSize} OFFSET ${offset}
+      ${windowClause(window)}
     `;
 
     return rows.map((row) => ({
@@ -235,7 +259,7 @@ export class PromiseReportService {
  * `familyId` IS THE ONLY OTHER FILTER, and it is an opaque id. No name, no
  * mobile number and no free text of any kind reaches this query string.
  */
-function promiseFilters(query: PromiseReportQuery): Prisma.Sql {
+function promiseFilters(query: PromiseReportExportQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [
     Prisma.sql`p.due_on >= ${query.from}::date`,
     Prisma.sql`p.due_on <= ${query.to}::date`,

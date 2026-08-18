@@ -51,16 +51,41 @@ import { reportFamilySummarySchema, reportRangeSchema } from './common';
  * default opening window belongs to the surface that renders the report, not to
  * a refusal here (`reports/common.ts`).
  */
+const promiseReportFilters = {
+  from: isoDateSchema,
+  to: isoDateSchema,
+  familyId: z.uuid().optional(),
+  status: promiseStatusSchema.optional(),
+} as const;
+
 export const promiseReportQuerySchema = ledgerPageQuerySchema
-  .extend({
-    from: isoDateSchema,
-    to: isoDateSchema,
-    familyId: z.uuid().optional(),
-    status: promiseStatusSchema.optional(),
-  })
+  .extend(promiseReportFilters)
   .refine((value) => value.from <= value.to, 'the range must not end before it starts');
 
 export type PromiseReportQuery = z.infer<typeof promiseReportQuerySchema>;
+
+/**
+ * The same question, asked for a file instead of a screen (Milestone 7,
+ * checkpoint C5).
+ *
+ *   GET /reports/promises/export   `promiseReportExportQuerySchema` -> text/csv
+ *
+ * ONE FILTER OBJECT BUILDS BOTH SCHEMAS, so the file and the screen narrow
+ * identically and `MISSED` keeps meaning what the server derives it to mean.
+ *
+ * NO PAGING, for the reason stated on the session export: a file is the whole
+ * filtered result.
+ *
+ * THE EXPORT IS MANAGER-ONLY THOUGH THE READ IS SHARED, and that is the frozen
+ * owner decision. A receptionist chases promises on the screen; carrying the
+ * clinic's promise list out of the building is a different act, and
+ * `PROMISE_REPORT_EXPORT_PERMISSIONS` is where it is named.
+ */
+export const promiseReportExportQuerySchema = z
+  .strictObject(promiseReportFilters)
+  .refine((value) => value.from <= value.to, 'the range must not end before it starts');
+
+export type PromiseReportExportQuery = z.infer<typeof promiseReportExportQuerySchema>;
 
 /**
  * One promise, as the report prints it.
