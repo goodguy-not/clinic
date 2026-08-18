@@ -46,7 +46,7 @@ export default async function SessionsReportPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSession({ requirePermission: 'appointment.read' });
+  const user = await requireSession({ requirePermission: 'appointment.read' });
   const params = await searchParams;
   const range = defaultRange(params);
   const candidate = {
@@ -81,7 +81,10 @@ export default async function SessionsReportPage({
           title="گزارش جلسه‌ها"
           description={`فعالیت عملیاتی بر پایهٔ تاریخ جلسه · ${dateLabel(range.from)} تا ${dateLabel(range.to)}`}
         />
-        <ReportNavigation active="/reports/sessions" />
+        <ReportNavigation
+          active="/reports/sessions"
+          showFinancial={user.permissions.includes('report.read_financial')}
+        />
         <ReportFilters
           kind="sessions"
           from={range.fromJalali}

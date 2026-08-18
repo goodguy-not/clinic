@@ -5,6 +5,8 @@ import {
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
   dashboardResponseSchema,
+  familyAccountReportResponseSchema,
+  paymentReportResponseSchema,
   sessionReportResponseSchema,
   promiseReportResponseSchema,
   therapistActivityResponseSchema,
@@ -67,6 +69,10 @@ import {
   type CreateUserResponse,
   type DashboardQuery,
   type DashboardResponse,
+  type FamilyAccountReportQuery,
+  type FamilyAccountReportResponse,
+  type PaymentReportQuery,
+  type PaymentReportResponse,
   type SessionReportQuery,
   type SessionReportResponse,
   type PromiseReportQuery,
@@ -310,6 +316,28 @@ function reportSearch(query: object): URLSearchParams {
 }
 
 export const api = {
+  paymentReport: (
+    query: PaymentReportQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<PaymentReportResponse>> =>
+    call(
+      `/reports/payments?${reportSearch(query).toString()}`,
+      'GET',
+      paymentReportResponseSchema,
+      context,
+    ),
+
+  familyAccountReport: (
+    query: FamilyAccountReportQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<FamilyAccountReportResponse>> =>
+    call(
+      `/reports/family-accounts?${reportSearch(query).toString()}`,
+      'GET',
+      familyAccountReportResponseSchema,
+      context,
+    ),
+
   sessionReport: (
     query: SessionReportQuery,
     context: CallerContext,

@@ -54,3 +54,45 @@ describe('operational report surfaces', () => {
     expect(handler).not.toMatch(/guardian|phone|mobile|familyName|childName/i);
   });
 });
+
+describe('manager financial report surfaces', () => {
+  it('gates both pages on the frozen manager-only authority and keeps them server-rendered', () => {
+    const payments = source(join('payments', 'page.tsx'));
+    const accounts = source(join('family-accounts', 'page.tsx'));
+    expect(payments).toContain('requirePermission: PAYMENT_REPORT_READ_PERMISSIONS');
+    expect(accounts).toContain('requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS');
+    expect(payments).not.toContain("'use client'");
+    expect(accounts).not.toContain("'use client'");
+  });
+
+  it('keeps financial navigation hidden unless the resolved user has financial authority', () => {
+    const sessions = source(join('sessions', 'page.tsx'));
+    const navigation = source('report-ui.tsx');
+    expect(sessions).toContain("user.permissions.includes('report.read_financial')");
+    expect(navigation).toContain('showFinancial = false');
+  });
+
+  it('states payment receipt-date semantics and consumes server totals without adding rows', () => {
+    const payments = source(join('payments', 'page.tsx'));
+    expect(payments).toContain('تاریخ دریافت وجه (receivedOn)');
+    expect(payments).toContain('result.data.totals.confirmedTotalToman');
+    expect(payments).not.toMatch(/reduce\(|amountToman\s*[+-]/);
+    expect(payments).not.toMatch(/reference|bankReference|allocation|fulfil/i);
+  });
+
+  it('keeps whole-family position, due, credit, and promises semantically separate', () => {
+    const accounts = source(join('family-accounts', 'page.tsx'));
+    expect(accounts).toContain('position.amountDueToman');
+    expect(accounts).toContain('position.creditToman');
+    expect(accounts).toContain('COPY.familyFinancialPositionHistoricalWarning');
+    expect(accounts).toContain('شمارش قول‌ها مبلغ قابل پرداخت را کم نمی‌کند');
+    expect(accounts).not.toMatch(/reduce\(|netBalance|clinicBalance/);
+  });
+
+  it('uses POST family lookup and puts only the selected opaque id into report URLs', () => {
+    const familyFilter = source('family-report-filter.tsx');
+    expect(familyFilter).toContain('searchFamiliesAction');
+    expect(familyFilter).toContain("search.set('familyId', familyId)");
+    expect(familyFilter).not.toMatch(/search\.set\(['"](?:q|name|phone|mobile)/);
+  });
+});

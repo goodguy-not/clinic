@@ -131,6 +131,86 @@ describe('operational report reads', () => {
   });
 });
 
+describe('financial report reads', () => {
+  const familyId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d01';
+  const userId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d02';
+
+  it('serializes receipt-date, closed enum, opaque id, and paging filters exactly', async () => {
+    mockFetch(200, {
+      range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'PAYMENT_RECEIVED_ON' },
+      totals: {
+        confirmedCount: 0,
+        confirmedTotalToman: '0',
+        voidedCount: 0,
+        byMethod: [
+          { method: 'CASH', confirmedCount: 0, confirmedTotalToman: '0' },
+          { method: 'CARD', confirmedCount: 0, confirmedTotalToman: '0' },
+          { method: 'TRANSFER', confirmedCount: 0, confirmedTotalToman: '0' },
+        ],
+        byUser: [],
+      },
+      payments: [],
+      page: { page: 2, pageSize: 25, total: 0, hasMore: false },
+    });
+    await api.paymentReport(
+      {
+        from: '2026-08-01',
+        to: '2026-08-18',
+        page: 2,
+        pageSize: 25,
+        familyId,
+        method: 'CARD',
+        recordedByUserId: userId,
+        includeVoided: false,
+      },
+      {},
+    );
+
+    const request = captured[0] as Captured;
+    const url = new URL(request.url);
+    expect(url.pathname).toBe('/reports/payments');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-18',
+      page: '2',
+      pageSize: '25',
+      familyId,
+      method: 'CARD',
+      recordedByUserId: userId,
+      includeVoided: 'false',
+    });
+    expect(request.init.cache).toBe('no-store');
+  });
+
+  it('strictly consumes empty family-account totals without deriving a balance', async () => {
+    mockFetch(200, {
+      totals: {
+        familyCount: 0,
+        owingFamilyCount: 0,
+        inCreditFamilyCount: 0,
+        totalAmountDueToman: '0',
+        totalCreditToman: '0',
+      },
+      families: [],
+      page: { page: 1, pageSize: 25, total: 0, hasMore: false },
+    });
+    const result = await api.familyAccountReport(
+      { page: 1, pageSize: 25, standing: 'OWING', includeInactive: true },
+      {},
+    );
+
+    expect(result.ok && result.data.totals.totalAmountDueToman).toBe('0');
+    const url = new URL((captured[0] as Captured).url);
+    expect(url.pathname).toBe('/reports/family-accounts');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      page: '1',
+      pageSize: '25',
+      standing: 'OWING',
+      includeInactive: 'true',
+    });
+  });
+});
+
 describe('outbound headers', () => {
   it('always sends the internal key and a generated request id', async () => {
     mockFetch(200, LOGIN_RESPONSE);

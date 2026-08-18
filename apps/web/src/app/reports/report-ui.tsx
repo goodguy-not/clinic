@@ -5,17 +5,31 @@ import { FOCUS_RING } from '@/components/ui';
 import type { JalaliParts } from '@/server/jalali';
 import { toPersianDigits } from '@/server/numerals-fa';
 
-export const REPORT_LINKS = [
+export const OPERATIONAL_REPORT_LINKS = [
   ['/reports/sessions', 'جلسه‌ها'],
   ['/reports/promises', 'قول‌های پرداخت'],
   ['/reports/therapist-activity', 'فعالیت درمانگران'],
 ] as const;
 
-export function ReportNavigation({ active }: { active: string }) {
+export const FINANCIAL_REPORT_LINKS = [
+  ['/reports/payments', 'پرداخت‌ها'],
+  ['/reports/family-accounts', 'حساب خانواده‌ها'],
+] as const;
+
+export function ReportNavigation({
+  active,
+  showFinancial = false,
+}: {
+  active: string;
+  showFinancial?: boolean;
+}) {
+  const links = showFinancial
+    ? [...OPERATIONAL_REPORT_LINKS, ...FINANCIAL_REPORT_LINKS]
+    : OPERATIONAL_REPORT_LINKS;
   return (
-    <nav aria-label="گزارش‌های عملیاتی" className="overflow-x-auto pb-1">
+    <nav aria-label="گزارش‌های کلینیک" className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
-        {REPORT_LINKS.map(([href, label]) => (
+        {links.map(([href, label]) => (
           <Link
             key={href}
             href={href}
@@ -42,7 +56,7 @@ export function ReportFilters({
   children,
   active,
 }: {
-  kind: 'sessions' | 'promises' | 'therapist-activity';
+  kind: 'sessions' | 'promises' | 'therapist-activity' | 'payments';
   from: JalaliParts;
   to: JalaliParts;
   csrfToken: string;
@@ -130,6 +144,30 @@ export function MetricGrid({ items }: { items: readonly (readonly [string, numbe
           <dt className="text-xs leading-5 text-slate-600">{label}</dt>
           <dd className={`mt-1 text-2xl font-black tabular-nums ${tone ?? 'text-slate-950'}`}>
             {toPersianDigits(String(value))}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function FinancialMetricGrid({
+  label,
+  items,
+}: {
+  label: string;
+  items: readonly (readonly [string, string, string?])[];
+}) {
+  return (
+    <dl aria-label={label} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      {items.map(([itemLabel, value, tone]) => (
+        <div
+          key={itemLabel}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xs"
+        >
+          <dt className="text-xs leading-5 text-slate-600">{itemLabel}</dt>
+          <dd className={`mt-1 text-xl font-black tabular-nums ${tone ?? 'text-slate-950'}`}>
+            <bdi>{value}</bdi>
           </dd>
         </div>
       ))}

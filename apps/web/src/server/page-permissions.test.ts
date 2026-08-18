@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DASHBOARD_READ_PERMISSIONS,
   FAMILY_ACCOUNT_READ_PERMISSIONS,
+  FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+  PAYMENT_REPORT_READ_PERMISSIONS,
   type Permission,
 } from '@clinic/contracts';
 
@@ -140,5 +142,37 @@ describe('the dashboard page names every authority in its aggregated response', 
   it('uses the shared dashboard permission constant on the landing page', () => {
     const page = readFileSync(join(APP_ROOT, 'page.tsx'), 'utf8');
     expect(page).toContain('requirePermission: DASHBOARD_READ_PERMISSIONS');
+  });
+});
+
+describe('clinic-wide financial reports are manager-only at the page boundary', () => {
+  it('admits every frozen route authority and refuses receptionist operational money permissions', async () => {
+    await expect(
+      requireWith([...PAYMENT_REPORT_READ_PERMISSIONS], PAYMENT_REPORT_READ_PERMISSIONS),
+    ).resolves.toEqual(
+      expect.objectContaining({ permissions: [...PAYMENT_REPORT_READ_PERMISSIONS] }),
+    );
+    await expect(
+      requireWith(
+        [...FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS],
+        FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({ permissions: [...FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS] }),
+    );
+
+    await expect(
+      requireWith(
+        ['charge.read', 'payment.read', 'promise.read'],
+        FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
+      ),
+    ).rejects.toThrow('REDIRECT:/');
+  });
+
+  it('pins both report pages to the same frozen lists their API routes use', () => {
+    const payments = readFileSync(join(APP_ROOT, 'reports', 'payments', 'page.tsx'), 'utf8');
+    const accounts = readFileSync(join(APP_ROOT, 'reports', 'family-accounts', 'page.tsx'), 'utf8');
+    expect(payments).toContain('requirePermission: PAYMENT_REPORT_READ_PERMISSIONS');
+    expect(accounts).toContain('requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS');
   });
 });

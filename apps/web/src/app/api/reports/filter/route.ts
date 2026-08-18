@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {
+  familyAccountReportQuerySchema,
+  paymentReportQuerySchema,
   promiseReportQuerySchema,
   sessionReportQuerySchema,
   therapistActivityQuerySchema,
@@ -36,9 +38,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const kind = body['kind'];
   const base =
-    kind === 'sessions' || kind === 'promises' || kind === 'therapist-activity'
+    kind === 'sessions' ||
+    kind === 'promises' ||
+    kind === 'therapist-activity' ||
+    kind === 'payments' ||
+    kind === 'family-accounts'
       ? `/reports/${kind}`
       : '/reports/sessions';
+  if (kind === 'family-accounts') {
+    const parsed = familyAccountReportQuerySchema.safeParse({
+      page: 1,
+      pageSize: 25,
+      ...pick(body, ['standing', 'includeInactive']),
+    });
+    if (!parsed.success)
+      return applySecurityHeaders(NextResponse.redirect(new URL(base, request.url), 303));
+    return redirectToReport(request, base, parsed.data);
+  }
   const from = date(body, 'from');
   const to = date(body, 'to');
   if (from === null || to === null)
@@ -68,16 +84,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             pageSize: 25,
             ...pick(body, ['familyId', 'status']),
           })
-        : therapistActivityQuerySchema.safeParse({
-            ...common,
-            ...pick(body, ['therapistId', 'serviceId', 'includeInactive']),
-          });
+        : kind === 'payments'
+          ? paymentReportQuerySchema.safeParse({
+              ...common,
+              page: 1,
+              pageSize: 25,
+              ...pick(body, ['familyId', 'method', 'recordedByUserId', 'includeVoided']),
+            })
+          : therapistActivityQuerySchema.safeParse({
+              ...common,
+              ...pick(body, ['therapistId', 'serviceId', 'includeInactive']),
+            });
   if (!parsed.success)
     return applySecurityHeaders(NextResponse.redirect(new URL(base, request.url), 303));
 
+  return redirectToReport(request, base, parsed.data);
+}
+
+function redirectToReport(request: NextRequest, base: string, query: object): NextResponse {
   const target = new URL(base, request.url);
-  for (const [key, value] of Object.entries(parsed.data))
-    target.searchParams.set(key, String(value));
+  for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
   return applySecurityHeaders(NextResponse.redirect(target, 303));
 }
 

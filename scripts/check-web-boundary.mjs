@@ -369,6 +369,9 @@ walk(webAppRoot, (file) => {
 // second, legible line of that same defence.
 const CLIENT_COMPONENT_ALLOWLIST = [
   'src/app/families/family-search.tsx',
+  // Reuses the POST-only family search action; the island owns useActionState
+  // and puts only the selected opaque family id into the report URL.
+  'src/app/reports/family-report-filter.tsx',
   // A weekly set needs rows to be added and removed before its one wholesale
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.

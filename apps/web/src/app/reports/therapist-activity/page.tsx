@@ -29,7 +29,7 @@ export default async function TherapistActivityPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSession({ requirePermission: 'appointment.read' });
+  const user = await requireSession({ requirePermission: 'appointment.read' });
   const params = await searchParams;
   const range = defaultRange(params);
   const therapistId = uuidParam(params, 'therapistId');
@@ -58,7 +58,10 @@ export default async function TherapistActivityPage({
           title="گزارش فعالیت درمانگران"
           description={`شمارش و مدت فعالیت عملیاتی بر پایهٔ تاریخ جلسه · ${dateLabel(range.from)} تا ${dateLabel(range.to)} · این گزارش مالی یا تسویه نیست.`}
         />
-        <ReportNavigation active="/reports/therapist-activity" />
+        <ReportNavigation
+          active="/reports/therapist-activity"
+          showFinancial={user.permissions.includes('report.read_financial')}
+        />
         <ReportFilters
           kind="therapist-activity"
           from={range.fromJalali}

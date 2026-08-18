@@ -39,7 +39,7 @@ export default async function PromisesReportPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireSession({ requirePermission: 'promise.read' });
+  const user = await requireSession({ requirePermission: 'promise.read' });
   const params = await searchParams;
   const range = defaultRange(params);
   const familyId = uuidParam(params, 'familyId');
@@ -65,7 +65,10 @@ export default async function PromisesReportPage({
           title="گزارش قول‌های پرداخت"
           description={`پیگیری عملیاتی بر پایهٔ تاریخ سررسید · ${dateLabel(range.from)} تا ${dateLabel(range.to)} · قول پرداخت، پرداخت یا ماندهٔ خانواده نیست.`}
         />
-        <ReportNavigation active="/reports/promises" />
+        <ReportNavigation
+          active="/reports/promises"
+          showFinancial={user.permissions.includes('report.read_financial')}
+        />
         <ReportFilters
           kind="promises"
           from={range.fromJalali}
