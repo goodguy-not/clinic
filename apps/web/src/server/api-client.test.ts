@@ -47,6 +47,90 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('operational report reads', () => {
+  it('serializes only the frozen report vocabulary and strictly parses empty successes', async () => {
+    mockFetch(200, {
+      range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'SESSION_DATE' },
+      summary: {
+        total: 0,
+        scheduled: 0,
+        completed: 0,
+        cancelled: 0,
+        attended: 0,
+        noShows: 0,
+        unresolvedOutcomes: 0,
+        totalDurationMinutes: 0,
+      },
+      sessions: [],
+      page: { page: 1, pageSize: 25, total: 0, hasMore: false },
+    });
+    await api.sessionReport(
+      {
+        from: '2026-08-01',
+        to: '2026-08-18',
+        page: 1,
+        pageSize: 25,
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+      },
+      {},
+    );
+    mockFetch(200, {
+      range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'PROMISE_DUE_ON' },
+      summary: { total: 0, open: 0, missed: 0, fulfilled: 0, rescheduled: 0, cancelled: 0 },
+      promises: [],
+      page: { page: 1, pageSize: 25, total: 0, hasMore: false },
+    });
+    await api.promiseReport(
+      { from: '2026-08-01', to: '2026-08-18', page: 1, pageSize: 25, status: 'MISSED' },
+      {},
+    );
+    mockFetch(200, {
+      range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'SESSION_DATE' },
+      totals: {
+        therapistCount: 0,
+        scheduledCount: 0,
+        completedCount: 0,
+        cancelledCount: 0,
+        attendedCount: 0,
+        noShowCount: 0,
+        unresolvedOutcomeCount: 0,
+        attendedDurationMinutes: 0,
+      },
+      therapists: [],
+    });
+    await api.therapistActivityReport(
+      { from: '2026-08-01', to: '2026-08-18', includeInactive: false },
+      {},
+    );
+
+    const urls = captured.map(({ url }) => new URL(url));
+    expect(urls.map((url) => url.pathname)).toEqual([
+      '/reports/sessions',
+      '/reports/promises',
+      '/reports/therapist-activity',
+    ]);
+    expect(Object.fromEntries(urls[0]!.searchParams)).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-18',
+      page: '1',
+      pageSize: '25',
+      therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+    });
+    expect(Object.fromEntries(urls[1]!.searchParams)).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-18',
+      page: '1',
+      pageSize: '25',
+      status: 'MISSED',
+    });
+    expect(Object.fromEntries(urls[2]!.searchParams)).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-18',
+      includeInactive: 'false',
+    });
+  });
+});
+
 describe('outbound headers', () => {
   it('always sends the internal key and a generated request id', async () => {
     mockFetch(200, LOGIN_RESPONSE);

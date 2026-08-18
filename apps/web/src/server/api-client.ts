@@ -5,6 +5,9 @@ import {
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
   dashboardResponseSchema,
+  sessionReportResponseSchema,
+  promiseReportResponseSchema,
+  therapistActivityResponseSchema,
   appointmentDayResponseSchema,
   appointmentSeriesOperationResponseSchema,
   appointmentSeriesResponseSchema,
@@ -64,6 +67,12 @@ import {
   type CreateUserResponse,
   type DashboardQuery,
   type DashboardResponse,
+  type SessionReportQuery,
+  type SessionReportResponse,
+  type PromiseReportQuery,
+  type PromiseReportResponse,
+  type TherapistActivityQuery,
+  type TherapistActivityResponse,
   type ErrorCode,
   familyAccountResponseSchema,
   type FamilyAccountQuery,
@@ -290,7 +299,50 @@ async function call<T>(
   return { ok: true, data: schema.parse(payload), requestId };
 }
 
+/** Frozen report filters only: dates, closed enums, opaque ids, and paging. */
+function reportSearch(query: object): URLSearchParams {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined)
+      search.set(key, typeof value === 'boolean' ? String(value) : String(value));
+  }
+  return search;
+}
+
 export const api = {
+  sessionReport: (
+    query: SessionReportQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionReportResponse>> =>
+    call(
+      `/reports/sessions?${reportSearch(query).toString()}`,
+      'GET',
+      sessionReportResponseSchema,
+      context,
+    ),
+
+  promiseReport: (
+    query: PromiseReportQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<PromiseReportResponse>> =>
+    call(
+      `/reports/promises?${reportSearch(query).toString()}`,
+      'GET',
+      promiseReportResponseSchema,
+      context,
+    ),
+
+  therapistActivityReport: (
+    query: TherapistActivityQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistActivityResponse>> =>
+    call(
+      `/reports/therapist-activity?${reportSearch(query).toString()}`,
+      'GET',
+      therapistActivityResponseSchema,
+      context,
+    ),
+
   dashboard: (
     query: DashboardQuery,
     context: CallerContext,
