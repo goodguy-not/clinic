@@ -2635,3 +2635,119 @@ until now, is refused by `SessionRatingService.voidRow` and by
   closed period must already carry a delta forward; whether that mechanism
   should also carry an allocation forward is a question that only becomes
   answerable then.
+
+## 2026-08-19 — The settlement statement reads snapshots, and says nothing it cannot yet know
+
+**Status:** Accepted — Milestone 8, checkpoint C5
+
+`GET /settlement/statement` answers, for one therapist and one explicit
+inclusive range keyed on `SESSION_DATE`, what the CURRENTLY VALID recorded facts
+say that therapist earned. It is a read: no row, no aggregate, no audit entry, no
+cached total, no lock. A line exists for every session whose RATING stands
+(`session_settlement.voided_at IS NULL`) and whose CHARGE stands
+(`session_charge.voided_at IS NULL`), and the money on it is
+`therapistNet = therapistGross − therapistDiscount` and
+`clinicNet = clinicGross − clinicDiscount`, where the two gross figures are read
+verbatim from the C3 snapshot and the two borne portions are the sums of ACTIVE
+`charge_adjustment` rows.
+
+**`therapist_share_rule` is not joined, and `resolveShareRuleRow` is not
+imported.** The applied percentage is read off the session's own row.
+
+- **Alternatives:** resolving the therapist's effective rule for each session's
+  service date at read time; recomputing `base × bp` rather than reading the
+  stored gross.
+- **Reason:** both would make a statement restate itself the first time a rule
+  was corrected, or the first time the rounding rule was touched — which is the
+  single failure the whole milestone was built to make impossible. The stored
+  gross is already re-checked in SQL by `session_settlement_split_chk`, so
+  reading it is reading a figure the database has verified, while recomputing it
+  is applying today's arithmetic to a session somebody has already been shown.
+- **Trade-off:** none identified. The snapshot is the authoritative fact.
+- **Revisit when:** never for this read. A future report that asks "what WOULD
+  this session earn under today's agreement" is a different question and needs a
+  different name.
+
+**Pre-C6 fields are answered with the truth about a system that has never closed
+anything.** `lineType` is `PRIMARY` and `correctsSessionSettlementId` is null on
+every line; `correctionCount` and `settledToman` are zero;
+`earnedUnsettledToman` and `netSettlementToman` are both the range's
+`therapistNetToman`.
+
+- **Alternatives:** synthesising a `CORRECTION` line from
+  `supersedes_session_settlement_id`; creating placeholder period rows so the
+  future-facing fields have something to point at.
+- **Reason:** a `CORRECTION` line is defined as the delta of a rating corrected
+  AFTER its period was CLOSED. No period exists, so no such line can. A rating
+  corrected before any close is simply the standing rating of its own session on
+  its own day, and reporting it twice would double-count it. Placeholder
+  financial records to fill a future contract are exactly the invention CLAUDE.md
+  forbids.
+- **Trade-off:** three fields are constants until C6. They are constants that are
+  TRUE, and C6 changes their computation without changing their meaning.
+- **Revisit when:** C6 introduces `settlement_period`.
+
+**A `FREE` session is a line worth zero AND a separate count; an unrated session
+is neither.** `freeSessionCount` explains zero-valued lines the statement DOES
+carry; `unratedSessionCount` and `unchargedCompletedSessionCount` name sessions
+it carries no line for, for two different reasons. The three are never summed,
+never combined into a "problem count", and a session falls in at most one.
+
+- **Alternatives:** excluding free sessions from `lines` entirely; folding an
+  unrated session in as a zero line.
+- **Reason:** the frozen contract counts free sessions so a reader "can see why
+  the session count and the money do not track", which presumes they are IN the
+  session count. An unrated session is the opposite case: nobody has decided the
+  share, and a zero is indistinguishable from a decision that the session was
+  worth nothing — the one confusion that quietly under-pays somebody.
+- **Trade-off:** `sessionCount` counts sessions that moved no money.
+  `freeSessionCount` is the field that explains it.
+- **Revisit when:** group sessions make one appointment carry several seats with
+  different price modes.
+
+**One `REPEATABLE READ` transaction covers the lines and both exception counts.**
+
+- **Alternatives:** four statements under `READ COMMITTED`; one statement with
+  the exceptions as correlated aggregates.
+- **Reason:** a charge voided between two statements would produce lines
+  describing one database and counts describing another — a statement that does
+  not add up, produced from a database that always did. It is the isolation the
+  session report and the family account already take, it locks nothing and it
+  blocks no writer. The totals are the column sum of the returned lines rather
+  than a second aggregate, so "the total is the sum of the lines" is true by
+  construction.
+- **Trade-off:** a snapshot slightly older than the instant the response is
+  serialised. That is what a dated document is.
+- **Revisit when:** the statement gains a figure that cannot be derived from the
+  rows it returns.
+
+**Manager-only, refused whole, and unaudited.** `settlement.read` alone; a
+receptionist is refused by `PermissionsGuard` before any statement runs, with no
+thinner variant of the response. No audit row is written for a read, which is the
+Milestone 7 financial-read policy (`FinancialReportsController`) applied
+unchanged.
+
+- **Alternatives:** a redacted receptionist shape; auditing every statement view.
+- **Reason:** the response is financial in its entirety, so there is nothing
+  useful to show somebody who may not read it; and `audit_log` is append-only and
+  permanent, so recording views would build a second undeletable store of who
+  looked at whose earnings, growing with every refresh. Audit records financial
+  ACTS, and this performs none.
+- **Trade-off:** no record of who read a statement. The EXPORT, when it arrives,
+  audits — taking the file out of the building is an act.
+- **Revisit when:** the clinic asks for access logging of financial reads as a
+  policy, at which point it belongs to infrastructure logging rather than to
+  `audit_log`.
+
+**No index and no migration were added.** The lines are answered by
+`session_settlement_therapist_id_service_date_idx`, which is exactly the pair
+the range filters on; the unrated count rides
+`session_charge_service_date_idx` and the uncharged count the appointment range
+index the operational reports already use.
+
+- **Alternatives:** adding `session_charge(therapist_id, service_date)`
+  pre-emptively.
+- **Reason:** no measured evidence asks for it, and an index added on a guess is
+  a write cost paid forever for a read nobody has timed.
+- **Revisit when:** a query plan on realistic volumes shows the unrated-count
+  scan dominating.

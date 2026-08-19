@@ -4,13 +4,15 @@ import { SessionRatingsController } from './ratings/session-ratings.controller';
 import { SessionRatingService } from './ratings/session-rating.service';
 import { ShareRulesController } from './share-rules/share-rules.controller';
 import { ShareRulesService } from './share-rules/share-rules.service';
+import { SettlementStatementController } from './statement/settlement-statement.controller';
+import { SettlementStatementService } from './statement/settlement-statement.service';
 
 /**
  * Therapist settlement.
  *
- * At checkpoint C3 this module owns two tables and is the only code that
- * queries either. They are two different KINDS of thing and the milestone rests
- * on not blurring them:
+ * This module owns two tables and is the only code that queries either. They
+ * are two different KINDS of thing and the milestone rests on not blurring
+ * them:
  *
  *   * `therapist_share_rule` is CONFIGURATION — what a therapist was agreed to
  *     take, and between which dates (checkpoint C2).
@@ -18,10 +20,16 @@ import { ShareRulesService } from './share-rules/share-rules.service';
  *     earned, snapshotted at the instant somebody rated it and never
  *     re-resolved (checkpoint C3).
  *
- * Nothing here closes a period, produces a statement, allocates a concession
- * between the two sides or writes anything about money leaving the clinic; those
- * are later checkpoints, and each brings its own table, service and permission
- * enforcement.
+ * C5 ADDS A THIRD PROVIDER AND NO THIRD TABLE. `SettlementStatementService`
+ * READS the two above — plus the ledger's charges and concessions — and stores
+ * nothing: no settlement period, no settlement line, no aggregate and no cached
+ * total. It is the first code in the product that reads a rating in bulk, and it
+ * deliberately does not import `share-rule-resolution`: a statement reports the
+ * percentage that was APPLIED, never one resolved from today's configuration.
+ *
+ * Nothing here closes a period, records a payout or writes anything about money
+ * leaving the clinic; those are later checkpoints, and each brings its own
+ * table, service and permission enforcement.
  *
  * `AuditModule` is imported because every write here is audited in the same
  * transaction as the state change it records.
@@ -42,8 +50,8 @@ import { ShareRulesService } from './share-rules/share-rules.service';
  */
 @Module({
   imports: [AuditModule],
-  controllers: [ShareRulesController, SessionRatingsController],
-  providers: [ShareRulesService, SessionRatingService],
+  controllers: [ShareRulesController, SessionRatingsController, SettlementStatementController],
+  providers: [ShareRulesService, SessionRatingService, SettlementStatementService],
   exports: [SessionRatingService],
 })
 export class SettlementModule {}

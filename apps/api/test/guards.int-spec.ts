@@ -373,7 +373,15 @@ describe('guard chain (real PostgreSQL)', () => {
       // authority — a new permission would have implied that bearing part of a
       // discount is a different kind of financial act from granting one, and it
       // is the same act with an extra stated fact.
-      expect(routes).toBe(102);
+      //
+      // statement:       the ONE settlement statement read (Milestone 8,
+      //                  checkpoint C5) — one therapist, one explicit range,
+      //                  under `settlement.read` alone. Manager-only, and the
+      //                  refusal is WHOLE: there is deliberately no thinner
+      //                  receptionist variant with the money removed, because
+      //                  the response is financial in its entirety. No export
+      //                  route yet and no therapist-facing route ever.
+      expect(routes).toBe(103);
     });
   });
 });
