@@ -238,10 +238,21 @@ export const ERROR_CODES = [
   // code is a rule inferred in the one place nobody reviews.
   //
   // The share rule is effective-dated and immutable, exactly as a tariff is, so
-  // its four codes mirror the tariff's four almost name for name. They are
-  // separate codes rather than reused ones because they are separate mistakes
-  // with separate fixes, and because a Persian message that said "tariff" while
-  // a manager was editing a share percentage would be worse than useless.
+  // its codes mirror the tariff's almost name for name. They are separate codes
+  // rather than reused ones because they are separate mistakes with separate
+  // fixes, and because a Persian message that said "tariff" while a manager was
+  // editing a share percentage would be worse than useless.
+  //
+  // `SHARE_RULE_NOT_FOUND` IS THE THIRTEENTH CODE, AND IT IS A C1 OMISSION
+  // CORRECTED IN C2 RATHER THAN A NEW RULE. C1 froze four share-rule codes and
+  // a lifecycle whose void and read routes are addressed BY ID; an unknown id
+  // therefore had no answer. `SHARE_RULE_MISSING` cannot serve as one — it is
+  // 422 and means "no rule covers this SERVICE DATE", the state that must never
+  // be read as zero — and answering a mistyped id with it would report the
+  // frozen missing-rule condition for a request that named nothing. Every other
+  // addressable entity in this package carries its own `*_NOT_FOUND`; this is
+  // that pattern, not an extension of the settlement vocabulary.
+  'SHARE_RULE_NOT_FOUND',
   'SHARE_RULE_MISSING',
   'SHARE_RULE_OVERLAP',
   'SHARE_RULE_SCOPE_MISMATCH',

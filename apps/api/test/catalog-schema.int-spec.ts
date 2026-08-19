@@ -238,6 +238,10 @@ describe('catalog schema objects', () => {
         // allocation, credit, balance, invoice or settlement table anywhere.
         'payment',
         'payment_promise',
+        // Milestone 8, checkpoint C2. ONE table and no more: the share rule is
+        // configuration, and no session settlement, settlement period,
+        // settlement line, statement or therapist payout table exists yet.
+        'therapist_share_rule',
       ].sort(),
     );
   });

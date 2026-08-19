@@ -60,17 +60,27 @@ describe('error vocabulary', () => {
     expect(ERROR_CODES).toContain('ADJUSTMENT_SPLIT_INVALID');
   });
 
-  it('carries exactly the twelve approved settlement codes', () => {
-    // The same exact-list discipline the ledger gets. A thirteenth is a rule
-    // invented outside the approved plan, and CLAUDE.md forbids inferring a
-    // settlement rule — a speculative error code is a rule inferred in the one
-    // place nobody reviews.
+  it('carries exactly the approved settlement codes, plus the one C2 addressability needs', () => {
+    // The same exact-list discipline the ledger gets: a code the approved plan
+    // does not contain is a rule invented outside it, and CLAUDE.md forbids
+    // inferring a settlement rule.
+    //
+    // `SHARE_RULE_NOT_FOUND` IS THE ONE ADDITION SINCE C1, AND IT IS AN
+    // ADDRESSABILITY CODE RATHER THAN A DOMAIN RULE. C1 froze the four
+    // share-rule codes alongside a lifecycle whose read and void routes are
+    // addressed BY ID, and left an unknown id with no answer. It could not be
+    // `SHARE_RULE_MISSING`: that is 422 and means "no rule covers this SERVICE
+    // DATE", the state that must never be read as a zero, and answering a
+    // mistyped id with it would report the frozen missing-rule condition for a
+    // request that named nothing. Every other addressable record in this
+    // package carries its own `*_NOT_FOUND` (DECISION_LOG, 2026-08-19).
     const settlementCodes = ERROR_CODES.filter((code) =>
       /^(?:SHARE_RULE_|SESSION_(?:ALREADY_RATED|NOT_RATED)|RATING_|SETTLEMENT_)/.test(code),
     );
 
     expect([...settlementCodes].sort()).toEqual(
       [
+        'SHARE_RULE_NOT_FOUND',
         'SHARE_RULE_MISSING',
         'SHARE_RULE_OVERLAP',
         'SHARE_RULE_SCOPE_MISMATCH',
@@ -85,8 +95,8 @@ describe('error vocabulary', () => {
       ].sort(),
     );
 
-    // The twelfth is the ledger's, because what makes a split invalid is a
-    // settlement fact but the record it is refused against is a concession.
+    // And one more lives with the ledger, because what makes a split invalid is
+    // a settlement fact but the record it is refused against is a concession.
     expect(ERROR_CODES).toContain('ADJUSTMENT_SPLIT_INVALID');
   });
 

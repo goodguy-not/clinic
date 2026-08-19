@@ -152,6 +152,10 @@ const PROTECTED_TABLES = [
   // same way because its whole value is the history it keeps.
   'payment',
   'payment_promise',
+  // Milestone 8, checkpoint C2. A share rule is the agreement about what a
+  // therapist earns, and it will be named by a rated session's snapshot, so it
+  // is protected for the reason `tariff` is.
+  'therapist_share_rule',
 ];
 
 /**
@@ -163,6 +167,9 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 8: a share rule names a therapist and the user who wrote it, and
+  // may name the rule it superseded.
+  'therapist_share_rule',
   // Milestone 6, dependents first: a promise may name a payment and another
   // promise, and a payment names a family.
   'payment_promise',

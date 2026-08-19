@@ -17,6 +17,7 @@ import { ConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
+import { SettlementModule } from './settlement/settlement.module';
 import { UsersModule } from './users/users.module';
 
 /**
@@ -29,7 +30,7 @@ import { UsersModule } from './users/users.module';
  * is denied by the first guard rather than silently exposed.
  *
  * Domain modules (users, catalog, family, appointment, ledger, payment, report,
- * website) are added one milestone at a time; each owns its own tables and is
+ * settlement, website) are added one milestone at a time; each owns its own tables and is
  * the only code that queries them.
  */
 @Module({
@@ -46,6 +47,7 @@ import { UsersModule } from './users/users.module';
     PaymentsModule,
     FamiliesModule,
     ReportsModule,
+    SettlementModule,
     HealthModule,
   ],
   providers: [

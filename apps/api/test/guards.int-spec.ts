@@ -352,7 +352,14 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  receptionist may read on the screen: carrying data out
       //                  of the building is a separate authority, and the refusal
       //                  is this guard's
-      expect(routes).toBe(93);
+      // share rules:     the five therapist share-rule routes (Milestone 8,
+      //                  checkpoint C2) — list, resolve, get, create and void,
+      //                  under `therapist_share.read` / `.create` / `.void`. All
+      //                  five are MANAGER-ONLY INCLUDING THE READS, which is
+      //                  where they differ from the tariff's: a receptionist
+      //                  looks up what a session costs a family, and what a
+      //                  therapist takes home is not diary work
+      expect(routes).toBe(98);
     });
   });
 });

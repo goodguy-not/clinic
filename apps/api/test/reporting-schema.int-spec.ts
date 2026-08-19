@@ -115,13 +115,27 @@ describe('reporting schema objects', () => {
     ).resolves.toEqual([]);
   });
 
-  it('adds no therapist share or settlement column, which is Milestone 8’s to decide', async () => {
+  it('keeps every share and settlement column on the share rule and nowhere else', async () => {
+    // MILESTONE 7 ASSERTED THERE WERE NONE ANYWHERE, because the settlement
+    // basis was unapproved and a share column would have recorded an unfunded
+    // liability as a fact. Milestone 8 checkpoint C2 approved the first of them
+    // and put them where they belong: on `therapist_share_rule`, which is
+    // CONFIGURATION — the agreement, effective-dated and immutable.
+    //
+    // The assertion is narrowed rather than dropped, and the narrowing is the
+    // point. A share column appearing on `session_charge`, `charge_adjustment`
+    // or any Milestone 5-7 table would be a settlement FACT recorded outside
+    // the checkpoint that owns it, and it still fails here.
     const rows = await harness.prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
       SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public'
         AND column_name ~ '(share|percent|settlement)'
+      ORDER BY table_name, column_name
     `;
 
-    expect(rows).toEqual([]);
+    expect(rows).toEqual([
+      { table_name: 'therapist_share_rule', column_name: 'share_basis_points' },
+      { table_name: 'therapist_share_rule', column_name: 'supersedes_share_rule_id' },
+    ]);
   });
 });

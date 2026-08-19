@@ -136,18 +136,28 @@ describe('audit vocabulary', () => {
       }
     });
 
-    it('does not name its entity types until checkpoint C2 creates their tables', () => {
+    it('names an entity type only once its table exists', () => {
       // THE TRIPWIRE, AND IT POINTS BOTH WAYS. `AUDIT_ENTITY_TYPES` is asserted
       // against the real schema in `catalog-schema.int-spec.ts` — every entry is
       // a table, except the declared non-row subjects, which must NOT be
-      // (DECISION_LOG, 2026-08-18) — and checkpoint C1 deliberately creates no
-      // migration. Adding these three now would fail that assertion for as long
-      // as the tables were missing; forgetting them in C2 would leave the writes
-      // with nothing to name. This test fails in the second case, so the pairing
-      // has to be done deliberately in the checkpoint that owns it.
-      for (const pending of ['therapist_share_rule', 'session_settlement', 'settlement_period']) {
+      // (DECISION_LOG, 2026-08-18). Naming one before its table exists fails
+      // that assertion for as long as the table is missing; forgetting it in the
+      // checkpoint that creates the table would leave the writes with nothing to
+      // name. This test fails in the second case, so the pairing has to be done
+      // deliberately in the checkpoint that owns it.
+      //
+      // Checkpoint C2 created `therapist_share_rule` and paired it here.
+      expect(AUDIT_ENTITY_TYPES).toContain('therapist_share_rule');
+
+      // The other two tables do not exist yet, so their entity types must not.
+      for (const pending of ['session_settlement', 'settlement_period']) {
         expect(AUDIT_ENTITY_TYPES).not.toContain(pending as never);
-        expect(AUDIT_ACTIONS.some((action) => action.startsWith(`${pending}.`))).toBe(true);
+      }
+
+      // Every settlement record still has at least one action naming it,
+      // whether or not its table is here yet.
+      for (const subject of ['therapist_share_rule', 'session_settlement', 'settlement_period']) {
+        expect(AUDIT_ACTIONS.some((action) => action.startsWith(`${subject}.`))).toBe(true);
       }
     });
   });

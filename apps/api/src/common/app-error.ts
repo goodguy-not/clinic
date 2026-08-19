@@ -152,6 +152,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // against a row that is already in another state — which a refreshed screen
   // explains — and 422 for a request whose values the domain simply does not
   // permit, where an identical retry always fails identically.
+  SHARE_RULE_NOT_FOUND: 404,
   SHARE_RULE_MISSING: 422,
   SHARE_RULE_OVERLAP: 409,
   SHARE_RULE_SCOPE_MISMATCH: 422,
@@ -266,6 +267,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   PROMISE_NOT_OPEN: 'This payment promise has already been resolved',
   PROMISE_DUE_DATE_IN_PAST: 'A rescheduled due date must not be before the current date',
 
+  SHARE_RULE_NOT_FOUND: 'Share rule not found',
   SHARE_RULE_MISSING: 'No therapist share rule covers this session date',
   SHARE_RULE_OVERLAP: 'The effective range overlaps an existing share rule for this therapist',
   SHARE_RULE_SCOPE_MISMATCH:

@@ -17,6 +17,7 @@ import {
   settlementStatementResponseSchema,
   settlementStatementTotalsSchema,
   shareBasisPointsSchema,
+  shareRuleSchema,
   signedTomanAmountSchema,
   tomanAmountSchema,
   voidSessionRatingRequestSchema,
@@ -670,6 +671,8 @@ describe('the settlement naming discipline', () => {
   const FORBIDDEN = /owed|payable|receivable|\bdue\b|balance|payout|paidToTherapist/i;
 
   const SETTLEMENT_SHAPES = {
+    // Checkpoint C2's configuration shape walks the same rule as the facts.
+    shareRule: shareRuleSchema,
     sessionSettlement: sessionSettlementSchema,
     statementLine: settlementStatementLineSchema,
     statementTotals: settlementStatementTotalsSchema,

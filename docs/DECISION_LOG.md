@@ -2261,3 +2261,101 @@ they share one revisit trigger — measured evidence from real data volumes:
   volumes, or an export is large enough to strain the process — at which point
   streaming from a cursor is the change to make, and any numeric bound is a cost
   bound argued from a query plan and needs owner approval.
+
+## 2026-08-19 — A share rule is scoped to the therapist and to nothing else
+
+**Status:** Accepted — Milestone 8, checkpoint C2
+
+`therapist_share_rule` carries a therapist, a percentage in basis points and an
+effective range. It carries no service, no duration, no family and no appointment
+type, so "what does this therapist take?" has one answer per date rather than one
+per service.
+
+- **Alternatives:** mirroring `tariff`'s (service, duration, therapist) scope with
+  a general fallback; adding a nullable `service_id` now so the column exists.
+- **Reason:** CLAUDE.md approves percentages that differ BY THERAPIST and change
+  OVER TIME, and nothing else. A second scope dimension is a settlement rule
+  inferred rather than approved, which CLAUDE.md forbids outright — and it is not
+  free: a nullable scope column would need the `tariff` pair of exclusion
+  constraints (because `=` does not treat NULL as equal to NULL) and a precedence
+  rule deciding which of two matching rules wins, both of which are answers to a
+  question nobody has asked.
+- **Trade-off:** a clinic that later agrees a different percentage per service
+  needs a migration, not a configuration change.
+- **Revisit when:** an owner approves per-service or per-programme share rates. The
+  change is additive — a scope column, a second exclusion constraint and a stated
+  precedence rule — and existing rows stay correct as the unscoped case.
+
+## 2026-08-19 — A share rule may be written for an inactive therapist
+
+**Status:** Accepted — Milestone 8, checkpoint C2 — deliberately departs from the
+`tariff` precedent
+
+Creating a share rule requires the therapist to EXIST and does not require them to
+be ACTIVE. `TariffsService` refuses an inactive therapist; `ShareRulesService`
+does not.
+
+- **Alternatives:** refusing on `INACTIVE`, as the tariff does; refusing a first
+  rule but allowing a correction.
+- **Reason:** the two records answer different questions. A tariff prices FUTURE
+  bookings, so an inactive therapist has nothing to price. A share rule records an
+  agreement about work that may already have happened, and a therapist who has
+  left is exactly the case where a wrong historical percentage most needs
+  correcting — settlement of their past sessions still has to be possible.
+  Refusing on status would make a departed therapist's configuration permanently
+  uncorrectable, which contradicts the frozen C2 rule that a rule must be
+  correctable with its history preserved. The asymmetric variant was rejected as
+  an arbitrary rule nobody could predict from either half.
+- **Trade-off:** a manager can record an agreement for somebody who has left, and
+  nothing warns them. The row is audited and voidable, so the mistake is visible
+  and reversible.
+- **Revisit when:** a therapist lifecycle beyond ACTIVE/INACTIVE is introduced, or
+  share rules acquire a creator-facing screen that could warn instead of refuse.
+
+## 2026-08-19 — `SHARE_RULE_NOT_FOUND`: a C1 omission corrected, not a new rule
+
+**Status:** Accepted — Milestone 8, checkpoint C2 (a narrow correction of a C1
+omission found while implementing the lifecycle C1 froze, not a new owner
+decision)
+
+C1 froze twelve settlement error codes, four of them the share rule's, alongside a
+lifecycle whose read and void routes are addressed BY ID. An unknown id therefore
+had no answer. C2 adds a thirteenth code, `SHARE_RULE_NOT_FOUND` (404).
+
+- **Alternatives:** reusing `SHARE_RULE_MISSING`; returning a bare 404 with no
+  code; adding a generic `NOT_FOUND`.
+- **Reason:** `SHARE_RULE_MISSING` is 422 and means "no rule covers this SERVICE
+  DATE" — the state that must never be read as a zero — so answering a mistyped id
+  with it would report the frozen missing-rule condition for a request that named
+  nothing, and would give the web tier one Persian message for two unrelated
+  situations. Every other addressable record in `@clinic/contracts` carries its own
+  `*_NOT_FOUND`; this is that pattern rather than an extension of the settlement
+  vocabulary, and it states no rule about money.
+- **Trade-off:** the "exactly twelve settlement codes" assertion frozen in C1 is
+  restated as twelve plus one named addressability code, and a reviewer has to
+  read why.
+- **Revisit when:** a later checkpoint proposes a fourteenth. The bar is unchanged:
+  a code that states a domain rule needs owner approval, and only a code the frozen
+  lifecycle cannot express without it earns this treatment.
+
+## 2026-08-19 — The Milestone 7 "no share column anywhere" tripwire is narrowed, not dropped
+
+**Status:** Accepted — Milestone 8, checkpoint C2
+
+`reporting-schema.int-spec.ts` asserted that NO column anywhere matched
+`(share|percent|settlement)`, explicitly leaving the decision to Milestone 8. C2
+makes that decision, so the assertion now names the exact two columns on
+`therapist_share_rule` and still refuses every other one.
+
+- **Alternatives:** deleting the assertion; excluding the new table from it.
+- **Reason:** the original rule existed because a share column recorded outside an
+  approved settlement model is an unfunded liability recorded as a fact, and that
+  reasoning is unchanged for every table except the one whose whole purpose is the
+  agreement. A share column appearing on `session_charge` or `charge_adjustment`
+  would be a settlement FACT written outside the checkpoint that owns it, and it
+  still fails here. Excluding the table by name would lose the check for the
+  columns C3 will add to it.
+- **Trade-off:** the assertion must be updated deliberately in each checkpoint that
+  adds a settlement column, which is the intent.
+- **Revisit when:** C3 adds the per-session snapshot — at which point its columns
+  are listed here for the same reason these are.

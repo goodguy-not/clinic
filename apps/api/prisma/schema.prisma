@@ -11,6 +11,10 @@
 // Milestone 7 — dashboard and reports: NO new table, column or rule. Clinic-wide
 //               date-keyed reading is a new access pattern over existing rows,
 //               so the milestone adds three B-tree indexes and nothing else.
+// Milestone 8, checkpoint C2 — therapist settlement configuration: the
+//               effective-dated share percentage a therapist takes. ONE table,
+//               and it is configuration rather than a settlement fact — nothing
+//               here records what any session earned.
 //
 // PostgreSQL-native constraints that Prisma cannot express — CHECK, partial
 // indexes, exclusion constraints, composite foreign keys, functions and
@@ -303,6 +307,9 @@ model AppUser {
   createdChargeAdjustments ChargeAdjustment[] @relation("ChargeAdjustmentCreatedBy")
   voidedChargeAdjustments  ChargeAdjustment[] @relation("ChargeAdjustmentVoidedBy")
 
+  createdShareRules TherapistShareRule[] @relation("TherapistShareRuleCreatedBy")
+  voidedShareRules  TherapistShareRule[] @relation("TherapistShareRuleVoidedBy")
+
   createdPayments         Payment[]        @relation("PaymentCreatedBy")
   voidedPayments          Payment[]        @relation("PaymentVoidedBy")
   createdPaymentPromises  PaymentPromise[] @relation("PaymentPromiseCreatedBy")
@@ -414,6 +421,7 @@ model Therapist {
   sessionCharges       SessionCharge[]
   availability         TherapistAvailability[]
   availabilityExceptions TherapistAvailabilityException[]
+  shareRules           TherapistShareRule[]
 
   @@index([status])
   @@map("therapist")
@@ -1455,4 +1463,68 @@ model PaymentPromise {
   /// read is the only reason `MISSED` needs no column.
   @@index([status, dueOn])
   @@map("payment_promise")
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 8, checkpoint C2 — the therapist share rule.
+//
+// ONE TABLE, AND IT IS CONFIGURATION. It records the agreement — what
+// percentage of a session's value this therapist takes, between which dates —
+// and nothing about any session. What a session earned is the per-session
+// snapshot a later checkpoint writes; it is not here, and neither is a
+// settlement period, a statement, a payout or a therapist ledger position of
+// any kind.
+//
+// AS UNDERSTATED HERE AS `Tariff` IS. Nothing in this model shows that a share
+// rule is immutable after insert, that two live rules may not cover the same
+// therapist on overlapping dates, that a percentage is bounded to 0..10000
+// basis points, or that a voided row must say why. All four are enforced, in
+// SQL, in the C2 migration.
+// ---------------------------------------------------------------------------
+
+/// The percentage of a session's value a therapist takes, and when it applied.
+///
+/// Resolved BY SERVICE DATE and never by the clock: the rule that decides a
+/// session is the one whose effective range contains the day the session
+/// happened, whatever has been agreed since.
+///
+/// `shareBasisPoints` is hundredths of one percent, 0..10000 inclusive — an
+/// integer, with the unit in the name, so 40 percent is 4000 and can never be
+/// read as 40 basis points or carried as a float.
+///
+/// Immutable once written. A correction voids the row and inserts a
+/// replacement naming it through `supersedesShareRuleId`, so the percentage
+/// that applied on a past date stays readable exactly as it was applied.
+model TherapistShareRule {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  therapistId           String    @map("therapist_id") @db.Uuid
+  shareBasisPoints      Int       @map("share_basis_points")
+  effectiveStart        DateTime  @map("effective_start") @db.Date
+  /// Null is an open-ended agreement: in force until something supersedes it.
+  effectiveEnd          DateTime? @map("effective_end") @db.Date
+  /// The rule this one replaced. Recorded on the replacement, so the history
+  /// reads forwards.
+  supersedesShareRuleId String?   @map("supersedes_share_rule_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId       String    @map("created_by_user_id") @db.Uuid
+  voidedAt              DateTime? @map("voided_at") @db.Timestamptz
+  /// Recorded on the row as well as in `audit_log`, following the financial
+  /// tables rather than the catalog ones: "who withdrew this agreement" is a
+  /// settlement question that must be answerable from the record itself.
+  voidedByUserId        String?   @map("voided_by_user_id") @db.Uuid
+  voidReason            String?   @map("void_reason")
+
+  therapist  Therapist            @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersedes TherapistShareRule?  @relation("TherapistShareRuleSupersedes", fields: [supersedesShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersededBy TherapistShareRule[] @relation("TherapistShareRuleSupersedes")
+  createdBy  AppUser              @relation("TherapistShareRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  voidedBy   AppUser?             @relation("TherapistShareRuleVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The resolution lookup: one therapist's rules, narrowed by date afterwards.
+  /// The effective range is not part of the index for the reason `Tariff`'s is
+  /// not — a therapist has a handful of rules, and the range filter is a cheap
+  /// scan of those.
+  @@index([therapistId])
+  @@index([supersedesShareRuleId])
+  @@map("therapist_share_rule")
 }

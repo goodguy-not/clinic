@@ -232,16 +232,19 @@ export const AUDIT_ACTIONS = [
   // clinic, so there is no `settlement.paid`, no `therapist_payment.recorded`
   // and no action of any kind naming a payment to a therapist.
   //
-  // THE MATCHING ENTITY TYPES ARRIVE WITH THEIR TABLES IN CHECKPOINT C2, NOT
-  // HERE. `AUDIT_ENTITY_TYPES` is asserted against the real schema — every entry
-  // is a table, except the declared non-row subjects, which must NOT be
-  // (DECISION_LOG, 2026-08-18) — and C1 creates no migration, so adding
-  // `therapist_share_rule`, `session_settlement` and `settlement_period` now
-  // would fail that assertion for exactly as long as the tables were missing.
+  // EACH MATCHING ENTITY TYPE ARRIVES WITH ITS TABLE, NOT WITH ITS ACTION.
+  // `AUDIT_ENTITY_TYPES` is asserted against the real schema — every entry is a
+  // table, except the declared non-row subjects, which must NOT be
+  // (DECISION_LOG, 2026-08-18) — so an entity type named before its table
+  // exists fails that assertion for exactly as long as the table is missing.
   // The action names carry no such coupling: `audit_log.action` is TEXT with a
-  // format CHECK, so a name is legal the moment it has the right shape. A
-  // tripwire in `audit-actions.spec.ts` pins the split, so the entity types
-  // cannot be forgotten and cannot arrive early.
+  // format CHECK, so a name is legal the moment it has the right shape.
+  //
+  // CHECKPOINT C2 CREATES `therapist_share_rule` AND ADDS THAT ENTITY TYPE
+  // BELOW. `session_settlement` and `settlement_period` are still absent
+  // because their tables are still absent; they arrive with C3 and the close
+  // checkpoint. The tripwire in `audit-actions.spec.ts` pins the split in both
+  // directions, so neither can be forgotten and neither can arrive early.
   'therapist_share_rule.created',
   'therapist_share_rule.voided',
   'session_settlement.rated',
@@ -291,6 +294,11 @@ export const AUDIT_ENTITY_TYPES = [
   // where no payment ever appears.
   'payment',
   'payment_promise',
+  // The one Milestone 8 checkpoint C2 table. `session_settlement` and
+  // `settlement_period` are deliberately still absent: those tables do not
+  // exist yet, and an entity type naming a table that is not there fails the
+  // schema assertion above. They arrive with the checkpoints that create them.
+  'therapist_share_rule',
   // `therapist_availability` and `therapist_availability_exception` are
   // deliberately absent, for the reason `guardian` is: they are current
   // configuration replaced as a set, and the change is recorded against the
