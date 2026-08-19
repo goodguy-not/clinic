@@ -239,7 +239,7 @@ describe('the settlement fact', () => {
     expect(sessionSettlementSchema.safeParse(settlement).success).toBe(true);
   });
 
-  it('names the two ways a rating can come about, and nothing else', () => {
+  it('names the two ways the rating ACT can happen, and nothing else', () => {
     expect([...RATED_VIA]).toEqual(['AUTOMATIC', 'EXPLICIT']);
 
     for (const absent of ['UNRATED', 'NONE', 'DEFAULT', 'INHERITED']) {
@@ -261,17 +261,29 @@ describe('the settlement fact', () => {
     }
   });
 
-  it('carries the applied percentage as a snapshot, with the rule id only as provenance', () => {
-    // Nothing may re-resolve the number from the rule, which is why an EXPLICIT
-    // rating carries a percentage and no rule at all.
+  it('carries the applied percentage as a snapshot AND always names the rule it came from', () => {
+    // Nothing may re-resolve the number from the rule — the percentage is the
+    // snapshot — but every rating HAS a rule behind it, whichever way the act
+    // happened. A share rule is the only source of settlement policy in this
+    // product, so a rating with no provenance is unrepresentable.
     expect(
       sessionSettlementSchema.safeParse({
         ...settlement,
         ratedVia: 'EXPLICIT',
-        appliedShareRuleId: null,
-        reason: 'توافق موردی برای این جلسه',
+        reason: 'جلسه بدون قاعده سهم مانده بود',
       }).success,
     ).toBe(true);
+
+    for (const ratedVia of RATED_VIA) {
+      expect(
+        sessionSettlementSchema.safeParse({
+          ...settlement,
+          ratedVia,
+          appliedShareRuleId: null,
+          reason: ratedVia === 'EXPLICIT' ? 'دلیل' : null,
+        }).success,
+      ).toBe(false);
+    }
 
     // And the percentage itself is never absent.
     const { appliedShareBasisPoints: _omitted, ...withoutShare } = settlement;
@@ -307,47 +319,42 @@ describe('the settlement fact', () => {
 });
 
 describe('rating a session', () => {
-  it('takes nothing at all when the share comes from the rule', () => {
-    expect(rateSessionRequestSchema.parse({ ratedVia: 'AUTOMATIC' })).toEqual({
-      ratedVia: 'AUTOMATIC',
+  it('takes a reason and nothing else', () => {
+    expect(rateSessionRequestSchema.parse({ reason: 'قاعده سهم بعداً ثبت شد' })).toEqual({
+      reason: 'قاعده سهم بعداً ثبت شد',
     });
   });
 
-  it('refuses a percentage on an automatic rating', () => {
-    // Otherwise an override would be reachable without being recorded as one.
-    expect(
-      rateSessionRequestSchema.safeParse({ ratedVia: 'AUTOMATIC', shareBasisPoints: 4250 }).success,
-    ).toBe(false);
+  it('requires the reason, because reaching back to an unrated session is a decision', () => {
+    expect(rateSessionRequestSchema.safeParse({}).success).toBe(false);
+    expect(rateSessionRequestSchema.safeParse({ reason: '   ' }).success).toBe(false);
   });
 
-  it('requires both the percentage and the reason on an explicit one', () => {
-    expect(
-      rateSessionRequestSchema.parse({
-        ratedVia: 'EXPLICIT',
-        shareBasisPoints: 4250,
-        reason: 'توافق موردی',
-      }),
-    ).toEqual({ ratedVia: 'EXPLICIT', shareBasisPoints: 4250, reason: 'توافق موردی' });
+  it('REFUSES A PERCENTAGE, because the share rule is the only source of policy', () => {
+    // The rule this shape exists for. A percentage typed onto one session would
+    // be settlement policy stated somewhere with no effective date, no
+    // supersession history and no void trail — and a therapist's figure would
+    // depend on which screen somebody used. A wrong percentage is corrected on
+    // the RULE and carried onto the session by the correction request.
+    for (const field of ['shareBasisPoints', 'appliedShareBasisPoints', 'sharePercent']) {
+      expect(
+        rateSessionRequestSchema.safeParse({ reason: 'توافق موردی', [field]: 4250 }).success,
+      ).toBe(false);
+    }
+  });
 
-    expect(
-      rateSessionRequestSchema.safeParse({ ratedVia: 'EXPLICIT', shareBasisPoints: 4250 }).success,
-    ).toBe(false);
-    expect(
-      rateSessionRequestSchema.safeParse({
-        ratedVia: 'EXPLICIT',
-        shareBasisPoints: 4250,
-        reason: '   ',
-      }).success,
-    ).toBe(false);
-    expect(
-      rateSessionRequestSchema.safeParse({ ratedVia: 'EXPLICIT', reason: 'توافق موردی' }).success,
-    ).toBe(false);
+  it('refuses a submitted provenance, so the act cannot be misreported', () => {
+    // `ratedVia` records whether the posting path raised the rating or a manager
+    // did. A caller that could send it could claim the charge raised one when it
+    // did not.
+    for (const ratedVia of RATED_VIA) {
+      expect(rateSessionRequestSchema.safeParse({ reason: 'دلیل', ratedVia }).success).toBe(false);
+    }
   });
 
   it('never accepts a base amount, because the basis is the posted charge', () => {
     expect(
-      rateSessionRequestSchema.safeParse({ ratedVia: 'AUTOMATIC', baseAmountToman: '250000' })
-        .success,
+      rateSessionRequestSchema.safeParse({ reason: 'دلیل', baseAmountToman: '250000' }).success,
     ).toBe(false);
   });
 
@@ -367,9 +374,7 @@ describe('correcting a rating a closed period depends on', () => {
     withdrawReason: 'درصد اشتباه اعمال شده بود',
     replacement: {
       sessionChargeId: OTHER_UUID,
-      ratedVia: 'EXPLICIT' as const,
-      shareBasisPoints: 4000,
-      reason: 'درصد توافق‌شده همان زمان',
+      reason: 'قاعده سهم اصلاح شد و این جلسه دوباره محاسبه می‌شود',
     },
   };
 
@@ -402,13 +407,28 @@ describe('correcting a rating a closed period depends on', () => {
     ).toBe(false);
   });
 
-  it('accepts an automatic replacement, which carries no percentage of its own', () => {
+  it('refuses a percentage on the replacement, which is re-resolved from the rule', () => {
+    // This is the second half of correcting a wrong percentage: the manager
+    // corrects the RULE — which voids it and writes a replacement naming it —
+    // and this carries the corrected agreement onto the session. A number typed
+    // here would settle one session against a figure no agreement ever recorded.
     expect(
       correctSessionRatingRequestSchema.safeParse({
         ...correction,
-        replacement: { sessionChargeId: OTHER_UUID, ratedVia: 'AUTOMATIC' },
+        replacement: { ...correction.replacement, shareBasisPoints: 4000 },
       }).success,
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it('requires a reason on the replacement as well as on the withdrawal', () => {
+    // Two decisions, two explanations: why the old figure went, and why the new
+    // one stands.
+    expect(
+      correctSessionRatingRequestSchema.safeParse({
+        ...correction,
+        replacement: { sessionChargeId: OTHER_UUID },
+      }).success,
+    ).toBe(false);
   });
 });
 

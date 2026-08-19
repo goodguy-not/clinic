@@ -33,6 +33,25 @@ describe('session settlement schema (real PostgreSQL)', () => {
     return seedChargedSession(harness, { shareBasisPoints: null });
   }
 
+  /**
+   * The rule a raw insert names as provenance.
+   *
+   * `applied_share_rule_id` is NOT NULL, so every well-formed row below needs
+   * one — which is itself the point: there is no rating without an agreement
+   * behind it, and a fixture cannot pretend otherwise.
+   *
+   * It reuses the therapist's live rule when there is one, because
+   * `therapist_share_rule_no_overlap_excl` allows only one to cover a day and
+   * several tests insert more than one rating for the same fixture.
+   */
+  async function ruleFor(fixture: SettlementFixture): Promise<string> {
+    const existing = await harness.prisma.therapistShareRule.findFirst({
+      where: { therapistId: fixture.therapistId, voidedAt: null },
+    });
+
+    return existing?.id ?? shareRuleId(harness, fixture.managerToken, fixture.therapistId);
+  }
+
   type RatingOverrides = {
     id?: string;
     chargeId?: string;
@@ -49,13 +68,16 @@ describe('session settlement schema (real PostgreSQL)', () => {
     supersedes?: string | null;
   };
 
-  function insertRating(fixture: SettlementFixture, overrides: RatingOverrides = {}) {
+  async function insertRating(fixture: SettlementFixture, overrides: RatingOverrides = {}) {
     const basisPoints = overrides.basisPoints ?? 4000;
     const base = overrides.base ?? fixture.amountToman;
     const therapistGross =
       overrides.therapistGross ??
       ((BigInt(base) * BigInt(basisPoints) + 5000n) / 10000n).toString();
     const clinicGross = overrides.clinicGross ?? (BigInt(base) - BigInt(therapistGross)).toString();
+    // Undefined means "whatever this therapist's agreement is"; an explicit
+    // null is a test deliberately writing a rating with no provenance.
+    const ruleId = overrides.ruleId === undefined ? await ruleFor(fixture) : overrides.ruleId;
 
     return harness.prisma.$executeRaw`
       INSERT INTO session_settlement (
@@ -70,7 +92,7 @@ describe('session settlement schema (real PostgreSQL)', () => {
         ${overrides.therapistId ?? fixture.therapistId}::uuid,
         ${overrides.serviceDate ?? fixture.serviceDate}::date,
         ${basisPoints},
-        ${overrides.ruleId === undefined ? null : overrides.ruleId}::uuid,
+        ${ruleId}::uuid,
         ${overrides.ratedVia ?? 'EXPLICIT'}::session_rated_via,
         ${base}::bigint,
         ${therapistGross}::bigint,
@@ -233,38 +255,68 @@ describe('session settlement schema (real PostgreSQL)', () => {
   // -------------------------------------------------------------------------
 
   describe('provenance', () => {
-    it('refuses an AUTOMATIC rating with no rule behind it', async () => {
-      const fixture = await unrated();
+    /**
+     * THE COLUMN IS NOT NULL, ON BOTH KINDS OF RATING. A share rule is the only
+     * source of settlement policy in this product: `rated_via` records whether
+     * the server rated the session while charging it or a manager rated it
+     * afterwards, and says nothing about where the percentage came from. A
+     * rating with no rule behind it is not merely refused, it is unwritable.
+     */
+    it.each([['AUTOMATIC'], ['EXPLICIT']] as const)(
+      'refuses a %s rating with no share rule behind it',
+      async (ratedVia) => {
+        const fixture = await unrated();
 
-      await expect(
-        insertRating(fixture, { ratedVia: 'AUTOMATIC', ruleId: null, reason: null }),
-      ).rejects.toThrow(/session_settlement_provenance_chk/);
-    });
+        await expect(
+          insertRating(fixture, {
+            ratedVia,
+            ruleId: null,
+            reason: ratedVia === 'EXPLICIT' ? 'دلیل آزمایشی' : null,
+          }),
+          // 23502, not a CHECK: the column is NOT NULL, so the row is refused
+          // before any constraint gets to have an opinion about it.
+        ).rejects.toThrow(/23502/);
+      },
+    );
 
     it('refuses an AUTOMATIC rating that carries a reason', async () => {
       const fixture = await unrated();
       const ruleId = await shareRuleId(harness, fixture.managerToken, fixture.therapistId);
 
       await expect(
-        insertRating(fixture, { ratedVia: 'AUTOMATIC', ruleId, reason: 'دلیل' }),
+        insertRating(fixture, { ratedVia: 'AUTOMATIC', ruleId, reason: 'دلیل آزمایشی' }),
       ).rejects.toThrow(/session_settlement_provenance_chk/);
     });
 
     it('refuses an EXPLICIT rating with no reason', async () => {
       const fixture = await unrated();
-
-      await expect(insertRating(fixture, { ratedVia: 'EXPLICIT', reason: null })).rejects.toThrow(
-        /session_settlement_provenance_chk/,
-      );
-    });
-
-    it('refuses an EXPLICIT rating that names a rule', async () => {
-      const fixture = await unrated();
       const ruleId = await shareRuleId(harness, fixture.managerToken, fixture.therapistId);
 
-      await expect(insertRating(fixture, { ratedVia: 'EXPLICIT', ruleId })).rejects.toThrow(
-        /session_settlement_provenance_chk/,
+      await expect(
+        insertRating(fixture, { ratedVia: 'EXPLICIT', ruleId, reason: null }),
+      ).rejects.toThrow(/session_settlement_provenance_chk/);
+    });
+
+    it('accepts both members when each carries what it should', async () => {
+      const automatic = await unrated();
+      const automaticRule = await shareRuleId(
+        harness,
+        automatic.managerToken,
+        automatic.therapistId,
       );
+      await expect(
+        insertRating(automatic, { ratedVia: 'AUTOMATIC', ruleId: automaticRule, reason: null }),
+      ).resolves.toBe(1);
+
+      const explicit = await unrated();
+      const explicitRule = await shareRuleId(harness, explicit.managerToken, explicit.therapistId);
+      await expect(
+        insertRating(explicit, {
+          ratedVia: 'EXPLICIT',
+          ruleId: explicitRule,
+          reason: 'دلیل آزمایشی',
+        }),
+      ).resolves.toBe(1);
     });
   });
 

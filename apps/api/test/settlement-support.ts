@@ -190,7 +190,7 @@ export function rateOverHttp(
   harness: Harness,
   token: string,
   chargeId: string,
-  body: Record<string, unknown> = { ratedVia: 'AUTOMATIC' },
+  body: Record<string, unknown> = { reason: 'قاعده سهم پس از ثبت هزینه وارد شد' },
 ): request.Test {
   return request(harness.app.getHttpServer())
     .post(`/settlement/session-charges/${chargeId}/rating`)

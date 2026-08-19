@@ -48,12 +48,24 @@ export class SessionRatingsController {
    * charge's SERVICE DATE, so the charge is the resource this acts on — not the
    * seat, which may hold a withdrawn charge and a live one over its life.
    *
-   * THE BODY IS THE FROZEN DISCRIMINATED UNION AND CARRIES NO AMOUNT. An
-   * `AUTOMATIC` request carries nothing at all and the server resolves the rule;
-   * an `EXPLICIT` one carries the percentage and a required reason. A caller
-   * that sends a base amount is refused by `strictObject` rather than having it
-   * silently dropped — a caller who could state the basis could state a
-   * different one.
+   * THE BODY IS A REASON AND NOTHING ELSE. The percentage is resolved by the
+   * server from the therapist's share rule covering that service date — the same
+   * rule, by the same statement, that the posting path uses. NO PERCENTAGE IS
+   * SUBMITTABLE HERE: a share rule is the only source of settlement policy in
+   * this product, and a figure typed onto one session would have no effective
+   * date, no supersession history and no void trail. A caller that sends one —
+   * or a base amount, or a provenance — is refused by `strictObject` rather than
+   * having it silently dropped.
+   *
+   * THE REASON IS REQUIRED because reaching back to a session nobody rated is a
+   * decision about somebody's earnings taken after the fact (CLAUDE.md). The
+   * rating that results is always `EXPLICIT`, which the server records.
+   *
+   * IT IS THE RECOVERY PATH, NOT AN OVERRIDE PATH. It exists for a session that
+   * was charged while its therapist had no share rule covering that day; the
+   * manager records the rule and then rates the session. Changing a percentage
+   * that was already applied is the CORRECTION below, on top of a corrected
+   * rule.
    *
    * 201, BECAUSE THIS CREATES A SETTLEMENT FACT THAT DID NOT EXIST. It is not
    * idempotent and deliberately not: a second rating of an already-rated session
@@ -83,6 +95,11 @@ export class SessionRatingsController {
    *
    * 422 `SESSION_NOT_RATED` FOR AN UNRATED SESSION, never an empty success and
    * never a zero. The absence is the state, and it has to be reported as one.
+   *
+   * 409 `CHARGE_VOIDED` FOR A WITHDRAWN CHARGE. It asks what this session earns
+   * NOW, and a charge the clinic has taken back earns nothing. The rating row
+   * itself is untouched by the void and remains the historical record of what
+   * was applied while the charge stood — history is not what this route reports.
    */
   @Get('session-charges/:chargeId/rating')
   @RequirePermissions('settlement.read')

@@ -52,7 +52,7 @@ CREATE TABLE "session_settlement" (
     "therapist_id" UUID NOT NULL,
     "service_date" DATE NOT NULL,
     "applied_share_basis_points" INTEGER NOT NULL,
-    "applied_share_rule_id" UUID,
+    "applied_share_rule_id" UUID NOT NULL,
     "rated_via" "session_rated_via" NOT NULL,
     "base_amount_toman" BIGINT NOT NULL,
     "therapist_gross_toman" BIGINT NOT NULL,
@@ -125,18 +125,28 @@ ALTER TABLE "session_settlement" ADD CONSTRAINT "session_settlement_voided_by_us
 -- `(therapist_id, service_date)` index remains, because a settlement statement
 -- reads exactly that pair.
 --
--- `applied_share_rule_id` IS RESTRICT AND NULLABLE, AND BOTH MATTER. RESTRICT
--- because provenance is history and history keeps its references — but the rule
--- may be VOIDED freely afterwards, which is an UPDATE and not a delete, and
--- nothing here re-reads it. Nullable because an EXPLICIT rating had no rule
--- behind it.
+-- `applied_share_rule_id` IS NOT NULL AND RESTRICT, AND BOTH MATTER.
+--
+-- NOT NULL because a share rule is the ONLY source of settlement policy in this
+-- product. Both kinds of rating resolve their percentage from the therapist's
+-- effective-dated rule covering the SERVICE DATE — `rated_via` records whether
+-- the server rated the session while charging it or a manager rated it
+-- afterwards, and says nothing about where the number came from. There is no
+-- per-session override rate, so there is no rating without provenance and the
+-- column cannot express one.
+--
+-- RESTRICT because provenance is history and history keeps its references. The
+-- rule may be VOIDED freely afterwards — that is an UPDATE, not a delete — and
+-- nothing ever re-reads it: the percentage that was applied lives on this row as
+-- a number.
 -- ===========================================================================
 
 -- --- share percentage bounds -------------------------------------------------
 --
 -- The same bound as `therapist_share_rule_basis_points_chk`, restated here
--- rather than inherited, because an EXPLICIT rating is a percentage a manager
--- states directly and never passes through a rule.
+-- rather than inherited. Every percentage on this table is copied from a rule
+-- that already satisfied that bound, so this can only fail for a writer that
+-- bypassed the rule entirely — which is exactly the writer worth catching.
 ALTER TABLE "session_settlement" ADD CONSTRAINT "session_settlement_basis_points_chk"
     CHECK ("applied_share_basis_points" >= 0 AND "applied_share_basis_points" <= 10000);
 
@@ -172,25 +182,26 @@ ALTER TABLE "session_settlement" ADD CONSTRAINT "session_settlement_split_chk"
 
 -- --- provenance --------------------------------------------------------------
 --
--- HOW THE PERCENTAGE WAS ARRIVED AT IS RECORDED, NOT INFERRED, and the two
--- shapes are mutually exclusive:
+-- HOW THE RATING ACT HAPPENED IS RECORDED, NOT INFERRED — and it is a fact about
+-- PROCESS, not about where the percentage came from. Both members resolve the
+-- same percentage from the same place; the column above is NOT NULL for both.
 --
---   AUTOMATIC — resolved from an effective-dated share rule covering the
---   session's SERVICE DATE. The rule is named, and there is nothing to explain,
---   so `reason` is null.
+--   AUTOMATIC — the server rated the session in the transaction that posted its
+--   charge. There is nothing to explain, so `reason` is null.
 --
---   EXPLICIT — a manager stated the percentage for this session. No rule stands
---   behind it, so `applied_share_rule_id` is null, and CLAUDE.md requires every
---   manual override to be reasoned, so `reason` is NOT null.
+--   EXPLICIT — a manager rated the session by hand afterwards, because no rule
+--   covered its service date when it was charged, or because an earlier rating
+--   was corrected. CLAUDE.md requires such an act to be reasoned, so `reason` is
+--   NOT null.
 --
--- Enforced as one CHECK because the invariant is that the three columns move
--- together. An AUTOMATIC row carrying a reason would be an override recorded as
--- a routine application, which is precisely the confusion `rated_via` exists to
--- prevent.
+-- ONE CHECK, because the invariant is that the two columns move together. An
+-- AUTOMATIC row carrying a reason would claim somebody explained a decision
+-- nobody took by hand; an EXPLICIT row without one would be a manager's decision
+-- about somebody's earnings with no record of why.
 ALTER TABLE "session_settlement" ADD CONSTRAINT "session_settlement_provenance_chk"
     CHECK (
-        ("rated_via" = 'AUTOMATIC' AND "applied_share_rule_id" IS NOT NULL AND "reason" IS NULL)
-        OR ("rated_via" = 'EXPLICIT' AND "applied_share_rule_id" IS NULL AND "reason" IS NOT NULL)
+        ("rated_via" = 'AUTOMATIC' AND "reason" IS NULL)
+        OR ("rated_via" = 'EXPLICIT' AND "reason" IS NOT NULL)
     );
 
 -- --- reason shape ------------------------------------------------------------

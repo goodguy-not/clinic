@@ -113,9 +113,10 @@ export type SettlementStatementExportQuery = SettlementStatementQuery;
  * corrected and is null on a `PRIMARY` line.
  *
  * `appliedShareBasisPoints` AND `ratedVia` TRAVEL WITH EVERY LINE, so the
- * printed statement itself says which percentage was applied and whether a
- * manager overrode it. A settlement figure whose percentage is only discoverable
- * by opening another screen is a figure the therapist has to take on trust.
+ * printed statement itself says which percentage was applied and whether the
+ * session was rated as part of charging it or picked up by hand afterwards. A
+ * settlement figure whose percentage is only discoverable by opening another
+ * screen is a figure the therapist has to take on trust.
  *
  * NO FAMILY AND NO CHILD APPEARS ON THIS LINE. A settlement statement is about
  * work and money between the clinic and a therapist; who the child was is not

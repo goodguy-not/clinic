@@ -5,7 +5,6 @@ import { actorContext, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
-import { SessionRatingService } from '../settlement/ratings/session-rating.service';
 import {
   findCurrentOrLatestChargeForParticipant,
   lockChargeRow,
@@ -48,7 +47,6 @@ export class SessionChargesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: ChargePostingService,
-    private readonly ratings: SessionRatingService,
     private readonly audit: AuditService,
   ) {}
 
@@ -162,19 +160,24 @@ export class SessionChargesService {
    * and a voided charge contributes nothing to any account total whatever its
    * arithmetic says, so there is no number for them to distort.
    *
-   * THE SETTLEMENT RATING IS THE ONE EXCEPTION, AND IT IS WITHDRAWN HERE
-   * (Milestone 8, checkpoint C3). An adjustment reduces a charge that no longer
-   * counts, so it distorts nothing by standing; a RATING is what a therapist
-   * earned, and it is read by a settlement statement that knows only about
-   * ratings. Left standing against a withdrawn charge it would be the single
-   * figure in this system that a void does not reach — somebody paid for a
-   * session the clinic has taken the money back for. So it is withdrawn in this
-   * transaction, carrying this void's own reason and its own
-   * `session_settlement.voided` audit fact.
+   * THE SETTLEMENT RATING IS LEFT ALONE TOO, AND THAT IS DELIBERATE (Milestone 8,
+   * checkpoint C3). A rating records what percentage WAS APPLIED to this charge
+   * while it stood; a void is a later fact about the charge and does not travel
+   * backwards to make that percentage never have been applied. Withdrawing it
+   * here would write a settlement fact — with an actor and a reason — that
+   * nobody decided, and it would destroy the very history a closed period will
+   * later have to stand on.
    *
-   * NOTHING IS DELETED AND NOTHING IS REWRITTEN. The rating keeps every figure
-   * it applied; if the session is charged again, the new charge is rated in its
-   * own right by the ordinary posting path.
+   * WHAT THE VOID TAKES AWAY IS CURRENT VALUE, AND THE PREDICATE THAT DOES IT IS
+   * THE ONE EVERY TOTAL HERE ALREADY USES. A voided charge contributes to no
+   * figure in this system, and a settlement figure is computed from a rating
+   * JOINED TO ITS CHARGE — so the same `voided_at IS NULL` that stops the family
+   * being billed stops the therapist being credited. Reading this session's
+   * rating answers `CHARGE_VOIDED` for the same reason.
+   *
+   * A RE-POSTED CHARGE IS A NEW CHARGE and takes its own rating through the
+   * ordinary posting path. The old rating cannot obstruct it: the uniqueness of
+   * a standing rating is per CHARGE, not per seat.
    */
   async void(
     chargeId: string,
@@ -200,10 +203,6 @@ export class SessionChargesService {
       `;
 
       const voided = await readChargeRow(tx, chargeId);
-
-      // Under the charge lock this transaction already holds, so the rating
-      // cannot be created concurrently while its withdrawal is being written.
-      await this.ratings.voidForVoidedCharge(tx, current, canonicalReason, actor, context);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'session_charge.voided',

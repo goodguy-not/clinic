@@ -139,21 +139,36 @@ export const settlementReasonSchema = z.string().trim().min(1).max(500);
 export type SettlementReason = z.infer<typeof settlementReasonSchema>;
 
 /**
- * HOW A SESSION CAME TO CARRY THE PERCENTAGE IT CARRIES.
+ * HOW THE RATING ACT HAPPENED — AND NOTHING ABOUT WHERE THE PERCENTAGE CAME
+ * FROM, BECAUSE THERE IS ONLY ONE PLACE IT EVER COMES FROM.
  *
- *   * `AUTOMATIC` — the share was resolved from the therapist's effective-dated
- *     share rule covering the session date, and copied onto the session.
- *   * `EXPLICIT` — a manager stated the percentage for this session, with a
- *     reason, instead of whatever a rule would have resolved to.
+ *   * `AUTOMATIC` — the session was rated by the server in the same transaction
+ *     that posted its charge.
+ *   * `EXPLICIT` — a manager rated the session afterwards, with a reason,
+ *     because no rule covered its service date at the moment it was charged (or
+ *     because an earlier rating was corrected).
  *
- * TWO MEMBERS, AND THE DISTINCTION IS RECORDED RATHER THAN INFERRED FROM
- * WHETHER A RULE HAPPENS TO MATCH TODAY. Rules are effective-dated and can be
- * voided and replaced, so "would the rule have produced this number?" is a
- * question whose answer changes after the fact — which makes it exactly the
- * wrong way to decide whether somebody once overrode something. CLAUDE.md
- * requires every manual override to be explicit and auditable, and this is the
- * field that makes "how often does a manager override the agreed percentage?" a
- * question somebody can COUNT the answer to rather than reconstruct.
+ * BOTH RESOLVE THE SAME PERCENTAGE FROM THE SAME PLACE: the therapist's
+ * effective-dated share rule covering the charge's SERVICE DATE. There is no
+ * per-session override rate in this product and no way to type a percentage
+ * onto one session — the share rule is the only source of settlement policy,
+ * and correcting one is how a percentage changes. So `appliedShareRuleId` is
+ * present on EVERY rating, whichever member this field carries.
+ *
+ * THIS IS NOT AN OVERRIDE FLAG. It answers "was this session rated as part of
+ * charging it, or picked up later by hand?" — which is the question that finds
+ * sessions that fell through a configuration gap, and it is a question about
+ * process rather than about money. An `EXPLICIT` rating is not worth less and
+ * is not suspect; it is the recovery path working.
+ *
+ * RECORDED RATHER THAN INFERRED FROM WHETHER A RULE HAPPENS TO MATCH TODAY.
+ * Rules are effective-dated and can be voided and replaced, so any question
+ * reconstructed from today's configuration has an answer that changes after the
+ * fact.
+ *
+ * NEITHER MEMBER IS SUBMITTABLE. A caller never chooses this: the posting path
+ * writes `AUTOMATIC` and every manager-initiated rating writes `EXPLICIT`, so
+ * the field cannot disagree with what actually happened (`ratings.ts`).
  *
  * NEITHER MEMBER MEANS UNRATED. An unrated session has no settlement fact and
  * therefore no `ratedVia` at all (rule 3 in the header).

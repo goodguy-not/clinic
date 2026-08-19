@@ -39,12 +39,18 @@ import { ratedViaSchema, settlementReasonSchema, shareBasisPointsSchema } from '
  * (CLAUDE.md), and a concession is allocated separately, on the adjustment that
  * granted it, rather than by quietly shrinking the basis here.
  *
- * `appliedShareBasisPoints` IS THE SNAPSHOT AND `appliedShareRuleId` IS ONLY
+ * `appliedShareBasisPoints` IS THE SNAPSHOT AND `appliedShareRuleId` IS ITS
  * PROVENANCE. The percentage that was applied lives on this row as a number; the
- * rule id says where it came from and is null on an `EXPLICIT` rating, which had
- * no rule behind it. Nothing may re-resolve the number from the rule, including
- * when the rule is later voided — which is exactly when a re-resolution would
- * silently change a closed month.
+ * rule id says which agreement it was copied from. Nothing may re-resolve the
+ * number from the rule, including when the rule is later voided — which is
+ * exactly when a re-resolution would silently change a closed month.
+ *
+ * THE RULE ID IS NEVER NULL, ON EITHER KIND OF RATING. A share rule is the only
+ * source of settlement policy in this product: `ratedVia` says whether the
+ * server rated the session while charging it or a manager rated it afterwards,
+ * and BOTH resolve their percentage from the therapist's effective-dated rule
+ * covering the SERVICE DATE. There is no per-session override rate, so there is
+ * no rating that came from nowhere and no shape here that can express one.
  *
  * `therapistGrossToman` AND `clinicGrossToman` ARE BOTH STORED, EVEN THOUGH
  * EITHER COULD BE DERIVED FROM THE OTHER. The residual rule (`SHARE_ROUNDING`)
@@ -57,7 +63,11 @@ import { ratedViaSchema, settlementReasonSchema, shareBasisPointsSchema } from '
  * after the rating.
  *
  * `reason` IS NULL ON AN `AUTOMATIC` RATING AND REQUIRED ON AN `EXPLICIT` ONE.
- * Applying the agreed percentage explains itself; overriding it does not.
+ * A rating written by the posting path explains itself — the charge was raised,
+ * a rule covered it, the percentage was applied. A manager reaching back to a
+ * session that was left unrated is making a decision about somebody's earnings
+ * after the fact, and CLAUDE.md requires every such act to be explicit, reasoned
+ * and auditable.
  *
  * `supersedesSessionSettlementId` NAMES THE RATING THIS ONE REPLACED, exactly as
  * `supersedesTariffId` names the price a correction replaced. Null for a first
@@ -78,7 +88,8 @@ export const sessionSettlementSchema = z.strictObject({
   /** The clinic calendar day in Asia/Tehran, snapshotted from the charge. */
   serviceDate: isoDateSchema,
   appliedShareBasisPoints: shareBasisPointsSchema,
-  appliedShareRuleId: z.uuid().nullable(),
+  /** Always present: every rating is resolved from a rule. */
+  appliedShareRuleId: z.uuid(),
   ratedVia: ratedViaSchema,
   baseAmountToman: tomanAmountSchema,
   therapistGrossToman: tomanAmountSchema,
@@ -95,46 +106,45 @@ export const sessionSettlementSchema = z.strictObject({
 export type SessionSettlement = z.infer<typeof sessionSettlementSchema>;
 
 /**
- * Rating a session: the two ways it can happen, as two shapes rather than one
- * shape with optional fields.
+ * RATING A SESSION BY HAND: A REASON, AND NOTHING ELSE.
  *
- * A DISCRIMINATED UNION MAKES THE INVALID COMBINATIONS UNREPRESENTABLE.
- * "Automatic, but here is a percentage" and "explicit, but no percentage and no
- * reason" are both refused by the type rather than by a refinement somebody has
- * to remember to read. It is the same device `createTariffRequestSchema` uses
- * for `PAID` and `FREE`, and for the same reason: two genuinely different acts
- * that happen to write to one table.
+ * NO PERCENTAGE IS SUBMITTABLE, AND THAT IS THE WHOLE SHAPE OF THIS REQUEST.
+ * The applied share is resolved by the server from the therapist's
+ * effective-dated share rule covering the CHARGE's service date — the same
+ * resolution the posting path performs, against the same rule, by the same
+ * statement. A caller who could type a percentage onto one session would be
+ * stating settlement policy in a place that has no effective date, no
+ * supersession history and no void trail, and next month's figure for the same
+ * therapist would depend on which screen somebody happened to use. The share
+ * rule is the only source of settlement policy in this product, and correcting
+ * a rule is how a percentage changes (`share-rules.ts`).
  *
- * THE AUTOMATIC MEMBER CARRIES NOTHING AT ALL, and states that rather than
- * omitting the body. The session is named by the path, the actor and the
- * instant are the request's own, and the percentage is resolved by the server
- * from the therapist's effective-dated rule covering the session date. A caller
- * that sends a percentage anyway is refused by `strictObject` rather than
- * having it silently dropped — which is what would turn an override into an
+ * A WRONG PERCENTAGE IS THEREFORE FIXED IN TWO STEPS, BOTH ALREADY AUDITED:
+ * correct the share rule (which voids it and writes a replacement naming it),
+ * then correct the rating (`correctSessionRatingRequestSchema` below), which
+ * re-resolves against the corrected rule. Neither step rewrites history and both
+ * say who and why.
+ *
+ * NO `ratedVia` IS SUBMITTABLE EITHER. It records how the act happened, and the
+ * server knows: this request is a manager rating a session by hand, so it always
+ * writes `EXPLICIT`. A caller that could send `AUTOMATIC` could claim a rating
+ * was raised with the charge when it was not, which is the one thing the field
+ * exists to answer honestly.
+ *
+ * NO BASE AMOUNT IS SUBMITTABLE. The basis is the posted charge, read by the
+ * server from the charge itself; a caller that could state it could state a
+ * different one.
+ *
+ * `reason` IS REQUIRED AND IS THE ONLY FIELD. Reaching back to a session nobody
+ * rated is a decision about somebody's earnings taken after the fact, and
+ * CLAUDE.md requires every such act to be explicit, reasoned and auditable.
+ * A `strictObject` refuses everything else — including a percentage — rather
+ * than silently dropping it, which is what would turn a refused override into an
  * unrecorded one.
- *
- * THE EXPLICIT MEMBER REQUIRES BOTH THE NUMBER AND THE REASON. CLAUDE.md
- * requires every manual override to be explicit, reasoned and auditable, so a
- * reason is not optional and not defaulted.
- *
- * NO BASE AMOUNT IS SUBMITTABLE IN EITHER MEMBER. The basis is the posted
- * charge, read by the server from the charge itself; a caller that could state
- * it could state a different one.
  */
-const automaticRatingFields = z.strictObject({
-  ratedVia: z.literal('AUTOMATIC'),
-});
-
-const explicitRatingFields = z.strictObject({
-  ratedVia: z.literal('EXPLICIT'),
-  shareBasisPoints: shareBasisPointsSchema,
+export const rateSessionRequestSchema = z.strictObject({
   reason: settlementReasonSchema,
 });
-
-export const rateSessionRequestSchema = z.discriminatedUnion('ratedVia', [
-  automaticRatingFields,
-  explicitRatingFields,
-]);
 
 export type RateSessionRequest = z.infer<typeof rateSessionRequestSchema>;
 
@@ -190,6 +200,19 @@ export type VoidSessionRatingRequest = z.infer<typeof voidSessionRatingRequestSc
  * here would give one endpoint two behaviours with very different consequences
  * for a closed period.
  *
+ * THE REPLACEMENT CARRIES NO PERCENTAGE, for the reason
+ * `rateSessionRequestSchema` carries none: it is RE-RESOLVED from the
+ * therapist's share rule covering the charge's service date. That is exactly
+ * what makes this the second half of correcting a wrong percentage — the manager
+ * corrects the RULE, which voids it and writes a replacement, and then corrects
+ * the rating, which picks the corrected agreement up. A percentage typed here
+ * would settle one session against a figure no rule ever recorded.
+ *
+ * IT CARRIES NO `ratedVia` EITHER, and the replacement is always `EXPLICIT`: a
+ * manager performed it, by hand, after the fact. Claiming `AUTOMATIC` would
+ * assert that the charge posting raised it, which is the one thing that field
+ * exists to answer honestly.
+ *
  * THE CORRECTION DOES NOT REWRITE THE CLOSED PERIOD. The withdrawn and the
  * replacement ratings are both facts, and the DIFFERENCE between them appears as
  * a `CORRECTION` line in the first period still open (see
@@ -202,10 +225,7 @@ export const correctSessionRatingRequestSchema = z
     sessionChargeId: z.uuid(),
     sessionSettlementId: z.uuid(),
     withdrawReason: settlementReasonSchema,
-    replacement: z.discriminatedUnion('ratedVia', [
-      automaticRatingFields.extend({ sessionChargeId: z.uuid() }),
-      explicitRatingFields.extend({ sessionChargeId: z.uuid() }),
-    ]),
+    replacement: rateSessionRequestSchema.extend({ sessionChargeId: z.uuid() }),
   })
   .refine(
     (value) => value.replacement.sessionChargeId === value.sessionChargeId,

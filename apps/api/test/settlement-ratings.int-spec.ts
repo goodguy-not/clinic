@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { sessionSettlementResponseSchema } from '@clinic/contracts';
+import { sessionSettlementResponseSchema, shareRuleResponseSchema } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import { asUser, signIn } from './appointments-support';
 import { createHarness, resetDatabase, type Harness } from './harness';
@@ -57,7 +57,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
      * (PROJECT_SPEC.md 4).
      */
     it.each([
-      ['rate', 'post', `/settlement/session-charges/${uuidv7()}/rating`, { ratedVia: 'AUTOMATIC' }],
+      ['rate', 'post', `/settlement/session-charges/${uuidv7()}/rating`, { reason: 'x' }],
       ['read', 'get', `/settlement/session-charges/${uuidv7()}/rating`, undefined],
       ['void', 'post', `/settlement/session-ratings/${uuidv7()}/void`, { reason: 'x' }],
       ['correct', 'post', '/settlement/rating-corrections', {}],
@@ -261,7 +261,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
         effectiveStart: '2020-01-01',
         effectiveEnd: '2026-09-30',
       });
-      await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+      const current = await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
         shareBasisPoints: 6000,
         effectiveStart: '2026-10-01',
       });
@@ -272,13 +272,72 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       const settlement = settlementOf(response.body);
       expect(settlement).toMatchObject({
         appliedShareBasisPoints: 3000,
-        ratedVia: 'AUTOMATIC',
+        ratedVia: 'EXPLICIT',
         serviceDate: fixture.serviceDate,
         baseAmountToman: '250000',
         therapistGrossToman: '75000',
         clinicGrossToman: '175000',
-        reason: null,
       });
+      // Provenance is the rule that covered the SERVICE DATE, never today's.
+      expect(settlement.appliedShareRuleId).not.toBe(current);
+      expect(settlement.reason).toBe('قاعده سهم پس از ثبت هزینه وارد شد');
+    });
+
+    it('names the rule it resolved, so the percentage is never a figure from nowhere', async () => {
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
+      const ruleId = await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+        shareBasisPoints: 4000,
+      });
+
+      const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId);
+
+      expect(response.status).toBe(201);
+      expect(settlementOf(response.body).appliedShareRuleId).toBe(ruleId);
+    });
+
+    /**
+     * THE RULE THIS CHECKPOINT REVISION EXISTS FOR. A share rule is the only
+     * source of settlement policy: a percentage typed onto one session would
+     * have no effective date, no supersession history and no void trail, and two
+     * sessions on the same day for the same therapist could settle differently
+     * with nothing in the record saying why.
+     */
+    it('refuses a directly supplied percentage, whatever it is called', async () => {
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
+      await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+        shareBasisPoints: 4000,
+      });
+
+      for (const field of ['shareBasisPoints', 'appliedShareBasisPoints', 'sharePercent']) {
+        const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
+          reason: 'توافق موردی برای این جلسه',
+          [field]: 9000,
+        });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('VALIDATION_FAILED');
+      }
+
+      expect(await ratingRowsFor(harness, fixture.chargeId)).toHaveLength(0);
+      expect(await ratingAuditRows(harness)).toHaveLength(0);
+    });
+
+    it('refuses a submitted provenance, so the act cannot be misreported', async () => {
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
+      await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+        shareBasisPoints: 4000,
+      });
+
+      for (const ratedVia of ['AUTOMATIC', 'EXPLICIT']) {
+        const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
+          reason: 'دلیل آزمایشی',
+          ratedVia,
+        });
+
+        expect(response.status).toBe(400);
+      }
+
+      expect(await ratingRowsFor(harness, fixture.chargeId)).toHaveLength(0);
     });
 
     it('refuses when no rule covers the service date, and writes nothing', async () => {
@@ -292,38 +351,41 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       expect(await ratingAuditRows(harness)).toHaveLength(0);
     });
 
-    it('records a manager override with its percentage and its reason', async () => {
+    it('records the manager, the instant and the required reason', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
+      await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+        shareBasisPoints: 5500,
+      });
 
       const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
-        ratedVia: 'EXPLICIT',
-        shareBasisPoints: 5500,
-        reason: 'توافق موردی برای این جلسه',
+        reason: 'قاعده سهم دیرتر ثبت شد',
       });
 
       expect(response.status).toBe(201);
-      const settlement = settlementOf(response.body);
-      expect(settlement).toMatchObject({
+      expect(settlementOf(response.body)).toMatchObject({
         ratedVia: 'EXPLICIT',
         appliedShareBasisPoints: 5500,
-        appliedShareRuleId: null,
-        reason: 'توافق موردی برای این جلسه',
+        reason: 'قاعده سهم دیرتر ثبت شد',
         therapistGrossToman: '137500',
         clinicGrossToman: '112500',
       });
 
       const audit = await ratingAuditRows(harness);
       expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({
+        action: 'session_settlement.rated',
+        actorUserId: fixture.managerId,
+      });
       expect(audit[0]?.metadata).toMatchObject({ trigger: 'EXPLICIT_RATING' });
     });
 
-    it('refuses an override with no reason', async () => {
+    it('refuses a rating with no reason', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
-
-      const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
-        ratedVia: 'EXPLICIT',
-        shareBasisPoints: 5500,
+      await shareRuleId(harness, fixture.managerToken, fixture.therapistId, {
+        shareBasisPoints: 4000,
       });
+
+      const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {});
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe('VALIDATION_FAILED');
@@ -334,7 +396,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
 
       const response = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
-        ratedVia: 'AUTOMATIC',
+        reason: 'دلیل آزمایشی',
         baseAmountToman: '1',
       });
 
@@ -529,9 +591,31 @@ describe('session settlement ratings (real PostgreSQL)', () => {
   // -------------------------------------------------------------------------
 
   describe('correcting a rating', () => {
-    it('withdraws and replaces in one act, and never leaves the session unrated', async () => {
+    /**
+     * A CORRECTION IS THE SECOND HALF OF CORRECTING A PERCENTAGE. The manager
+     * corrects the RULE — which voids it and writes a replacement naming it —
+     * and then corrects the rating, which re-resolves against the corrected
+     * agreement. No percentage is typed anywhere in either step.
+     */
+    it('withdraws and replaces in one act, re-resolving from the corrected rule', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
       const original = (await ratingRowsFor(harness, fixture.chargeId))[0];
+
+      const corrected = await makeShareRule(harness, fixture.managerToken, {
+        therapistId: fixture.therapistId,
+        shareBasisPoints: 5000,
+        effectiveStart: '2020-01-01',
+        effectiveEnd: null,
+        supersedesShareRuleId: original?.appliedShareRuleId,
+        reason: 'درصد اشتباه ثبت شده بود',
+      });
+      expect(corrected.status).toBe(201);
+      const correctedRuleId = shareRuleResponseSchema.parse(corrected.body).shareRule.id;
+
+      // The rating still says 4000: correcting the rule rewrites no session.
+      expect((await ratingRowsFor(harness, fixture.chargeId))[0]?.appliedShareBasisPoints).toBe(
+        4000,
+      );
 
       const response = await correctRatingOverHttp(harness, fixture.managerToken, {
         sessionChargeId: fixture.chargeId,
@@ -539,9 +623,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
         withdrawReason: 'درصد اشتباه اعمال شده بود',
         replacement: {
           sessionChargeId: fixture.chargeId,
-          ratedVia: 'EXPLICIT',
-          shareBasisPoints: 5000,
-          reason: 'درصد توافق‌شده برای این جلسه',
+          reason: 'اعمال درصد اصلاح‌شده بر این جلسه',
         },
       });
 
@@ -550,6 +632,8 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       expect(replacement).toMatchObject({
         supersedesSessionSettlementId: original?.id,
         appliedShareBasisPoints: 5000,
+        appliedShareRuleId: correctedRuleId,
+        ratedVia: 'EXPLICIT',
         therapistGrossToman: '125000',
         clinicGrossToman: '125000',
         voidedAt: null,
@@ -557,10 +641,12 @@ describe('session settlement ratings (real PostgreSQL)', () => {
 
       const rows = await ratingRowsFor(harness, fixture.chargeId);
       expect(rows).toHaveLength(2);
-      // The withdrawn figure is still readable, exactly as applied.
+      // The withdrawn figure is still readable, exactly as applied, and still
+      // names the rule it came from.
       expect(rows[0]).toMatchObject({
         id: original?.id,
         appliedShareBasisPoints: 4000,
+        appliedShareRuleId: original?.appliedShareRuleId,
         therapistGrossToman: 100000n,
         voidReason: 'درصد اشتباه اعمال شده بود',
       });
@@ -582,6 +668,30 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       expect(audit[1]?.requestId).toBe(audit[2]?.requestId);
     });
 
+    it('refuses a percentage on the replacement, and changes nothing', async () => {
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
+      const original = (await ratingRowsFor(harness, fixture.chargeId))[0];
+
+      const response = await correctRatingOverHttp(harness, fixture.managerToken, {
+        sessionChargeId: fixture.chargeId,
+        sessionSettlementId: original?.id,
+        withdrawReason: 'اصلاح',
+        replacement: {
+          sessionChargeId: fixture.chargeId,
+          reason: 'اصلاح',
+          shareBasisPoints: 9000,
+        },
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_FAILED');
+
+      const rows = await ratingRowsFor(harness, fixture.chargeId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.voidedAt).toBeNull();
+      expect(rows[0]?.appliedShareBasisPoints).toBe(4000);
+    });
+
     it('refuses a replacement that names a different session, and changes nothing', async () => {
       const first = await seedChargedSession(harness, { shareBasisPoints: 4000 });
       const other = await seedChargedSession(harness, { shareBasisPoints: 4000 });
@@ -591,12 +701,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
         sessionChargeId: other.chargeId,
         sessionSettlementId: rating?.id,
         withdrawReason: 'اصلاح',
-        replacement: {
-          sessionChargeId: other.chargeId,
-          ratedVia: 'EXPLICIT',
-          shareBasisPoints: 5000,
-          reason: 'اصلاح',
-        },
+        replacement: { sessionChargeId: other.chargeId, reason: 'اصلاح' },
       });
 
       expect(response.status).toBe(422);
@@ -609,22 +714,24 @@ describe('session settlement ratings (real PostgreSQL)', () => {
     });
 
     it('refuses a replacement that cannot be produced, leaving the original standing', async () => {
-      // The rating was written explicitly, so no rule covers the day; an
-      // AUTOMATIC replacement therefore has nothing to resolve. The original
-      // must survive rather than the session being left unrated.
-      const fixture = await seedChargedSession(harness, { shareBasisPoints: null });
-      const rated = await rateOverHttp(harness, fixture.managerToken, fixture.chargeId, {
-        ratedVia: 'EXPLICIT',
-        shareBasisPoints: 5500,
-        reason: 'توافق موردی',
-      });
-      const original = settlementOf(rated.body);
+      // The rule that produced the rating is voided outright, so nothing covers
+      // the service date any more. The original must survive rather than the
+      // session being left unrated.
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
+      const original = (await ratingRowsFor(harness, fixture.chargeId))[0];
+
+      await voidShareRule(
+        harness,
+        fixture.managerToken,
+        original?.appliedShareRuleId ?? '',
+        'توافق پایان یافت',
+      ).expect(200);
 
       const response = await correctRatingOverHttp(harness, fixture.managerToken, {
         sessionChargeId: fixture.chargeId,
-        sessionSettlementId: original.id,
+        sessionSettlementId: original?.id,
         withdrawReason: 'اصلاح',
-        replacement: { sessionChargeId: fixture.chargeId, ratedVia: 'AUTOMATIC' },
+        replacement: { sessionChargeId: fixture.chargeId, reason: 'اصلاح' },
       });
 
       expect(response.status).toBe(422);
@@ -645,12 +752,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
         sessionChargeId: fixture.chargeId,
         sessionSettlementId: rating?.id,
         withdrawReason: 'اصلاح',
-        replacement: {
-          sessionChargeId: fixture.chargeId,
-          ratedVia: 'EXPLICIT',
-          shareBasisPoints: 5000,
-          reason: 'اصلاح',
-        },
+        replacement: { sessionChargeId: fixture.chargeId, reason: 'اصلاح' },
       });
 
       expect(response.status).toBe(409);
@@ -664,9 +766,16 @@ describe('session settlement ratings (real PostgreSQL)', () => {
   // -------------------------------------------------------------------------
 
   describe('when the charge itself is withdrawn', () => {
-    it('withdraws the rating with it, in the same act, and audits both', async () => {
+    /**
+     * THE RULE THIS CHECKPOINT REVISION EXISTS FOR, ON THE OTHER SIDE. A rating
+     * records what percentage WAS APPLIED to that charge while it stood. A void
+     * is a later fact about the charge and does not travel backwards to make the
+     * percentage never have been applied — so the row is left exactly as it was,
+     * and no settlement fact nobody decided is written.
+     */
+    it('leaves the rating row completely untouched, and audits nothing', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
-      const rating = (await ratingRowsFor(harness, fixture.chargeId))[0];
+      const before = (await ratingRowsFor(harness, fixture.chargeId))[0];
 
       await voidChargeOverHttp(
         harness,
@@ -675,17 +784,27 @@ describe('session settlement ratings (real PostgreSQL)', () => {
         'جلسه اشتباه ثبت شده بود',
       ).expect(200);
 
-      const rows = await ratingRowsFor(harness, fixture.chargeId);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.voidedAt).not.toBeNull();
-      expect(rows[0]?.voidReason).toBe('جلسه اشتباه ثبت شده بود');
-      // Every applied figure is left exactly as it was applied.
-      expect(rows[0]?.therapistGrossToman).toBe(100000n);
+      const after = (await ratingRowsFor(harness, fixture.chargeId))[0];
+      expect(after).toEqual(before);
+      expect(after?.voidedAt).toBeNull();
+      expect(after?.voidReason).toBeNull();
 
+      // No `session_settlement.voided` fact: nobody withdrew a rating.
       const audit = await ratingAuditRows(harness);
-      expect(audit).toHaveLength(2);
-      expect(audit[1]).toMatchObject({ action: 'session_settlement.voided', entityId: rating?.id });
-      expect(audit[1]?.metadata).toMatchObject({ trigger: 'CHARGE_VOIDED' });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]?.action).toBe('session_settlement.rated');
+    });
+
+    it('makes the session earn nothing NOW, which is what the read reports', async () => {
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
+      await voidChargeOverHttp(harness, fixture.managerToken, fixture.chargeId).expect(200);
+
+      const read = await readRatingOverHttp(harness, fixture.managerToken, fixture.chargeId);
+      expect(read.status).toBe(409);
+      expect(read.body.error.code).toBe('CHARGE_VOIDED');
+
+      // The history is still there to be read by anything that asks for history.
+      expect(await ratingRowsFor(harness, fixture.chargeId)).toHaveLength(1);
     });
 
     it('is harmless when the session was never rated', async () => {
@@ -697,7 +816,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       expect(await ratingAuditRows(harness)).toHaveLength(0);
     });
 
-    it('rates the replacement charge in its own right', async () => {
+    it('rates the replacement charge in its own right, unobstructed by the old one', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
       await voidChargeOverHttp(harness, fixture.managerToken, fixture.chargeId).expect(200);
 
@@ -710,10 +829,40 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       const newChargeId = reposted.body.charge.id as string;
       expect(newChargeId).not.toBe(fixture.chargeId);
 
+      // The old rating still stands against the old charge and blocks nothing:
+      // uniqueness is per CHARGE, not per seat.
+      const oldRows = await ratingRowsFor(harness, fixture.chargeId);
+      expect(oldRows).toHaveLength(1);
+      expect(oldRows[0]?.voidedAt).toBeNull();
+
       const rows = await ratingRowsFor(harness, newChargeId);
       expect(rows).toHaveLength(1);
       expect(rows[0]?.voidedAt).toBeNull();
       expect(rows[0]?.appliedShareBasisPoints).toBe(4000);
+
+      // And the new charge is the one that currently earns.
+      const read = await readRatingOverHttp(harness, fixture.managerToken, newChargeId);
+      expect(read.status).toBe(200);
+      expect(settlementOf(read.body).sessionChargeId).toBe(newChargeId);
+    });
+
+    it('can still have its rating withdrawn explicitly afterwards', async () => {
+      // Correcting the settlement history of a withdrawn charge stays possible;
+      // it is a decision somebody takes, with a reason, rather than a side
+      // effect of the void.
+      const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
+      const rating = (await ratingRowsFor(harness, fixture.chargeId))[0];
+      await voidChargeOverHttp(harness, fixture.managerToken, fixture.chargeId).expect(200);
+
+      const response = await voidRatingOverHttp(
+        harness,
+        fixture.managerToken,
+        rating?.id ?? '',
+        'هزینه ابطال شد و این سهم نباید بماند',
+      );
+
+      expect(response.status).toBe(200);
+      expect((await ratingRowsFor(harness, fixture.chargeId))[0]?.voidedAt).not.toBeNull();
     });
   });
 

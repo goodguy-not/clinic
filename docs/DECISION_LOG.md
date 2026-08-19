@@ -2464,34 +2464,43 @@ is re-derived by `session_settlement_split_chk` in SQL as well as computed by
 - **Revisit when:** a settlement fact ever needs to attach to something that is
   not a session charge.
 
-## 2026-08-19 — Voiding a charge withdraws its rating in the same transaction
+## 2026-08-19 — A charge void leaves the applied share snapshot standing
 
-**Status:** Accepted — Milestone 8, checkpoint C3
+**Status:** Accepted — Milestone 8, checkpoint C3 revision — **corrects and
+replaces an unauthorized deviation introduced earlier in C3**
 
-`POST /session-charges/:id/void` withdraws the charge's standing
-`session_settlement` row in the same transaction, carrying the manager's own void
-reason and writing its own `session_settlement.voided` audit fact with
-`trigger: CHARGE_VOIDED`. Nothing is deleted and no applied figure is rewritten.
-Adjustments are still left alone.
+`POST /session-charges/:id/void` writes the three void columns on the charge and
+touches nothing else. The `session_settlement` row is not withdrawn, not edited
+and not deleted, and no `session_settlement.voided` audit fact is produced by a
+charge void. `GET /settlement/session-charges/:id/rating` answers `CHARGE_VOIDED`
+for a withdrawn charge, and every settlement figure a later checkpoint computes
+must join the charge and apply `voided_at IS NULL`.
 
-- **Alternatives:** leaving the rating standing and having every settlement read
-  join `session_charge` and filter on `voided_at IS NULL`; refusing to void a
-  charge that carries a rating.
-- **Reason:** every total in this system already ignores a voided charge, and a
-  standing rating against one would be the single figure a void does not reach —
-  somebody paid for a session the clinic has withdrawn the money for. Pushing the
-  filter into the reads defers the invariant to a checkpoint that does not exist
-  yet and to every future reader of the table; refusing the void would make the
-  approved correction sequence (void the charge, correct the session, re-post)
-  unreachable whenever a share rule happened to exist. The rating follows the
-  charge because the charge is its whole justification, which is the same reasoning
-  that makes `COMPLETED + ATTENDED` the charge's.
-- **Trade-off:** one financial act writes two withdrawals. They are two audited
-  facts with one request id, and the second names its trigger, so the trail says
-  which decision caused which.
-- **Revisit when:** settlement periods exist. A charge whose rating a CLOSED
-  period depends on has the same problem the plain rating withdrawal has, and the
-  answer belongs beside it (see the next entry).
+**What this replaces.** The first C3 implementation withdrew the rating inside
+the charge-void transaction. That was not in the accepted plan and it was wrong:
+it is recorded here rather than deleted, because the reasoning is what stops it
+being reintroduced.
+
+- **Alternatives:** withdrawing the rating with the charge (what C3 did, now
+  reverted); refusing to void a charge that carries a rating.
+- **Reason:** a rating records what percentage WAS APPLIED to that charge while
+  it stood. A void is a later fact about the charge; it does not travel backwards
+  and make the percentage never have been applied. Withdrawing the rating as a
+  side effect wrote a settlement fact — with an actor and a reason — that nobody
+  decided, which is exactly what CLAUDE.md's "explicit, reasoned, auditable"
+  rules exist to prevent, and it destroyed the history a closed period will later
+  have to stand on: C6 must be able to see that a closed `PRIMARY` line's rating
+  is still there. The invariant the earlier version was reaching for — a voided
+  charge must contribute nothing — is already satisfied by the predicate every
+  other total in this system uses, applied one join further out. Refusing the
+  void would make the approved correction sequence unreachable whenever a share
+  rule happened to exist.
+- **Trade-off:** a standing rating can point at a withdrawn charge, so no reader
+  of `session_settlement` may total it without joining `session_charge`. That is
+  stated here, in the service, in the schema comment and in a test; it is the
+  same discipline `charge_adjustment` already requires.
+- **Revisit when:** never for this rule. A later checkpoint that reads ratings in
+  bulk inherits the join requirement, and the C3 read already demonstrates it.
 
 ## 2026-08-19 — The closed-period refusal is deferred to C6 rather than approximated
 
@@ -2522,3 +2531,51 @@ rating therefore always succeeds at this checkpoint.
   `RATING_HAS_THERAPIST_ALLOCATIONS` is unreachable for the same kind of reason —
   no therapist-borne allocation can exist while the C2 guard refuses one — and
   belongs to the concession-split checkpoint.
+
+## 2026-08-19 — A share rule is the only source of settlement policy
+
+**Status:** Accepted — Milestone 8, checkpoint C3 revision — **corrects a C1
+contract ambiguity and the C3 code that implemented it**
+
+`POST /settlement/session-charges/:id/rating` takes a REASON AND NOTHING ELSE.
+The applied percentage is resolved by the server from the therapist's
+effective-dated share rule covering the charge's `service_date`, by the same
+statement the charge-posting path uses. `session_settlement.applied_share_rule_id`
+is NOT NULL, on every row. `ratedVia` records whether the server rated the
+session while charging it (`AUTOMATIC`) or a manager rated it afterwards
+(`EXPLICIT`), and is not submittable in either direction.
+
+**The C1 contract is corrected, not preserved.** `rateSessionRequestSchema` was
+a discriminated union whose `EXPLICIT` member carried `shareBasisPoints`, and
+`sessionSettlementSchema.appliedShareRuleId` was nullable to accommodate it. Read
+literally, that made `ratedVia` a _policy source_ discriminator and created a
+second, unversioned place to state what a therapist earns. The accepted M8 rule
+is that it describes how the rating ACT happened. C1's own prose already leaned
+the other way in places; the shapes are now unambiguous.
+
+- **Alternatives:** keeping the free-typed percentage as a manager override;
+  keeping the union but dropping only `shareBasisPoints` from the `EXPLICIT`
+  member; leaving the contract and constraining it in the service.
+- **Reason:** a percentage typed onto one session is settlement policy stated
+  somewhere with no effective date, no supersession history and no void trail —
+  the three properties C2 built `therapist_share_rule` to have. Two sessions on
+  the same day for the same therapist could then settle differently with nothing
+  in the record explaining why, and next month's figure would depend on which
+  screen somebody used. Dropping only the percentage would have left two ways to
+  do the same thing differing only in whether a reason was recorded, which would
+  have let a manager rate a historical session with NO reason — the opposite of
+  what the accepted rule requires. Constraining it in the service alone would
+  leave the wrong semantic frozen in the contract the web lane builds against.
+- **How a wrong percentage is corrected, since it can no longer be typed:** in
+  two audited acts that already exist. Correct the RULE — which voids it and
+  writes a replacement naming it, with a reason — and then correct the RATING,
+  whose replacement re-resolves against the corrected agreement. Neither rewrites
+  history, and both say who and why.
+- **Trade-off:** a genuinely one-off percentage for a single session cannot be
+  expressed. That is deliberate: no such product concept is approved, and
+  CLAUDE.md forbids inferring a settlement rule that has not been. If one is ever
+  approved it arrives as a scoped share RULE, which stays effective-dated and
+  auditable.
+- **Revisit when:** a per-session commercial arrangement is explicitly approved
+  as a product concept — at which point the question is what shape of RULE
+  expresses it, not whether a percentage may be typed onto a settlement fact.

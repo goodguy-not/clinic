@@ -99,10 +99,11 @@ describe('session rating concurrency (real PostgreSQL)', () => {
       shareBasisPoints: 4000,
     });
 
-    // Both take the same charge row lock, in the same order, so one of two
-    // consistent outcomes holds: the rating landed first and was withdrawn with
-    // the charge, or the void landed first and the rating was refused. What
-    // cannot happen is a standing rating against a withdrawn charge.
+    // Both take the same charge row lock, in the same order, so one of exactly
+    // two consistent outcomes holds: the rating landed first and stands as the
+    // historical record of what applied while the charge was valid, or the void
+    // landed first and the rating was refused. Neither ordering can produce a
+    // half-written rating, and neither can produce two.
     const [rated, voided] = await Promise.all([
       rateOverHttp(harness, fixture.managerToken, fixture.chargeId),
       voidChargeOverHttp(harness, fixture.managerToken, fixture.chargeId),
@@ -111,13 +112,18 @@ describe('session rating concurrency (real PostgreSQL)', () => {
     expect(voided.status).toBe(200);
     expect([201, 409]).toContain(rated.status);
 
-    const standing = await harness.prisma.sessionSettlement.count({
-      where: { sessionChargeId: fixture.chargeId, voidedAt: null },
-    });
-    expect(standing).toBe(0);
+    const rows = await ratingRowsFor(harness, fixture.chargeId);
+    expect(rows).toHaveLength(rated.status === 201 ? 1 : 0);
+    // Whichever way it went, no rating was WITHDRAWN: a charge void writes no
+    // settlement fact, so the only audit rows are the ones the rating wrote.
+    const audit = await ratingAuditRows(harness);
+    expect(audit.map((row) => row.action)).toEqual(
+      rated.status === 201 ? ['session_settlement.rated'] : [],
+    );
 
+    // And either way the session earns nothing NOW, because its charge is gone.
     const read = await readRatingOverHttp(harness, fixture.managerToken, fixture.chargeId);
-    expect(read.status).toBe(422);
-    expect(read.body.error.code).toBe('SESSION_NOT_RATED');
+    expect(read.status).toBe(409);
+    expect(read.body.error.code).toBe('CHARGE_VOIDED');
   });
 });

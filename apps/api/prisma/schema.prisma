@@ -254,18 +254,20 @@ enum PaymentPromiseStatus {
   @@map("payment_promise_status")
 }
 
-/// How a session came to carry the therapist share percentage it carries.
+/// How the rating act happened.
 ///
-/// `AUTOMATIC` — resolved from the therapist's effective-dated share rule
-/// covering the SERVICE DATE, and the rule is named on the row as provenance.
-/// `EXPLICIT` — a manager stated the percentage for this session, with a
-/// reason, and no rule stands behind it.
+/// `AUTOMATIC` — the server rated the session in the transaction that posted its
+/// charge. `EXPLICIT` — a manager rated it by hand afterwards, with a reason.
+///
+/// IT SAYS HOW THE ACT HAPPENED, NOT WHERE THE PERCENTAGE CAME FROM. Both
+/// resolve the same percentage from the therapist's effective-dated share rule
+/// covering the SERVICE DATE, and `appliedShareRuleId` is present on both: there
+/// is no per-session override rate in this product.
 ///
 /// RECORDED RATHER THAN INFERRED FROM WHETHER A RULE HAPPENS TO MATCH TODAY.
-/// Rules are effective-dated and may be voided and replaced, so "would a rule
-/// have produced this number?" is a question whose answer changes after the
-/// fact — which makes it exactly the wrong way to decide whether somebody once
-/// overrode something.
+/// Rules are effective-dated and may be voided and replaced, so any question
+/// reconstructed from today's configuration has an answer that changes after the
+/// fact.
 ///
 /// NEITHER MEMBER MEANS UNRATED. An unrated session has no `SessionSettlement`
 /// row at all.
@@ -1611,9 +1613,11 @@ model SessionSettlement {
   therapistId                   String          @map("therapist_id") @db.Uuid
   serviceDate                   DateTime        @map("service_date") @db.Date
   appliedShareBasisPoints       Int             @map("applied_share_basis_points")
-  /// Provenance, never a pointer to re-read. Null on an `EXPLICIT` rating,
-  /// which had no rule behind it.
-  appliedShareRuleId            String?         @map("applied_share_rule_id") @db.Uuid
+  /// Provenance, never a pointer to re-read — and never null. A share rule is
+  /// the only source of settlement policy in this product, so BOTH kinds of
+  /// rating resolve their percentage from the rule covering the service date;
+  /// `ratedVia` records who performed the act, not where the number came from.
+  appliedShareRuleId            String          @map("applied_share_rule_id") @db.Uuid
   ratedVia                      SessionRatedVia @map("rated_via")
   /// The charge amount as posted, before any concession.
   baseAmountToman               BigInt          @map("base_amount_toman")
@@ -1623,8 +1627,10 @@ model SessionSettlement {
   /// readable years later without re-running the rounding rule of the day.
   therapistGrossToman           BigInt          @map("therapist_gross_toman")
   clinicGrossToman              BigInt          @map("clinic_gross_toman")
-  /// Null on an `AUTOMATIC` rating and required on an `EXPLICIT` one: applying
-  /// the agreed percentage explains itself, overriding it does not.
+  /// Null on an `AUTOMATIC` rating and required on an `EXPLICIT` one: a rating
+  /// raised by the posting path explains itself, while a manager reaching back
+  /// to a session left unrated is deciding about somebody's earnings after the
+  /// fact.
   reason                        String?
   /// The rating this one replaced, recorded on the replacement so the history
   /// reads forwards. Null for a first rating.
@@ -1636,7 +1642,7 @@ model SessionSettlement {
   voidReason                    String?         @map("void_reason")
 
   charge           SessionCharge       @relation("SessionSettlementCharge", fields: [sessionChargeId, appointmentParticipantId, therapistId, serviceDate, baseAmountToman], references: [id, appointmentParticipantId, therapistId, serviceDate, amountToman], onDelete: Restrict, onUpdate: Cascade, map: "session_settlement_charge_snapshot_fkey")
-  appliedShareRule TherapistShareRule? @relation(fields: [appliedShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appliedShareRule TherapistShareRule  @relation(fields: [appliedShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersedes       SessionSettlement?  @relation("SessionSettlementSupersedes", fields: [supersedesSessionSettlementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersededBy     SessionSettlement[] @relation("SessionSettlementSupersedes")
   createdBy        AppUser             @relation("SessionSettlementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
