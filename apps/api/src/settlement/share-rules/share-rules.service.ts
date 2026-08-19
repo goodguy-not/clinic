@@ -15,6 +15,11 @@ import type { RequestContext, ResolvedSession } from '../../common/request-conte
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext, canonicalText } from '../../catalog/catalog-support';
+import {
+  resolveShareRuleRow,
+  SHARE_RULE_COLUMNS,
+  type ShareRuleRow,
+} from './share-rule-resolution';
 
 /**
  * Effective-dated therapist share percentages.
@@ -61,23 +66,6 @@ import { actorContext, canonicalText } from '../../catalog/catalog-support';
  * route, because only some requests perform the act.
  */
 const SHARE_RULE_VOID_PERMISSION: Permission = 'therapist_share.void';
-
-type ShareRuleRow = {
-  id: string;
-  therapist_id: string;
-  share_basis_points: number;
-  effective_start: Date;
-  effective_end: Date | null;
-  supersedes_share_rule_id: string | null;
-  created_at: Date;
-  voided_at: Date | null;
-  void_reason: string | null;
-};
-
-const SHARE_RULE_COLUMNS = Prisma.sql`
-  id, therapist_id, share_basis_points, effective_start, effective_end,
-  supersedes_share_rule_id, created_at, voided_at, void_reason
-`;
 
 @Injectable()
 export class ShareRulesService {
@@ -127,33 +115,16 @@ export class ShareRulesService {
   /**
    * The percentage that applied to a therapist on a given service date.
    *
-   * BY THE SERVICE DATE AND NOTHING ELSE. There is no `now()` in this
-   * statement and no ordering that could break a tie in favour of the most
-   * recent row: a historical date resolves to the rule that was live for it,
-   * and stays resolving to that rule after every later change to the
-   * configuration.
-   *
-   * The two-row guard below is unreachable while
-   * `therapist_share_rule_no_overlap_excl` holds, and it is here anyway. The
-   * alternative to refusing is picking one of two answers about somebody's
-   * earnings silently, and "there is no silent share" is the rule this whole
-   * checkpoint exists to keep. If the constraint were ever dropped, this fails
-   * loudly instead of paying whoever sorted first.
+   * THE STATEMENT ITSELF IS `resolveShareRuleRow`, shared with the rating
+   * service so this endpoint's answer and a session's snapshot cannot come from
+   * two readings of the same rule. What is added here is the REFUSAL: a caller
+   * asking "which percentage applied?" is answered with an error rather than
+   * with silence, because a caller that treated "no rule" as "no share" would
+   * quietly pay a therapist nothing.
    */
   async resolve(query: ResolveShareRuleQuery): Promise<ShareRule> {
-    const rows = await this.prisma.$queryRaw<ShareRuleRow[]>`
-      SELECT ${SHARE_RULE_COLUMNS} FROM therapist_share_rule
-      WHERE therapist_id = ${query.therapistId}::uuid
-        AND voided_at IS NULL
-        AND effective_start <= ${query.serviceDate}::date
-        AND (effective_end IS NULL OR effective_end >= ${query.serviceDate}::date)
-    `;
+    const row = await resolveShareRuleRow(this.prisma, query.therapistId, query.serviceDate);
 
-    if (rows.length > 1) throw new AppError('SHARE_RULE_OVERLAP');
-
-    const row = rows[0];
-    // A miss is a visible error, never a silent zero: a caller that treated
-    // "no rule" as "no share" would quietly pay a therapist nothing.
     if (row === undefined) throw new AppError('SHARE_RULE_MISSING');
     return toShareRule(row);
   }

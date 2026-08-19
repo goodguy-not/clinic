@@ -115,17 +115,21 @@ describe('reporting schema objects', () => {
     ).resolves.toEqual([]);
   });
 
-  it('keeps every share and settlement column on the share rule and nowhere else', async () => {
+  it('keeps every share and settlement column on the two settlement tables', async () => {
     // MILESTONE 7 ASSERTED THERE WERE NONE ANYWHERE, because the settlement
     // basis was unapproved and a share column would have recorded an unfunded
-    // liability as a fact. Milestone 8 checkpoint C2 approved the first of them
-    // and put them where they belong: on `therapist_share_rule`, which is
-    // CONFIGURATION — the agreement, effective-dated and immutable.
+    // liability as a fact. Milestone 8 approved them and put them where they
+    // belong: on `therapist_share_rule`, which is CONFIGURATION — the
+    // agreement, effective-dated and immutable (C2) — and on
+    // `session_settlement`, which is the HISTORICAL FACT of what one session
+    // earned (C3).
     //
     // The assertion is narrowed rather than dropped, and the narrowing is the
     // point. A share column appearing on `session_charge`, `charge_adjustment`
     // or any Milestone 5-7 table would be a settlement FACT recorded outside
-    // the checkpoint that owns it, and it still fails here.
+    // the checkpoint that owns it, and it still fails here — which is exactly
+    // what keeps C3's snapshot on its own table rather than bolted onto the
+    // charge.
     const rows = await harness.prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
       SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public'
@@ -134,6 +138,12 @@ describe('reporting schema objects', () => {
     `;
 
     expect(rows).toEqual([
+      // Milestone 8, checkpoint C3. The applied percentage, the rule it came
+      // from, and the rating this one replaced.
+      { table_name: 'session_settlement', column_name: 'applied_share_basis_points' },
+      { table_name: 'session_settlement', column_name: 'applied_share_rule_id' },
+      { table_name: 'session_settlement', column_name: 'supersedes_session_settlement_id' },
+      // Milestone 8, checkpoint C2. The agreement.
       { table_name: 'therapist_share_rule', column_name: 'share_basis_points' },
       { table_name: 'therapist_share_rule', column_name: 'supersedes_share_rule_id' },
     ]);

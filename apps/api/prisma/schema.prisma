@@ -254,6 +254,28 @@ enum PaymentPromiseStatus {
   @@map("payment_promise_status")
 }
 
+/// How a session came to carry the therapist share percentage it carries.
+///
+/// `AUTOMATIC` — resolved from the therapist's effective-dated share rule
+/// covering the SERVICE DATE, and the rule is named on the row as provenance.
+/// `EXPLICIT` — a manager stated the percentage for this session, with a
+/// reason, and no rule stands behind it.
+///
+/// RECORDED RATHER THAN INFERRED FROM WHETHER A RULE HAPPENS TO MATCH TODAY.
+/// Rules are effective-dated and may be voided and replaced, so "would a rule
+/// have produced this number?" is a question whose answer changes after the
+/// fact — which makes it exactly the wrong way to decide whether somebody once
+/// overrode something.
+///
+/// NEITHER MEMBER MEANS UNRATED. An unrated session has no `SessionSettlement`
+/// row at all.
+enum SessionRatedVia {
+  AUTOMATIC
+  EXPLICIT
+
+  @@map("session_rated_via")
+}
+
 /// Staff accounts. Manager-created only; there is no self-registration.
 ///
 /// User rows are permanent historical records: account creation is audited and
@@ -309,6 +331,8 @@ model AppUser {
 
   createdShareRules TherapistShareRule[] @relation("TherapistShareRuleCreatedBy")
   voidedShareRules  TherapistShareRule[] @relation("TherapistShareRuleVoidedBy")
+  ratedSessions     SessionSettlement[]  @relation("SessionSettlementCreatedBy")
+  unratedSessions   SessionSettlement[]  @relation("SessionSettlementVoidedBy")
 
   createdPayments         Payment[]        @relation("PaymentCreatedBy")
   voidedPayments          Payment[]        @relation("PaymentVoidedBy")
@@ -1228,7 +1252,19 @@ model SessionCharge {
   voidedBy        AppUser?               @relation("SessionChargeVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   adjustments ChargeAdjustment[]
+  /// The applied therapist share snapshots taken from this charge. At most one
+  /// is standing at a time (`session_settlement_one_valid_per_charge_uq`); the
+  /// rest are withdrawn history.
+  settlements SessionSettlement[] @relation("SessionSettlementCharge")
 
+  /// Supports the composite foreign key from `session_settlement`, and exists
+  /// for no other reason. It constrains nothing the primary key does not
+  /// already constrain — `id` leads it — so no charge this table would have
+  /// accepted can be refused by it. What it adds is a target PostgreSQL can
+  /// reference, which is what makes "the rating's base amount, seat, therapist
+  /// and clinic day are the charge's own" a database guarantee rather than a
+  /// convention of the service that writes it.
+  @@unique([id, appointmentParticipantId, therapistId, serviceDate, amountToman], map: "session_charge_settlement_snapshot_uq")
   /// The family account, which is the read every ledger question starts from.
   @@index([familyId, serviceDate])
   /// Child-level session detail within that account (PROJECT_SPEC.md 7).
@@ -1517,6 +1553,10 @@ model TherapistShareRule {
   therapist  Therapist            @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersedes TherapistShareRule?  @relation("TherapistShareRuleSupersedes", fields: [supersedesShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersededBy TherapistShareRule[] @relation("TherapistShareRuleSupersedes")
+  /// The ratings resolved from this rule. Provenance only: the percentage each
+  /// applied lives on its own row as a number, and voiding this rule changes
+  /// none of them.
+  appliedRatings SessionSettlement[]
   createdBy  AppUser              @relation("TherapistShareRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   voidedBy   AppUser?             @relation("TherapistShareRuleVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -1527,4 +1567,89 @@ model TherapistShareRule {
   @@index([therapistId])
   @@index([supersedesShareRuleId])
   @@map("therapist_share_rule")
+}
+
+/// WHAT ONE SESSION EARNED, frozen at the instant somebody rated it.
+///
+/// THIS IS THE HISTORICAL FACT; `TherapistShareRule` IS THE CONFIGURATION, and
+/// the whole milestone rests on not blurring the two. The percentage that
+/// applied lives HERE, as a number. `appliedShareRuleId` says where it came
+/// from and is nothing more than provenance: voiding, correcting or replacing
+/// that rule afterwards changes nothing on this row, and no code re-resolves
+/// it. That is what CLAUDE.md means by "historical sessions must preserve the
+/// applied percentage as a snapshot".
+///
+/// UNRATED IS THE ABSENCE OF A ROW. There is no `unrated` flag and no
+/// zero-valued placeholder: a placeholder would assert that somebody earned
+/// nothing, which is a different claim from nobody having decided yet, and the
+/// difference is a therapist's month. A `FREE` session, by contrast, IS rated —
+/// it has a row whose base and gross are zero — so "earned nothing" and "not
+/// decided yet" are different SHAPES rather than the same number.
+///
+/// EVERY AMOUNT IS A SNAPSHOT, AND FIVE FACTS ARE THE CHARGE'S OWN. The seat,
+/// the therapist, the clinic day and the pre-discount amount are carried by ONE
+/// composite foreign key back into `SessionCharge`, so a rating that disagreed
+/// with the charge it settles is not merely wrong, it is unwritable.
+///
+/// `baseAmountToman` IS THE PRE-DISCOUNT CHARGE. Settlement is completed-session
+/// value and is independent of whether or when the family pays (CLAUDE.md), so
+/// nothing here reads a payment, and a concession is allocated separately rather
+/// than by quietly shrinking the basis.
+///
+/// A RATING IS VOIDED, NEVER EDITED AND NEVER DELETED. A wrong percentage is
+/// corrected by withdrawing the row and inserting a replacement that names it,
+/// both in one transaction, so the figure that was applied and the figure that
+/// replaced it stay readable with an actor and a reason on each.
+model SessionSettlement {
+  id                            String          @id @default(uuid(7)) @db.Uuid
+  sessionChargeId               String          @map("session_charge_id") @db.Uuid
+  /// Snapshotted from the charge, with the three below, through one composite
+  /// foreign key. Not a convenience copy: it is what lets a settlement
+  /// statement group by therapist and clinic day without joining back into the
+  /// ledger on every row.
+  appointmentParticipantId      String          @map("appointment_participant_id") @db.Uuid
+  therapistId                   String          @map("therapist_id") @db.Uuid
+  serviceDate                   DateTime        @map("service_date") @db.Date
+  appliedShareBasisPoints       Int             @map("applied_share_basis_points")
+  /// Provenance, never a pointer to re-read. Null on an `EXPLICIT` rating,
+  /// which had no rule behind it.
+  appliedShareRuleId            String?         @map("applied_share_rule_id") @db.Uuid
+  ratedVia                      SessionRatedVia @map("rated_via")
+  /// The charge amount as posted, before any concession.
+  baseAmountToman               BigInt          @map("base_amount_toman")
+  /// `round_half_up(base * bp / 10000)`, with the clinic taking the exact
+  /// residual, so the two always sum to the base. Both are stored even though
+  /// either could be derived, because storing both keeps that guarantee
+  /// readable years later without re-running the rounding rule of the day.
+  therapistGrossToman           BigInt          @map("therapist_gross_toman")
+  clinicGrossToman              BigInt          @map("clinic_gross_toman")
+  /// Null on an `AUTOMATIC` rating and required on an `EXPLICIT` one: applying
+  /// the agreed percentage explains itself, overriding it does not.
+  reason                        String?
+  /// The rating this one replaced, recorded on the replacement so the history
+  /// reads forwards. Null for a first rating.
+  supersedesSessionSettlementId String?         @map("supersedes_session_settlement_id") @db.Uuid
+  createdAt                     DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId               String          @map("created_by_user_id") @db.Uuid
+  voidedAt                      DateTime?       @map("voided_at") @db.Timestamptz
+  voidedByUserId                String?         @map("voided_by_user_id") @db.Uuid
+  voidReason                    String?         @map("void_reason")
+
+  charge           SessionCharge       @relation("SessionSettlementCharge", fields: [sessionChargeId, appointmentParticipantId, therapistId, serviceDate, baseAmountToman], references: [id, appointmentParticipantId, therapistId, serviceDate, amountToman], onDelete: Restrict, onUpdate: Cascade, map: "session_settlement_charge_snapshot_fkey")
+  appliedShareRule TherapistShareRule? @relation(fields: [appliedShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersedes       SessionSettlement?  @relation("SessionSettlementSupersedes", fields: [supersedesSessionSettlementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersededBy     SessionSettlement[] @relation("SessionSettlementSupersedes")
+  createdBy        AppUser             @relation("SessionSettlementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  voidedBy         AppUser?            @relation("SessionSettlementVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The rating of one session, and its withdrawn history. The uniqueness of
+  /// the STANDING one is a partial unique index the migration writes by hand;
+  /// Prisma cannot express `WHERE voided_at IS NULL`.
+  @@index([sessionChargeId])
+  /// What a settlement statement reads: one therapist over a range of clinic
+  /// days.
+  @@index([therapistId, serviceDate])
+  @@index([appliedShareRuleId])
+  @@index([supersedesSessionSettlementId])
+  @@map("session_settlement")
 }

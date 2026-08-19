@@ -2431,3 +2431,94 @@ correction linkage and never a value.
 - **Revisit when:** audit retention or export gives a wider audience than the
   share-rule table itself — at which point the question is about `audit_log`
   access, not about this payload.
+
+## 2026-08-19 — A rating names its charge through five snapshot facts, not one id
+
+**Status:** Accepted — Milestone 8, checkpoint C3
+
+`session_settlement` carries `session_charge_id`, `appointment_participant_id`,
+`therapist_id`, `service_date` and `base_amount_toman`, and all five are one
+composite foreign key into `session_charge` (`session_settlement_charge_snapshot_
+fkey`), supported by `session_charge_settlement_snapshot_uq`. The half-up split
+is re-derived by `session_settlement_split_chk` in SQL as well as computed by
+`share-split.ts` in `BigInt`.
+
+- **Alternatives:** a plain `session_charge_id` foreign key with the other four
+  columns unconstrained; storing only the charge id and joining for every figure;
+  a trigger comparing the copy with the charge on insert.
+- **Reason:** a rating is the row a settlement statement reads, so a copy that can
+  disagree with its source is worse than no copy — the disagreement surfaces as a
+  therapist's month, not as an error. The composite key makes the disagreement
+  UNREPRESENTABLE rather than merely checked, for every writer including a repair
+  script and a psql prompt, which is the same device
+  `session_charge_child_id_family_id_fkey` already uses to stop a charge naming a
+  child of another family. Joining instead would make last month's earnings a
+  function of a table that a later correction can change. The duplicated split
+  arithmetic is deliberate for the same reason
+  `enforce_charge_adjustment_bounds` duplicates the service's affordability check:
+  the service produces the named refusal a person can act on, the database makes
+  the rule true of everybody.
+- **Trade-off:** one extra unique index on `session_charge`, and four columns that
+  look redundant to a reader who has not read this entry. The index leads with the
+  primary key, so it can never refuse a charge the primary key would accept.
+- **Revisit when:** a settlement fact ever needs to attach to something that is
+  not a session charge.
+
+## 2026-08-19 — Voiding a charge withdraws its rating in the same transaction
+
+**Status:** Accepted — Milestone 8, checkpoint C3
+
+`POST /session-charges/:id/void` withdraws the charge's standing
+`session_settlement` row in the same transaction, carrying the manager's own void
+reason and writing its own `session_settlement.voided` audit fact with
+`trigger: CHARGE_VOIDED`. Nothing is deleted and no applied figure is rewritten.
+Adjustments are still left alone.
+
+- **Alternatives:** leaving the rating standing and having every settlement read
+  join `session_charge` and filter on `voided_at IS NULL`; refusing to void a
+  charge that carries a rating.
+- **Reason:** every total in this system already ignores a voided charge, and a
+  standing rating against one would be the single figure a void does not reach —
+  somebody paid for a session the clinic has withdrawn the money for. Pushing the
+  filter into the reads defers the invariant to a checkpoint that does not exist
+  yet and to every future reader of the table; refusing the void would make the
+  approved correction sequence (void the charge, correct the session, re-post)
+  unreachable whenever a share rule happened to exist. The rating follows the
+  charge because the charge is its whole justification, which is the same reasoning
+  that makes `COMPLETED + ATTENDED` the charge's.
+- **Trade-off:** one financial act writes two withdrawals. They are two audited
+  facts with one request id, and the second names its trigger, so the trail says
+  which decision caused which.
+- **Revisit when:** settlement periods exist. A charge whose rating a CLOSED
+  period depends on has the same problem the plain rating withdrawal has, and the
+  answer belongs beside it (see the next entry).
+
+## 2026-08-19 — The closed-period refusal is deferred to C6 rather than approximated
+
+**Status:** Accepted — Milestone 8, checkpoint C3 — a deliberate, reported gap
+
+C3 implements the atomic rating correction in full (`POST
+/settlement/rating-corrections` — withdraw and replace in one transaction) but
+never raises `RATING_REPLACEMENT_REQUIRED`. A plain withdrawal of a standing
+rating therefore always succeeds at this checkpoint.
+
+- **Alternatives:** inventing a provisional notion of a settled rating in C3 so
+  the refusal could exist; leaving the correction endpoint out until C6 and
+  adding both together.
+- **Reason:** the refusal's condition is "a closed `PRIMARY` settlement line
+  depends on this rating", and there is no `settlement_period` and no
+  `settlement_line` to ask. Any stand-in would be a settlement-period concept
+  inferred rather than approved, which CLAUDE.md forbids outright, and it would
+  have to be unpicked by the checkpoint that brings the real one. Shipping the
+  correction NOW is what makes C6 additive: it adds a refusal to the withdrawal
+  path and a `CORRECTION` line carrying the delta, rather than a capability.
+  Withholding it would leave C3 with no way to change a wrong percentage without
+  an observable unrated moment.
+- **Trade-off:** for one checkpoint a rating can be withdrawn with nothing
+  standing behind it. Nothing reads a rating yet — no statement, no period, no
+  export — so the state is unobservable outside the rating endpoints themselves.
+- **Revisit when:** C6 creates `settlement_period` and `settlement_line`. It owns
+  the refusal, the closed-line invariant and the correction carry-in.
+  `RATING_HAS_THERAPIST_ALLOCATIONS` is unreachable for the same kind of reason —
+  no therapist-borne allocation can exist while the C2 guard refuses one — and
+  belongs to the concession-split checkpoint.

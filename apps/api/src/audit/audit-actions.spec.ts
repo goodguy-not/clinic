@@ -146,11 +146,14 @@ describe('audit vocabulary', () => {
       // name. This test fails in the second case, so the pairing has to be done
       // deliberately in the checkpoint that owns it.
       //
-      // Checkpoint C2 created `therapist_share_rule` and paired it here.
+      // Checkpoint C2 created `therapist_share_rule` and C3 created
+      // `session_settlement`; each was paired here by the checkpoint that
+      // created its table.
       expect(AUDIT_ENTITY_TYPES).toContain('therapist_share_rule');
+      expect(AUDIT_ENTITY_TYPES).toContain('session_settlement');
 
-      // The other two tables do not exist yet, so their entity types must not.
-      for (const pending of ['session_settlement', 'settlement_period']) {
+      // The remaining table does not exist yet, so its entity type must not.
+      for (const pending of ['settlement_period']) {
         expect(AUDIT_ENTITY_TYPES).not.toContain(pending as never);
       }
 

@@ -5,6 +5,7 @@ import { actorContext, canonicalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
+import { SessionRatingService } from '../settlement/ratings/session-rating.service';
 import {
   findCurrentOrLatestChargeForParticipant,
   lockChargeRow,
@@ -47,6 +48,7 @@ export class SessionChargesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: ChargePostingService,
+    private readonly ratings: SessionRatingService,
     private readonly audit: AuditService,
   ) {}
 
@@ -159,6 +161,20 @@ export class SessionChargesService {
    * not rewritten. They are history of a concession that was genuinely granted,
    * and a voided charge contributes nothing to any account total whatever its
    * arithmetic says, so there is no number for them to distort.
+   *
+   * THE SETTLEMENT RATING IS THE ONE EXCEPTION, AND IT IS WITHDRAWN HERE
+   * (Milestone 8, checkpoint C3). An adjustment reduces a charge that no longer
+   * counts, so it distorts nothing by standing; a RATING is what a therapist
+   * earned, and it is read by a settlement statement that knows only about
+   * ratings. Left standing against a withdrawn charge it would be the single
+   * figure in this system that a void does not reach — somebody paid for a
+   * session the clinic has taken the money back for. So it is withdrawn in this
+   * transaction, carrying this void's own reason and its own
+   * `session_settlement.voided` audit fact.
+   *
+   * NOTHING IS DELETED AND NOTHING IS REWRITTEN. The rating keeps every figure
+   * it applied; if the session is charged again, the new charge is rated in its
+   * own right by the ordinary posting path.
    */
   async void(
     chargeId: string,
@@ -184,6 +200,10 @@ export class SessionChargesService {
       `;
 
       const voided = await readChargeRow(tx, chargeId);
+
+      // Under the charge lock this transaction already holds, so the rating
+      // cannot be created concurrently while its withdrawal is being written.
+      await this.ratings.voidForVoidedCharge(tx, current, canonicalReason, actor, context);
 
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'session_charge.voided',

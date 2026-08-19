@@ -1,0 +1,745 @@
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import type {
+  CorrectSessionRatingRequest,
+  RateSessionRequest,
+  RatedVia,
+  SessionSettlement,
+} from '@clinic/contracts';
+import { AuditService } from '../../audit/audit.service';
+import { actorContext, canonicalText } from '../../catalog/catalog-support';
+import { AppError } from '../../common/app-error';
+import { isUniqueViolation, violatesConstraint } from '../../common/pg-error';
+import type { RequestContext, ResolvedSession } from '../../common/request-context';
+import { uuidv7 } from '../../common/uuid';
+import { PrismaService } from '../../prisma/prisma.service';
+import { lockChargeRow, type ChargeRow } from '../../ledger/charge-detail';
+import { resolveShareRuleRow } from '../share-rules/share-rule-resolution';
+import { splitSessionValue } from './share-split';
+
+/**
+ * THE APPLIED THERAPIST SHARE SNAPSHOT: what one session earned, recorded once
+ * and never re-resolved.
+ *
+ * ------------------------------------------------------------------------
+ * CONFIGURATION VERSUS FACT, WHICH IS THE WHOLE POINT OF THE CHECKPOINT.
+ * `ShareRulesService` owns the AGREEMENT — what a therapist takes, and between
+ * which dates. This owns what a SESSION EARNED. The percentage is copied onto
+ * the session as a NUMBER at the moment it is rated; `applied_share_rule_id` is
+ * recorded as provenance and is never read back to recompute anything. So a
+ * rule voided, corrected or replaced next month cannot restate last month's
+ * earnings, and the immutability trigger on `session_settlement` means no
+ * statement can either.
+ * ------------------------------------------------------------------------
+ * THERE ARE EXACTLY TWO WAYS A RATING IS CREATED, AND NEITHER IS A READ.
+ *
+ *   1. AUTOMATICALLY, in the same transaction as the charge that caused it
+ *      (`rateOnPost`, called only by `ChargePostingService`). The charge and its
+ *      settlement fact commit together or not at all.
+ *   2. EXPLICITLY, by a manager, on a session that is still unrated (`rate`).
+ *
+ * NOTHING ELSE WRITES ONE. There is no background sweep, no backfill, no
+ * lazy-create on read, and no "resolve it now if it is missing" anywhere: `read`
+ * refuses with `SESSION_NOT_RATED` rather than inventing a rating, and a share
+ * rule created after the fact rates nothing by itself. That is the difference
+ * between a settlement fact somebody decided and one that appeared because
+ * somebody opened a screen.
+ * ------------------------------------------------------------------------
+ * A MISSING SHARE RULE IS NOT A ZERO, AND IT NEVER BLOCKS THE CHARGE.
+ *
+ * When no rule covers the therapist on the session's service date, `rateOnPost`
+ * writes nothing and says so. The charge still exists — the session happened and
+ * the child attended, and refusing to record that because nobody entered a
+ * percentage would lose the clinical fact to protect the settlement — and the
+ * session is UNRATED, which is the ABSENCE of a row. It is the same shape
+ * `TARIFF_MISSING` already has on the ledger side, for the same reason.
+ *
+ * A zero-valued placeholder would be a settlement fact asserting that somebody
+ * earned nothing, which is a different claim from nobody having decided yet, and
+ * the difference is a therapist's month.
+ * ------------------------------------------------------------------------
+ * LOCK ORDER — `session_charge` FIRST, THEN `session_settlement`.
+ *
+ * Every write here takes the parent charge row `FOR UPDATE` before touching a
+ * rating, which is the order the ledger already uses for `charge_adjustment`. A
+ * second attempt to rate one session therefore WAITS for the first and then sees
+ * what it committed, rather than racing it;
+ * `session_settlement_one_valid_per_charge_uq` is the final authority and its
+ * violation is translated into `SESSION_ALREADY_RATED` rather than recovered
+ * from.
+ * ------------------------------------------------------------------------
+ * IT READS THE CHARGE AND WRITES NOTHING IN THE LEDGER. `lockChargeRow` is the
+ * ledger's own function, used unchanged so "which charge is valid" has one
+ * reading in this system; nothing here inserts, updates or voids a charge, an
+ * adjustment or a payment. The dependency points one way at module level too:
+ * `LedgerModule` imports `SettlementModule`, never the reverse.
+ * ------------------------------------------------------------------------
+ * WHAT THIS CHECKPOINT DELIBERATELY DOES NOT DO. No concession is allocated
+ * between the therapist and the clinic (the temporary guard in
+ * `ChargeAdjustmentsService` still refuses a therapist-borne portion outright),
+ * no net figure is computed, no statement is produced, no period is closed and
+ * no payout is recorded. `therapist_gross_toman` and `clinic_gross_toman` are
+ * the split of the PRE-DISCOUNT charge and nothing more.
+ */
+
+/** Which act asked for the rating. Recorded in the audit row, never in the row. */
+export type RatingTrigger = 'CHARGE_POSTED' | 'EXPLICIT_RATING' | 'RATING_CORRECTION';
+
+/** Which act withdrew it. */
+export type RatingVoidTrigger = 'EXPLICIT_VOID' | 'RATING_CORRECTION' | 'CHARGE_VOIDED';
+
+/**
+ * The charge facts a rating is built from, as the posting path already has them
+ * — so a charge just written in this transaction is not read back to rate it.
+ */
+export type RatableCharge = {
+  readonly chargeId: string;
+  readonly appointmentParticipantId: string;
+  readonly therapistId: string;
+  /** The clinic calendar day, as digits. Never a `Date` through a timezone. */
+  readonly serviceDate: string;
+  readonly baseAmountToman: bigint;
+};
+
+/**
+ * What one automatic rating attempt did.
+ *
+ * `UNRATED` is a value rather than an exception because only the caller knows
+ * what to do with it, and on the posting path the answer is "nothing": the
+ * charge stands and the session is visibly unrated. Throwing here would roll a
+ * completion back over a percentage nobody had entered yet.
+ */
+export type AutomaticRatingAttempt =
+  | { readonly status: 'RATED'; readonly settlement: SessionSettlement }
+  | { readonly status: 'UNRATED' };
+
+type SettlementRow = {
+  id: string;
+  session_charge_id: string;
+  appointment_participant_id: string;
+  therapist_id: string;
+  service_date: string;
+  applied_share_basis_points: number;
+  applied_share_rule_id: string | null;
+  rated_via: RatedVia;
+  base_amount_toman: bigint;
+  therapist_gross_toman: bigint;
+  clinic_gross_toman: bigint;
+  reason: string | null;
+  supersedes_session_settlement_id: string | null;
+  created_at: Date;
+  created_by_user_id: string;
+  voided_at: Date | null;
+  voided_by_user_id: string | null;
+  void_reason: string | null;
+};
+
+/**
+ * `service_date` as `::text` rather than as a `date`, for the reason
+ * `CHARGE_COLUMNS` reads it that way: Prisma maps a PostgreSQL `DATE` onto a
+ * JavaScript `Date` at UTC midnight, and every conversion back through a local
+ * timezone is a chance for the clinic day to move by one. The digits are the
+ * value.
+ */
+const SETTLEMENT_COLUMNS = Prisma.sql`
+  id, session_charge_id, appointment_participant_id, therapist_id,
+  service_date::text AS service_date, applied_share_basis_points,
+  applied_share_rule_id, rated_via::text AS rated_via, base_amount_toman,
+  therapist_gross_toman, clinic_gross_toman, reason,
+  supersedes_session_settlement_id, created_at, created_by_user_id,
+  voided_at, voided_by_user_id, void_reason
+`;
+
+/** What the rating that is about to be written says, before it exists. */
+type RatingDecision = {
+  readonly appliedShareBasisPoints: number;
+  readonly appliedShareRuleId: string | null;
+  readonly ratedVia: RatedVia;
+  readonly reason: string | null;
+};
+
+@Injectable()
+export class SessionRatingService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  /**
+   * Rate a session as part of posting its charge, if a rule covers it.
+   *
+   * RUNS INSIDE THE CALLER'S TRANSACTION AND OPENS NONE OF ITS OWN, exactly as
+   * `AuditService.record` and `ChargePostingService.post` do, so the charge, its
+   * settlement fact and the audit rows for both commit together. A charge that
+   * survived while its rating was rolled back would be an unrated session nobody
+   * decided to leave unrated.
+   *
+   * IT TAKES NO LOCK. The charge was inserted by this transaction moments ago
+   * under the appointment lock, so no other transaction can see it yet, let
+   * alone rate it. The unique index is still translated below, because "cannot
+   * happen" and "is refused if it does" are different guarantees.
+   */
+  async rateOnPost(
+    tx: Prisma.TransactionClient,
+    charge: RatableCharge,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<AutomaticRatingAttempt> {
+    const rule = await resolveShareRuleRow(tx, charge.therapistId, charge.serviceDate);
+
+    // No rule covering the SERVICE DATE means the session is unrated, and
+    // unrated means no row. Not a zero, not a default, and not a reason to
+    // refuse the charge.
+    if (rule === undefined) return { status: 'UNRATED' };
+
+    const row = await this.insert(
+      tx,
+      charge,
+      {
+        appliedShareBasisPoints: rule.share_basis_points,
+        appliedShareRuleId: rule.id,
+        ratedVia: 'AUTOMATIC',
+        reason: null,
+      },
+      actor,
+    );
+
+    await this.auditRated(tx, row, actor, context, 'CHARGE_POSTED');
+
+    return { status: 'RATED', settlement: toSessionSettlement(row) };
+  }
+
+  /**
+   * Rate a session that is still unrated, on a manager's explicit instruction.
+   *
+   * THE RECOVERY PATH, and there is one thing to recover from: a session
+   * completed and charged while its therapist had no share rule covering that
+   * day. A manager records the rule and rates the session from here.
+   *
+   * THE RATE IS RESOLVED AGAINST THE SESSION'S SERVICE DATE, NOT TODAY. An
+   * `AUTOMATIC` request re-asks the same question the posting path asked, of the
+   * same statement, using the clinic day stored on the CHARGE — so rating a
+   * session from Tir in Shahrivar applies Tir's agreement. There is no current-
+   * rate fallback anywhere in this file and no `now()` in any statement it
+   * issues.
+   *
+   * A MISS IS `SHARE_RULE_MISSING`, AND THAT IS WHERE THIS DIFFERS FROM
+   * `rateOnPost`. A person asked for this session to be rated now, and silence
+   * would be the wrong answer; the fix is to record the rule that covers the
+   * date and try again.
+   *
+   * AN `EXPLICIT` REQUEST IS AN OVERRIDE AND IS RECORDED AS ONE. It carries the
+   * percentage and a required reason, stores no rule id, and is distinguishable
+   * forever afterwards from a rating that merely applied the agreement
+   * (CLAUDE.md — every manual override must be explicit, reasoned and
+   * auditable).
+   */
+  async rate(
+    chargeId: string,
+    body: RateSessionRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<SessionSettlement> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const charge = await this.lockRatableCharge(tx, chargeId);
+
+      // Read AFTER the lock, so a rating committed by the transaction we just
+      // waited for is visible rather than raced.
+      const standing = await findValidRatingForCharge(tx, chargeId);
+      if (standing !== undefined) throw new AppError('SESSION_ALREADY_RATED');
+
+      const decision = await this.decide(tx, charge, body);
+      const inserted = await this.insert(tx, charge, decision, actor);
+
+      await this.auditRated(tx, inserted, actor, context, 'EXPLICIT_RATING');
+
+      return inserted;
+    });
+
+    return toSessionSettlement(row);
+  }
+
+  /**
+   * The rating that stands for one session.
+   *
+   * A READ, AND IT WRITES NOTHING. No transaction, no lock, no audit row and —
+   * the part that matters — no rating. An unrated session answers
+   * `SESSION_NOT_RATED`, which is the UNRATED state surfacing as a refusal;
+   * resolving a percentage here and returning it would be a settlement figure
+   * nobody decided, indistinguishable in a later report from one somebody did.
+   */
+  async read(chargeId: string): Promise<SessionSettlement> {
+    const row = await findValidRatingForCharge(this.prisma, chargeId);
+    if (row === undefined) throw new AppError('SESSION_NOT_RATED');
+
+    return toSessionSettlement(row);
+  }
+
+  /**
+   * Withdraw a rating that should not stand.
+   *
+   * NOT A DELETE AND NOT AN EDIT. Three columns are written onto the row and
+   * every snapshot column is left exactly as applied;
+   * `session_settlement_enforce_immutability` refuses any statement that says
+   * otherwise, whether or not it came from here. Withdrawing returns the session
+   * to the EXPLICIT UNRATED state — the absence of a standing row — which is the
+   * same state a session that was never rated is in, and is deliberately
+   * reachable only through this act.
+   *
+   * ONE-WAY, ENFORCED TWICE: there is no un-void request in the frozen contract,
+   * the `UPDATE` is predicated on `voided_at IS NULL`, and the trigger refuses
+   * to change a void once it exists.
+   *
+   * WHAT C6 WILL ADD, AND WHY IT CANNOT BE ADDED HERE. Once settlement periods
+   * exist, a rating a CLOSED period depends on may not be left absent: the plain
+   * withdrawal is refused with `RATING_REPLACEMENT_REQUIRED` and the caller uses
+   * `correct` instead, which never leaves the session unrated for an instant.
+   * That check needs a `settlement_line` to ask about and there is none yet, so
+   * it is deliberately absent rather than approximated — inventing a temporary
+   * notion of a closed period would be a settlement rule inferred rather than
+   * approved. `correct` is implemented in full here precisely so C6 adds a
+   * refusal to this method rather than a capability.
+   */
+  async void(
+    ratingId: string,
+    reason: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<SessionSettlement> {
+    const canonicalReason = canonicalText(reason);
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      const target = await this.lockRatingUnderItsCharge(tx, ratingId);
+      if (target.voided_at !== null) throw new AppError('RATING_ALREADY_VOIDED');
+
+      await this.voidRow(tx, target, canonicalReason, actor, context, 'EXPLICIT_VOID');
+
+      return readRatingRow(tx, ratingId);
+    });
+
+    return toSessionSettlement(row);
+  }
+
+  /**
+   * Withdraw a rating and write its replacement AS ONE ACT.
+   *
+   * THE ATOMICITY IS THE CONTRACT, NOT AN IMPLEMENTATION DETAIL. Two separate
+   * calls have a moment between them in which the session is unrated, and that
+   * moment is observable: a statement read there reports the session as an
+   * unrated exception, and a close performed there excludes it silently and
+   * permanently, because a closed period is never reopened. One transaction
+   * means the figure moves from one explained value to another explained value
+   * with no state in between where a therapist's session has simply vanished.
+   *
+   * IT IS THE SHAPE C6 NEEDS AND IT IS COMPLETE NOW. When settlement periods
+   * arrive, correcting a rating a closed period depends on is exactly this
+   * operation, plus a `CORRECTION` line carrying the delta into the first period
+   * still open. What is deferred is that line — not the void-and-replace, which
+   * is here.
+   *
+   * BOTH AUTHORITIES, AND, NOT OR. The route names
+   * `SETTLEMENT_RATING_CORRECTION_PERMISSIONS`, because the act genuinely
+   * withdraws and re-rates: a caller who may withdraw but not rate must not
+   * reach a request that rates.
+   *
+   * THE SCOPE IS CHECKED AGAINST THE RATING ACTUALLY LOADED. The request schema
+   * already refuses a replacement naming a different charge from the withdrawal;
+   * this re-checks the loaded row, because the id the caller sent and the row it
+   * names are two different claims. Correcting one therapist's month by
+   * re-rating a different session is a mistake only ever noticed by whoever ends
+   * up short.
+   */
+  async correct(
+    body: CorrectSessionRatingRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<SessionSettlement> {
+    const withdrawReason = canonicalText(body.withdrawReason);
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      const charge = await this.lockRatableCharge(tx, body.sessionChargeId);
+
+      const target = await lockRatingRow(tx, body.sessionSettlementId);
+      if (target.session_charge_id !== body.sessionChargeId) {
+        throw new AppError('RATING_SCOPE_MISMATCH');
+      }
+      if (target.voided_at !== null) throw new AppError('RATING_ALREADY_VOIDED');
+
+      // The replacement is decided BEFORE the withdrawal is written, so a
+      // correction that cannot produce a replacement — no rule covers the
+      // service date — leaves the existing rating standing instead of leaving
+      // the session unrated. The rollback would do it anyway; deciding first is
+      // what makes that independent of the transaction.
+      const decision = await this.decide(tx, charge, body.replacement);
+
+      await this.voidRow(tx, target, withdrawReason, actor, context, 'RATING_CORRECTION');
+
+      const replacement = await this.insert(tx, charge, decision, actor, target.id);
+      await this.auditRated(tx, replacement, actor, context, 'RATING_CORRECTION');
+
+      return replacement;
+    });
+
+    return toSessionSettlement(row);
+  }
+
+  /**
+   * Withdraw the standing rating of a charge that is being voided, in the same
+   * transaction as the void.
+   *
+   * A VOIDED CHARGE IS NOT A SETTLEMENT FACT. Every total in this system already
+   * ignores a voided charge, and a rating left standing against one would be the
+   * single exception: a therapist paid for a session the clinic has withdrawn
+   * the money for, discovered by whoever reconciles the month. So the rating
+   * follows the charge, and the withdrawal carries the manager's own reason for
+   * withdrawing the charge — one decision, honestly attributed, rather than a
+   * second reason invented by the server.
+   *
+   * IT IS NOT A CASCADE IN THE DATABASE SENSE. Nothing is deleted, the row keeps
+   * every figure it applied, and it is audited as its own
+   * `session_settlement.voided` fact with `trigger: CHARGE_VOIDED` — so "why did
+   * this therapist's session disappear from the month?" is answerable from the
+   * trail rather than by inference.
+   *
+   * THE CALLER HOLDS THE CHARGE LOCK ALREADY, which is what makes this sound:
+   * the charge cannot be rated concurrently while its void is being written.
+   *
+   * WHAT C6 WILL ADD. Voiding a charge whose rating a closed period depends on
+   * has the same problem the plain rating withdrawal has, and the same answer
+   * belongs beside it; there is no closed period to ask about yet.
+   */
+  async voidForVoidedCharge(
+    tx: Prisma.TransactionClient,
+    charge: ChargeRow,
+    reason: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<void> {
+    const standing = await findValidRatingForCharge(tx, charge.id);
+    if (standing === undefined) return;
+
+    await this.voidRow(tx, standing, reason, actor, context, 'CHARGE_VOIDED');
+  }
+
+  /**
+   * Which percentage this rating will carry, and where it came from.
+   *
+   * The one place the two request shapes diverge, and they diverge completely:
+   * an `AUTOMATIC` rating resolves a rule against the CHARGE's service date and
+   * carries no reason, an `EXPLICIT` one carries a stated percentage and a
+   * required reason and no rule. `session_settlement_provenance_chk` refuses
+   * every other combination at the database.
+   */
+  private async decide(
+    tx: Prisma.TransactionClient,
+    charge: RatableCharge,
+    request: RateSessionRequest,
+  ): Promise<RatingDecision> {
+    if (request.ratedVia === 'EXPLICIT') {
+      return {
+        appliedShareBasisPoints: request.shareBasisPoints,
+        appliedShareRuleId: null,
+        ratedVia: 'EXPLICIT',
+        reason: canonicalText(request.reason),
+      };
+    }
+
+    const rule = await resolveShareRuleRow(tx, charge.therapistId, charge.serviceDate);
+    // Never a zero and never today's rule: the caller is told no agreement
+    // covers the day the session happened, and records one.
+    if (rule === undefined) throw new AppError('SHARE_RULE_MISSING');
+
+    return {
+      appliedShareBasisPoints: rule.share_basis_points,
+      appliedShareRuleId: rule.id,
+      ratedVia: 'AUTOMATIC',
+      reason: null,
+    };
+  }
+
+  /**
+   * The charge, locked, and refused if it is not a live settlement subject.
+   *
+   * A VOIDED CHARGE CANNOT BE RATED. There is nothing standing to settle: the
+   * money was withdrawn, and the replacement charge — not this one — is what a
+   * live rating belongs to. `CHARGE_VOIDED` is the ledger's existing code for
+   * acting on withdrawn money and means exactly this.
+   *
+   * The five facts it returns are the ones the rating snapshots, and they are
+   * carried into the INSERT rather than re-read there — the composite foreign
+   * key makes it impossible for them to be anything but this charge's own
+   * anyway.
+   */
+  private async lockRatableCharge(
+    tx: Prisma.TransactionClient,
+    chargeId: string,
+  ): Promise<RatableCharge> {
+    const charge = await lockChargeRow(tx, chargeId);
+    if (charge.voided_at !== null) throw new AppError('CHARGE_VOIDED');
+
+    return {
+      chargeId: charge.id,
+      appointmentParticipantId: charge.appointment_participant_id,
+      therapistId: charge.therapist_id,
+      serviceDate: charge.service_date,
+      baseAmountToman: charge.amount_toman,
+    };
+  }
+
+  /**
+   * A rating, locked in this system's order: its charge first, then the rating.
+   *
+   * The rating is read unlocked to learn which charge it belongs to, which is
+   * safe because that column is immutable and the row cannot move between
+   * charges. Everything decided afterwards is decided from the locked re-read.
+   */
+  private async lockRatingUnderItsCharge(
+    tx: Prisma.TransactionClient,
+    ratingId: string,
+  ): Promise<SettlementRow> {
+    const unlocked = await readRatingRow(tx, ratingId);
+    await lockChargeRow(tx, unlocked.session_charge_id);
+
+    return lockRatingRow(tx, ratingId);
+  }
+
+  /**
+   * The INSERT, with the split computed here and re-derived by the database.
+   *
+   * `created_at` comes from `transaction_timestamp()` rather than from Node, so
+   * a rating and the audit row recording it carry the same instant and neither
+   * depends on the skew between the API host and the database.
+   *
+   * The unique violation is TRANSLATED RATHER THAN RECOVERED FROM. Every path
+   * here holds the charge lock and re-read the standing rating under it, so a
+   * duplicate cannot be reached; if that ever weakens, the caller is told a
+   * rating already stands — which is true, and which a refreshed screen explains
+   * — instead of receiving an internal error. It is not retried, because a
+   * failed statement aborts the PostgreSQL transaction.
+   */
+  private async insert(
+    tx: Prisma.TransactionClient,
+    charge: RatableCharge,
+    decision: RatingDecision,
+    actor: ResolvedSession,
+    supersedesId: string | null = null,
+  ): Promise<SettlementRow> {
+    const id = uuidv7();
+    const split = splitSessionValue(charge.baseAmountToman, decision.appliedShareBasisPoints);
+
+    try {
+      const rows = await tx.$queryRaw<SettlementRow[]>`
+        INSERT INTO session_settlement (
+          id, session_charge_id, appointment_participant_id, therapist_id,
+          service_date, applied_share_basis_points, applied_share_rule_id,
+          rated_via, base_amount_toman, therapist_gross_toman, clinic_gross_toman,
+          reason, supersedes_session_settlement_id, created_at, created_by_user_id
+        ) VALUES (
+          ${id}::uuid,
+          ${charge.chargeId}::uuid,
+          ${charge.appointmentParticipantId}::uuid,
+          ${charge.therapistId}::uuid,
+          ${charge.serviceDate}::date,
+          ${decision.appliedShareBasisPoints},
+          ${decision.appliedShareRuleId}::uuid,
+          ${decision.ratedVia}::session_rated_via,
+          ${charge.baseAmountToman.toString()}::bigint,
+          ${split.therapistGrossToman.toString()}::bigint,
+          ${split.clinicGrossToman.toString()}::bigint,
+          ${decision.reason},
+          ${supersedesId}::uuid,
+          transaction_timestamp(),
+          ${actor.userId}::uuid
+        )
+        RETURNING ${SETTLEMENT_COLUMNS}
+      `;
+
+      const inserted = rows[0];
+      if (inserted === undefined) throw new AppError('INTERNAL_ERROR');
+      return inserted;
+    } catch (error) {
+      if (
+        isUniqueViolation(error) &&
+        violatesConstraint(error, 'session_settlement_one_valid_per_charge_uq')
+      ) {
+        throw new AppError('SESSION_ALREADY_RATED');
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * The one permitted update: standing to withdrawn, nothing else touched.
+   *
+   * `voided_at IS NULL` in the predicate as well as in the caller's check: the
+   * check is what produces the named refusal, this is what makes a second
+   * withdrawal structurally unable to write even if the check were wrong.
+   */
+  private async voidRow(
+    tx: Prisma.TransactionClient,
+    target: SettlementRow,
+    reason: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+    trigger: RatingVoidTrigger,
+  ): Promise<void> {
+    await tx.$executeRaw`
+      UPDATE session_settlement
+         SET voided_at = transaction_timestamp(),
+             voided_by_user_id = ${actor.userId}::uuid,
+             void_reason = ${reason}
+       WHERE id = ${target.id}::uuid AND voided_at IS NULL
+    `;
+
+    await this.audit.record(tx, actorContext(actor, context), {
+      action: 'session_settlement.voided',
+      entityType: 'session_settlement',
+      entityId: target.id,
+      // The transition, both sides, because "it is withdrawn" does not state
+      // that it was not. The actor and the instant are columns of the audit row
+      // itself and are not repeated into the payload.
+      before: { voidedAt: null },
+      after: { voidReason: reason },
+      metadata: { ...ratingFacts(target), trigger },
+    });
+  }
+
+  private async auditRated(
+    tx: Prisma.TransactionClient,
+    row: SettlementRow,
+    actor: ResolvedSession,
+    context: RequestContext,
+    trigger: RatingTrigger,
+  ): Promise<void> {
+    await this.audit.record(tx, actorContext(actor, context), {
+      action: 'session_settlement.rated',
+      entityType: 'session_settlement',
+      entityId: row.id,
+      after: ratingFacts(row),
+      // Flat, as `trigger` is on a posted charge: "how many sessions are rated
+      // by hand rather than by the charge that created them?" is a question the
+      // pilot will ask, and a key buried in a diff is not something you can
+      // count.
+      metadata: {
+        trigger,
+        ...(row.supersedes_session_settlement_id === null
+          ? {}
+          : { supersedesSessionSettlementId: row.supersedes_session_settlement_id }),
+      },
+    });
+  }
+}
+
+/**
+ * The standing rating of one charge, if there is one.
+ *
+ * The predicate matches `session_settlement_one_valid_per_charge_uq` exactly,
+ * which is what makes "at most one row can come back" a property of the database
+ * rather than of this query. Withdrawn ratings stay in the table and are
+ * deliberately not returned: they are history, not what the therapist earned.
+ */
+export async function findValidRatingForCharge(
+  client: PrismaService | Prisma.TransactionClient,
+  chargeId: string,
+): Promise<SettlementRow | undefined> {
+  const rows = await client.$queryRaw<SettlementRow[]>`
+    SELECT ${SETTLEMENT_COLUMNS} FROM session_settlement
+    WHERE session_charge_id = ${chargeId}::uuid AND voided_at IS NULL
+  `;
+
+  return rows[0];
+}
+
+/**
+ * A rating held `FOR UPDATE`.
+ *
+ * `SESSION_NOT_RATED` for an id that names nothing, which is the frozen code for
+ * acting on a session that carries no rating — including withdrawing one that is
+ * not there. There is deliberately no `RATING_NOT_FOUND`: a caller guessing ids
+ * learns only that there is nothing to act on.
+ */
+async function lockRatingRow(
+  tx: Prisma.TransactionClient,
+  ratingId: string,
+): Promise<SettlementRow> {
+  const locked = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM session_settlement WHERE id = ${ratingId}::uuid FOR UPDATE
+  `;
+
+  if (locked[0] === undefined) throw new AppError('SESSION_NOT_RATED');
+
+  return readRatingRow(tx, ratingId);
+}
+
+async function readRatingRow(
+  client: PrismaService | Prisma.TransactionClient,
+  ratingId: string,
+): Promise<SettlementRow> {
+  const rows = await client.$queryRaw<SettlementRow[]>`
+    SELECT ${SETTLEMENT_COLUMNS} FROM session_settlement WHERE id = ${ratingId}::uuid
+  `;
+
+  const row = rows[0];
+  if (row === undefined) throw new AppError('SESSION_NOT_RATED');
+  return row;
+}
+
+/**
+ * The settlement facts an audit row records.
+ *
+ * WHAT IS HERE: the session it settles, the therapist, the clinic day, the
+ * percentage that was applied, where it came from, and the three amounts. All of
+ * it is the fact being recorded — DECISION_LOG 2026-08-09 writes the fact being
+ * changed in full, because masking it "would make the trail useless for the
+ * corrections it exists to explain", and a settlement correction is precisely
+ * what this trail exists to explain.
+ *
+ * WHAT IS NOT HERE: no family, no child, no name, no file number and no phone
+ * number. `audit_log` is append-only and permanent, and a settlement question is
+ * about a therapist and a session — the family who was charged is the LEDGER's
+ * fact and is already recorded on `session_charge.posted`. Copying it here would
+ * build a second undeletable store of who was seen, to answer a question that
+ * never needed it.
+ *
+ * `appointmentParticipantId` IS AN OPAQUE SEAT ID and is the row's own column;
+ * it is what makes a rating traceable to the session it settles without naming
+ * the child who sat in it.
+ */
+function ratingFacts(row: SettlementRow): Record<string, string | number | boolean | null> {
+  return {
+    sessionChargeId: row.session_charge_id,
+    appointmentParticipantId: row.appointment_participant_id,
+    therapistId: row.therapist_id,
+    serviceDate: row.service_date,
+    appliedShareBasisPoints: row.applied_share_basis_points,
+    appliedShareRuleId: row.applied_share_rule_id,
+    ratedVia: row.rated_via,
+    baseAmountToman: row.base_amount_toman.toString(),
+    therapistGrossToman: row.therapist_gross_toman.toString(),
+    clinicGrossToman: row.clinic_gross_toman.toString(),
+  };
+}
+
+export function toSessionSettlement(row: SettlementRow): SessionSettlement {
+  return {
+    id: row.id,
+    sessionChargeId: row.session_charge_id,
+    appointmentParticipantId: row.appointment_participant_id,
+    therapistId: row.therapist_id,
+    serviceDate: row.service_date,
+    appliedShareBasisPoints: row.applied_share_basis_points,
+    appliedShareRuleId: row.applied_share_rule_id,
+    ratedVia: row.rated_via,
+    baseAmountToman: row.base_amount_toman.toString(),
+    therapistGrossToman: row.therapist_gross_toman.toString(),
+    clinicGrossToman: row.clinic_gross_toman.toString(),
+    reason: row.reason,
+    supersedesSessionSettlementId: row.supersedes_session_settlement_id,
+    createdAt: row.created_at.toISOString(),
+    createdByUserId: row.created_by_user_id,
+    voidedAt: row.voided_at === null ? null : row.voided_at.toISOString(),
+    voidedByUserId: row.voided_by_user_id,
+    voidReason: row.void_reason,
+  };
+}

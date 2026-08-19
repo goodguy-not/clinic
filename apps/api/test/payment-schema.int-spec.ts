@@ -56,18 +56,27 @@ describe('payment schema objects', () => {
       expect(rows.map((row) => row.table_name).sort()).toEqual([...M6_TABLES].sort());
     });
 
-    it('creates no allocation, balance, credit, invoice or settlement table', async () => {
-      // Each was refused by name on 2026-08-15 or deferred to Milestone 8. A
-      // table matching this pattern would be state stored before its rules were
-      // approved — and `payment_allocation` in particular is the one this
-      // milestone argued hardest against.
+    it('creates no allocation, balance, credit, invoice or opening table', async () => {
+      // Each was refused by name on 2026-08-15. A table matching this pattern
+      // would be state stored before its rules were approved — and
+      // `payment_allocation` in particular is the one this milestone argued
+      // hardest against. Money in is still never allocated to a charge: what a
+      // family owes is derived from rows on every read, and there is no stored
+      // balance, credit or opening figure anywhere.
+      //
+      // `session_settlement` IS THE ONE PERMITTED MATCH, and its arrival is what
+      // this assertion was waiting for rather than a breach of it. Milestone 6
+      // deferred settlement to Milestone 8; checkpoint C3 approved it and built
+      // it, on its own table, about a THERAPIST rather than about a family's
+      // money. Every other name in the pattern is still refused, and no
+      // settlement PERIOD or LINE table exists yet.
       const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
           AND table_name ~ '(allocation|balance|credit|invoice|settlement|opening)'
       `;
 
-      expect(rows).toEqual([]);
+      expect(rows.map((row) => row.table_name)).toEqual(['session_settlement']);
     });
 
     it('carries no share, percentage, balance, credit or allocation column', async () => {

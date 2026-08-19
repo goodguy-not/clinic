@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { SettlementModule } from '../settlement/settlement.module';
 import { ChargeAdjustmentsController } from './charge-adjustments.controller';
 import { ChargeAdjustmentsService } from './charge-adjustments.service';
 import { ChargeLifecycleGuard } from './charge-lifecycle-guard';
@@ -33,6 +34,15 @@ import { SessionChargesService } from './session-charges.service';
  * rather than learning what a valid charge is. It is the only other way in, it
  * writes nothing, and it still cannot create or withdraw a charge.
  *
+ * `SettlementModule` IS IMPORTED, AND THE DEPENDENCY POINTS THIS WAY ROUND ON
+ * PURPOSE. A charge that is posted is rated in the same transaction, and a
+ * charge that is voided has its rating withdrawn in the same transaction, so the
+ * ledger CALLS settlement; settlement never calls the ledger and imports nothing
+ * from this module but two read helpers. The money a family owes and the money a
+ * therapist earned stay one commit apart or not at all — a completion whose
+ * charge committed while its settlement fact rolled back would be an unrated
+ * session nobody decided to leave unrated.
+ *
  * THE DEPENDENCY POINTS ONE WAY: appointments depend on the ledger, never the
  * reverse. Nothing here imports `AppointmentsModule`, so no cycle exists and the
  * posting routine cannot reach a scheduling rule — it re-reads the two facts it
@@ -50,7 +60,7 @@ import { SessionChargesService } from './session-charges.service';
  * statement in this system and not three.
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, SettlementModule],
   controllers: [SessionChargesController, ChargeAdjustmentsController, FamilyAccountController],
   providers: [
     ChargePostingService,

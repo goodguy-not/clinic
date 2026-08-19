@@ -8,6 +8,7 @@ import { AppError } from '../common/app-error';
 import { isUniqueViolation, violatesConstraint } from '../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
+import { SessionRatingService } from '../settlement/ratings/session-rating.service';
 import { findValidChargeForParticipant, readChargeDetail } from './charge-detail';
 
 /**
@@ -85,6 +86,21 @@ import { findValidChargeForParticipant, readChargeDetail } from './charge-detail
  * modes), and `session_charge_price_mode_chk` keeps the two shapes unreachable
  * from one another.
  * ------------------------------------------------------------------------
+ * IT ALSO RATES THE SESSION, IN THIS TRANSACTION, WHEN A SHARE RULE COVERS IT
+ * (Milestone 8, checkpoint C3). The therapist's applied percentage is
+ * snapshotted onto `session_settlement` beside the charge, so the money the
+ * family owes and the money the therapist earned commit together or not at all.
+ *
+ * A MISSING SHARE RULE CHANGES NOTHING ABOUT THE CHARGE. It is the same shape a
+ * missing tariff has, one level down: the session happened, so the charge is
+ * written, and the session is left UNRATED — which is the ABSENCE of a
+ * settlement row, never a zero and never a default. A rule recorded afterwards
+ * does not backfill it; a manager rates it explicitly, with the percentage that
+ * applied on the SERVICE DATE.
+ *
+ * A `FREE` SESSION IS RATED LIKE ANY OTHER and earns zero on a zero basis, which
+ * is a rated fact and stays structurally distinct from an unrated one.
+ * ------------------------------------------------------------------------
  * WHAT IS SNAPSHOTTED, AND FROM WHERE. The service, therapist and session length
  * are the appointment's as delivered; the clinic day is `clinic_date(starts_at)`,
  * computed by PostgreSQL so `Asia/Tehran` is applied in the one place this system
@@ -141,7 +157,10 @@ type TariffRow = { id: string; price_mode: TariffPriceMode; price_toman: bigint 
 
 @Injectable()
 export class ChargePostingService {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly ratings: SessionRatingService,
+  ) {}
 
   /**
    * Post the primary charge for one seat, if it may be posted and has not been.
@@ -205,6 +224,23 @@ export class ChargePostingService {
       // count.
       metadata: { trigger },
     });
+
+    // After the charge and its audit row, in the same transaction. A session
+    // with no applicable share rule is left unrated and the charge stands: the
+    // attempt reports which happened and this path has nothing to do with
+    // either, because the difference is visible in the absence of the row.
+    await this.ratings.rateOnPost(
+      tx,
+      {
+        chargeId,
+        appointmentParticipantId: participantId,
+        therapistId: seat.therapist_id,
+        serviceDate: seat.service_date,
+        baseAmountToman: tariff.price_toman,
+      },
+      actor,
+      context,
+    );
 
     return { status: 'POSTED', charge: await readChargeDetail(tx, chargeId) };
   }
