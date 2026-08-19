@@ -2359,3 +2359,75 @@ makes that decision, so the assertion now names the exact two columns on
   adds a settlement column, which is the intent.
 - **Revisit when:** C3 adds the per-session snapshot — at which point its columns
   are listed here for the same reason these are.
+
+## 2026-08-19 — A submitted therapist portion is refused until the split runtime exists
+
+**Status:** Accepted — Milestone 8, checkpoint C2 revision (implements what the C1
+contract already promised; not a new rule and not a contract change)
+
+`POST /session-charges/:id/adjustments` refuses a **non-zero**
+`therapistDiscountToman` with `ADJUSTMENT_SPLIT_INVALID` (422). An explicit `'0'`
+and an omitted field are both accepted and record the clinic-borne concession they
+state. No split arithmetic is computed, nothing new is persisted, and
+`charge_adjustment_clinic_borne_chk` is untouched.
+
+C1 made the field submittable ahead of the runtime that honours it and wrote the
+interim rule into the contract itself — "until then a request carrying a non-zero
+portion is refused by the server rather than silently written"
+(`ledger/charges.ts`) — but no code implemented it. The gap was live: a manager
+could state a shared concession, receive a success, and have the clinic recorded
+as bearing all of it. C1 did not run the integration gate, so the Milestone 5
+regression test that had guarded exactly this went red unnoticed.
+
+- **Alternatives:** reverting the C1 contract so the schema refuses the field
+  again; accepting the portion and storing it (the later checkpoint's work);
+  leaving it and documenting the gap.
+- **Reason:** silent success with a different financial fact than the one
+  submitted is the worst of the three failure modes — it is discovered at
+  settlement, by the therapist who is short, and by then the concession is
+  history. Reverting the frozen contract would break a cross-lane agreement the
+  web lane is already building against, for a condition that is genuinely
+  temporary. `ADJUSTMENT_SPLIT_INVALID` needs no new code and fits without
+  stretching: it means the portion cannot be honoured because the session carries
+  no rating to bear it against, and today NO session carries one, because the
+  table that would hold it does not exist. The same code stays correct when
+  ratings arrive and only some sessions have one.
+- **Trade-off:** for one checkpoint the API advertises a field it always refuses
+  above zero. The refusal is explicit, coded and translated, which is the
+  behaviour the contract already described.
+- **Revisit when:** the approved concession-split checkpoint implements
+  therapist-borne allocation. It replaces this guard with the real split and the
+  matching database constraint change — the guard is deleted by that work, not
+  before it.
+
+## 2026-08-19 — A share rule's percentage is written to audit in full
+
+**Status:** Accepted — Milestone 8, checkpoint C2 — applies 2026-08-09 rather than
+refining it
+
+`therapist_share_rule.created` and `.voided` record the percentage, the therapist
+id and the effective range in `before`/`after`. `metadata` carries only the
+correction linkage and never a value.
+
+- **Alternatives:** recording only the rule id and the reason, and leaving the
+  percentage to be looked up on the row; masking or bucketing the rate.
+- **Reason:** 2026-08-09 already draws this line. A value copied into the
+  permanent `audit_log` is a second undeletable store, so an identifier that is
+  NOT the fact being changed is masked or omitted — a national id, a phone number,
+  a bank reference (2026-08-15) — while the fact being changed is written in full,
+  because masking it "would make the trail useless for the corrections it exists
+  to explain". A share percentage is not an attribute attached to the change; it
+  IS the change. C1's frozen vocabulary depends on it too: there is deliberately
+  no `therapist_share_rule.updated`, because a rate change is recorded as the
+  share that stopped applying and the one that replaced it, and an entry without
+  the value cannot say either. And it adds no exposure surface — the table is
+  immutable and carries no-delete and no-truncate triggers, so the primary store
+  is exactly as permanent as the audit copy, which is not true of a phone number
+  whose source row can be corrected.
+- **Trade-off:** the agreed rate for a therapist appears in a second permanent
+  table. Access to `audit_log` is already manager-level and the rate is already
+  manager-only on its own row, so no reader gains anything they could not read
+  already.
+- **Revisit when:** audit retention or export gives a wider audience than the
+  share-rule table itself — at which point the question is about `audit_log`
+  access, not about this payload.

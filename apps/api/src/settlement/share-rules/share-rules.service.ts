@@ -373,11 +373,33 @@ export class ShareRulesService {
 /**
  * The share-rule facts an audit row records.
  *
- * The percentage IS the record, so it is here: an audit trail of share-rule
- * changes that omitted the share would answer no question anybody asks of it.
- * Nothing else financial appears — no session, no charge, no amount, no family
- * — because a rule knows about none of them, and no personal data appears
- * beyond the therapist id, which is an identifier rather than a name.
+ * THE PERCENTAGE IS WRITTEN IN FULL, AND THE ACCEPTED RULE IS WHAT DECIDES IT.
+ * DECISION_LOG 2026-08-09 draws the line exactly here: a value copied into
+ * `audit_log` is a second undeletable store, so an identifier that is NOT the
+ * fact being changed is masked or omitted (a national id, a phone number, a bank
+ * reference — 2026-08-15), while THE FACT BEING CHANGED is written in full,
+ * because masking it "would make the trail useless for the corrections it exists
+ * to explain". A share rule's percentage is not an identifier attached to the
+ * change; it IS the change.
+ *
+ * C1 FROZE AN AUDIT VOCABULARY THAT DEPENDS ON IT. There is deliberately no
+ * `therapist_share_rule.updated`, because a percentage change is recorded as
+ * "the share that stopped applying and the one that replaced it" rather than as
+ * a diff a reader has to interpret (`audit/audit-actions.ts`). Drop the value
+ * and `therapist_share_rule.voided` no longer records the share that stopped
+ * applying, which is the entire reason that action exists as its own name.
+ *
+ * IT ADDS NO EXPOSURE SURFACE. `therapist_share_rule` is immutable and carries a
+ * no-delete and a no-truncate trigger, so the percentage is already retained
+ * permanently in the row this entry names. Unlike a phone number — whose source
+ * row can be corrected, leaving the audit copy as the only remaining store — the
+ * primary store here is exactly as undeletable as the copy.
+ *
+ * WHAT IS NOT HERE. No session, charge, amount, family or child: a rule knows
+ * about none of them. No name of any kind — `therapistId` is an opaque uuid, the
+ * same identifier every existing audit row about a therapist already carries.
+ * And the percentage appears in `before`/`after`, which is where a changed fact
+ * belongs; `metadata` carries only the correction linkage, never a value.
  */
 function auditFacts(row: ShareRuleRow): Record<string, string | number | boolean | null> {
   return {

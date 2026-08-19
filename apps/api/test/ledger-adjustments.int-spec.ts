@@ -141,14 +141,64 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
       expect(rows[0]?.amountToman).toBe(50000n);
     });
 
-    it('refuses a caller that tries to state a therapist portion or an allocation', async () => {
+    /**
+     * THE RULE IS UNCHANGED; ONLY WHICH LAYER STATES IT HAS MOVED.
+     *
+     * Through Milestone 5 the request had no therapist portion at all, so the
+     * schema refused one as `VALIDATION_FAILED`. Milestone 8 checkpoint C1 made
+     * the field submittable ahead of the runtime that honours it, and the
+     * contract said what must happen in between: "until then a request carrying
+     * a non-zero portion is refused by the server rather than silently written"
+     * (`ledger/charges.ts`). The refusal is now the service's, with the accepted
+     * `ADJUSTMENT_SPLIT_INVALID` code.
+     *
+     * What must NEVER hold is the state this test was written to prevent and
+     * which briefly existed: a 201 whose stored row says the clinic bore
+     * everything, when the manager submitted a shared concession.
+     */
+    it('refuses a therapist portion it cannot yet honour, rather than dropping it', async () => {
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${session.chargeId}/adjustments`)
         .set(asUser(session.managerToken))
         .send({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '20000' });
 
-      // Refused, not silently dropped: a shared concession is not expressible in
-      // Milestone 5 and must not be recordable as a clinic-borne one.
+      expect(response.status).toBe(422);
+      expect(response.body.error.code).toBe('ADJUSTMENT_SPLIT_INVALID');
+
+      // Nothing was written, and no audit row claims a concession was granted.
+      expect(await adjustments()).toHaveLength(0);
+      expect(
+        await harness.prisma.auditLog.count({ where: { entityType: 'charge_adjustment' } }),
+      ).toBe(0);
+    });
+
+    /**
+     * The other half of the same rule. A caller stating a portion of ZERO is
+     * stating the clinic-borne concession the server records, so what is stored
+     * is exactly what was submitted — there is nothing to lose and nothing to
+     * refuse.
+     */
+    it('accepts an explicit therapist portion of zero, which loses nothing', async () => {
+      const response = await request(harness.app.getHttpServer())
+        .post(`/session-charges/${session.chargeId}/adjustments`)
+        .set(asUser(session.managerToken))
+        .send({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '0' });
+
+      expect(response.status).toBe(200);
+
+      const rows = await adjustments();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.therapistDiscountToman).toBe(0n);
+      expect(rows[0]?.clinicDiscountToman).toBe(50000n);
+    });
+
+    /** The clinic portion stays unsubmittable, so an invalid split stays unrepresentable. */
+    it('refuses a caller that tries to state the clinic allocation', async () => {
+      const response = await request(harness.app.getHttpServer())
+        .post(`/session-charges/${session.chargeId}/adjustments`)
+        .set(asUser(session.managerToken))
+        .send({ amountToman: '50000', reason: 'تخفیف', clinicDiscountToman: '50000' });
+
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe('VALIDATION_FAILED');
       expect(await adjustments()).toHaveLength(0);

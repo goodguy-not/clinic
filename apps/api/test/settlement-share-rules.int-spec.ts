@@ -795,6 +795,94 @@ describe('therapist share rules (real PostgreSQL)', () => {
   });
 
   // -------------------------------------------------------------------------
+  // What the audit trail may and may not carry
+  // -------------------------------------------------------------------------
+
+  describe('audit payload contents', () => {
+    /**
+     * The percentage is the FACT BEING CHANGED, so it is written in full — the
+     * accepted rule (DECISION_LOG, 2026-08-09) masks or omits identifiers that
+     * are not the fact, and writes the fact itself, because masking it "would
+     * make the trail useless for the corrections it exists to explain". C1's
+     * audit vocabulary depends on this: there is no
+     * `therapist_share_rule.updated` precisely because a change is recorded as
+     * the share that stopped applying and the one that replaced it.
+     */
+    it('records the share that started applying and the one that stopped', async () => {
+      const { token } = await signIn('MANAGER');
+      const therapistId = await makeTherapist(token);
+      const original = shareRuleResponseSchema.parse(
+        (await createRule(token, rule(therapistId, { shareBasisPoints: 4000 }))).body,
+      ).shareRule;
+      await createRule(
+        token,
+        rule(therapistId, {
+          shareBasisPoints: 4500,
+          supersedesShareRuleId: original.id,
+          reason: 'the agreed percentage was entered wrongly',
+        }),
+      );
+
+      const audit = await auditRows();
+      expect(audit[1]?.action).toBe('therapist_share_rule.voided');
+      expect(audit[1]?.before).toMatchObject({ shareBasisPoints: 4000 });
+      expect(audit[2]?.after).toMatchObject({ shareBasisPoints: 4500 });
+    });
+
+    /**
+     * The value belongs in `before`/`after`, where a changed fact belongs.
+     * `metadata` carries the correction linkage and nothing else, so the
+     * percentage is recorded once rather than duplicated across two columns.
+     */
+    it('keeps every value out of metadata, which carries only the linkage', async () => {
+      const { token } = await signIn('MANAGER');
+      const therapistId = await makeTherapist(token);
+      const original = shareRuleResponseSchema.parse(
+        (await createRule(token, rule(therapistId))).body,
+      ).shareRule;
+      await createRule(
+        token,
+        rule(therapistId, {
+          shareBasisPoints: 4500,
+          supersedesShareRuleId: original.id,
+          reason: 'the agreed percentage was entered wrongly',
+        }),
+      );
+
+      for (const row of await auditRows()) {
+        expect(JSON.stringify(row.metadata ?? {})).not.toMatch(/shareBasisPoints|percent/i);
+      }
+    });
+
+    /**
+     * `audit_log` is append-only and permanent, so nothing personal may reach
+     * it here. A share rule knows about no family, child, session or amount, and
+     * `therapistId` is an opaque uuid — the same identifier every existing audit
+     * row about a therapist already carries, never a name.
+     */
+    it('copies no name, no identifier and no family or session fact into the trail', async () => {
+      const { token } = await signIn('MANAGER');
+      const therapistId = await makeTherapist(token, 'Synthetic Therapist');
+      const created = shareRuleResponseSchema.parse(
+        (await createRule(token, rule(therapistId))).body,
+      ).shareRule;
+      await voidRule(token, created.id, 'withdrawn');
+
+      for (const row of await auditRows()) {
+        const payload = JSON.stringify({
+          before: row.before,
+          after: row.after,
+          metadata: row.metadata,
+        });
+
+        expect(payload).not.toContain('Synthetic Therapist');
+        expect(payload).not.toMatch(/nationalId|mobile|landline|phone|fileNumber/i);
+        expect(payload).not.toMatch(/familyId|childId|sessionChargeId|amountToman/i);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Schema objects and database-enforced immutability
   // -------------------------------------------------------------------------
 

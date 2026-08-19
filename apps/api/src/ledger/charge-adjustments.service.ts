@@ -28,14 +28,23 @@ import {
  * instead — that is `SessionChargesService`, and it is a different decision with
  * a different reason.
  *
- * EVERY MILESTONE 5 CONCESSION IS BORNE IN FULL BY THE CLINIC, and that is
- * written here rather than accepted from a caller: `therapist_discount_toman = 0`
- * and `clinic_discount_toman = amount_toman` (DECISION_LOG, 2026-08-14 — Every
- * Milestone 5 discount is genuinely clinic-borne). The frozen request carries no
- * therapist portion, there is no override field and no hidden one, and
- * `charge_adjustment_clinic_borne_chk` refuses anything else whether or not it
- * came from this class. A shared or therapist-borne concession needs an approved
- * settlement rule to be borne against, and Milestone 8 is where that arrives.
+ * EVERY CONCESSION IS STILL BORNE IN FULL BY THE CLINIC, and that is written
+ * here rather than accepted from a caller: `therapist_discount_toman = 0` and
+ * `clinic_discount_toman = amount_toman` (DECISION_LOG, 2026-08-14 — Every
+ * Milestone 5 discount is genuinely clinic-borne). `charge_adjustment_clinic_
+ * borne_chk` refuses anything else whether or not it came from this class.
+ *
+ * A SUBMITTED NON-ZERO THERAPIST PORTION IS REFUSED, NEVER DROPPED. Milestone 8
+ * checkpoint C1 made `therapistDiscountToman` submittable on the request while
+ * leaving the runtime that honours it to a later checkpoint, and said so in the
+ * contract: "until then a request carrying a non-zero portion is refused by the
+ * server rather than silently written" (`ledger/charges.ts`). That refusal was
+ * never implemented, so a manager could state a shared concession, receive 201,
+ * and have the clinic recorded as bearing all of it — a different financial fact
+ * from the one they submitted, discoverable only at settlement. `assertClinic
+ * BorneOnly` below is that refusal, and it is a TEMPORARY guard: the checkpoint
+ * that implements therapist-borne allocation replaces it with the real split
+ * rather than removing it.
  *
  * THERE IS NO UPWARD CORRECTION. `charge_adjustment` only ever reduces
  * (`amount_toman > 0` and the sum bounded by the charge), so "the family owes
@@ -87,6 +96,11 @@ export class ChargeAdjustmentsService {
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<SessionChargeResponse> {
+    // Before the transaction opens, so a refused split writes no row, no audit
+    // entry and no lock — a request the system cannot honour must leave no
+    // trace suggesting it was considered.
+    assertClinicBorneOnly(body);
+
     const reason = canonicalText(body.reason);
     const amount = BigInt(body.amountToman);
 
@@ -217,6 +231,35 @@ export class ChargeAdjustmentsService {
       return { charge: detail };
     });
   }
+}
+
+/**
+ * REFUSES A THERAPIST-BORNE PORTION UNTIL THE RUNTIME THAT HONOURS ONE EXISTS.
+ *
+ * `ADJUSTMENT_SPLIT_INVALID` is the accepted code and it fits this exactly
+ * rather than by approximation: it means "the therapist portion cannot be
+ * honoured — the session carries no rating to bear it against", and TODAY NO
+ * SESSION CARRIES A RATING, because the table that would hold one does not exist
+ * yet. So the condition the code names is literally true of every session in the
+ * system, and it stays the right answer when ratings arrive and only some
+ * sessions have one.
+ *
+ * ZERO IS ACCEPTED, AND THAT IS NOT AN INCONSISTENCY. A caller stating
+ * `therapistDiscountToman: '0'` is stating the clinic-borne concession the
+ * server records, so what is stored is exactly what was submitted and nothing is
+ * lost. It is the non-zero portion — the one the system would silently rewrite
+ * to zero — that must be refused.
+ *
+ * NOTHING HERE COMPUTES OR PERSISTS A SPLIT, and the database CHECK is
+ * untouched. This is the guard the frozen contract already promised, not the
+ * later checkpoint's arithmetic.
+ */
+function assertClinicBorneOnly(body: CreateChargeAdjustmentRequest): void {
+  const portion = body.therapistDiscountToman;
+  if (portion === undefined) return;
+
+  // The schema has already proved the digit shape, so this conversion is safe.
+  if (BigInt(portion) > 0n) throw new AppError('ADJUSTMENT_SPLIT_INVALID');
 }
 
 /**
