@@ -359,7 +359,21 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  where they differ from the tariff's: a receptionist
       //                  looks up what a session costs a family, and what a
       //                  therapist takes home is not diary work
-      expect(routes).toBe(98);
+      // ratings:         the four applied-share routes (Milestone 8, checkpoint
+      //                  C3) — rate an unrated session, read what one earns,
+      //                  withdraw a rating, and the atomic correction, under
+      //                  `settlement.rate` / `.read` / `.void_rating` and, for
+      //                  the correction, BOTH `.void_rating` AND `.rate`.
+      //                  Manager-only in every direction including the read, for
+      //                  the reason the share rules are
+      //
+      // CHECKPOINT C4 ADDS NO ROUTE, deliberately. The therapist/clinic
+      // allocation of a concession is a field on the EXISTING manager-only
+      // charge-adjustment request, under the existing `charge.adjust`
+      // authority — a new permission would have implied that bearing part of a
+      // discount is a different kind of financial act from granting one, and it
+      // is the same act with an extra stated fact.
+      expect(routes).toBe(102);
     });
   });
 });

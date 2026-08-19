@@ -8,11 +8,13 @@ import { isCheckViolation, isRestrictViolation, violatesConstraint } from '../co
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { uuidv7 } from '../common/uuid';
+import { findValidRatingForCharge } from '../settlement/ratings/session-rating.service';
 import {
   lockAdjustmentRow,
   lockChargeRow,
   readChargeDetail,
   sumActiveAdjustments,
+  sumActiveTherapistAllocations,
   type ChargeRow,
 } from './charge-detail';
 
@@ -28,23 +30,46 @@ import {
  * instead — that is `SessionChargesService`, and it is a different decision with
  * a different reason.
  *
- * EVERY CONCESSION IS STILL BORNE IN FULL BY THE CLINIC, and that is written
- * here rather than accepted from a caller: `therapist_discount_toman = 0` and
- * `clinic_discount_toman = amount_toman` (DECISION_LOG, 2026-08-14 — Every
- * Milestone 5 discount is genuinely clinic-borne). `charge_adjustment_clinic_
- * borne_chk` refuses anything else whether or not it came from this class.
+ * A CONCESSION IS BORNE BY THE CLINIC, BY THE THERAPIST, OR BY BOTH, AND WHICH
+ * ONE IS AN EXPLICIT FACT (CLAUDE.md; Milestone 8 checkpoint C4). Clinic-borne
+ * remains the DEFAULT and the overwhelming majority: a request that omits the
+ * therapist portion, or states it as zero, produces exactly the row Milestone 5
+ * produced — `therapist_discount_toman = 0`, `clinic_discount_toman =
+ * amount_toman` — through the same statements, and that path consults the
+ * settlement tables not at all.
  *
- * A SUBMITTED NON-ZERO THERAPIST PORTION IS REFUSED, NEVER DROPPED. Milestone 8
- * checkpoint C1 made `therapistDiscountToman` submittable on the request while
- * leaving the runtime that honours it to a later checkpoint, and said so in the
- * contract: "until then a request carrying a non-zero portion is refused by the
- * server rather than silently written" (`ledger/charges.ts`). That refusal was
- * never implemented, so a manager could state a shared concession, receive 201,
- * and have the clinic recorded as bearing all of it — a different financial fact
- * from the one they submitted, discoverable only at settlement. `assertClinic
- * BorneOnly` below is that refusal, and it is a TEMPORARY guard: the checkpoint
- * that implements therapist-borne allocation replaces it with the real split
- * rather than removing it.
+ * A POSITIVE PORTION IS RECORDED AS SUBMITTED, OR REFUSED WITH A REASON; IT IS
+ * NEVER REINTERPRETED. C1 made `therapistDiscountToman` submittable ahead of the
+ * runtime that honours one, and C2 added a temporary guard refusing every
+ * non-zero portion outright — so that a manager could not state a shared
+ * concession, receive a 200, and have the clinic recorded as bearing all of it,
+ * a different financial fact from the one they submitted and discoverable only
+ * at settlement. THAT GUARD IS NOW REPLACED BY THE REAL SPLIT rather than
+ * removed. What remains are the two questions only the server can answer — is
+ * there an authoritative applied share to bear this against, and does bearing it
+ * leave the therapist net at or above zero — and both answer
+ * `ADJUSTMENT_SPLIT_INVALID` when the answer is no.
+ *
+ * THE CALLER STATES THE TOTAL AND THE THERAPIST'S SHARE OF IT; THE CLINIC TAKES
+ * THE EXACT RESIDUAL. So therapist + clinic = the family's concession by
+ * construction, with no pair of numbers a caller can send that fails to add up
+ * and no second answer for the server to choose between
+ * (`createChargeAdjustmentRequestSchema`, and
+ * `charge_adjustment_split_identity_chk` beneath it).
+ *
+ * THE APPLIED SNAPSHOT IS THE AUTHORITY FOR THE GROSS, NOT THE CURRENT RULE.
+ * `session_settlement.therapist_gross_toman` is what was applied to THIS session
+ * and was frozen when it was rated (checkpoint C3); nothing here re-resolves a
+ * percentage, so a share rule corrected next month cannot retroactively widen or
+ * narrow what a therapist already bore on a session last month.
+ *
+ * CLINIC NET MAY GO NEGATIVE, AND IS NEITHER CLAMPED NOR HIDDEN. Nothing here
+ * bounds the clinic's residual: a concession larger than the clinic's gross
+ * share is an explicit subsidy, it is exactly what a therapist who does not
+ * participate in discounts produces, and CLAUDE.md requires it to stay visible
+ * in reports. The only two floors in this system are the family's effective
+ * charge and the therapist's net, and both are enforced below and in the
+ * database.
  *
  * THERE IS NO UPWARD CORRECTION. `charge_adjustment` only ever reduces
  * (`amount_toman > 0` and the sum bounded by the charge), so "the family owes
@@ -89,6 +114,22 @@ export class ChargeAdjustmentsService {
    * produces an effective amount of zero, and it stays `PAID` with an adjustment
    * naming the manager who waived it. The two are different facts that both
    * display as zero, and neither can become the other.
+   *
+   * THE THERAPIST-NET FLOOR IS ANSWERED UNDER THE SAME LOCK AS THE FAMILY ONE,
+   * and that is why there is only one lock. Two therapist-borne portions of
+   * 40,000 against an applied share of 60,000, submitted together, would both
+   * read an allocated total of zero without it and both pass, leaving a
+   * therapist owed minus twenty thousand toman — the mirror image of the race
+   * the family floor was written to survive, and forbidden by the same file.
+   * Both questions are decided from rows read after `lockChargeRow`, and every
+   * write that can move either side of either inequality — a concession here, a
+   * rating withdrawal or correction in `SessionRatingService` — takes that same
+   * charge row first.
+   *
+   * THE APPLIED SHARE IS READ, NEVER RECOMPUTED. `findValidRatingForCharge`
+   * returns the STANDING snapshot C3 froze onto this session, and a session with
+   * no standing rating has nothing to bear a portion against — which is
+   * `ADJUSTMENT_SPLIT_INVALID`, not a zero and not a silently clinic-borne row.
    */
   async create(
     chargeId: string,
@@ -96,13 +137,12 @@ export class ChargeAdjustmentsService {
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<SessionChargeResponse> {
-    // Before the transaction opens, so a refused split writes no row, no audit
-    // entry and no lock — a request the system cannot honour must leave no
-    // trace suggesting it was considered.
-    assertClinicBorneOnly(body);
-
     const reason = canonicalText(body.reason);
     const amount = BigInt(body.amountToman);
+    // Omitted means clinic-borne, which is what this request has always meant.
+    // The schema has already proved the digit shape and that the portion does
+    // not exceed the concession it is part of, so this conversion is safe.
+    const therapistPortion = BigInt(body.therapistDiscountToman ?? '0');
 
     return this.prisma.$transaction(async (tx) => {
       const charge = await lockChargeRow(tx, chargeId);
@@ -117,8 +157,17 @@ export class ChargeAdjustmentsService {
         throw new AppError('ADJUSTMENT_EXCEEDS_CHARGE');
       }
 
+      await assertTherapistPortionAffordable(tx, chargeId, therapistPortion);
+
       const adjustmentId = uuidv7();
-      await insertAdjustment(tx, { adjustmentId, chargeId, amount, reason, actor });
+      await insertAdjustment(tx, {
+        adjustmentId,
+        chargeId,
+        amount,
+        therapistPortion,
+        reason,
+        actor,
+      });
 
       // In the same transaction as the row it records, so a concession and the
       // trail of who granted it cannot be separated by a failure. The payload is
@@ -132,12 +181,15 @@ export class ChargeAdjustmentsService {
         after: {
           sessionChargeId: chargeId,
           amountToman: amount.toString(),
-          // Stated rather than implied. "The clinic bore all of it" is the fact
-          // that makes this row safe to keep before settlement exists, and a
-          // reader a year from now should not have to know the Milestone 5
-          // policy to see it.
-          therapistDiscountToman: '0',
-          clinicDiscountToman: amount.toString(),
+          // THE ACTUAL SPLIT, BOTH HALVES, ALWAYS. It was stated explicitly even
+          // when the policy pinned it, so that a reader a year from now would
+          // not have to know the Milestone 5 policy to see who bore the cost;
+          // now that both halves can genuinely vary, it is the whole financial
+          // point of the row. Nothing wider is copied here — no name, no file
+          // number, no phone number — and `audit_log` is append-only and
+          // permanent.
+          therapistDiscountToman: therapistPortion.toString(),
+          clinicDiscountToman: (amount - therapistPortion).toString(),
           reason,
         },
         metadata: chargeMetadata(charge),
@@ -161,6 +213,14 @@ export class ChargeAdjustmentsService {
    * voided row leaves the active sum (`sumActiveAdjustments`, and the same
    * predicate in the trigger), so the effective amount returned below is the
    * charge as it now stands — no number was written anywhere that could disagree.
+   *
+   * BOTH SIDES ARE RESTORED BY THE SAME MECHANISM, AND NEITHER IS RESTORED BY A
+   * WRITE. A withdrawn therapist-borne portion leaves
+   * `sumActiveTherapistAllocations` in the same breath, so the therapist's net
+   * returns to the applied gross, the allowance for a further concession returns
+   * with it, and the rating this portion stood against becomes withdrawable
+   * again — all of it derived from the rows, none of it stamped onto the
+   * settlement snapshot, which C3 made structurally unwritable anyway.
    *
    * ONE-WAY, ENFORCED TWICE, as a charge void is: there is no un-void request in
    * the frozen contract, the `UPDATE` is predicated on `voided_at IS NULL`, and
@@ -234,32 +294,51 @@ export class ChargeAdjustmentsService {
 }
 
 /**
- * REFUSES A THERAPIST-BORNE PORTION UNTIL THE RUNTIME THAT HONOURS ONE EXISTS.
+ * CAN THIS SESSION'S THERAPIST BEAR THIS MUCH OF THE CONCESSION?
  *
- * `ADJUSTMENT_SPLIT_INVALID` is the accepted code and it fits this exactly
- * rather than by approximation: it means "the therapist portion cannot be
- * honoured — the session carries no rating to bear it against", and TODAY NO
- * SESSION CARRIES A RATING, because the table that would hold one does not exist
- * yet. So the condition the code names is literally true of every session in the
- * system, and it stays the right answer when ratings arrive and only some
- * sessions have one.
+ * TWO CONDITIONS, ONE CODE, AND THE CODE ALREADY MEANT BOTH.
+ * `ADJUSTMENT_SPLIT_INVALID` was frozen in C1 as "the session carries no rating
+ * to bear it, or the portion would drive the therapist net below zero"
+ * (`errors.ts`), and those are exactly the two refusals here. They are not split
+ * into two codes because the fix is the same in kind — allocate less, or rate
+ * the session first — and the Persian message names both situations.
  *
- * ZERO IS ACCEPTED, AND THAT IS NOT AN INCONSISTENCY. A caller stating
- * `therapistDiscountToman: '0'` is stating the clinic-borne concession the
- * server records, so what is stored is exactly what was submitted and nothing is
- * lost. It is the non-zero portion — the one the system would silently rewrite
- * to zero — that must be refused.
+ * A ZERO PORTION ASKS NOTHING. It issues no statement, so an ordinary
+ * clinic-borne concession costs exactly what it cost in Milestone 5 and works
+ * identically on an unrated session, on a session whose rating was withdrawn,
+ * and on a `FREE` one.
  *
- * NOTHING HERE COMPUTES OR PERSISTS A SPLIT, and the database CHECK is
- * untouched. This is the guard the frozen contract already promised, not the
- * later checkpoint's arithmetic.
+ * THE GROSS COMES FROM THE STANDING RATING AND THE ALLOWANCE FROM THE ACTIVE
+ * ROWS, WHICH IS WHY THE FLOOR IS CUMULATIVE RATHER THAN PER-ROW. Three
+ * concessions of 25,000 each against an applied share of 60,000 must fail on the
+ * third, not pass because each is individually small; and withdrawing one of
+ * them must give its portion back, which it does because the sum counts only
+ * `voided_at IS NULL` rows.
+ *
+ * `FREE` SESSIONS NEED NO SPECIAL CASE. A zero base gives a zero applied gross,
+ * so every positive portion exceeds it here — and the family-side ceiling has
+ * already refused the concession itself for the same reason.
+ *
+ * THE DATABASE IS STILL THE AUTHORITY. `enforce_charge_adjustment_bounds`
+ * re-derives both of these in SQL, under the same lock, inside the INSERT, so
+ * the floor holds for the repair script and the psql session too. This exists so
+ * a manager is told which rule refused them instead of seeing an internal error;
+ * `insertAdjustment` translates the trigger's version of the same two refusals.
  */
-function assertClinicBorneOnly(body: CreateChargeAdjustmentRequest): void {
-  const portion = body.therapistDiscountToman;
-  if (portion === undefined) return;
+async function assertTherapistPortionAffordable(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+  therapistPortion: bigint,
+): Promise<void> {
+  if (therapistPortion === 0n) return;
 
-  // The schema has already proved the digit shape, so this conversion is safe.
-  if (BigInt(portion) > 0n) throw new AppError('ADJUSTMENT_SPLIT_INVALID');
+  const rating = await findValidRatingForCharge(tx, chargeId);
+  if (rating === undefined) throw new AppError('ADJUSTMENT_SPLIT_INVALID');
+
+  const allocated = await sumActiveTherapistAllocations(tx, chargeId);
+  if (allocated + therapistPortion > rating.therapist_gross_toman) {
+    throw new AppError('ADJUSTMENT_SPLIT_INVALID');
+  }
 }
 
 /**
@@ -281,14 +360,23 @@ function chargeMetadata(charge: ChargeRow) {
 }
 
 /**
- * The INSERT, with the allocation the server decides and the caller cannot state.
+ * The INSERT, with the therapist portion as submitted and the clinic's as the
+ * exact residual.
+ *
+ * THE CLINIC HALF IS COMPUTED HERE AND IS NOT THE CALLER'S TO STATE, which is
+ * what makes an allocation that does not add up unrepresentable rather than
+ * merely refused: `amount - therapistPortion` satisfies
+ * `charge_adjustment_split_identity_chk` by construction, and the request schema
+ * refuses a `clinicDiscountToman` field outright. `therapistPortion <= amount`
+ * was already proved by the schema, so the residual is never negative and
+ * `charge_adjustment_amount_bounds_chk` cannot be reached from here.
  *
  * `created_at` comes from `transaction_timestamp()` rather than from Node, so the
  * adjustment and the audit row recording it carry the same instant.
  *
- * THE TRIGGER'S REFUSALS ARE TRANSLATED, NOT RECOVERED FROM. The two conditions
- * it raises are both already decided above under the same lock, so neither should
- * be reachable; if one ever is — a lock weakened, a caller added — the manager is
+ * THE TRIGGER'S REFUSALS ARE TRANSLATED, NOT RECOVERED FROM. All four conditions
+ * it raises are already decided above under the same lock, so none should be
+ * reachable; if one ever is — a lock weakened, a caller added — the manager is
  * told which rule refused them rather than receiving an internal error. It is not
  * retried, because a failed statement aborts the PostgreSQL transaction and a
  * retry loop dressed as idempotency would be the dishonest answer.
@@ -299,11 +387,13 @@ async function insertAdjustment(
     adjustmentId: string;
     chargeId: string;
     amount: bigint;
+    therapistPortion: bigint;
     reason: string;
     actor: ResolvedSession;
   },
 ): Promise<void> {
-  const { adjustmentId, chargeId, amount, reason, actor } = args;
+  const { adjustmentId, chargeId, amount, therapistPortion, reason, actor } = args;
+  const clinicPortion = amount - therapistPortion;
 
   try {
     await tx.$executeRaw`
@@ -315,23 +405,34 @@ async function insertAdjustment(
         ${adjustmentId}::uuid,
         ${chargeId}::uuid,
         ${amount.toString()}::bigint,
-        0::bigint,
-        ${amount.toString()}::bigint,
+        ${therapistPortion.toString()}::bigint,
+        ${clinicPortion.toString()}::bigint,
         ${reason},
         transaction_timestamp(),
         ${actor.userId}::uuid
       )
     `;
   } catch (error) {
-    // The cumulative floor, raised by the trigger with `check_violation`. The
-    // row-level amount bounds share that SQLSTATE and are already refused by
-    // `adjustmentAmountTomanSchema` before the request reaches here, so they are
-    // excluded by name rather than swallowed into the same code.
-    if (
-      isCheckViolation(error) &&
-      !violatesConstraint(error, 'charge_adjustment_amount_bounds_chk')
-    ) {
-      throw new AppError('ADJUSTMENT_EXCEEDS_CHARGE');
+    if (isCheckViolation(error)) {
+      // The two settlement-side refusals, raised by the trigger and named by it.
+      // Matched FIRST and by name, because they share their SQLSTATE with the
+      // family-side ceiling below and mean something entirely different: this
+      // one is about what the THERAPIST can bear, and the fix is a smaller
+      // portion or a rated session.
+      if (
+        violatesConstraint(error, 'charge_adjustment_therapist_share_required') ||
+        violatesConstraint(error, 'charge_adjustment_therapist_net_floor')
+      ) {
+        throw new AppError('ADJUSTMENT_SPLIT_INVALID');
+      }
+
+      // The cumulative family-side floor, raised by the same trigger. The
+      // row-level amount bounds share that SQLSTATE and are already refused by
+      // `adjustmentAmountTomanSchema` before the request reaches here, so they
+      // are excluded by name rather than swallowed into the same code.
+      if (!violatesConstraint(error, 'charge_adjustment_amount_bounds_chk')) {
+        throw new AppError('ADJUSTMENT_EXCEEDS_CHARGE');
+      }
     }
 
     // The voided-parent refusal, raised by the same trigger.

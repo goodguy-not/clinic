@@ -130,8 +130,15 @@ describe('ledger schema objects', () => {
           'session_charge_duration_chk',
           'session_charge_void_consistency_chk',
           'charge_adjustment_amount_bounds_chk',
+          // `charge_adjustment_clinic_borne_chk` IS DELIBERATELY ABSENT. It
+          // pinned `therapist_discount_toman = 0` because Milestone 5 had no
+          // approved basis on which a therapist could bear part of a concession;
+          // Milestone 8 checkpoint C4 supplied that basis — the applied share
+          // snapshot — and dropped the CHECK. What replaced it is a rule about a
+          // SUM and therefore cannot be a CHECK at all: it lives in
+          // `enforce_charge_adjustment_bounds`, beside the family-side floor,
+          // and is exercised below.
           'charge_adjustment_split_identity_chk',
-          'charge_adjustment_clinic_borne_chk',
           'charge_adjustment_reason_chk',
           'charge_adjustment_void_consistency_chk',
         ].sort(),
@@ -445,7 +452,24 @@ describe('ledger schema objects', () => {
       });
     });
 
-    describe('the clinic-borne-only discount policy', () => {
+    /**
+     * WHAT MAY BEAR A CONCESSION, ASKED OF THE DATABASE DIRECTLY.
+     *
+     * The charges in this suite are inserted by raw SQL and are therefore
+     * UNRATED — no `session_settlement` row exists for any of them. That is the
+     * state every therapist-borne refusal below turns on, and it is the right
+     * fixture for this file: the question here is what PostgreSQL refuses to a
+     * writer that never went near the service.
+     *
+     * Milestone 5 refused a therapist portion by CHECK, unconditionally.
+     * Checkpoint C4 dropped that CHECK, and the same two statements are still
+     * refused — now because the session carries no applied share to bear them
+     * against, which is a rule about other rows and lives in
+     * `enforce_charge_adjustment_bounds`. The rated case, where a portion is
+     * genuinely accepted and genuinely bounded, is proved over the real
+     * endpoints in `settlement-concession-split.int-spec.ts`.
+     */
+    describe('who may bear a concession', () => {
       let chargeId: string;
 
       beforeEach(async () => {
@@ -462,11 +486,11 @@ describe('ledger schema objects', () => {
         expect(await harness.prisma.chargeAdjustment.count()).toBe(1);
       });
 
-      it('refuses a non-zero therapist discount', async () => {
-        // The Milestone 5 policy, in the database. There is no approved basis on
-        // which a therapist bears part of a concession until settlement exists,
-        // so the concession is refused outright rather than recorded as an
-        // unfunded liability.
+      it('refuses a non-zero therapist discount on an unrated session', async () => {
+        // A portion apportioned to a share nobody ever applied is an unfunded
+        // liability recorded as a fact. Refused outright rather than written and
+        // sorted out at settlement, which is where a therapist would otherwise
+        // discover a deduction they cannot trace.
         expect(
           await sqlStateOf(
             insertAdjustment(harness, fixture, chargeId, {
@@ -478,7 +502,7 @@ describe('ledger schema objects', () => {
         ).toBe('23514');
       });
 
-      it('refuses a wholly therapist-borne discount', async () => {
+      it('refuses a wholly therapist-borne discount on an unrated session', async () => {
         expect(
           await sqlStateOf(
             insertAdjustment(harness, fixture, chargeId, {
@@ -488,6 +512,21 @@ describe('ledger schema objects', () => {
             }),
           ),
         ).toBe('23514');
+      });
+
+      it('names the rule that refused it, so two 23514s stay two answers', async () => {
+        // The family-side ceiling and the therapist-side refusals share their
+        // SQLSTATE. The service maps them onto `ADJUSTMENT_EXCEEDS_CHARGE` and
+        // `ADJUSTMENT_SPLIT_INVALID` by matching the name the trigger raises
+        // with, so the name reaching the driver is load-bearing rather than
+        // decorative.
+        const refusal = await insertAdjustment(harness, fixture, chargeId, {
+          amountToman: '50000',
+          therapistDiscountToman: '20000',
+          clinicDiscountToman: '30000',
+        }).catch((error: unknown) => error);
+
+        expect(String(refusal)).toContain('charge_adjustment_therapist_share_required');
       });
 
       it('refuses an incoherent split even when the therapist bears nothing', async () => {

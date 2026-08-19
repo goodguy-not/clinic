@@ -13,7 +13,11 @@ import { isUniqueViolation, violatesConstraint } from '../../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
-import { lockChargeRow, readChargeRow } from '../../ledger/charge-detail';
+import {
+  lockChargeRow,
+  readChargeRow,
+  sumActiveTherapistAllocations,
+} from '../../ledger/charge-detail';
 import { resolveShareRuleRow } from '../share-rules/share-rule-resolution';
 import { splitSessionValue } from './share-split';
 
@@ -110,12 +114,22 @@ import { splitSessionValue } from './share-split';
  * through the ordinary path, unobstructed by the old one: the unique index is
  * per charge, not per seat.
  * ------------------------------------------------------------------------
- * WHAT THIS CHECKPOINT DELIBERATELY DOES NOT DO. No concession is allocated
- * between the therapist and the clinic (the temporary guard in
- * `ChargeAdjustmentsService` still refuses a therapist-borne portion outright),
- * no net figure is computed, no statement is produced, no period is closed and
- * no payout is recorded. `therapist_gross_toman` and `clinic_gross_toman` are
- * the split of the PRE-DISCOUNT charge and nothing more.
+ * `therapist_gross_toman` AND `clinic_gross_toman` ARE THE SPLIT OF THE
+ * PRE-DISCOUNT CHARGE, AND STAY SO AFTER C4. A concession changes what the
+ * FAMILY owes and, when it is allocated, who BEARS it — neither of which
+ * restates what the session was worth. The therapist's NET is the gross on this
+ * row less the active therapist-borne portions against the same charge, and it
+ * is DERIVED BY READING rather than stored: no column here moves when a
+ * concession is granted or withdrawn, and the immutability trigger means none
+ * could.
+ *
+ * WHAT THIS SERVICE OWES C4 IS ONE REFUSAL, AND IT IS IN `voidRow`. A rating
+ * bearing a standing therapist-borne allocation cannot be withdrawn or
+ * corrected, because the allocation was bounded by the gross share THIS rating
+ * applied.
+ *
+ * WHAT IS STILL DELIBERATELY ABSENT: no statement is produced, no earned or
+ * unsettled figure is aggregated, no period is closed and no payout is recorded.
  */
 
 /** Which act asked for the rating. Recorded in the audit row, never in the row. */
@@ -597,6 +611,32 @@ export class SessionRatingService {
    * `voided_at IS NULL` in the predicate as well as in the caller's check: the
    * check is what produces the named refusal, this is what makes a second
    * withdrawal structurally unable to write even if the check were wrong.
+   *
+   * A RATING BEARING A THERAPIST-BORNE CONCESSION IS NOT WITHDRAWABLE, AND THAT
+   * IS CHECKED HERE SO IT COVERS BOTH ACTS. Checkpoint C4 made a family
+   * concession allocable between the therapist and the clinic, bounded by the
+   * gross share THIS rating applied; withdrawing the rating would leave that
+   * allocation standing against a share that no longer exists, and the
+   * cumulative floor — which reads only standing ratings — would stop checking
+   * anything at all. `RATING_HAS_THERAPIST_ALLOCATIONS` was frozen in C1 for
+   * exactly this and was unreachable until now.
+   *
+   * A CORRECTION IS REFUSED TOO, NOT WAVED THROUGH ON THE STRENGTH OF ITS
+   * REPLACEMENT. `correct` reaches this method, so it is refused by the same
+   * line. Letting it pass when the replacement's gross happened to be large
+   * enough would silently re-anchor an allocation a manager reasoned about
+   * against one applied percentage onto a different one they never saw — and
+   * the allocation row cannot be re-pointed anyway, because
+   * `enforce_charge_adjustment_immutability` forbids rewriting it. The sequence
+   * is therefore three explicit, separately reasoned acts: withdraw the
+   * concession, correct the rating, re-grant the concession against the share
+   * that now applies.
+   *
+   * READ UNDER THE CHARGE LOCK EVERY CALLER ALREADY HOLDS, so a concession
+   * committing concurrently cannot slip past between this and the UPDATE.
+   * `session_settlement_enforce_allocation_guard` re-derives the same sum inside
+   * the statement and is the authority; this exists to produce a named refusal
+   * with a fix rather than an internal error.
    */
   private async voidRow(
     tx: Prisma.TransactionClient,
@@ -606,6 +646,9 @@ export class SessionRatingService {
     context: RequestContext,
     trigger: RatingVoidTrigger,
   ): Promise<void> {
+    const allocated = await sumActiveTherapistAllocations(tx, target.session_charge_id);
+    if (allocated > 0n) throw new AppError('RATING_HAS_THERAPIST_ALLOCATIONS');
+
     await tx.$executeRaw`
       UPDATE session_settlement
          SET voided_at = transaction_timestamp(),

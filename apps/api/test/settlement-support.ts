@@ -186,6 +186,30 @@ async function makeFreeTariff(harness: Harness, token: string, serviceId: string
   }
 }
 
+/**
+ * A concession with an EXPLICIT therapist/clinic allocation (checkpoint C4).
+ *
+ * Deliberately separate from `adjustOverHttp` in `ledger-support.ts` rather than
+ * an extra parameter on it: that helper is what every Milestone 5 and 6 suite
+ * calls to state a clinic-borne concession, and its body must keep OMITTING the
+ * field so those suites go on proving that the default is unchanged. The clinic
+ * portion is never sent — it is the server's residual, and the request schema
+ * refuses it.
+ */
+export function allocateOverHttp(
+  harness: Harness,
+  token: string,
+  chargeId: string,
+  amountToman: string,
+  therapistDiscountToman: string,
+  reason = 'تخفیف با سهم درمانگر',
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .post(`/session-charges/${chargeId}/adjustments`)
+    .set(asUser(token))
+    .send({ amountToman, reason, therapistDiscountToman });
+}
+
 export function rateOverHttp(
   harness: Harness,
   token: string,

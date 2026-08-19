@@ -182,6 +182,39 @@ export async function sumActiveAdjustments(
 }
 
 /**
+ * What the active concessions against one charge take off the THERAPIST — the
+ * other side of `sumActiveAdjustments`, over the same rows.
+ *
+ * THE ONE STATEMENT OF "HOW MUCH OF THIS SESSION'S SHARE IS ALREADY GIVEN
+ * AWAY", and it is deliberately one rather than three. It bounds a new
+ * therapist-borne portion (`ChargeAdjustmentsService.create`), it is what
+ * `enforce_charge_adjustment_bounds` re-computes in SQL under the same lock, and
+ * it is what tells `SessionRatingService` whether a rating still has
+ * allocations standing against it. A second implementation would be a second
+ * answer to "what does this therapist net", and the two would disagree on
+ * exactly the row somebody disputes.
+ *
+ * THE PREDICATE IS THE SAME `voided_at IS NULL` EVERY TOTAL HERE USES.
+ * Withdrawing a concession gives the share back, in full, by the read — no
+ * number is written anywhere that could disagree.
+ *
+ * ONLY MEANINGFUL UNDER `lockChargeRow`, for the reason `sumActiveAdjustments`
+ * is: it is the basis of a decision, and a total read without the parent lock is
+ * one another transaction may already have invalidated.
+ */
+export async function sumActiveTherapistAllocations(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+): Promise<bigint> {
+  const rows = await tx.$queryRaw<{ total: bigint }[]>`
+    SELECT coalesce(sum(therapist_discount_toman), 0)::bigint AS total FROM charge_adjustment
+    WHERE session_charge_id = ${chargeId}::uuid AND voided_at IS NULL
+  `;
+
+  return rows[0]?.total ?? 0n;
+}
+
+/**
  * One adjustment of one charge, held `FOR UPDATE`.
  *
  * NAMED BY BOTH IDS, and the parent is part of the predicate rather than

@@ -145,6 +145,12 @@ describe('session settlement schema (real PostgreSQL)', () => {
       WHERE tgrelid = 'session_settlement'::regclass AND NOT tgisinternal
     `;
     expect(triggers.map((row) => row.tgname).sort()).toEqual([
+      // Added by checkpoint C4, and a separate trigger from the immutability one
+      // because it is a different rule: immutability is about what a statement
+      // may CHANGE, and this is about what a permitted change would leave
+      // BEHIND — a therapist-borne concession apportioned to a share that no
+      // longer stands.
+      'session_settlement_enforce_allocation_guard',
       'session_settlement_enforce_immutability',
       'session_settlement_no_delete',
       'session_settlement_no_truncate',

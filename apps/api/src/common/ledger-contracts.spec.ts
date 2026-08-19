@@ -255,7 +255,7 @@ describe('ledger contracts', () => {
       ).toBe(false);
     });
 
-    it('reports the split it does not accept, always clinic-borne in this milestone', () => {
+    it('reports both halves of the split, of which only the therapist’s is submittable', () => {
       const parsed = chargeAdjustmentSchema.parse(adjustment);
 
       expect(parsed.therapistDiscountToman).toBe('0');

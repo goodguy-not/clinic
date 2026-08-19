@@ -34,15 +34,19 @@ import {
 /**
  * One append-only reduction of a session charge.
  *
- * THE SPLIT IS REPORTED EVEN THOUGH IT CANNOT BE SUBMITTED. Both allocation
- * fields appear on the read because they are recorded facts on the row and
- * because CLAUDE.md requires a clinic-borne concession to be visible in
- * reports. In Milestone 5 `therapistDiscountToman` is always `'0'` and
- * `clinicDiscountToman` always equals `amountToman`, enforced by
- * `charge_adjustment_clinic_borne_chk` (DECISION_LOG, 2026-08-14 — Every
- * Milestone 5 discount is genuinely clinic-borne). Reporting them now is what
- * keeps Milestone 8 from reshaping a read that families and managers already
- * use: the numbers change, the shape does not.
+ * BOTH HALVES OF THE ALLOCATION ARE REPORTED, AND ONLY THE THERAPIST'S IS
+ * SUBMITTABLE. They appear on the read because they are recorded facts on the
+ * row and because CLAUDE.md requires who bore a concession to be visible in
+ * reports; the clinic's is the server's exact residual, so it is reported and
+ * never accepted.
+ *
+ * THE SHAPE WAS RIGHT BEFORE THE NUMBERS COULD VARY, WHICH WAS THE POINT.
+ * Through Milestone 5 `therapistDiscountToman` was always `'0'` and
+ * `clinicDiscountToman` always equalled `amountToman`, pinned by
+ * `charge_adjustment_clinic_borne_chk` (DECISION_LOG, 2026-08-14). Milestone 8
+ * checkpoint C4 dropped that CHECK and made a genuine split recordable, and no
+ * read that families and managers already use had to be reshaped: the numbers
+ * changed, the shape did not.
  *
  * `voidedAt` and the two fields that travel with it are the whole of "this
  * concession was withdrawn". A voided adjustment is never removed from a
@@ -255,10 +259,13 @@ export type VoidSessionChargeRequest = z.infer<typeof voidSessionChargeRequestSc
  * know — that the session has a rating to bear the portion against, and that
  * bearing it leaves the therapist net at or above zero.
  *
- * NO RUNTIME BEHAVIOUR CHANGES IN C1. This checkpoint freezes the contract; the
- * service and the database CHECK that currently pin every concession to
- * clinic-borne are a later checkpoint's work, and until then a request carrying
- * a non-zero portion is refused by the server rather than silently written.
+ * C1 FROZE THIS SHAPE AND C4 MADE IT REAL. Between the two, a request carrying
+ * a non-zero portion was refused by the server rather than silently written;
+ * the database CHECK that pinned every concession to clinic-borne is now
+ * dropped, and the two conditions above are what refuse a portion instead. What
+ * never changed, and is the reason the intermediate refusal existed at all, is
+ * that a submitted portion is either recorded as submitted or refused with a
+ * reason — never reinterpreted.
  *
  * A `FREE` charge cannot be adjusted at all. There is no concession to record on
  * a session that was never priced, and the attempt is refused as

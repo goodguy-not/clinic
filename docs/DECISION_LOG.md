@@ -2579,3 +2579,59 @@ the other way in places; the shapes are now unambiguous.
 - **Revisit when:** a per-session commercial arrangement is explicitly approved
   as a product concept — at which point the question is what shape of RULE
   expresses it, not whether a percentage may be typed onto a settlement fact.
+
+## 2026-08-19 — A concession's therapist/clinic allocation, and where its floor lives
+
+**Status:** Accepted — Milestone 8, checkpoint C4
+
+A family concession may be borne entirely by the clinic, entirely by the
+therapist, or split (CLAUDE.md). The request carries the TOTAL and the
+THERAPIST'S SHARE OF IT; the server writes the clinic's as the exact residual.
+Omitting the portion, or stating it as zero, is the unchanged clinic-borne
+default. A positive portion requires a STANDING `session_settlement` row on the
+same charge and is bounded, cumulatively, by that row's
+`therapist_gross_toman` — the C3 snapshot, never a percentage re-resolved today.
+`charge_adjustment_clinic_borne_chk` is dropped; nothing is back-filled.
+
+**No `session_settlement_id` column is added to `charge_adjustment`.** At most
+one rating of a charge ever stands, so "which share does this portion bear
+against" already has exactly one answer, derived by the join.
+
+- **Alternatives:** storing the settlement id on the adjustment as explicit
+  provenance; enforcing the floor only in the service; a separate trigger with
+  its own lock.
+- **Reason:** a stored copy is a second answer that can disagree with the first,
+  and it would point at a row a correction withdraws —
+  `enforce_charge_adjustment_immutability` forbids re-pointing it, so the copy
+  would rot by design. The floor is a statement about a SUM, so no CHECK can
+  express it; it lives in `enforce_charge_adjustment_bounds` beside the
+  family-side floor, which already takes `session_charge FOR UPDATE` before
+  deciding anything. One lock covers both inequalities because every write that
+  can move either side — a concession, and every rating write, which locks the
+  charge first — takes that same row. A second trigger with a second lock would
+  have been a second lock order and therefore a deadlock.
+- **Trade-off:** the ledger reads a settlement table on the therapist-borne
+  path, which the clinic-borne path never does. The module dependency already
+  pointed that way (`LedgerModule` imports `SettlementModule`).
+- **Revisit when:** a concession is ever allowed to span more than one charge, or
+  a session can carry more than one standing rating. Either would break the
+  one-answer derivation and make stored provenance the right shape.
+
+**A rating bearing a standing therapist-borne allocation cannot be withdrawn OR
+corrected.** `RATING_HAS_THERAPIST_ALLOCATIONS`, frozen in C1 and unreachable
+until now, is refused by `SessionRatingService.voidRow` and by
+`session_settlement_enforce_allocation_guard`.
+
+- **Alternatives:** permitting a correction whose replacement gross still covers
+  the allocation; re-pointing the allocation onto the replacement.
+- **Reason:** re-pointing is impossible — the adjustment row is immutable — so a
+  permitted correction would leave the allocation measured against a percentage
+  the manager never saw. The approved sequence is three explicit reasoned acts:
+  withdraw the concession, correct the rating, re-grant the concession against
+  the share that now applies.
+- **Trade-off:** correcting a percentage on a session with a therapist-borne
+  concession takes three requests instead of one.
+- **Revisit when:** C6 introduces settlement periods. A correction inside a
+  closed period must already carry a delta forward; whether that mechanism
+  should also carry an allocation forward is a question that only becomes
+  answerable then.

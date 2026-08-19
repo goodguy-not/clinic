@@ -142,21 +142,22 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
     });
 
     /**
-     * THE RULE IS UNCHANGED; ONLY WHICH LAYER STATES IT HAS MOVED.
+     * NO SUBMITTED THERAPIST PORTION IS EVER SILENTLY DROPPED. This is the C1/C2
+     * regression, and it survives C4 unchanged in what it forbids while changing
+     * why the refusal happens.
      *
      * Through Milestone 5 the request had no therapist portion at all, so the
-     * schema refused one as `VALIDATION_FAILED`. Milestone 8 checkpoint C1 made
-     * the field submittable ahead of the runtime that honours it, and the
-     * contract said what must happen in between: "until then a request carrying
-     * a non-zero portion is refused by the server rather than silently written"
-     * (`ledger/charges.ts`). The refusal is now the service's, with the accepted
-     * `ADJUSTMENT_SPLIT_INVALID` code.
+     * schema refused one as `VALIDATION_FAILED`. C1 made the field submittable
+     * ahead of the runtime that honours it and C2 refused every non-zero portion
+     * outright. C4 honours a portion — but only where an authoritative applied
+     * share exists to bear it, and `seedPostedSession` seeds no share rule, so
+     * this session is UNRATED and the answer is still `ADJUSTMENT_SPLIT_INVALID`.
      *
      * What must NEVER hold is the state this test was written to prevent and
-     * which briefly existed: a 201 whose stored row says the clinic bore
+     * which briefly existed: a 200 whose stored row says the clinic bore
      * everything, when the manager submitted a shared concession.
      */
-    it('refuses a therapist portion it cannot yet honour, rather than dropping it', async () => {
+    it('refuses a therapist portion it cannot honour, rather than dropping it', async () => {
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${session.chargeId}/adjustments`)
         .set(asUser(session.managerToken))

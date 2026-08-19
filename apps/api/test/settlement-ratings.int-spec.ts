@@ -867,31 +867,21 @@ describe('session settlement ratings (real PostgreSQL)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // The temporary concession guard from the C2 revision
+  // What a concession does to the rating — and what it does not
   // -------------------------------------------------------------------------
 
-  describe('the therapist-borne concession guard', () => {
+  describe('the rating under a concession', () => {
     /**
-     * C3 CREATES THE RATING BUT NOT THE SPLIT RUNTIME. Allocating a concession
-     * between the therapist and the clinic — and the therapist-net floor that
-     * goes with it — is the next accepted checkpoint, so a non-zero portion is
-     * still refused outright even now that the session carries a rating to bear
-     * it against.
+     * THE C3 PROMISE, KEPT AFTER C4 MADE ALLOCATION REAL. A concession changes
+     * what the FAMILY owes and, when it is allocated, WHO BEARS it. Neither
+     * restates what the session was worth, so no column of the snapshot moves —
+     * and the immutability trigger means none could. The therapist's NET is the
+     * gross on this row less the active portions, derived by reading.
+     *
+     * The allocation runtime itself — the floor, the refusals, the audit — is
+     * proved in `settlement-concession-split.int-spec.ts`.
      */
-    it('still refuses a non-zero therapist portion on a rated session', async () => {
-      const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
-
-      const response = await request(harness.app.getHttpServer())
-        .post(`/session-charges/${fixture.chargeId}/adjustments`)
-        .set(asUser(fixture.managerToken))
-        .send({ amountToman: '50000', reason: 'تخفیف آزمایشی', therapistDiscountToman: '10000' });
-
-      expect(response.status).toBe(422);
-      expect(response.body.error.code).toBe('ADJUSTMENT_SPLIT_INVALID');
-      expect(await harness.prisma.chargeAdjustment.count()).toBe(0);
-    });
-
-    it('still accepts a clinic-borne concession and leaves the rating untouched', async () => {
+    it('accepts a clinic-borne concession and leaves the rating untouched', async () => {
       const fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
       const before = (await ratingRowsFor(harness, fixture.chargeId))[0];
 
