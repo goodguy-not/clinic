@@ -63,7 +63,8 @@ describe('M7 export UX boundary', () => {
     expect(action).toContain("'failed'");
     expect(action).toContain("fetch('/api/reports/export'");
     expect(action).not.toContain('new Blob');
-    expect(client).toContain('/reports/${kind}/export?');
+    expect(client).toContain('/reports/${kind}/export');
+    expect(client).toContain('/settlement/statement/export');
     expect(client).not.toMatch(/\.join\(['"]\\r?\\n/);
   });
 });

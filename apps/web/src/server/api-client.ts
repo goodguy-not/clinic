@@ -150,6 +150,28 @@ import {
   familyListResponseSchema,
   familyWriteResponseSchema,
   registrationDraftResponseSchema,
+  shareRuleListResponseSchema,
+  shareRuleResponseSchema,
+  sessionSettlementResponseSchema,
+  settlementStatementResponseSchema,
+  settlementPeriodListResponseSchema,
+  closeSettlementPeriodResponseSchema,
+  settlementPeriodDetailResponseSchema,
+  type ShareRuleListQuery,
+  type ShareRuleListResponse,
+  type ShareRuleResponse,
+  type CreateShareRuleRequest,
+  type VoidShareRuleRequest,
+  type RateSessionRequest,
+  type SessionSettlementResponse,
+  type SettlementStatementQuery,
+  type SettlementStatementResponse,
+  type SettlementPeriodListQuery,
+  type SettlementPeriodListResponse,
+  type CloseSettlementPeriodRequest,
+  type CloseSettlementPeriodResponse,
+  type SettlementPeriodDetailResponse,
+  type SettlementStatementExportQuery,
 } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 
@@ -204,7 +226,8 @@ export type ReportExportQuery =
   | PromiseReportExportQuery
   | TherapistActivityExportQuery
   | PaymentReportExportQuery
-  | FamilyAccountReportExportQuery;
+  | FamilyAccountReportExportQuery
+  | SettlementStatementExportQuery;
 
 const REQUEST_TIMEOUT_MS = 8000;
 const MAX_USER_AGENT_LENGTH = 256;
@@ -333,7 +356,8 @@ function reportSearch(query: object): URLSearchParams {
  * the response; it never parses, reconstructs, or enriches CSV rows.
  */
 async function exportReportCsv(
-  kind: 'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts',
+  kind:
+    'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts' | 'settlement',
   query: ReportExportQuery,
   context: CallerContext,
 ): Promise<ApiCsvResult> {
@@ -345,7 +369,7 @@ async function exportReportCsv(
   let response: Response;
   try {
     response = await fetch(
-      `${API_BASE_URL}/reports/${kind}/export?${reportSearch(query).toString()}`,
+      `${API_BASE_URL}${kind === 'settlement' ? '/settlement/statement/export' : `/reports/${kind}/export`}?${reportSearch(query).toString()}`,
       {
         method: 'GET',
         headers,
@@ -433,6 +457,99 @@ export const api = {
       `/reports/therapist-activity?${reportSearch(query).toString()}`,
       'GET',
       therapistActivityResponseSchema,
+      context,
+    ),
+
+  settlementStatement: (
+    query: SettlementStatementQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<SettlementStatementResponse>> =>
+    call(
+      `/settlement/statement?${reportSearch(query).toString()}`,
+      'GET',
+      settlementStatementResponseSchema,
+      context,
+    ),
+
+  listSettlementPeriods: (
+    query: SettlementPeriodListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<SettlementPeriodListResponse>> =>
+    call(
+      `/settlement/periods?${reportSearch(query).toString()}`,
+      'GET',
+      settlementPeriodListResponseSchema,
+      context,
+    ),
+
+  settlementPeriodDetail: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<SettlementPeriodDetailResponse>> =>
+    call(
+      `/settlement/periods/${encodeURIComponent(id)}/lines`,
+      'GET',
+      settlementPeriodDetailResponseSchema,
+      context,
+    ),
+
+  closeSettlementPeriod: (
+    body: CloseSettlementPeriodRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<CloseSettlementPeriodResponse>> =>
+    call('/settlement/periods', 'POST', closeSettlementPeriodResponseSchema, context, body),
+
+  listShareRules: (
+    query: ShareRuleListQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<ShareRuleListResponse>> =>
+    call(
+      `/settlement/share-rules?${reportSearch(query).toString()}`,
+      'GET',
+      shareRuleListResponseSchema,
+      context,
+    ),
+
+  createShareRule: (
+    body: CreateShareRuleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ShareRuleResponse>> =>
+    call('/settlement/share-rules', 'POST', shareRuleResponseSchema, context, body),
+
+  voidShareRule: (
+    id: string,
+    body: VoidShareRuleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ShareRuleResponse>> =>
+    call(
+      `/settlement/share-rules/${encodeURIComponent(id)}/void`,
+      'POST',
+      shareRuleResponseSchema,
+      context,
+      body,
+    ),
+
+  rateSession: (
+    chargeId: string,
+    body: RateSessionRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionSettlementResponse>> =>
+    call(
+      `/settlement/session-charges/${encodeURIComponent(chargeId)}/rating`,
+      'POST',
+      sessionSettlementResponseSchema,
+      context,
+      body,
+    ),
+
+  readSessionRating: (
+    chargeId: string,
+    context: CallerContext,
+  ): Promise<ApiResult<SessionSettlementResponse>> =>
+    call(
+      `/settlement/session-charges/${encodeURIComponent(chargeId)}/rating`,
+      'GET',
+      sessionSettlementResponseSchema,
       context,
     ),
 

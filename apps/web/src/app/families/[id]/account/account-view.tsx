@@ -55,6 +55,7 @@ export function FamilyAccountView({
   canAdjustCharge,
   canVoidCharge,
   canCreatePayment,
+  unratedSettlementChargeIds = [],
   recentPayments,
   clinicToday,
   clinicTodayJalali,
@@ -67,6 +68,7 @@ export function FamilyAccountView({
   canAdjustCharge: boolean;
   canVoidCharge: boolean;
   canCreatePayment: boolean;
+  unratedSettlementChargeIds?: readonly string[];
   recentPayments: Payment[];
   clinicToday: string;
   clinicTodayJalali: JalaliParts;
@@ -174,6 +176,7 @@ export function FamilyAccountView({
                 csrfToken={csrfToken}
                 canAdjustCharge={canAdjustCharge}
                 canVoidCharge={canVoidCharge}
+                canRateSettlement={unratedSettlementChargeIds.includes(view.charge.id)}
               />
             ))}
           </ol>
@@ -234,12 +237,14 @@ function ChargeCard({
   csrfToken,
   canAdjustCharge,
   canVoidCharge,
+  canRateSettlement,
 }: {
   familyId: string;
   view: FamilyAccountResponse['charges'][number];
   csrfToken: string;
   canAdjustCharge: boolean;
   canVoidCharge: boolean;
+  canRateSettlement: boolean;
 }) {
   const { charge, child, service, therapist } = view;
   const money = formatChargeMoney(charge);
@@ -330,17 +335,31 @@ function ChargeCard({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-bold tabular-nums">
-                        <bdi>{adjustmentMoney.clinicFunded}</bdi>
+                        <bdi>{adjustmentMoney.amount}</bdi>
                       </span>
                       {adjustmentVoided ? (
                         <Badge tone="danger">{COPY.familyAccountVoidedAdjustment}</Badge>
                       ) : (
-                        <Badge tone="success">{COPY.familyAccountClinicFunded}</Badge>
+                        <Badge tone="success">تخفیف فعال</Badge>
                       )}
                     </div>
                     <p>
                       {COPY.familyAccountAdjustmentReason}: {adjustment.reason}
                     </p>
+                    <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <dt className="text-slate-600">بخش درمانگر</dt>
+                        <dd className="font-bold tabular-nums">
+                          <bdi>{adjustmentMoney.therapistFunded}</bdi>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-600">بخش کلینیک</dt>
+                        <dd className="font-bold tabular-nums">
+                          <bdi>{adjustmentMoney.clinicFunded}</bdi>
+                        </dd>
+                      </div>
+                    </dl>
                     {adjustmentVoided ? (
                       <div className="mt-2 border-t border-red-200 pt-2 text-red-900">
                         <p className="font-semibold">
@@ -388,8 +407,9 @@ function ChargeCard({
             charge.priceMode === 'PAID' &&
             charge.effectiveAmountToman !== '0' ? (
               <CorrectionDetails title={COPY.familyAccountAdjustmentCreateTitle}>
-                <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">
-                  {COPY.familyAccountAdjustmentClinicOnly}
+                <p className="rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-950">
+                  پیش‌فرض، تأمین کامل تخفیف توسط کلینیک است. اگر درمانگر بخشی را می‌پذیرد، مبلغ همان
+                  بخش را صریح وارد کنید؛ بخش کلینیک را سرور ثبت و در نتیجهٔ نهایی برمی‌گرداند.
                 </p>
                 <form
                   method="post"
@@ -416,9 +436,46 @@ function ChargeCard({
                       />
                     )}
                   </Field>
+                  <Field
+                    id={`adjustment-therapist-${charge.id}`}
+                    label="بخش تخفیف درمانگر (تومان)"
+                    help="اختیاری؛ خالی یا صفر یعنی تمام تخفیف بر عهدهٔ کلینیک است. این مبلغ بدون ثبت سهم معتبر برای جلسه پذیرفته نمی‌شود."
+                  >
+                    {({ id, className, describedBy }) => (
+                      <input
+                        id={id}
+                        name="therapistDiscountToman"
+                        type="text"
+                        inputMode="numeric"
+                        defaultValue="0"
+                        aria-describedby={describedBy}
+                        className={className}
+                      />
+                    )}
+                  </Field>
                   <ReasonField id={`adjustment-reason-${charge.id}`} />
                   <div>
-                    <SubmitButton>{COPY.familyAccountAdjustmentCreateAction}</SubmitButton>
+                    <SubmitButton>ثبت تخصیص تخفیف</SubmitButton>
+                  </div>
+                </form>
+              </CorrectionDetails>
+            ) : null}
+            {canRateSettlement && !voided ? (
+              <CorrectionDetails title="ثبت صریح سهم تاریخی جلسه">
+                <p className="text-sm text-slate-700">
+                  درصد قابل تایپ نیست؛ سامانه قاعدهٔ سهم پوشش‌دهندهٔ تاریخ همین جلسه را اعمال
+                  می‌کند. این اقدام فقط برای جلسهٔ بدون ثبت سهم است و دلیل الزامی دارد.
+                </p>
+                <form
+                  method="post"
+                  action="/api/settlement/rate"
+                  className="mt-3 flex flex-col gap-3"
+                >
+                  <CorrectionHiddenFields familyId={familyId} csrfToken={csrfToken} />
+                  <input type="hidden" name="chargeId" value={charge.id} />
+                  <ReasonField id={`settlement-rate-reason-${charge.id}`} />
+                  <div>
+                    <SubmitButton>ثبت سهم با قاعدهٔ تاریخی</SubmitButton>
                   </div>
                 </form>
               </CorrectionDetails>

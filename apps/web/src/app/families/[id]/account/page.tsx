@@ -55,6 +55,20 @@ export default async function FamilyAccountPage({
     throw new Error(`Failed to load recent family payments: ${recentPaymentsResult.code}`);
   }
 
+  // The shared family-account shell stays content-free for receptionists: only
+  // a manager with settlement.rate asks the manager-only rating endpoint which
+  // known charges are genuinely unrated. No financial response is passed down.
+  const unratedSettlementChargeIds = user.permissions.includes('settlement.rate')
+    ? (
+        await Promise.all(
+          accountResult.data.charges.map(async ({ charge }) => {
+            const rating = await api.readSessionRating(charge.id, context);
+            return !rating.ok && rating.code === 'SESSION_NOT_RATED' ? charge.id : null;
+          }),
+        )
+      ).filter((id): id is string => id !== null)
+    : [];
+
   const rawError = typeof rawQuery['error'] === 'string' ? rawQuery['error'] : null;
   const rawSuccess = typeof rawQuery['success'] === 'string' ? rawQuery['success'] : '';
   const successes: Record<string, string> = {
@@ -62,6 +76,7 @@ export default async function FamilyAccountPage({
     'adjustment-created': COPY.familyAccountAdjustmentCreatedSuccess,
     'adjustment-voided': COPY.familyAccountAdjustmentVoidedSuccess,
     'payment-created': COPY.paymentCreatedSuccess,
+    'session-rated': 'سهم تاریخی جلسه با استفاده از قاعدهٔ همان تاریخ ثبت شد.',
   };
 
   return (
@@ -88,6 +103,7 @@ export default async function FamilyAccountPage({
           canAdjustCharge={user.permissions.includes('charge.adjust')}
           canVoidCharge={user.permissions.includes('charge.void')}
           canCreatePayment={user.permissions.includes('payment.create')}
+          unratedSettlementChargeIds={unratedSettlementChargeIds}
           recentPayments={recentPaymentsResult.data.payments}
           clinicToday={today}
           clinicTodayJalali={isoDateToJalali(today)!}

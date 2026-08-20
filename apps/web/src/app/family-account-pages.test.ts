@@ -223,11 +223,11 @@ describe('/families/[id]/account presentation', () => {
     expect(markup).toContain('۱٬۰۰۰٬۰۰۰ تومان');
   });
 
-  it('identifies active discounts as clinic-funded without implying a therapist share', () => {
-    expect(markup).toContain(COPY.familyAccountClinicFunded);
+  it('shows the backend-provided therapist and clinic portions of each concession', () => {
+    expect(markup).toContain('بخش درمانگر');
+    expect(markup).toContain('بخش کلینیک');
     expect(markup).toContain('همراهی خانواده');
     expect(markup).not.toContain('therapistDiscountToman');
-    expect(markup).not.toContain('سهم درمانگر');
   });
 
   it('distinguishes a fully adjusted paid charge from an originally free charge', () => {
@@ -384,7 +384,7 @@ describe('manager financial corrections', () => {
     expect(receptionist).not.toContain(COPY.familyAccountManagerCorrection);
   });
 
-  it('offers adjustment creation with amount and reason as its only business inputs', () => {
+  it('offers the optional therapist concession portion without accepting a clinic residual', () => {
     const markup = corrections(true, true);
     const start = markup.indexOf('action="/api/ledger/adjustments/create"');
     const end = markup.indexOf('</form>', start);
@@ -393,10 +393,11 @@ describe('manager financial corrections', () => {
     expect(start).toBeGreaterThan(-1);
     expect(form).toContain('name="amountToman"');
     expect(form).toContain('name="reason"');
+    expect(form).toContain('name="therapistDiscountToman"');
     expect(form.match(/<input[^>]*name="amountToman"[^>]*\/>/)?.[0]).toContain('required=""');
     expect(form).toMatch(/name="reason"[^>]*required=""/);
-    expect(form).not.toMatch(/therapist|share|split/i);
-    expect(markup).toContain(COPY.familyAccountAdjustmentClinicOnly);
+    expect(form).not.toContain('name="clinicDiscountToman"');
+    expect(markup).toContain('پیش‌فرض، تأمین کامل تخفیف توسط کلینیک است');
     expect(corrections(false, true)).not.toContain('/api/ledger/adjustments/create');
   });
 

@@ -46,6 +46,7 @@ describe('report CSV BFF', () => {
             'payment.read',
             'report.read_financial',
             'report.export',
+            'settlement.read',
           ],
         },
       },
@@ -95,6 +96,35 @@ describe('report CSV BFF', () => {
       data: { user: { permissions: ['appointment.read', 'promise.read'] } },
     });
     const response = await POST(request('promises', { from: '2026-08-01', to: '2026-08-18' }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.exportReportCsv).not.toHaveBeenCalled();
+  });
+
+  it('forwards the accepted settlement scope only with both required authorities', async () => {
+    const filters = {
+      therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+      from: '2026-08-01',
+      to: '2026-08-18',
+    };
+    const response = await POST(request('settlement', filters));
+
+    expect(response.status).toBe(200);
+    expect(mocks.exportReportCsv).toHaveBeenCalledWith('settlement', filters, expect.any(Object));
+  });
+
+  it('refuses settlement export when report.export exists without settlement.read', async () => {
+    mocks.session.mockResolvedValue({
+      ok: true,
+      data: { user: { permissions: ['report.export'] } },
+    });
+    const response = await POST(
+      request('settlement', {
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+        from: '2026-08-01',
+        to: '2026-08-18',
+      }),
+    );
 
     expect(response.status).toBe(403);
     expect(mocks.exportReportCsv).not.toHaveBeenCalled();

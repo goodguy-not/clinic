@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(55);
-    expect(stateChangingHandlers.length).toBe(54);
+    expect(handlers.length).toBe(60);
+    expect(stateChangingHandlers.length).toBe(59);
   });
 
   it('exposes no catch-all route', () => {
@@ -139,6 +139,13 @@ describe('route handler inventory', () => {
       // Presentation-only POST: turns Jalali selects into the frozen, privacy-safe
       // report URL vocabulary. It calls no domain write endpoint.
       '/api/reports/filter',
+      // M8 settlement: one presentation redirect and four named financial acts.
+      // Reads remain direct server-to-server calls from Server Components.
+      '/api/settlement/close',
+      '/api/settlement/rate',
+      '/api/settlement/share-rules/create',
+      '/api/settlement/share-rules/void',
+      '/api/settlement/view',
       '/api/staff/create',
       '/api/staff/password-reset',
       '/api/staff/revoke-sessions',

@@ -39,6 +39,9 @@ export async function AppHeader() {
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/reports', label: 'گزارش‌ها' });
   }
+  if (user.permissions.includes('settlement.read')) {
+    links.push({ href: '/settlements', label: 'تسویهٔ درمانگران' });
+  }
   if (user.permissions.includes('service.read')) {
     links.push({ href: '/services', label: COPY.servicesTitle });
   }

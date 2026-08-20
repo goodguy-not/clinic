@@ -85,6 +85,38 @@ describe('operational report reads', () => {
     }
   });
 
+  it('uses the accepted settlement export endpoint without rewriting its bytes', async () => {
+    const bytes = new TextEncoder().encode('\uFEFFنوع رکورد\r\nSESSION\r\nEXCLUDED_UNRATED\r\n');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init: RequestInit) => {
+        captured.push({ url, init, headers: new Headers(init.headers) });
+        return Promise.resolve(
+          new Response(bytes, {
+            headers: {
+              'content-type': 'text/csv; charset=utf-8',
+              'content-disposition': 'attachment; filename="settlement.csv"',
+            },
+          }),
+        );
+      }),
+    );
+
+    const result = await api.exportReportCsv(
+      'settlement',
+      {
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b01',
+        from: '2026-08-01',
+        to: '2026-08-18',
+      },
+      { sessionToken: 'verified-token' },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(new URL(captured[0]!.url).pathname).toBe('/settlement/statement/export');
+    if (result.ok) expect(new Uint8Array(await result.response.arrayBuffer())).toEqual(bytes);
+  });
+
   it('serializes only the frozen report vocabulary and strictly parses empty successes', async () => {
     mockFetch(200, {
       range: { from: '2026-08-01', to: '2026-08-18', dateBasis: 'SESSION_DATE' },

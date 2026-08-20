@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { FOCUS_RING } from '@/components/ui';
 
 export type ExportReportKind =
-  'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts';
+  'sessions' | 'promises' | 'therapist-activity' | 'payments' | 'family-accounts' | 'settlement';
 
 type ExportRequest = {
   kind: ExportReportKind;

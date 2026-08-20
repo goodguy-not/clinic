@@ -5,11 +5,13 @@ import {
   PROMISE_REPORT_EXPORT_PERMISSIONS,
   SESSION_REPORT_EXPORT_PERMISSIONS,
   THERAPIST_ACTIVITY_EXPORT_PERMISSIONS,
+  SETTLEMENT_EXPORT_PERMISSIONS,
   familyAccountReportExportQuerySchema,
   paymentReportExportQuerySchema,
   promiseReportExportQuerySchema,
   sessionReportExportQuerySchema,
   therapistActivityExportQuerySchema,
+  settlementStatementExportQuerySchema,
   type Permission,
 } from '@clinic/contracts';
 import { api, type ReportExportQuery } from '@/server/api-client';
@@ -29,6 +31,7 @@ const KINDS = [
   'therapist-activity',
   'payments',
   'family-accounts',
+  'settlement',
 ] as const;
 type Kind = (typeof KINDS)[number];
 
@@ -94,7 +97,9 @@ function validateFilters(kind: Kind, filters: Record<string, unknown>): ReportEx
           ? therapistActivityExportQuerySchema.safeParse(filters)
           : kind === 'payments'
             ? paymentReportExportQuerySchema.safeParse(filters)
-            : familyAccountReportExportQuerySchema.safeParse(filters);
+            : kind === 'family-accounts'
+              ? familyAccountReportExportQuerySchema.safeParse(filters)
+              : settlementStatementExportQuerySchema.safeParse(filters);
   if (!parsed.success) return null;
 
   return parsed.data;
@@ -109,5 +114,6 @@ function permissionsFor(kind: Kind): readonly Permission[] {
   if (kind === 'promises') return PROMISE_REPORT_EXPORT_PERMISSIONS;
   if (kind === 'therapist-activity') return THERAPIST_ACTIVITY_EXPORT_PERMISSIONS;
   if (kind === 'payments') return PAYMENT_REPORT_EXPORT_PERMISSIONS;
-  return FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS;
+  if (kind === 'family-accounts') return FAMILY_ACCOUNT_REPORT_EXPORT_PERMISSIONS;
+  return SETTLEMENT_EXPORT_PERMISSIONS;
 }
