@@ -451,6 +451,10 @@ function toLine(row: SettlementFactRow): SettlementStatementLine {
     serviceId: row.service_id,
     serviceName: row.service_name,
     durationMinutes: row.duration_minutes,
+    // The charge's own tariff price mode, carried through untouched. It is the
+    // ONLY thing that makes a `FREE` session distinguishable from a priced one
+    // discounted to nothing, both of which render as a row of zeroes.
+    priceMode: row.price_mode,
     lineType: 'PRIMARY',
     correctsSessionSettlementId: null,
     appliedShareBasisPoints: row.applied_share_basis_points,

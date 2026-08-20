@@ -288,6 +288,11 @@ export const ERROR_CODES = [
   // two months. Repeating the IDENTICAL request is not an overlap — it is
   // idempotent and answers `ALREADY_CLOSED`.
   'SETTLEMENT_PERIOD_OVERLAP',
+  // The closed period asked for does not exist. Named in its own right rather
+  // than folded into a generic miss, because a period IS an addressable entity
+  // once it has been closed — it has an id, it is listed, and its lines are read
+  // by that id.
+  'SETTLEMENT_PERIOD_NOT_FOUND',
   // A rating a closed period depends on cannot simply be withdrawn: the closed
   // figure would be left standing with nothing behind it, and a closed period is
   // immutable and never reopened. The fix is the atomic correction, which

@@ -166,6 +166,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   RATING_HAS_THERAPIST_ALLOCATIONS: 409,
   ADJUSTMENT_SPLIT_INVALID: 422,
   SETTLEMENT_PERIOD_OVERLAP: 409,
+  SETTLEMENT_PERIOD_NOT_FOUND: 404,
   // 409: the rating is in a state — settled inside a closed period — that this
   // act cannot be performed against. The fix is a different request, not a
   // corrected value.
@@ -282,6 +283,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
     'The therapist portion of this concession cannot be applied to this session',
   SETTLEMENT_PERIOD_OVERLAP:
     'The range overlaps a settlement period already closed for this therapist',
+  SETTLEMENT_PERIOD_NOT_FOUND: 'Settlement period not found',
   RATING_REPLACEMENT_REQUIRED:
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',

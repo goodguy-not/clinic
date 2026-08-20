@@ -3,10 +3,14 @@ import { Prisma } from '@prisma/client';
 import type {
   CloseSettlementPeriodRequest,
   CloseSettlementPeriodResult,
+  RatedVia,
   SettlementLineType,
   SettlementPeriod,
+  SettlementPeriodDetailResponse,
+  SettlementPeriodLine,
   SettlementPeriodListQuery,
   SettlementPeriodListResponse,
+  TariffPriceMode,
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
 import { actorContext } from '../../catalog/catalog-support';
@@ -170,6 +174,44 @@ type PeriodRow = {
   closed_by_user_id: string;
 };
 
+/**
+ * One `settlement_line` as stored, plus the two facts a reader needs that the
+ * row itself does not carry: the service it was for, and whether its clinic day
+ * falls outside the period that settled it.
+ *
+ * EVERY AMOUNT IS SELECTED, NOT DERIVED. `therapist_net_toman` and
+ * `clinic_net_toman` are read from the columns C6 wrote; the subtraction that
+ * produced them is not repeated here, and `therapist_share_rule` is not joined,
+ * for the reason `settlement-facts.ts` gives at length — a second derivation is
+ * a second answer.
+ */
+type PeriodLineRow = {
+  id: string;
+  settlement_period_id: string;
+  line_type: SettlementLineType;
+  corrects_settlement_line_id: string | null;
+  session_charge_id: string;
+  session_settlement_id: string;
+  appointment_participant_id: string;
+  therapist_id: string;
+  service_date: string;
+  carried_in: boolean;
+  service_id: string;
+  service_name: string;
+  duration_minutes: number;
+  price_mode: TariffPriceMode;
+  applied_share_basis_points: number;
+  rated_via: RatedVia;
+  base_amount_toman: bigint;
+  therapist_gross_toman: bigint;
+  therapist_discount_toman: bigint;
+  therapist_net_toman: bigint;
+  clinic_gross_toman: bigint;
+  clinic_discount_toman: bigint;
+  clinic_net_toman: bigint;
+  created_at: Date;
+};
+
 const PERIOD_COLUMNS = Prisma.sql`
   id, therapist_id, period_start::text AS period_start, period_end::text AS period_end,
   settled_session_count, carried_in_correction_count, excluded_unrated_session_count,
@@ -255,6 +297,82 @@ export class SettlementCloseService {
     `;
 
     return { therapist, periods: rows.map(toSettlementPeriod) };
+  }
+
+  /**
+   * ONE CLOSED PERIOD AND THE IMMUTABLE LINES UNDER IT.
+   *
+   * A PURE READ. It opens no write, records no audit entry and touches no
+   * settlement state: reading what a manager already closed is not an act on it,
+   * and a read that wrote would put a row in the audit log every time somebody
+   * scrolled a screen. Nothing in this method inserts, updates or deletes, and
+   * the period and its lines are equally beyond reach of it — a closed period is
+   * never reopened and a closed line is never voided, edited or deleted, so
+   * there is no state here that a read could even be tempted to repair.
+   *
+   * THE FIGURES ARE THE ONES C6 MATERIALISED. `readSettlementFacts` — which
+   * derives what a session is worth NOW — is deliberately not called: this
+   * answers what the period RECORDED, and the two are the same only until the
+   * next concession or re-rating, at which point the live derivation would show
+   * a detail that no longer added up to the total above it.
+   *
+   * ONE TRANSACTION AT `RepeatableRead`, matching the statement read, so the
+   * period header and its lines are read from one snapshot. A concurrent close
+   * of a LATER period cannot alter either — it writes its own rows — but reading
+   * the pair atomically is what makes "these lines sum to this period" a claim
+   * about the response rather than about timing.
+   */
+  async detail(periodId: string): Promise<SettlementPeriodDetailResponse> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const periods = await tx.$queryRaw<PeriodRow[]>`
+          SELECT ${PERIOD_COLUMNS} FROM settlement_period p WHERE p.id = ${periodId}::uuid
+        `;
+        const period = periods[0];
+        if (period === undefined) throw new AppError('SETTLEMENT_PERIOD_NOT_FOUND');
+
+        const lines = await tx.$queryRaw<PeriodLineRow[]>`
+          SELECT
+            l.id,
+            l.settlement_period_id,
+            l.line_type::text AS line_type,
+            l.corrects_settlement_line_id,
+            l.session_charge_id,
+            l.session_settlement_id,
+            l.appointment_participant_id,
+            l.therapist_id,
+            l.service_date::text AS service_date,
+            (l.service_date < p.period_start OR l.service_date > p.period_end) AS carried_in,
+            c.service_id,
+            s.name AS service_name,
+            c.duration_minutes,
+            c.price_mode::text AS price_mode,
+            l.applied_share_basis_points,
+            l.rated_via::text AS rated_via,
+            l.base_amount_toman,
+            l.therapist_gross_toman,
+            l.therapist_discount_toman,
+            l.therapist_net_toman,
+            l.clinic_gross_toman,
+            l.clinic_discount_toman,
+            l.clinic_net_toman,
+            l.created_at
+          FROM settlement_line l
+          JOIN settlement_period p ON p.id = l.settlement_period_id
+          JOIN session_charge c ON c.id = l.session_charge_id
+          JOIN service s ON s.id = c.service_id
+          WHERE l.settlement_period_id = ${periodId}::uuid
+          ORDER BY l.line_type ASC, l.service_date ASC, l.session_charge_id ASC
+        `;
+
+        return {
+          therapist: await this.readTherapist(period.therapist_id, tx),
+          period: toSettlementPeriod(period),
+          lines: lines.map(toPeriodLine),
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   /**
@@ -635,8 +753,11 @@ export class SettlementCloseService {
     });
   }
 
-  private async readTherapist(therapistId: string): Promise<{ id: string; fullName: string }> {
-    const rows = await this.prisma.$queryRaw<{ id: string; full_name: string }[]>`
+  private async readTherapist(
+    therapistId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<{ id: string; fullName: string }> {
+    const rows = await client.$queryRaw<{ id: string; full_name: string }[]>`
       SELECT id, full_name FROM therapist WHERE id = ${therapistId}::uuid
     `;
 
@@ -668,5 +789,42 @@ export function toSettlementPeriod(row: PeriodRow): SettlementPeriod {
     settledToman: row.settled_toman.toString(),
     closedAt: row.closed_at.toISOString(),
     closedByUserId: row.closed_by_user_id,
+  };
+}
+
+/**
+ * The stored row, as the contract states it.
+ *
+ * `service_date` and `price_mode` arrive as `::text` and the amounts as
+ * `bigint`, both for the reasons `settlement-facts.ts` sets out: a `DATE`
+ * through a local timezone can move the clinic day by one, and toman is integer
+ * money that JSON cannot carry as a number.
+ */
+function toPeriodLine(row: PeriodLineRow): SettlementPeriodLine {
+  return {
+    id: row.id,
+    settlementPeriodId: row.settlement_period_id,
+    lineType: row.line_type,
+    correctsSettlementLineId: row.corrects_settlement_line_id,
+    sessionChargeId: row.session_charge_id,
+    sessionSettlementId: row.session_settlement_id,
+    appointmentParticipantId: row.appointment_participant_id,
+    therapistId: row.therapist_id,
+    serviceDate: row.service_date,
+    carriedIn: row.carried_in,
+    serviceId: row.service_id,
+    serviceName: row.service_name,
+    durationMinutes: row.duration_minutes,
+    priceMode: row.price_mode,
+    appliedShareBasisPoints: row.applied_share_basis_points,
+    ratedVia: row.rated_via,
+    baseAmountToman: row.base_amount_toman.toString(),
+    therapistGrossToman: row.therapist_gross_toman.toString(),
+    therapistDiscountToman: row.therapist_discount_toman.toString(),
+    therapistNetToman: row.therapist_net_toman.toString(),
+    clinicGrossToman: row.clinic_gross_toman.toString(),
+    clinicDiscountToman: row.clinic_discount_toman.toString(),
+    clinicNetToman: row.clinic_net_toman.toString(),
+    createdAt: row.created_at.toISOString(),
   };
 }

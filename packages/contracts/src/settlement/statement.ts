@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isoDateSchema } from '../dates';
 import { signedTomanAmountSchema, tomanAmountSchema } from '../money';
 import { reportRangeSchema, reportTherapistSummarySchema } from '../reports/common';
+import { tariffPriceModeSchema } from '../catalog/tariffs';
 import { ratedViaSchema, settlementLineTypeSchema, shareBasisPointsSchema } from './common';
 
 /**
@@ -162,6 +163,27 @@ export const settlementStatementLineSchema = z.strictObject({
   serviceId: z.uuid(),
   serviceName: z.string(),
   durationMinutes: z.number().int().positive(),
+  /**
+   * WHY THE SESSION IS WORTH WHAT IT IS WORTH, WHERE THE MONEY CANNOT SAY.
+   *
+   * `FREE` means the session was charged under a `FREE` tariff and is therefore
+   * WORTH ZERO BY RULE — a rated session, complimentary on purpose, and part of
+   * `freeSessionCount`. `PAID` means it was priced, whatever the amounts then
+   * came to.
+   *
+   * IT IS HERE BECAUSE ZERO IS NOT EVIDENCE. A reader looking only at the
+   * amounts cannot tell a complimentary session from a priced one discounted to
+   * nothing, from one whose charge was later withdrawn — three different facts
+   * with three different fixes that all render as the same row of noughts. A
+   * `PAID` session discounted to zero IS NOT FREE and must never be shown as
+   * such. Deciding this on the client by testing an amount against zero would be
+   * a second, wrong, source of truth; this field is the first and only one.
+   *
+   * IT SAYS NOTHING ABOUT UNRATED SESSIONS, which have no line here at all —
+   * absence of a rating is never a zero line (rule 3 in `common.ts`) and is
+   * reported as `unratedSessionCount` instead.
+   */
+  priceMode: tariffPriceModeSchema,
   lineType: settlementLineTypeSchema,
   correctsSessionSettlementId: z.uuid().nullable(),
   appliedShareBasisPoints: shareBasisPointsSchema,

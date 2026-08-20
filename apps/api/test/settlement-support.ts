@@ -546,6 +546,22 @@ export function listPeriodsOverHttp(
 }
 
 /**
+ * The materialised lines of ONE closed period, as a manager reads them back.
+ *
+ * The C7 unblock read: the detail BEHIND the aggregates `listPeriodsOverHttp`
+ * returns, over the same `settlement.read` authority.
+ */
+export function periodDetailOverHttp(
+  harness: Harness,
+  token: string,
+  periodId: string,
+): request.Test {
+  return request(harness.app.getHttpServer())
+    .get(`/settlement/periods/${periodId}/lines`)
+    .set(asUser(token));
+}
+
+/**
  * Every materialised settlement line of one charge, oldest first.
  *
  * Read straight from the table, because "exactly one PRIMARY exists" is a claim

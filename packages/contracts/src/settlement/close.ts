@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { isoDateSchema } from '../dates';
 import { signedTomanAmountSchema, tomanAmountSchema } from '../money';
 import { reportTherapistSummarySchema } from '../reports/common';
+import { tariffPriceModeSchema } from '../catalog/tariffs';
+import { ratedViaSchema, settlementLineTypeSchema, shareBasisPointsSchema } from './common';
 
 /**
  * CLOSING A SETTLEMENT PERIOD: drawing a line under one therapist's earnings
@@ -194,3 +196,89 @@ export const settlementPeriodListResponseSchema = z.strictObject({
 });
 
 export type SettlementPeriodListResponse = z.infer<typeof settlementPeriodListResponseSchema>;
+
+/**
+ * ONE MATERIALISED SETTLEMENT LINE OF A CLOSED PERIOD, READ BACK AS IT WAS
+ * WRITTEN.
+ *
+ * WHY A SECOND READ EXISTS AT ALL. `settlementPeriodSchema` states what a period
+ * came to; it does not state what it was made of, and a manager asked to stand
+ * behind a figure has to be able to see the sessions under it. This is that
+ * list, and it is A READ OF STORED ROWS AND NOTHING ELSE: every amount below is
+ * the number `settlement_line` already holds, selected, not recomputed. No share
+ * rule is consulted, no concession is re-totalled and no current figure is
+ * derived — which is the whole point, because a detail view that recomputed
+ * would eventually disagree with the period it claims to explain.
+ *
+ * `lineType` IS THE FACT, NOT AN INFERENCE FROM THE SIGN. A `PRIMARY` line is
+ * what a session was first settled at; a `CORRECTION` line is a later signed
+ * MOVEMENT on a session an EARLIER period already settled, and `baseAmountToman`
+ * and every other amount on it MAY BE NEGATIVE for exactly that reason. This is
+ * why the amounts here are signed where the statement's are not: the statement
+ * shows what a session is worth, and this shows what a period moved.
+ *
+ * `correctsSettlementLineId` IS THE TRACE BACK. It is null on every `PRIMARY`
+ * and names the earlier line on every `CORRECTION`, so a reader can follow a
+ * signed delta to the historical fact it reconciles rather than guessing from
+ * the charge. `sessionChargeId` is the other half of that: every line of one
+ * session shares it, across every period the session ever appeared in.
+ *
+ * `carriedIn` DISTINGUISHES HISTORY FROM THE PERIOD'S OWN WORK. It is true when
+ * the line's `serviceDate` falls OUTSIDE the period's own range — a session done
+ * earlier that this close is the first to settle, or a correction to one — and
+ * false for work done inside it. A closed line keeps its ORIGINAL clinic day and
+ * is never restated as work done in the period that settled it, so without this
+ * flag a reader would have to compare dates by hand to tell a September session
+ * settled in October apart from October's own.
+ *
+ * `priceMode` IS PRESENT FOR THE SAME REASON IT IS ON THE STATEMENT: a `FREE`
+ * session materialises a line worth zero, and zero is not evidence of anything
+ * on its own.
+ */
+export const settlementPeriodLineSchema = z.strictObject({
+  id: z.uuid(),
+  settlementPeriodId: z.uuid(),
+  lineType: settlementLineTypeSchema,
+  correctsSettlementLineId: z.uuid().nullable(),
+  sessionChargeId: z.uuid(),
+  sessionSettlementId: z.uuid(),
+  appointmentParticipantId: z.uuid(),
+  therapistId: z.uuid(),
+  serviceDate: isoDateSchema,
+  carriedIn: z.boolean(),
+  serviceId: z.uuid(),
+  serviceName: z.string(),
+  durationMinutes: z.number().int().positive(),
+  priceMode: tariffPriceModeSchema,
+  appliedShareBasisPoints: shareBasisPointsSchema,
+  ratedVia: ratedViaSchema,
+  baseAmountToman: signedTomanAmountSchema,
+  therapistGrossToman: signedTomanAmountSchema,
+  therapistDiscountToman: signedTomanAmountSchema,
+  therapistNetToman: signedTomanAmountSchema,
+  clinicGrossToman: signedTomanAmountSchema,
+  clinicDiscountToman: signedTomanAmountSchema,
+  clinicNetToman: signedTomanAmountSchema,
+  createdAt: z.iso.datetime(),
+});
+
+export type SettlementPeriodLine = z.infer<typeof settlementPeriodLineSchema>;
+
+/**
+ * One closed period and every line under it.
+ *
+ * THE PERIOD IS REPEATED HERE rather than left to the caller to have fetched,
+ * because the aggregate and the detail have to be read as one consistent pair:
+ * a totals row from one request and lines from another is how a screen shows a
+ * sum that does not add up.
+ *
+ * NOT PAGED, for the reason the period list is not: a month of one therapist's
+ * sessions is tens of rows.
+ */
+export const settlementPeriodDetailResponseSchema = z.strictObject({
+  therapist: reportTherapistSummarySchema,
+  period: settlementPeriodSchema,
+  lines: z.array(settlementPeriodLineSchema),
+});
+
+export type SettlementPeriodDetailResponse = z.infer<typeof settlementPeriodDetailResponseSchema>;

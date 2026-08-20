@@ -1,9 +1,10 @@
-import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
   closeSettlementPeriodRequestSchema,
   settlementPeriodListQuerySchema,
   type CloseSettlementPeriodRequest,
   type CloseSettlementPeriodResponse,
+  type SettlementPeriodDetailResponse,
   type SettlementPeriodListQuery,
   type SettlementPeriodListResponse,
 } from '@clinic/contracts';
@@ -108,5 +109,26 @@ export class SettlementPeriodsController {
     @Query(new ZodBodyPipe(settlementPeriodListQuerySchema)) query: SettlementPeriodListQuery,
   ): Promise<SettlementPeriodListResponse> {
     return this.periods.list(query);
+  }
+
+  /**
+   * The materialised lines of ONE closed period.
+   *
+   * `settlement.read`, the same authority the list and the statement are read
+   * under, and manager-only for the same reason: this is the detail BEHIND those
+   * aggregates and shows nothing a reader of them could not already total. There
+   * is deliberately no therapist-facing variant and no narrowed partial view — a
+   * caller without the permission is refused the whole response rather than
+   * served a redacted one, which is what stops a reception screen from ever
+   * displaying part of somebody's earnings.
+   *
+   * A `GET` THAT ONLY READS. It opens no write and records no audit entry;
+   * looking at a closed period is not an act performed on it, and a closed period
+   * is immutable in any case — there is no reopen route here or anywhere.
+   */
+  @Get(':id/lines')
+  @RequirePermissions('settlement.read')
+  async detail(@Param('id', ParseUUIDPipe) id: string): Promise<SettlementPeriodDetailResponse> {
+    return this.periods.detail(id);
   }
 }

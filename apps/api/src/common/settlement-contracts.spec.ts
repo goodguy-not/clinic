@@ -10,6 +10,8 @@ import {
   SHARE_BASIS_POINTS_MAX,
   SHARE_ROUNDING,
   sessionSettlementSchema,
+  settlementPeriodDetailResponseSchema,
+  settlementPeriodLineSchema,
   settlementPeriodSchema,
   settlementStatementExceptionsSchema,
   settlementStatementLineSchema,
@@ -440,6 +442,7 @@ describe('the settlement statement', () => {
     serviceId: THIRD_UUID,
     serviceName: 'کاردرمانی',
     durationMinutes: 45,
+    priceMode: 'PAID' as const,
     lineType: 'PRIMARY' as const,
     correctsSessionSettlementId: null,
     appliedShareBasisPoints: 4250,
@@ -612,6 +615,165 @@ describe('the settlement statement', () => {
         settledToman: '106250',
       }).success,
     ).toBe(true);
+  });
+
+  it('states on the row itself that a zero-valued session was FREE', () => {
+    // The C7 unblock. A statement row worth nothing can be a complimentary
+    // session, a session discounted to nothing, or a session whose charge was
+    // withdrawn, and all three render as the same noughts. `priceMode` is the
+    // fact that separates the first from the others, and it is REQUIRED so that
+    // a reader is never left to infer it from an amount.
+    const { priceMode: _omitted, ...without } = line;
+    expect(settlementStatementLineSchema.safeParse(without).success).toBe(false);
+
+    const free = {
+      ...line,
+      priceMode: 'FREE' as const,
+      baseAmountToman: '0',
+      therapistGrossToman: '0',
+      therapistDiscountToman: '0',
+      therapistNetToman: '0',
+      clinicGrossToman: '0',
+      clinicDiscountToman: '0',
+      clinicNetToman: '0',
+    };
+    expect(settlementStatementLineSchema.safeParse(free).success).toBe(true);
+
+    // DISCOUNTED TO ZERO IS NOT FREE, and the contract lets the two be told
+    // apart while their money is identical: the amounts below are the same
+    // noughts, and the price mode is not.
+    const discountedToNothing = { ...free, priceMode: 'PAID' as const };
+    expect(settlementStatementLineSchema.safeParse(discountedToNothing).success).toBe(true);
+    expect(free.priceMode).not.toBe(discountedToNothing.priceMode);
+
+    // And it is a closed vocabulary, so there is no third thing a client could
+    // be handed and have to guess at.
+    expect(
+      settlementStatementLineSchema.safeParse({ ...line, priceMode: 'COMPLIMENTARY' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('the lines of a closed period', () => {
+  const periodLine = {
+    id: UUID,
+    settlementPeriodId: OTHER_UUID,
+    lineType: 'PRIMARY' as const,
+    correctsSettlementLineId: null,
+    sessionChargeId: THIRD_UUID,
+    sessionSettlementId: UUID,
+    appointmentParticipantId: OTHER_UUID,
+    therapistId: THIRD_UUID,
+    serviceDate: '2026-08-15',
+    carriedIn: false,
+    serviceId: UUID,
+    serviceName: 'کاردرمانی',
+    durationMinutes: 45,
+    priceMode: 'PAID' as const,
+    appliedShareBasisPoints: 4250,
+    ratedVia: 'AUTOMATIC' as const,
+    baseAmountToman: '250000',
+    therapistGrossToman: '106250',
+    therapistDiscountToman: '0',
+    therapistNetToman: '106250',
+    clinicGrossToman: '143750',
+    clinicDiscountToman: '0',
+    clinicNetToman: '143750',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  };
+
+  it('says which kind of fact a line is rather than leaving it to the sign', () => {
+    expect(settlementPeriodLineSchema.safeParse(periodLine).success).toBe(true);
+
+    const { lineType: _omitted, ...without } = periodLine;
+    expect(settlementPeriodLineSchema.safeParse(without).success).toBe(false);
+
+    expect(
+      settlementPeriodLineSchema.safeParse({ ...periodLine, lineType: 'ADJUSTMENT' }).success,
+    ).toBe(false);
+  });
+
+  it('carries every amount signed, because a correction moves money backwards', () => {
+    // A concession granted after the period closed takes the therapist share
+    // DOWN, and the correction that carries it is negative in every column it
+    // touches. A schema that refused a negative here would make the honest
+    // record unrepresentable.
+    expect(
+      settlementPeriodLineSchema.safeParse({
+        ...periodLine,
+        lineType: 'CORRECTION' as const,
+        correctsSettlementLineId: OTHER_UUID,
+        baseAmountToman: '0',
+        therapistGrossToman: '0',
+        therapistDiscountToman: '20000',
+        therapistNetToman: '-20000',
+        clinicGrossToman: '0',
+        clinicDiscountToman: '40000',
+        clinicNetToman: '-40000',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('traces a correction back to the historical line it reconciles', () => {
+    // Nullable rather than optional: a PRIMARY states that it corrects nothing,
+    // and the field is never simply absent.
+    const { correctsSettlementLineId: _omitted, ...without } = periodLine;
+    expect(settlementPeriodLineSchema.safeParse(without).success).toBe(false);
+
+    expect(
+      settlementPeriodLineSchema.safeParse({
+        ...periodLine,
+        lineType: 'CORRECTION' as const,
+        correctsSettlementLineId: 'the one before',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('marks a historical carry-in as such rather than as this period work', () => {
+    // A carry-in keeps its ORIGINAL clinic day, which is outside the period that
+    // settled it. The flag states that in the response so no reader has to
+    // compare the date against the range by hand.
+    const { carriedIn: _omitted, ...without } = periodLine;
+    expect(settlementPeriodLineSchema.safeParse(without).success).toBe(false);
+
+    expect(settlementPeriodLineSchema.safeParse({ ...periodLine, carriedIn: true }).success).toBe(
+      true,
+    );
+  });
+
+  it('answers with the period and its lines together', () => {
+    const therapist = { id: UUID, fullName: 'درمانگر نمونه' };
+    const period = {
+      id: OTHER_UUID,
+      therapistId: UUID,
+      from: '2026-08-01',
+      to: '2026-08-31',
+      settledSessionCount: 1,
+      carriedInCorrectionCount: 0,
+      excludedUnratedSessionCount: 0,
+      therapistGrossToman: '106250',
+      therapistDiscountToman: '0',
+      carriedInCorrectionToman: '0',
+      settledToman: '106250',
+      closedAt: '2026-09-01T08:00:00.000Z',
+      closedByUserId: THIRD_UUID,
+    };
+
+    expect(
+      settlementPeriodDetailResponseSchema.safeParse({
+        therapist,
+        period,
+        lines: [periodLine],
+      }).success,
+    ).toBe(true);
+
+    // NO PAYOUT VOCABULARY IN ANY FIELD NAME, the same discipline the period
+    // itself is held to: nothing here says anybody was paid. (`PAID` is a
+    // tariff price mode and is a VALUE, not a field, which is why the check is
+    // over the keys.)
+    expect(Object.keys(settlementPeriodLineSchema.shape).join(' ')).not.toMatch(
+      /payout|payable|paid/i,
+    );
   });
 });
 

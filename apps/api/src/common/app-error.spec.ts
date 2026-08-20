@@ -60,7 +60,7 @@ describe('error vocabulary', () => {
     expect(ERROR_CODES).toContain('ADJUSTMENT_SPLIT_INVALID');
   });
 
-  it('carries exactly the approved settlement codes, plus the one C2 addressability needs', () => {
+  it('carries exactly the approved settlement codes, plus what addressability needs', () => {
     // The same exact-list discipline the ledger gets: a code the approved plan
     // does not contain is a rule invented outside it, and CLAUDE.md forbids
     // inferring a settlement rule.
@@ -74,6 +74,12 @@ describe('error vocabulary', () => {
     // mistyped id with it would report the frozen missing-rule condition for a
     // request that named nothing. Every other addressable record in this
     // package carries its own `*_NOT_FOUND` (DECISION_LOG, 2026-08-19).
+    //
+    // `SETTLEMENT_PERIOD_NOT_FOUND` IS THE SECOND, AND THE SAME RULE PRODUCED
+    // IT. A closed period became addressable by id the moment its materialised
+    // lines could be read back one period at a time; an unknown id needed an
+    // answer, and it could not be `SETTLEMENT_PERIOD_OVERLAP`, which is 409 and
+    // is about a range rather than an identity.
     const settlementCodes = ERROR_CODES.filter((code) =>
       /^(?:SHARE_RULE_|SESSION_(?:ALREADY_RATED|NOT_RATED)|RATING_|SETTLEMENT_)/.test(code),
     );
@@ -90,6 +96,7 @@ describe('error vocabulary', () => {
         'RATING_ALREADY_VOIDED',
         'RATING_HAS_THERAPIST_ALLOCATIONS',
         'SETTLEMENT_PERIOD_OVERLAP',
+        'SETTLEMENT_PERIOD_NOT_FOUND',
         'RATING_REPLACEMENT_REQUIRED',
         'RATING_SCOPE_MISMATCH',
       ].sort(),
