@@ -44,7 +44,7 @@ Native app, parent portal, direct online booking/payment, automated SMS/waiting 
 
 Receptionist enters: family/child, appointment, actual outcome, received payment, payment promise, notes, and correction reason.
 
-System derives: end time, tariff suggestion, session charge, completed-session count, valid charges, payments, credit/balance, overdue promises, and later therapist share.
+System derives: end time, tariff suggestion, session charge, completed-session count, valid charges, payments, credit/balance, overdue promises, and the therapist share applied to each completed session.
 
 A manually typed balance is never the source of truth.
 
@@ -52,7 +52,7 @@ A manually typed balance is never the source of truth.
 
 ### Manager
 
-Full operational access; user/access management; configuration; reports; sensitive financial correction/void; audit review; later settlement configuration.
+Full operational access; user/access management; configuration; reports; sensitive financial correction/void; audit review; settlement configuration, per-session share rating, and period close (manager-only).
 
 ### Receptionist
 
@@ -80,7 +80,7 @@ Minimum child data: family, name, birth date, file number, optional approved dem
 
 ### Therapist, service, room, availability
 
-Therapist: name, specialty, active status, supported services, availability; later effective-dated share rule.
+Therapist: name, specialty, active status, supported services, availability, and an effective-dated share rule.
 
 Service: name, public description, allowed durations, active/public status.
 
@@ -178,7 +178,11 @@ Rules:
 
 Support session discount, family-specific price, free session, debt waiver, incorrect-amount correction, and controlled void. Final values are not silently overwritten; actor, time, reason, and before/after effect remain inspectable.
 
-Therapist settlement is later. It may support effective-dated percentages such as 60/40, 65/35, and selected 100% manager sessions. Before implementation, the clinic must decide whether share is based on completed-session value, amount owed after discount, or collected money, and whether discounts reduce share.
+Therapist settlement is **implemented (Milestone 8)** and its basis is frozen: share is based on **completed-session value, independent of whether or when the family pays**. Percentages are effective-dated per therapist, and the percentage applied to a session is stored as an immutable historical snapshot that later rule changes never restate.
+
+A session discount may be borne entirely by the clinic, entirely by the therapist, or split between them; the therapist and clinic portions must sum exactly to the family discount. Therapist net is never negative; clinic net may be negative and must remain visible as an explicit subsidy.
+
+See CLAUDE.md ("Non-negotiable rules") and DECISION_LOG 2026-08-19/2026-08-20 for the accepted settlement model. Any settlement rule not recorded there remains unresolved and must not be inferred.
 
 ## 10. Dashboard and reports
 
@@ -263,8 +267,8 @@ Resolve before the related milestone:
 3. receptionist same-day correction authority;
 4. family-level ledger vs explicit allocation;
 5. prepaid family credit policy;
-6. therapist settlement basis and discount effect;
-7. settlement period;
+6. ~~therapist settlement basis and discount effect~~ — **resolved (Milestone 8)**: completed-session value, independent of family payment; discounts are allocated explicitly between therapist and clinic (section 9);
+7. ~~settlement period~~ — **resolved (Milestone 8)**: a period is an explicit inclusive range of clinic days chosen by the manager at close time, not a fixed calendar cycle. Ranges may not overlap, gaps are permitted, and a closed period is immutable;
 8. exact services, durations, rooms, hours, schedules, tariffs, special prices;
 9. initial statement/export requirement;
 10. content/testimonial approver;
@@ -281,7 +285,7 @@ Resolve before the related milestone:
 5. **Ledger:** price snapshot, completed-session charge, idempotency, family account, correction/void.
 6. **Payments:** partial payment, credit, approved allocation design, void, promises/overdue.
 7. **Dashboard/reports.**
-8. **Therapist settlement:** only after policy approval.
+8. **Therapist settlement:** complete. Share rules, per-session applied-share snapshots, concession allocation, statement, period close, closed-period detail, and audited CSV export.
 9. **Public site:** content, SEO fundamentals, request form/inbox/conversion.
 10. **Hardening/pilot:** acceptance, permission review, backup/restore, synthetic simulation, reconciliation.
 

@@ -345,6 +345,10 @@ describe('the settlement statement CSV export (checkpoint C8)', () => {
         // It is RATED, which is what distinguishes it from the unrated session
         // below: complimentary work is work.
         expect(cellsOf(header, rows, 'نحوهٔ ثبت سهم')[index]).toBe('AUTOMATIC');
+        // And it is FREE BY PROVENANCE, which is what distinguishes it from a
+        // priced session discounted to nothing — the other row of noughts.
+        // `ratedVia` cannot tell those two apart; only the price mode can.
+        expect(cellsOf(header, rows, 'نوع قیمت جلسه')[index]).toBe('FREE');
 
         // And it is NOT counted as something the file left out: the two
         // exception rows are the two EXCLUSIONS, and a free session is present.

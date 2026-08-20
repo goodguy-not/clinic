@@ -382,16 +382,20 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the response is financial in its entirety. No
       //                  therapist-facing route, ever.
       //
-      // periods:         the TWO closed-period routes (Milestone 8, checkpoint
-      //                  C6) — close one therapist's explicit inclusive range
-      //                  under `settlement.close`, and list the closed periods
-      //                  under `settlement.read`. TWO AND NEVER MORE: there is
-      //                  no update, delete or reopen route, because a closed
-      //                  period is immutable and is never reopened, and a route
-      //                  naming an act the product refuses to have reads as an
-      //                  act it has. Closing is its own authority because it is
+      // periods:         the THREE closed-period routes — close one therapist's
+      //                  explicit inclusive range under `settlement.close`
+      //                  (Milestone 8, checkpoint C6), list the closed periods
+      //                  under `settlement.read` (C6), and read the materialised
+      //                  lines of ONE period under `settlement.read` (the C7
+      //                  support read). ONE WRITE AND NEVER MORE: there is no
+      //                  update, delete or reopen route, because a closed period
+      //                  is immutable and is never reopened, and a route naming
+      //                  an act the product refuses to have reads as an act it
+      //                  has. The third route is a READ and changes nothing
+      //                  about that — it selects the stored lines and re-derives
+      //                  no figure. Closing is its own authority because it is
       //                  IRREVERSIBLE in a way rating and withdrawing are not.
-      //                  The receptionist is refused whole on both.
+      //                  The receptionist is refused whole on all three.
       //
       // export:          the ONE settlement CSV export (Milestone 8, checkpoint
       //                  C8) — `/settlement/statement/export`, the statement's
@@ -403,7 +407,7 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  route and not two — there is no per-period export and
       //                  no bulk "every therapist" file, either of which would be
       //                  a report nobody has approved.
-      expect(routes).toBe(106);
+      expect(routes).toBe(107);
     });
   });
 });

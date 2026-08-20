@@ -3023,3 +3023,79 @@ is and the ASCII filename carries only the period.
 - **Revisit when:** a reader needs the excluded sessions identified rather than
   counted, which is a new read (and a new decision about what a settlement file
   may name) rather than a change to this shape.
+
+## 2026-08-20 — The closed period gets a period-keyed read, which is where a `CORRECTION` line has a column of its own
+
+**Status:** Accepted — Milestone 8, checkpoint C7 support — fires the revisit
+trigger the C6 entry above recorded, rather than changing any C6 rule
+
+`GET /settlement/periods/:id/lines` answers with one closed period and every
+`settlement_line` beneath it. The C6 entry closed with "revisit when: a
+period-keyed settlement read is approved — a 'what did this closed period
+contain?' line listing — which is where `CORRECTION` lines have a column of
+their own and a signed line shape can be designed for them". This is that read,
+and it is recorded here so the trigger is not left dangling.
+
+**The lines are SELECTED, never re-derived.** `readSettlementFacts` is
+deliberately not called and no share rule is joined, so the detail cannot drift
+from the total it explains once a later concession or re-rating moves what the
+session is worth today. Every amount is signed, because a `CORRECTION` moves
+money backwards; `lineType` makes a correction a labelled fact rather than an
+inference from a negative sign; `correctsSettlementLineId` traces the delta to
+the historical line it reconciles; and `carriedIn` — derived from the
+disagreement between the line's service date and its period's range, never
+stored — stops a session settled later than it was performed from being passed
+off as that period's own work.
+
+**The statement is unchanged, and the owner decision it rests on still holds.**
+The main statement remains ONE ROW PER CLINICAL SESSION, keyed on
+`SESSION_DATE`, with `lineType` constant at `PRIMARY`; historical `CORRECTION`
+lines live here, in closed-period detail, which is the period-keyed surface a
+period-keyed fact belongs on.
+
+**`priceMode` now travels on the statement line too.** A complimentary session, a
+session discounted to nothing and a session whose charge was withdrawn all render
+as the same row of noughts, and testing an amount against zero on the client
+would be a second and wrong source of truth. `FREE` is therefore stated by the
+server as provenance. UNRATED is unaffected: it has no line at all and stays a
+count.
+
+**`SETTLEMENT_PERIOD_NOT_FOUND` is the one new code,** and it is the
+addressability pattern the 2026-08-19 `SHARE_RULE_NOT_FOUND` entry already set
+rather than a new settlement rule: a period became addressable by id the moment
+its lines could be read one period at a time, and every addressable record in
+`@clinic/contracts` carries its own `*_NOT_FOUND`.
+
+- **Alternatives:** rendering the closed detail from the live derivation;
+  inferring a correction from the sign of the money; storing a `carried_in`
+  boolean on the line; letting the web tier label `FREE` by testing the base
+  amount against zero.
+- **Reason:** each alternative puts a second answer somewhere — the live
+  derivation restates closed history the first time anything moves, a sign is
+  not a kind, a stored flag can disagree with the dates it duplicates, and a
+  zero test cannot tell three different facts apart.
+- **Trade-off:** the milestone gains a fourth settlement read surface and one
+  more error code. It writes nothing, audits nothing, and adds no reopen path.
+- **Revisit when:** a reader needs corrections grouped by the ACT that caused
+  them, which is the report the C6 entry already defers.
+
+## 2026-08-20 — Milestone 8 closure: the settlement export carries `FREE` provenance
+
+**Status:** Accepted — Milestone 8 closure — a narrow defect fix, not a new rule
+
+The C8 export column list was frozen one commit BEFORE `priceMode` was added to
+`settlementStatementLineSchema`, so the file could not distinguish a
+complimentary session from one discounted to nothing: both are a row of noughts.
+Closure adds the one column, and nothing else.
+
+- **Alternatives:** leaving the file as it was; inferring `FREE` in the export
+  from a zero base amount.
+- **Reason:** the C8 decision defines the column list as "a projection of the
+  frozen statement line and no more", and `priceMode` is now on that line. The
+  same entry's own reason for carrying the exclusion counts — "a CSV is opened
+  months later beside no screen" — applies unchanged to the one fact that
+  separates complimentary work from a concession. Inferring it from a zero would
+  be the second and wrong source of truth the screen already refuses to use.
+- **Trade-off:** one more column on a file that already has sixteen. The export
+  still computes nothing and still reads the statement's own rows.
+- **Revisit when:** never for this column; it follows the statement line.

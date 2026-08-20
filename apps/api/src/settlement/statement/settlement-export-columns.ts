@@ -233,6 +233,13 @@ export const SETTLEMENT_STATEMENT_EXPORT_COLUMNS: readonly CsvColumn<SettlementS
     plain('تاریخ جلسه', (line) => line.serviceDate),
     text('خدمت', (row) => (row.kind === 'SETTLEMENT_LINE' ? row.line.serviceName : '')),
     count('مدت (دقیقه)', (line) => line.durationMinutes),
+    // THE ONLY FACT THAT SEPARATES A COMPLIMENTARY SESSION FROM ONE DISCOUNTED
+    // TO NOTHING, both of which are a row of noughts. The screen states it from
+    // the charge's own tariff price mode and a file is read months later beside
+    // no screen at all, so testing a money cell against zero in a spreadsheet
+    // would be a second and wrong source of truth. UNRATED is not here: it has
+    // no settlement row and is carried by the exception rows instead.
+    plain('نوع قیمت جلسه', (line) => line.priceMode),
     plain('نوع سطر', (line) => line.lineType),
     plain('درصد سهم اعمال‌شده (در ده‌هزار)', (line) => String(line.appliedShareBasisPoints)),
     plain('نحوهٔ ثبت سهم', (line) => line.ratedVia),
