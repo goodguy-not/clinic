@@ -451,6 +451,9 @@ describe('the settlement statement', () => {
     clinicGrossToman: '143750',
     clinicDiscountToman: '200000',
     clinicNetToman: '-56250',
+    // How much of this line a closed period already carries (checkpoint C6).
+    // Nothing here has been closed, so none of it.
+    settledToman: '0',
   };
 
   const totals = {
@@ -464,6 +467,9 @@ describe('the settlement statement', () => {
     clinicDiscountToman: '200000',
     clinicNetToman: '-56250',
     earnedUnsettledToman: '106250',
+    // A breakdown of the figure above, not a third addend: how much of the
+    // unsettled amount is a movement against work already closed.
+    pendingCorrectionToman: '0',
     settledToman: '0',
     netSettlementToman: '106250',
   };
@@ -529,7 +535,12 @@ describe('the settlement statement', () => {
 
     // The web tier never adds settlement money up, so every one of them is
     // required rather than optional.
-    for (const field of ['earnedUnsettledToman', 'settledToman', 'netSettlementToman'] as const) {
+    for (const field of [
+      'earnedUnsettledToman',
+      'pendingCorrectionToman',
+      'settledToman',
+      'netSettlementToman',
+    ] as const) {
       const { [field]: _omitted, ...without } = totals;
 
       expect(settlementStatementTotalsSchema.safeParse(without).success).toBe(false);
@@ -574,6 +585,31 @@ describe('the settlement statement', () => {
         ...line,
         lineType: 'CORRECTION',
         correctsSessionSettlementId: THIRD_UUID,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('states how much of each line a closed period already carries', () => {
+    // Checkpoint C6. `settledToman` is what makes the statement reconcile
+    // against closed history, and the difference between it and
+    // `therapistNetToman` is the movement no closed period carries yet.
+    const { settledToman: _omitted, ...without } = line;
+    expect(settlementStatementLineSchema.safeParse(without).success).toBe(false);
+
+    // It is SIGNED, alone among the therapist-side figures, because a session
+    // whose charge was withdrawn after its period closed is worth nothing now
+    // while a closed period still carries it — and the next close has to carry
+    // the difference back the other way.
+    expect(
+      settlementStatementLineSchema.safeParse({
+        ...line,
+        therapistNetToman: '0',
+        therapistGrossToman: '0',
+        clinicGrossToman: '0',
+        clinicDiscountToman: '0',
+        clinicNetToman: '0',
+        baseAmountToman: '0',
+        settledToman: '106250',
       }).success,
     ).toBe(true);
   });

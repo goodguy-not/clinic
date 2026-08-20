@@ -115,7 +115,7 @@ describe('reporting schema objects', () => {
     ).resolves.toEqual([]);
   });
 
-  it('keeps every share and settlement column on the two settlement tables', async () => {
+  it('keeps every share and settlement column on the settlement tables', async () => {
     // MILESTONE 7 ASSERTED THERE WERE NONE ANYWHERE, because the settlement
     // basis was unapproved and a share column would have recorded an unfunded
     // liability as a fact. Milestone 8 approved them and put them where they
@@ -124,12 +124,20 @@ describe('reporting schema objects', () => {
     // `session_settlement`, which is the HISTORICAL FACT of what one session
     // earned (C3).
     //
+    // Checkpoint C6 adds the third place: `settlement_line`, the CLOSED FACT of
+    // what a period made final. Its sibling `settlement_period` contributes
+    // nothing here — the period states amounts and counts, and names no share
+    // — which is itself the intended shape: the percentage is a property of the
+    // line, never of the act. The four are listed rather than exempted, so the
+    // next column added to either table has to be argued for in this file.
+    //
     // The assertion is narrowed rather than dropped, and the narrowing is the
     // point. A share column appearing on `session_charge`, `charge_adjustment`
     // or any Milestone 5-7 table would be a settlement FACT recorded outside
     // the checkpoint that owns it, and it still fails here — which is exactly
     // what keeps C3's snapshot on its own table rather than bolted onto the
-    // charge.
+    // charge, and C6's closed line on its own table rather than as a flag on
+    // the rating.
     const rows = await harness.prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
       SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = 'public'
@@ -143,6 +151,13 @@ describe('reporting schema objects', () => {
       { table_name: 'session_settlement', column_name: 'applied_share_basis_points' },
       { table_name: 'session_settlement', column_name: 'applied_share_rule_id' },
       { table_name: 'session_settlement', column_name: 'supersedes_session_settlement_id' },
+      // Milestone 8, checkpoint C6. The closed line names the period that
+      // materialised it, the rating it was computed from, the percentage that
+      // rating applied, and — for a CORRECTION — the closed line it reconciles.
+      { table_name: 'settlement_line', column_name: 'applied_share_basis_points' },
+      { table_name: 'settlement_line', column_name: 'corrects_settlement_line_id' },
+      { table_name: 'settlement_line', column_name: 'session_settlement_id' },
+      { table_name: 'settlement_line', column_name: 'settlement_period_id' },
       // Milestone 8, checkpoint C2. The agreement.
       { table_name: 'therapist_share_rule', column_name: 'share_basis_points' },
       { table_name: 'therapist_share_rule', column_name: 'supersedes_share_rule_id' },

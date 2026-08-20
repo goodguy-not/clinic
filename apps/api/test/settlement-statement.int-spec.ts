@@ -227,6 +227,9 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
         clinicDiscountToman: '240000',
         clinicNetToman: '285000',
         earnedUnsettledToman: '455000',
+        // Nothing in this fixture has ever been closed, so every figure is
+        // unsettled and none of it is a correction to closed work.
+        pendingCorrectionToman: '0',
         settledToman: '0',
         netSettlementToman: '455000',
       });

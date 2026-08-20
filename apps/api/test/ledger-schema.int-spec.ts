@@ -52,22 +52,28 @@ describe('ledger schema objects', () => {
     });
 
     it('creates no credit, balance, allocation, invoice or settlement table', async () => {
-      // NARROWED TWICE, EACH TIME BY THE CHECKPOINT THAT APPROVED THE TABLE.
-      // Milestone 6 permitted `payment` and `payment_promise`; Milestone 8
-      // checkpoint C3 permits `session_settlement`, which is what a THERAPIST
-      // earned from a session rather than anything about a family's money.
-      // Every other financial concept this pattern names is still unapproved,
-      // and a table matching one would be state stored before its rules were
-      // agreed: there is still no credit, balance, invoice or allocation table
-      // anywhere, and no settlement PERIOD or LINE either. `payment_allocation`
-      // in particular was refused BY NAME (DECISION_LOG, 2026-08-15 — A payment
-      // is a family fact), so it stays caught by the `allocation` alternative
-      // even though its name begins with two permitted words.
+      // NARROWED THREE TIMES, EACH TIME BY THE CHECKPOINT THAT APPROVED THE
+      // TABLE. Milestone 6 permitted `payment` and `payment_promise`; Milestone
+      // 8 checkpoint C3 permitted `session_settlement`, which is what a
+      // THERAPIST earned from a session rather than anything about a family's
+      // money; and checkpoint C6 permits `settlement_period` and
+      // `settlement_line`, the closed period and the immutable facts it
+      // materialised. Every other financial concept this pattern names is still
+      // unapproved, and a table matching one would be state stored before its
+      // rules were agreed: there is still no credit, balance, invoice or
+      // allocation table anywhere, and nothing that records a therapist payout.
+      // `payment_allocation` in particular was refused BY NAME (DECISION_LOG,
+      // 2026-08-15 — A payment is a family fact), so it stays caught by the
+      // `allocation` alternative even though its name begins with two permitted
+      // words.
       const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
           AND table_name ~ '(payment|credit|promise|balance|settlement|invoice|allocation)'
-          AND table_name NOT IN ('payment', 'payment_promise', 'session_settlement')
+          AND table_name NOT IN (
+            'payment', 'payment_promise', 'session_settlement',
+            'settlement_period', 'settlement_line'
+          )
       `;
 
       expect(rows).toEqual([]);

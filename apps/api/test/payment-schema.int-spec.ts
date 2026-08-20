@@ -64,19 +64,26 @@ describe('payment schema objects', () => {
       // family owes is derived from rows on every read, and there is no stored
       // balance, credit or opening figure anywhere.
       //
-      // `session_settlement` IS THE ONE PERMITTED MATCH, and its arrival is what
-      // this assertion was waiting for rather than a breach of it. Milestone 6
-      // deferred settlement to Milestone 8; checkpoint C3 approved it and built
-      // it, on its own table, about a THERAPIST rather than about a family's
-      // money. Every other name in the pattern is still refused, and no
-      // settlement PERIOD or LINE table exists yet.
+      // THE THREE SETTLEMENT TABLES ARE THE PERMITTED MATCHES, and their arrival
+      // is what this assertion was waiting for rather than a breach of it.
+      // Milestone 6 deferred settlement to Milestone 8; checkpoint C3 approved
+      // `session_settlement` — what a THERAPIST earned from a session, rather
+      // than anything about a family's money — and checkpoint C6 approved
+      // `settlement_period` and `settlement_line`, the closed period and the
+      // immutable facts it materialised. Every other name in the pattern is
+      // still refused, and NONE of the three is a payout, a payable or a
+      // receivable: this milestone records no money leaving the clinic.
       const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
           AND table_name ~ '(allocation|balance|credit|invoice|settlement|opening)'
       `;
 
-      expect(rows.map((row) => row.table_name)).toEqual(['session_settlement']);
+      expect(rows.map((row) => row.table_name).sort()).toEqual([
+        'session_settlement',
+        'settlement_line',
+        'settlement_period',
+      ]);
     });
 
     it('carries no share, percentage, balance, credit or allocation column', async () => {

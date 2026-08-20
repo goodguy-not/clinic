@@ -130,6 +130,12 @@ describe('session settlement schema (real PostgreSQL)', () => {
         'session_settlement_void_reason_chk',
         'session_settlement_void_consistency_chk',
         'session_settlement_self_supersede_chk',
+        // Added by checkpoint C6. A DEFERRED constraint trigger appears in
+        // `pg_constraint` as well as in `pg_trigger`, which is how PostgreSQL
+        // represents one; it is the closed-line rating integrity rule, asked at
+        // COMMIT so the atomic void-and-replace correction is not refused for
+        // the instant between its two statements.
+        'session_settlement_closed_line_rating_present',
       ].sort(),
     );
 
@@ -139,6 +145,9 @@ describe('session settlement schema (real PostgreSQL)', () => {
     expect(indexes.map((row) => row.indexname)).toContain(
       'session_settlement_one_valid_per_charge_uq',
     );
+    // The target `settlement_line_rating_scope_fkey` needs (checkpoint C6), so a
+    // closed line cannot name a rating belonging to a different charge.
+    expect(indexes.map((row) => row.indexname)).toContain('session_settlement_charge_scope_uq');
 
     const triggers = await harness.prisma.$queryRaw<{ tgname: string }[]>`
       SELECT tgname FROM pg_trigger
@@ -150,6 +159,7 @@ describe('session settlement schema (real PostgreSQL)', () => {
       // may CHANGE, and this is about what a permitted change would leave
       // BEHIND — a therapist-borne concession apportioned to a share that no
       // longer stands.
+      'session_settlement_closed_line_rating_present',
       'session_settlement_enforce_allocation_guard',
       'session_settlement_enforce_immutability',
       'session_settlement_no_delete',
@@ -162,6 +172,12 @@ describe('session settlement schema (real PostgreSQL)', () => {
     `;
     expect(chargeIndexes.map((row) => row.indexname)).toContain(
       'session_charge_settlement_snapshot_uq',
+    );
+    // And the narrower one checkpoint C6 needs for `settlement_line`: the same
+    // four columns without the amount, because a `CORRECTION` line's base is a
+    // DELTA rather than the charge's posted amount.
+    expect(chargeIndexes.map((row) => row.indexname)).toContain(
+      'session_charge_settlement_line_snapshot_uq',
     );
   });
 

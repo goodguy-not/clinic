@@ -240,10 +240,9 @@ export const AUDIT_ACTIONS = [
   // The action names carry no such coupling: `audit_log.action` is TEXT with a
   // format CHECK, so a name is legal the moment it has the right shape.
   //
-  // CHECKPOINT C2 CREATED `therapist_share_rule` AND C3 CREATES
-  // `session_settlement`; both entity types are paired below in the checkpoint
-  // that created their table. `settlement_period` is still absent because its
-  // table is still absent; it arrives with the close checkpoint. The tripwire in
+  // CHECKPOINT C2 CREATED `therapist_share_rule`, C3 CREATED
+  // `session_settlement` AND C6 CREATES `settlement_period`; each entity type is
+  // paired below in the checkpoint that created its table. The tripwire in
   // `audit-actions.spec.ts` pins the split in both directions, so it can neither
   // be forgotten nor arrive early.
   'therapist_share_rule.created',
@@ -303,11 +302,16 @@ export const AUDIT_ENTITY_TYPES = [
   // replaced. An audit row that named the rule instead would leave the
   // session's own settlement history unaddressable.
   //
-  // `settlement_period` is deliberately still absent: that table does not exist
-  // yet, and an entity type naming a table that is not there fails the schema
-  // assertion above. It arrives with the checkpoint that creates it.
+  // `settlement_period` ARRIVES WITH ITS TABLE IN C6, and it is the only one of
+  // the checkpoint's two tables named here. `settlement_line` is deliberately
+  // absent: a line is not independently decided — it exists because a close
+  // materialised it, it can never be edited or withdrawn, and it is permanent in
+  // a table with its own no-delete trigger — so no audit row ever names one, and
+  // an entity type nothing writes would advertise an act that does not exist.
+  // The close is recorded once, against the period, as `settlement_period.closed`.
   'therapist_share_rule',
   'session_settlement',
+  'settlement_period',
   // `therapist_availability` and `therapist_availability_exception` are
   // deliberately absent, for the reason `guardian` is: they are current
   // configuration replaced as a set, and the change is recorded against the

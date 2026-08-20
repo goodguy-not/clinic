@@ -368,15 +368,25 @@ export class SessionRatingService {
    * the `UPDATE` is predicated on `voided_at IS NULL`, and the trigger refuses
    * to change a void once it exists.
    *
-   * WHAT C6 WILL ADD, AND WHY IT CANNOT BE ADDED HERE. Once settlement periods
-   * exist, a rating a CLOSED period depends on may not be left absent: the plain
-   * withdrawal is refused with `RATING_REPLACEMENT_REQUIRED` and the caller uses
-   * `correct` instead, which never leaves the session unrated for an instant.
-   * That check needs a `settlement_line` to ask about and there is none yet, so
-   * it is deliberately absent rather than approximated — inventing a temporary
-   * notion of a closed period would be a settlement rule inferred rather than
-   * approved. `correct` is implemented in full here precisely so C6 adds a
-   * refusal to this method rather than a capability.
+   * A RATING A CLOSED PERIOD DEPENDS ON MAY NOT BE LEFT ABSENT (checkpoint C6).
+   * Once a session carries a closed `PRIMARY` settlement line, the closed figure
+   * behind it must keep having a rating to stand on — and the period is never
+   * reopened, so there is no later act that could repair a session left unrated.
+   * The bare withdrawal is therefore refused with `RATING_REPLACEMENT_REQUIRED`
+   * and the caller uses `correct` below, which never leaves the session unrated
+   * for an instant. This is the refusal C3 deliberately deferred; `correct` was
+   * shipped complete then precisely so C6 adds a refusal here rather than a
+   * capability.
+   *
+   * THE QUESTION IS ASKED OF THE CHARGE, NOT OF THIS RATING ROW. After an
+   * earlier correction the closed line names a rating that has since been
+   * withdrawn, so "does a closed line name THIS row?" would let the replacement
+   * be withdrawn bare and leave exactly the state the rule forbids. What a
+   * closed period depends on is that the SESSION is rated.
+   *
+   * `settlement_line_requires_valid_rating` re-derives the same condition at
+   * COMMIT and is the authority; this exists to produce a named refusal with a
+   * fix rather than an internal error.
    */
   async void(
     ratingId: string,
@@ -389,6 +399,9 @@ export class SessionRatingService {
     const row = await this.prisma.$transaction(async (tx) => {
       const target = await this.lockRatingUnderItsCharge(tx, ratingId);
       if (target.voided_at !== null) throw new AppError('RATING_ALREADY_VOIDED');
+      if (await hasClosedPrimaryLine(tx, target.session_charge_id)) {
+        throw new AppError('RATING_REPLACEMENT_REQUIRED');
+      }
 
       await this.voidRow(tx, target, canonicalReason, actor, context, 'EXPLICIT_VOID');
 
@@ -704,6 +717,31 @@ export class SessionRatingService {
  * rather than of this query. Withdrawn ratings stay in the table and are
  * deliberately not returned: they are history, not what the therapist earned.
  */
+/**
+ * Whether a closed settlement period already carries this session.
+ *
+ * READ UNDER THE CHARGE LOCK the caller already holds, so a close committing
+ * concurrently cannot slip between this and the withdrawal — `close` takes every
+ * candidate charge `FOR UPDATE` in the same lock order this file uses.
+ *
+ * `PRIMARY` ONLY. A `CORRECTION` line records a movement and is never the thing
+ * a session's closed value rests on; the rule is that a session represented by a
+ * closed PRIMARY keeps a valid rating, and a session with corrections has one by
+ * definition.
+ */
+async function hasClosedPrimaryLine(
+  tx: Prisma.TransactionClient,
+  chargeId: string,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM settlement_line
+    WHERE session_charge_id = ${chargeId}::uuid AND line_type = 'PRIMARY'
+    LIMIT 1
+  `;
+
+  return rows[0] !== undefined;
+}
+
 export async function findValidRatingForCharge(
   client: PrismaService | Prisma.TransactionClient,
   chargeId: string,

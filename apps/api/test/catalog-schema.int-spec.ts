@@ -238,12 +238,16 @@ describe('catalog schema objects', () => {
         // allocation, credit, balance, invoice or settlement table anywhere.
         'payment',
         'payment_promise',
-        // Milestone 8, checkpoints C2 and C3. TWO tables and no more: the share
-        // rule is configuration and the session settlement is the applied
-        // historical snapshot. No settlement period, settlement line, statement
-        // or therapist payout table exists yet.
+        // Milestone 8, checkpoints C2, C3 and C6. FOUR tables and no more: the
+        // share rule is configuration, the session settlement is the applied
+        // historical snapshot, and the last two are the closed period and the
+        // immutable lines it materialised. No statement table, no stored export
+        // and no therapist payout, payable or receivable table exists — this
+        // milestone records no money leaving the clinic.
         'therapist_share_rule',
         'session_settlement',
+        'settlement_period',
+        'settlement_line',
       ].sort(),
     );
   });

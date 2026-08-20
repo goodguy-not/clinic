@@ -159,6 +159,11 @@ const PROTECTED_TABLES = [
   // Milestone 8, checkpoint C3. What a session earned is a financial record and
   // carries no-delete, no-truncate and immutability triggers of its own.
   'session_settlement',
+  // Milestone 8, checkpoint C6. A closed period and its lines refuse EVERY
+  // update and carry no-delete and no-truncate triggers, so both have to be
+  // named here for the reset to be able to clear them.
+  'settlement_period',
+  'settlement_line',
 ];
 
 /**
@@ -170,9 +175,12 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
-  // Milestone 8, dependents first: a rating names a charge, a share rule and
-  // possibly the rating it replaced, so it goes before both the rule and the
-  // charge.
+  // Milestone 8, dependents first: a closed line names its period, a charge and
+  // the rating it was materialised from, so it goes before all three.
+  'settlement_line',
+  'settlement_period',
+  // A rating names a charge, a share rule and possibly the rating it replaced,
+  // so it goes before both the rule and the charge.
   'session_settlement',
   // A share rule names a therapist and the user who wrote it, and may name the
   // rule it superseded.

@@ -278,6 +278,19 @@ enum SessionRatedVia {
   @@map("session_rated_via")
 }
 
+/// What a materialised line of a CLOSED settlement period is.
+///
+/// `PRIMARY` is the first and only authoritative settlement of one session.
+/// `CORRECTION` is a signed movement reconciling a session already carried by a
+/// `PRIMARY` line with what that session is worth now; it lands in a later
+/// period, because a closed period is never reopened.
+enum SettlementLineType {
+  PRIMARY
+  CORRECTION
+
+  @@map("settlement_line_type")
+}
+
 /// Staff accounts. Manager-created only; there is no self-registration.
 ///
 /// User rows are permanent historical records: account creation is audited and
@@ -320,10 +333,10 @@ model AppUser {
   createdChildren    Child[]
   registrationDrafts RegistrationDraft[]
 
-  createdAppointments        Appointment[] @relation("AppointmentCreatedBy")
-  overriddenAppointments     Appointment[] @relation("AppointmentAvailabilityOverrideBy")
-  createdAppointmentSeries AppointmentSeries[]
-  createdAvailability      TherapistAvailability[]
+  createdAppointments           Appointment[]                    @relation("AppointmentCreatedBy")
+  overriddenAppointments        Appointment[]                    @relation("AppointmentAvailabilityOverrideBy")
+  createdAppointmentSeries      AppointmentSeries[]
+  createdAvailability           TherapistAvailability[]
   createdAvailabilityExceptions TherapistAvailabilityException[]
 
   createdSessionCharges    SessionCharge[]    @relation("SessionChargeCreatedBy")
@@ -335,6 +348,7 @@ model AppUser {
   voidedShareRules  TherapistShareRule[] @relation("TherapistShareRuleVoidedBy")
   ratedSessions     SessionSettlement[]  @relation("SessionSettlementCreatedBy")
   unratedSessions   SessionSettlement[]  @relation("SessionSettlementVoidedBy")
+  closedPeriods     SettlementPeriod[]   @relation("SettlementPeriodClosedBy")
 
   createdPayments         Payment[]        @relation("PaymentCreatedBy")
   voidedPayments          Payment[]        @relation("PaymentVoidedBy")
@@ -440,14 +454,15 @@ model Therapist {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String        @map("created_by_user_id") @db.Uuid
 
-  createdBy            AppUser                         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  supportedServices    TherapistService[]
-  tariffs              Tariff[]
-  appointments         Appointment[]
-  sessionCharges       SessionCharge[]
-  availability         TherapistAvailability[]
+  createdBy              AppUser                          @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supportedServices      TherapistService[]
+  tariffs                Tariff[]
+  appointments           Appointment[]
+  sessionCharges         SessionCharge[]
+  availability           TherapistAvailability[]
   availabilityExceptions TherapistAvailabilityException[]
-  shareRules           TherapistShareRule[]
+  shareRules             TherapistShareRule[]
+  settlementPeriods      SettlementPeriod[]
 
   @@index([status])
   @@map("therapist")
@@ -951,23 +966,23 @@ model Appointment {
   /// the actor and the instant to be present or absent as one fact — so a
   /// half-recorded override cannot exist. There is deliberately no equivalent for
   /// a therapist, room or child conflict: those are hard blocks.
-  availabilityOverrideReason    String?   @map("availability_override_reason")
-  availabilityOverrideByUserId  String?   @map("availability_override_by_user_id") @db.Uuid
-  availabilityOverrideAt        DateTime? @map("availability_override_at") @db.Timestamptz
+  availabilityOverrideReason   String?   @map("availability_override_reason")
+  availabilityOverrideByUserId String?   @map("availability_override_by_user_id") @db.Uuid
+  availabilityOverrideAt       DateTime? @map("availability_override_at") @db.Timestamptz
 
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String   @map("created_by_user_id") @db.Uuid
 
-  service         Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  serviceDuration ServiceDuration    @relation("AppointmentServiceDuration", fields: [serviceId, durationMinutes], references: [serviceId, durationMinutes], onDelete: Restrict, onUpdate: Cascade)
-  therapist       Therapist          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  room            Room               @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  series          AppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdBy       AppUser            @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service                Service            @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceDuration        ServiceDuration    @relation("AppointmentServiceDuration", fields: [serviceId, durationMinutes], references: [serviceId, durationMinutes], onDelete: Restrict, onUpdate: Cascade)
+  therapist              Therapist          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  room                   Room               @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  series                 AppointmentSeries? @relation(fields: [seriesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy              AppUser            @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   /// Named relations, because `app_user` is now referenced twice from this table.
   /// The names are Prisma's own bookkeeping and appear in no SQL: both foreign
   /// keys are named after their column, exactly as they were before.
-  availabilityOverrideBy AppUser?    @relation("AppointmentAvailabilityOverrideBy", fields: [availabilityOverrideByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  availabilityOverrideBy AppUser?           @relation("AppointmentAvailabilityOverrideBy", fields: [availabilityOverrideByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   participants AppointmentParticipant[]
 
@@ -1092,13 +1107,13 @@ model AppointmentSeries {
 /// refuses that, so one week has one reading. Two blocks on the same day — a
 /// morning and an evening — remain legitimate.
 model TherapistAvailability {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  therapistId     String    @map("therapist_id") @db.Uuid
+  id              String   @id @default(uuid(7)) @db.Uuid
+  therapistId     String   @map("therapist_id") @db.Uuid
   weekday         Int
-  startTime       DateTime  @map("start_time") @db.Time
-  endTime         DateTime  @map("end_time") @db.Time
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  startTime       DateTime @map("start_time") @db.Time
+  endTime         DateTime @map("end_time") @db.Time
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
 
   therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   createdBy AppUser   @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -1253,11 +1268,14 @@ model SessionCharge {
   createdBy       AppUser                @relation("SessionChargeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   voidedBy        AppUser?               @relation("SessionChargeVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  adjustments ChargeAdjustment[]
+  adjustments     ChargeAdjustment[]
   /// The applied therapist share snapshots taken from this charge. At most one
   /// is standing at a time (`session_settlement_one_valid_per_charge_uq`); the
   /// rest are withdrawn history.
-  settlements SessionSettlement[] @relation("SessionSettlementCharge")
+  settlements     SessionSettlement[] @relation("SessionSettlementCharge")
+  /// The closed settlement lines materialised from this charge: at most one
+  /// `PRIMARY`, and any number of later `CORRECTION` lines.
+  settlementLines SettlementLine[]    @relation("SettlementLineCharge")
 
   /// Supports the composite foreign key from `session_settlement`, and exists
   /// for no other reason. It constrains nothing the primary key does not
@@ -1267,6 +1285,10 @@ model SessionCharge {
   /// and clinic day are the charge's own" a database guarantee rather than a
   /// convention of the service that writes it.
   @@unique([id, appointmentParticipantId, therapistId, serviceDate, amountToman], map: "session_charge_settlement_snapshot_uq")
+  /// Supports `settlement_line_charge_snapshot_fkey`. The amount is absent
+  /// deliberately: a `CORRECTION` line's `baseAmountToman` is a DELTA and is not
+  /// the charge's posted amount, so it cannot be part of the key.
+  @@unique([id, appointmentParticipantId, therapistId, serviceDate], map: "session_charge_settlement_line_snapshot_uq")
   /// The family account, which is the read every ledger question starts from.
   @@index([familyId, serviceDate])
   /// Child-level session detail within that account (PROJECT_SPEC.md 7).
@@ -1552,15 +1574,15 @@ model TherapistShareRule {
   voidedByUserId        String?   @map("voided_by_user_id") @db.Uuid
   voidReason            String?   @map("void_reason")
 
-  therapist  Therapist            @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  supersedes TherapistShareRule?  @relation("TherapistShareRuleSupersedes", fields: [supersedesShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  supersededBy TherapistShareRule[] @relation("TherapistShareRuleSupersedes")
+  therapist      Therapist            @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersedes     TherapistShareRule?  @relation("TherapistShareRuleSupersedes", fields: [supersedesShareRuleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  supersededBy   TherapistShareRule[] @relation("TherapistShareRuleSupersedes")
   /// The ratings resolved from this rule. Provenance only: the percentage each
   /// applied lives on its own row as a number, and voiding this rule changes
   /// none of them.
   appliedRatings SessionSettlement[]
-  createdBy  AppUser              @relation("TherapistShareRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  voidedBy   AppUser?             @relation("TherapistShareRuleVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy      AppUser              @relation("TherapistShareRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  voidedBy       AppUser?             @relation("TherapistShareRuleVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// The resolution lookup: one therapist's rules, narrowed by date afterwards.
   /// The effective range is not part of the index for the reason `Tariff`'s is
@@ -1648,6 +1670,14 @@ model SessionSettlement {
   createdBy        AppUser             @relation("SessionSettlementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   voidedBy         AppUser?            @relation("SessionSettlementVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  /// The closed settlement lines this applied rating was materialised into.
+  settlementLines SettlementLine[] @relation("SettlementLineRating")
+
+  /// Supports `settlement_line_rating_scope_fkey`, and exists for no other
+  /// reason: it constrains nothing the primary key does not already constrain,
+  /// and it is what makes "a closed line's rating belongs to the charge that
+  /// line settles" a database guarantee.
+  @@unique([id, sessionChargeId], map: "session_settlement_charge_scope_uq")
   /// The rating of one session, and its withdrawn history. The uniqueness of
   /// the STANDING one is a partial unique index the migration writes by hand;
   /// Prisma cannot express `WHERE voided_at IS NULL`.
@@ -1658,4 +1688,118 @@ model SessionSettlement {
   @@index([appliedShareRuleId])
   @@index([supersedesSessionSettlementId])
   @@map("session_settlement")
+}
+
+/// A CLOSED settlement period: one therapist, one explicit inclusive range of
+/// clinic days, and the figures that close made final (Milestone 8, C6).
+///
+/// A row exists only because a manager closed the range, so there is no status
+/// column and no `OPEN` state — the open period is simply the range no row
+/// covers. It is never reopened, never edited and never deleted: the table
+/// refuses every UPDATE, and later movement against a session it settled is a
+/// new `CORRECTION` line in a LATER period.
+///
+/// NOTHING HERE IS A PAYOUT. `settledToman` means "closed off in a period", not
+/// "paid"; this milestone records no money leaving the clinic.
+model SettlementPeriod {
+  id                          String   @id @default(uuid(7)) @db.Uuid
+  therapistId                 String   @map("therapist_id") @db.Uuid
+  /// Both ends inclusive, as calendar days with no time and no offset — the
+  /// `SESSION_DATE` basis the statement is read on.
+  periodStart                 DateTime @map("period_start") @db.Date
+  periodEnd                   DateTime @map("period_end") @db.Date
+  /// Sessions this close settled for the first time, historical carry-ins
+  /// included. Kept apart from the correction count, because a correction
+  /// carried in from an earlier closed period is not work done in this one.
+  settledSessionCount         Int      @map("settled_session_count")
+  carriedInCorrectionCount    Int      @map("carried_in_correction_count")
+  /// Charged sessions inside the range that carried no rating at the instant of
+  /// closing. STORED rather than recomputed: recomputing would give a different
+  /// answer the moment one of them was rated, and the answer that matters is
+  /// the one that was true when the manager closed.
+  excludedUnratedSessionCount Int      @map("excluded_unrated_session_count")
+  /// This period's own `PRIMARY` lines, and only those, which is why both are
+  /// unsigned.
+  therapistGrossToman         BigInt   @map("therapist_gross_toman")
+  therapistDiscountToman      BigInt   @map("therapist_discount_toman")
+  /// Signed: the movements this close carried in from sessions already settled.
+  carriedInCorrectionToman    BigInt   @map("carried_in_correction_toman")
+  /// The two together, re-derived by `settlement_period_totals_chk`. Signed,
+  /// and a negative period is a net settlement figure — never a debt.
+  settledToman                BigInt   @map("settled_toman")
+  closedAt                    DateTime @default(now()) @map("closed_at") @db.Timestamptz
+  closedByUserId              String   @map("closed_by_user_id") @db.Uuid
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  closedBy  AppUser   @relation("SettlementPeriodClosedBy", fields: [closedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  lines SettlementLine[]
+
+  /// Supports `settlement_line_period_scope_fkey`, so a line cannot belong to
+  /// one therapist's period while naming another therapist.
+  @@unique([id, therapistId], map: "settlement_period_therapist_scope_uq")
+  /// No two periods of one therapist may overlap. The exclusion constraint that
+  /// decides it is written by hand in the migration; Prisma cannot express one.
+  @@index([therapistId, periodStart])
+  @@map("settlement_period")
+}
+
+/// One session's materialised settlement fact inside a closed period.
+///
+/// A `PRIMARY` line is the session's first and only authoritative settlement and
+/// carries LEVELS: what the session was worth, and what each side took, at the
+/// instant of closing. A `CORRECTION` line carries a signed DELTA reconciling a
+/// session already settled with what it is worth now, and names the `PRIMARY`
+/// line it corrects.
+///
+/// THE INVARIANT THE WHOLE CHECKPOINT RESTS ON: for every session ever settled,
+/// the `PRIMARY` line plus every later `CORRECTION` line equals that session's
+/// current authoritative settlement figures.
+model SettlementLine {
+  id                       String             @id @default(uuid(7)) @db.Uuid
+  settlementPeriodId       String             @map("settlement_period_id") @db.Uuid
+  lineType                 SettlementLineType @map("line_type")
+  sessionChargeId          String             @map("session_charge_id") @db.Uuid
+  /// The applied rating this line was materialised from. After a rating
+  /// correction the replacement is what a later `CORRECTION` line names, and
+  /// the withdrawn one stays named by the `PRIMARY` it produced.
+  sessionSettlementId      String             @map("session_settlement_id") @db.Uuid
+  /// Snapshotted from the charge through one composite foreign key, so the seat,
+  /// the therapist and the clinic day on a closed line cannot disagree with the
+  /// session they describe. A carry-in keeps its ORIGINAL service date and is
+  /// never restated as work done in the period that settled it.
+  appointmentParticipantId String             @map("appointment_participant_id") @db.Uuid
+  therapistId              String             @map("therapist_id") @db.Uuid
+  serviceDate              DateTime           @map("service_date") @db.Date
+  /// Copied from the rating, never re-resolved from a share rule.
+  appliedShareBasisPoints  Int                @map("applied_share_basis_points")
+  ratedVia                 SessionRatedVia    @map("rated_via")
+  baseAmountToman          BigInt             @map("base_amount_toman")
+  therapistGrossToman      BigInt             @map("therapist_gross_toman")
+  therapistDiscountToman   BigInt             @map("therapist_discount_toman")
+  therapistNetToman        BigInt             @map("therapist_net_toman")
+  clinicGrossToman         BigInt             @map("clinic_gross_toman")
+  clinicDiscountToman      BigInt             @map("clinic_discount_toman")
+  clinicNetToman           BigInt             @map("clinic_net_toman")
+  /// Null on a `PRIMARY` line and required on a `CORRECTION` one: a correction
+  /// that named no historical fact would be a signed amount with no way back to
+  /// the session it reconciles.
+  correctsSettlementLineId String?            @map("corrects_settlement_line_id") @db.Uuid
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  period      SettlementPeriod  @relation(fields: [settlementPeriodId, therapistId], references: [id, therapistId], onDelete: Restrict, onUpdate: Cascade, map: "settlement_line_period_scope_fkey")
+  charge      SessionCharge     @relation("SettlementLineCharge", fields: [sessionChargeId, appointmentParticipantId, therapistId, serviceDate], references: [id, appointmentParticipantId, therapistId, serviceDate], onDelete: Restrict, onUpdate: Cascade, map: "settlement_line_charge_snapshot_fkey")
+  rating      SessionSettlement @relation("SettlementLineRating", fields: [sessionSettlementId, sessionChargeId], references: [id, sessionChargeId], onDelete: Restrict, onUpdate: Cascade, map: "settlement_line_rating_scope_fkey")
+  corrects    SettlementLine?   @relation("SettlementLineCorrects", fields: [correctsSettlementLineId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  correctedBy SettlementLine[]  @relation("SettlementLineCorrects")
+
+  /// At most one `PRIMARY` line per session. The partial unique index that
+  /// decides it — `WHERE line_type = 'PRIMARY'` — is written by hand in the
+  /// migration, because Prisma cannot express a partial index.
+  @@index([settlementPeriodId])
+  @@index([sessionChargeId])
+  @@index([therapistId, serviceDate])
+  @@index([sessionSettlementId])
+  @@index([correctsSettlementLineId])
+  @@map("settlement_line")
 }

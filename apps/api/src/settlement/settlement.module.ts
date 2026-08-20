@@ -4,6 +4,8 @@ import { SessionRatingsController } from './ratings/session-ratings.controller';
 import { SessionRatingService } from './ratings/session-rating.service';
 import { ShareRulesController } from './share-rules/share-rules.controller';
 import { ShareRulesService } from './share-rules/share-rules.service';
+import { SettlementCloseService } from './close/settlement-close.service';
+import { SettlementPeriodsController } from './close/settlement-periods.controller';
 import { SettlementStatementController } from './statement/settlement-statement.controller';
 import { SettlementStatementService } from './statement/settlement-statement.service';
 
@@ -27,9 +29,18 @@ import { SettlementStatementService } from './statement/settlement-statement.ser
  * deliberately does not import `share-rule-resolution`: a statement reports the
  * percentage that was APPLIED, never one resolved from today's configuration.
  *
- * Nothing here closes a period, records a payout or writes anything about money
- * leaving the clinic; those are later checkpoints, and each brings its own
- * table, service and permission enforcement.
+ * C6 ADDS THE TWO TABLES THAT MAKE A FIGURE FINAL. `settlement_period` is the
+ * ACT of closing one therapist's range, and `settlement_line` is the per-session
+ * fact that act materialised — the first rows in this milestone that are
+ * COPIED rather than derived, because a closed figure must keep saying what it
+ * said. `SettlementCloseService` owns both, and `settlement-facts.ts` is the ONE
+ * derivation of "what is this session worth now, and how much of that is already
+ * closed?", shared by the close and the statement so the two can never disagree.
+ *
+ * Nothing here records a payout or writes anything about money leaving the
+ * clinic. There is no therapist ledger, no payable, no receivable and no
+ * balance: this milestone records what was EARNED and what has been SETTLED, and
+ * `settled` means "closed off in a period", never "paid".
  *
  * `AuditModule` is imported because every write here is audited in the same
  * transaction as the state change it records.
@@ -50,8 +61,18 @@ import { SettlementStatementService } from './statement/settlement-statement.ser
  */
 @Module({
   imports: [AuditModule],
-  controllers: [ShareRulesController, SessionRatingsController, SettlementStatementController],
-  providers: [ShareRulesService, SessionRatingService, SettlementStatementService],
+  controllers: [
+    ShareRulesController,
+    SessionRatingsController,
+    SettlementStatementController,
+    SettlementPeriodsController,
+  ],
+  providers: [
+    ShareRulesService,
+    SessionRatingService,
+    SettlementStatementService,
+    SettlementCloseService,
+  ],
   exports: [SessionRatingService],
 })
 export class SettlementModule {}

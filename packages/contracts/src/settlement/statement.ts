@@ -106,11 +106,41 @@ export type SettlementStatementExportQuery = SettlementStatementQuery;
  * can check the split without opening the family's account — and so the line
  * says what it was a share OF, which is the number people argue about.
  *
+ * `settledToman` IS HOW MUCH OF THIS LINE A CLOSED PERIOD ALREADY CARRIES
+ * (Milestone 8, checkpoint C6), and it is the field that makes the statement
+ * reconcile against closed history without a second calculation. It is the sum
+ * of the session's materialised settlement lines — its `PRIMARY` plus every
+ * later `CORRECTION` — on the therapist side, and the difference
+ * `therapistNetToman − settledToman` is therefore the movement against this
+ * session that NO closed period carries yet: zero for a session settled and
+ * unchanged since, the whole net for a session never closed, and NEGATIVE for a
+ * session whose charge was withdrawn or whose concession grew after its period
+ * closed. It is signed for that last case alone.
+ *
+ * A SESSION APPEARS HERE IF IT CURRENTLY EARNS SOMETHING **OR** IF IT HAS EVER
+ * BEEN SETTLED. The second half is C6's: a session whose charge was withdrawn
+ * after its period closed is worth nothing now — every money field above is
+ * zero for it — but a closed period still carries it, and a statement that
+ * dropped the line would hide the correction the next close has to make.
+ *
  * `lineType` DISTINGUISHES THIS MONTH'S WORK FROM LAST MONTH'S CORRECTION, and
  * on a `CORRECTION` line every money field is the DELTA being carried in, which
  * is why they may be negative in aggregate even where the field itself is
  * unsigned per-session. `correctsSessionSettlementId` names the rating being
  * corrected and is null on a `PRIMARY` line.
+ *
+ * ON THIS SESSION-DATE-KEYED READ, EVERY LINE IS `PRIMARY` AND CARRIES THE
+ * SESSION'S CURRENT AUTHORITATIVE POSITION. A `CORRECTION` is a movement that
+ * lands in a LATER PERIOD, while this statement is keyed on `SESSION_DATE` — so
+ * a correction to a session in this range is not work that belongs to some
+ * other range of days, it is a change to THIS session, and reporting it as a
+ * second line beside its own primary would state the same session twice in one
+ * column. The movement is stated instead as the difference between
+ * `therapistNetToman` and `settledToman`, per line and in the totals; the
+ * `CORRECTION` lines themselves are materialised rows of the PERIOD that
+ * carried them, and are summarised on the closed period record
+ * (`carriedInCorrectionCount`, `carriedInCorrectionToman` in `close.ts`), which
+ * is the period-keyed surface where a period-keyed fact belongs.
  *
  * `appliedShareBasisPoints` AND `ratedVia` TRAVEL WITH EVERY LINE, so the
  * printed statement itself says which percentage was applied and whether the
@@ -143,6 +173,7 @@ export const settlementStatementLineSchema = z.strictObject({
   clinicGrossToman: tomanAmountSchema,
   clinicDiscountToman: tomanAmountSchema,
   clinicNetToman: signedTomanAmountSchema,
+  settledToman: signedTomanAmountSchema,
 });
 
 export type SettlementStatementLine = z.infer<typeof settlementStatementLineSchema>;
@@ -167,6 +198,25 @@ export type SettlementStatementLine = z.infer<typeof settlementStatementLineSche
  *     period already covers.
  *   * `netSettlementToman` — the two together: what this range came to.
  *
+ * `pendingCorrectionToman` IS A BREAKDOWN OF `earnedUnsettledToman`, NOT A THIRD
+ * ADDEND (Milestone 8, checkpoint C6). The identity above is unchanged —
+ * `netSettlementToman = earnedUnsettledToman + settledToman` — and this states
+ * how much of the unsettled figure is a MOVEMENT AGAINST WORK ALREADY CLOSED
+ * rather than new work nobody has closed yet. The two are unsettled for opposite
+ * reasons and need opposite acts: new work is waiting for its first close, while
+ * a pending correction is waiting to be carried into the next one, and it is the
+ * only one of the two that can be negative. A manager reading `-400,000` beside
+ * a month of ordinary sessions is reading a charge somebody withdrew after the
+ * period closed, and folding it into a single unsettled figure would make that
+ * look like a month in which very little happened.
+ *
+ * `correctionCount` COUNTS SESSIONS, NOT MOVEMENTS, so it reads against
+ * `sessionCount` rather than against a number of rows nobody can see: it is how
+ * many sessions in this range have moved since a closed period carried them —
+ * whether the movement has already been carried into a later close or is still
+ * pending. Zero is the ordinary answer, and it is the answer for every range in
+ * a clinic that has never had to correct anything.
+ *
  * NONE OF THEM IS A `balance`, AN AMOUNT `owed`, `payable`, `receivable` OR
  * `due`, AND THE ABSENCE IS DELIBERATE. Milestone 8 does not record therapist
  * payouts at all — no payment out, no settlement of a settlement — so there is
@@ -186,6 +236,7 @@ export const settlementStatementTotalsSchema = z.strictObject({
   clinicDiscountToman: tomanAmountSchema,
   clinicNetToman: signedTomanAmountSchema,
   earnedUnsettledToman: signedTomanAmountSchema,
+  pendingCorrectionToman: signedTomanAmountSchema,
   settledToman: signedTomanAmountSchema,
   netSettlementToman: signedTomanAmountSchema,
 });

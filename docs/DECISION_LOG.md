@@ -2751,3 +2751,203 @@ index the operational reports already use.
   a write cost paid forever for a read nobody has timed.
 - **Revisit when:** a query plan on realistic volumes shows the unrated-count
   scan dominating.
+
+## 2026-08-19 — A closed settlement period materialises what a close made final, and nothing rewrites it
+
+**Status:** Accepted — Milestone 8, checkpoint C6
+
+`POST /settlement/periods` closes one therapist's earnings over one explicit
+inclusive range of clinic days, keyed on `SESSION_DATE`. It writes a
+`settlement_period` row and one immutable `settlement_line` per session it
+settled or corrected, plus one `settlement_period.closed` audit fact, all in one
+transaction. `GET /settlement/periods` reads them back. **There is no update,
+delete or reopen route, no un-close request in the contract, no method on the
+service, and no permitted UPDATE on either table** —
+`enforce_settlement_close_immutability` refuses every one outright, which is
+where C6 departs from every other financial table in this schema: those permit
+one transition, standing to withdrawn, and a closed period cannot be taken back
+at all.
+
+**Two tables rather than one, and the figures are COPIED rather than derived.**
+
+- **Alternatives:** a period row carrying only totals, with the detail re-derived
+  on read; storing nothing and treating "closed" as a date range the reads
+  respect.
+- **Reason:** a close is the one act in this milestone that makes a figure FINAL.
+  Every C5 figure is derived and legitimately changes when a concession is
+  granted the next day; a closed figure must keep saying what it said, which
+  means it has to stop being derived. Totals without lines would be a number
+  nobody could reconcile against the diary, and it is the LINE — not the total —
+  that carries "this session has been settled, once", which is the guarantee the
+  whole checkpoint rests on.
+- **Trade-off:** the same money exists in two places, live and materialised, and
+  they can in principle drift. That is why they are reconciled by construction
+  (below) and why the reconciliation is asserted against raw SQL over the
+  authoritative rows in `settlement-close-reconciliation.int-spec.ts`.
+- **Revisit when:** never for the materialisation itself. A therapist payout, if
+  it is ever approved, is a further record naming a period — not a column on one.
+
+**One derivation for the close and the statement, in `settlement-facts.ts`.**
+
+- **Alternatives:** a query in each service; the close calling the statement
+  service.
+- **Reason:** two derivations of "what is this session worth now" are two answers
+  to one question, and the day they disagree is the day a correction is written
+  for an amount nobody can account for. The shared statement also carries the
+  settled sums, so a correction is a SUBTRACTION on one row rather than a
+  reconciliation across two reads.
+- **Trade-off:** the statement now reads `settlement_line` on every request, one
+  extra lateral per session.
+- **Revisit when:** a plan on realistic volumes shows that lateral dominating.
+
+**The correction is a signed residual, derived and never inferred from
+configuration.** For a session a closed `PRIMARY` already carries, a later close
+writes the column-by-column difference between what the session is worth now and
+what its existing lines already carry — or nothing, when they agree.
+
+- **Alternatives:** enumerating the categories that may produce a correction
+  (charge void, concession change, rating correction) and handling each; deriving
+  a correction from `supersedes_session_settlement_id`.
+- **Reason:** the close must not ask WHY a figure moved, only WHETHER it moved,
+  which is a question with exactly one answer and which cannot omit a category
+  somebody forgets to enumerate. It also makes the central invariant true by
+  construction: PRIMARY plus every CORRECTION equals the session's current
+  figures, because a correction is DEFINED as the residual. And because the
+  applied percentage lives on the rating as a number that is never re-resolved, a
+  later share-rule change moves nothing and therefore produces no correction —
+  proved directly by a test that voids and replaces the agreement at a different
+  percentage and asserts the next close carries nothing.
+- **Trade-off:** a correction line does not record which ACT caused it. The
+  audit trail of the charge void, the concession or the rating correction does,
+  and the line names the `PRIMARY` it reconciles and the rating standing when it
+  was written.
+- **Revisit when:** a report is approved that has to group corrections by cause.
+
+**Idempotence is exact-match; overlap is refused whole.** The identical request
+answers `ALREADY_CLOSED` with the existing period and writes no row and no second
+audit event. A partially overlapping range is `SETTLEMENT_PERIOD_OVERLAP`, never
+trimmed, merged or reinterpreted. Gaps are permitted.
+
+- **Alternatives:** trimming an overlapping request to the free days; treating any
+  intersecting request as idempotent.
+- **Reason:** overlapping coverage settles some sessions twice, which is how
+  somebody is paid for one session in two months, and a silently trimmed range is
+  a period whose boundaries the requester never saw. Concurrency is held by three
+  layers: `pg_advisory_xact_lock` on the therapist (so the retry SEES the first
+  close rather than racing it), `FOR UPDATE` on every candidate charge in id
+  order (this project's one lock order, so a concession or charge void lands
+  wholly before or wholly after), and `settlement_period_no_overlap_excl` as the
+  final authority.
+- **Trade-off:** two closes for one therapist serialise. Closes for different
+  therapists do not, because the advisory key includes the therapist.
+- **Revisit when:** never for the overlap rule.
+
+**A historical carry-in is a `PRIMARY` settlement, and only from a range already
+closed.** A session excluded from an earlier close as unrated, and rated
+afterwards, is settled by a later close as the `PRIMARY` it always should have
+had, keeping its ORIGINAL service date. A session sitting in a range nobody has
+closed is left where it is.
+
+- **Alternatives:** carrying it in as a `CORRECTION`; sweeping in every unsettled
+  session before the range's end.
+- **Reason:** it has never been settled, so it is not a correction of anything —
+  and `settlement_line_one_primary_per_charge_uq` is what makes "exactly once"
+  structural. Restricting carry-ins to already-closed ranges is what keeps gaps
+  meaningful: sweeping work out of a gap would settle days the manager never
+  reviewed. The original date is what identifies it as a carry-in and what stops
+  it being misrepresented as work performed in the later period.
+- **Trade-off:** no boolean flag says "carry-in"; it is the disagreement between
+  the line's service date and its period's range. A stored flag would be a second
+  answer that can disagree with the dates.
+- **Revisit when:** a read surface is approved that has to filter carry-ins
+  directly.
+
+**`excludedUnratedSessionCount` is stored, and a close never fails for unrated
+sessions.** (The frozen Option A.) It counts charged sessions inside the RANGE
+with no standing rating at the instant of closing, scoped to the range and not to
+the carry-ins, so one omission is never counted twice across a year.
+
+- **Alternatives:** refusing the close; recomputing the count on read.
+- **Reason:** a clinic that cannot close a month until every session is decided
+  stops paying people over one forgotten appointment. Recomputing answers zero
+  the moment somebody rates one, and the answer that matters is the one that was
+  true when the manager closed — that is what says what the closed figure did NOT
+  include.
+- **Trade-off:** none identified.
+- **Revisit when:** never; the rule is frozen.
+
+**Every session represented by a closed `PRIMARY` line keeps a valid applied
+rating at all times.** `SessionRatingService.void` refuses a bare withdrawal with
+`RATING_REPLACEMENT_REQUIRED`, and the database enforces the same condition at
+COMMIT through the DEFERRED constraint trigger
+`settlement_line_requires_valid_rating`, fired from both `session_settlement` and
+`settlement_line`.
+
+- **Alternatives:** an ordinary row trigger; enforcing it only in the service.
+- **Reason:** the atomic correction withdraws and re-inserts in one transaction,
+  so a row trigger would refuse the very operation the rule exists to require. A
+  deferred constraint trigger asks the question exactly where "at all times" is
+  observable from outside — at commit — so no other transaction can ever see a
+  closed `PRIMARY` with no rating, and no zero is inferred anywhere. The refusal
+  is keyed on the CHARGE rather than on the rating row, because after an earlier
+  correction the closed line names a rating that has since been withdrawn.
+  This is the refusal C3 deliberately deferred; C3's decision recorded that C6
+  would add a refusal rather than a capability, and that is what happened.
+- **Trade-off:** none identified. C4's `RATING_HAS_THERAPIST_ALLOCATIONS` is
+  unchanged and still refuses both the withdrawal and the correction.
+- **Revisit when:** never for this rule.
+
+**The statement keys on `SESSION_DATE`, so it carries no `CORRECTION` lines, and
+states the settled portion on each line instead.** `lineType` stays `PRIMARY` and
+`correctsSessionSettlementId` stays null on every statement line; each line
+carries the session's CURRENT authoritative position plus a new signed
+`settledToman`, and `totals` gains a signed `pendingCorrectionToman` breaking
+down `earnedUnsettledToman`. A session appears if it currently earns something OR
+has ever been settled, so a charge withdrawn after its period closed keeps its
+line — zeroed, with a non-zero settled figure.
+
+**This is a departure from what the C1 contract comment anticipated, and it is
+recorded as one.** That comment describes a statement carrying `CORRECTION`
+lines. Two things make that unreachable on this read surface. First, the line
+money fields are UNSIGNED (`tomanAmountSchema`) while the most important
+correction — a charge voided after close — is per-line negative on the therapist
+net, so the frozen line shape cannot represent it. Second, a `CORRECTION` lands
+in a later PERIOD while the statement is keyed on the SESSION's day: a correction
+to a session in this range is a change to THIS session, not work belonging to
+another range of days, so listing it beside its own primary would state one
+session twice in one column and break the totals.
+
+- **Alternatives:** widening every line money field to signed and emitting
+  correction lines; leaving the settled/unsettled split in the totals alone.
+- **Reason:** widening `therapistNetToman` would delete from the type system the
+  rule that a therapist net is never negative — the one CLAUDE.md states outright
+  — to accommodate a delta that is not a session's worth. Leaving the totals
+  alone would fail the requirement that the read surface distinguish earned,
+  settled and pending. The chosen shape keeps every existing per-line guarantee,
+  adds two signed fields, and makes the reconciliation checkable per line:
+  `therapistNetToman − settledToman` is the pending movement. The materialised
+  `CORRECTION` rows remain first-class facts of the PERIOD that carried them and
+  are summarised on the closed period record by the frozen, already-signed
+  `carriedInCorrectionCount` and `carriedInCorrectionToman`, which is the
+  period-keyed surface a period-keyed fact belongs on.
+- **Trade-off:** `lineType` and `correctsSessionSettlementId` are constants on
+  this read. They are constants that are TRUE, and both remain meaningful on the
+  `settlement_line` rows themselves.
+- **Revisit when:** a period-keyed settlement read is approved — a "what did this
+  closed period contain?" line listing — which is where `CORRECTION` lines have a
+  column of their own and a signed line shape can be designed for them.
+
+**No entity type is added for `settlement_line`, and no line is audited
+individually.** `settlement_period` joins `AUDIT_ENTITY_TYPES` with its table;
+`settlement_line` deliberately does not.
+
+- **Alternatives:** an audit row per line.
+- **Reason:** a line is not independently decided — it exists because a close
+  materialised it, it can never be edited or withdrawn, and it is permanent in a
+  table with its own no-delete trigger. A row per line would multiply an
+  append-only table by the size of a therapist's month to record facts already
+  permanently readable at source. An entity type nothing writes would advertise
+  an act that does not exist.
+- **Trade-off:** none identified.
+- **Revisit when:** a line ever becomes independently decidable, which would mean
+  the immutability rule had changed.

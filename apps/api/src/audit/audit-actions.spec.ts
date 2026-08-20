@@ -146,16 +146,18 @@ describe('audit vocabulary', () => {
       // name. This test fails in the second case, so the pairing has to be done
       // deliberately in the checkpoint that owns it.
       //
-      // Checkpoint C2 created `therapist_share_rule` and C3 created
-      // `session_settlement`; each was paired here by the checkpoint that
-      // created its table.
+      // Checkpoint C2 created `therapist_share_rule`, C3 created
+      // `session_settlement` and C6 created `settlement_period`; each was paired
+      // here by the checkpoint that created its table.
       expect(AUDIT_ENTITY_TYPES).toContain('therapist_share_rule');
       expect(AUDIT_ENTITY_TYPES).toContain('session_settlement');
+      expect(AUDIT_ENTITY_TYPES).toContain('settlement_period');
 
-      // The remaining table does not exist yet, so its entity type must not.
-      for (const pending of ['settlement_period']) {
-        expect(AUDIT_ENTITY_TYPES).not.toContain(pending as never);
-      }
+      // `settlement_line` is a table and is deliberately NOT an entity type: a
+      // line is materialised by a close rather than decided on its own, is never
+      // edited or withdrawn, and no audit row ever names one. The close is
+      // recorded once, against the period.
+      expect(AUDIT_ENTITY_TYPES).not.toContain('settlement_line' as never);
 
       // Every settlement record still has at least one action naming it,
       // whether or not its table is here yet.

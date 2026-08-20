@@ -381,7 +381,18 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  receptionist variant with the money removed, because
       //                  the response is financial in its entirety. No export
       //                  route yet and no therapist-facing route ever.
-      expect(routes).toBe(103);
+      //
+      // periods:         the TWO closed-period routes (Milestone 8, checkpoint
+      //                  C6) — close one therapist's explicit inclusive range
+      //                  under `settlement.close`, and list the closed periods
+      //                  under `settlement.read`. TWO AND NEVER MORE: there is
+      //                  no update, delete or reopen route, because a closed
+      //                  period is immutable and is never reopened, and a route
+      //                  naming an act the product refuses to have reads as an
+      //                  act it has. Closing is its own authority because it is
+      //                  IRREVERSIBLE in a way rating and withdrawing are not.
+      //                  The receptionist is refused whole on both.
+      expect(routes).toBe(105);
     });
   });
 });

@@ -1,16 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
-  RatedVia,
   SettlementStatementExceptions,
   SettlementStatementLine,
   SettlementStatementQuery,
   SettlementStatementResponse,
   SettlementStatementTotals,
-  TariffPriceMode,
 } from '@clinic/contracts';
 import { AppError } from '../../common/app-error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { currentAmounts, readSettlementFacts, type SettlementFactRow } from '../settlement-facts';
 
 /**
  * THE SETTLEMENT STATEMENT: what the currently valid recorded facts say one
@@ -76,48 +75,44 @@ import { PrismaService } from '../../prisma/prisma.service';
  * net negative. CLAUDE.md requires that subsidy to be VISIBLE, so it is reported
  * as the negative number it is, on the line and in the total.
  * ------------------------------------------------------------------------
- * WHAT THIS CHECKPOINT DOES NOT HAVE, AND THEREFORE DOES NOT INVENT.
+ * WHAT CHECKPOINT C6 CHANGED HERE, AND WHAT IT DELIBERATELY DID NOT.
  *
- * No settlement period exists in this database — no table, no row, no close —
- * and C5 does not create one. The frozen response carries fields that anticipate
- * C6, and each is answered with the truth about a system in which nothing has
- * ever been closed:
+ * Closed settlement periods now exist, so the three settlement figures stop
+ * being constants. They keep their meanings exactly:
  *
- *   * `lineType` is `PRIMARY` on every line and `correctsSessionSettlementId` is
- *     null on every line. A `CORRECTION` line is by definition the delta of a
- *     rating corrected AFTER the period it belonged to had been CLOSED; with no
- *     closed period, no such line can exist. A rating corrected before any close
- *     is simply the standing rating of its own session, on its own day, and it
- *     appears as the `PRIMARY` line it is — the withdrawn rating it supersedes is
- *     history and is not a second line.
- *   * `correctionCount` is therefore always zero here, and no placeholder
- *     financial row is created to make the field look busy.
- *   * `settledToman` is `0`, because "settled" means "closed off in a period" and
- *     no period covers anything yet.
- *   * `earnedUnsettledToman` is the whole of `totals.therapistNetToman`, for the
- *     same reason, and `netSettlementToman` is the two together.
+ *   * `settledToman` — how much of this range a closed period already carries.
+ *     Summed from the session's materialised `settlement_line` rows: its one
+ *     `PRIMARY` plus every later `CORRECTION`.
+ *   * `earnedUnsettledToman` — the rest, and it is signed. It is the movement no
+ *     closed period carries yet, which is BOTH new work waiting for its first
+ *     close AND corrections to work already closed. The two are separated by
+ *     `pendingCorrectionToman`, which is a breakdown of this figure and not a
+ *     third addend.
+ *   * `netSettlementToman` — the two together, which is still
+ *     `totals.therapistNetToman`: what this range came to.
  *
- * When C6 lands, the first two stop being constants and the third keeps its
- * meaning unchanged. Nothing here has to be unwound to get there.
+ * EVERY LINE IS STILL `PRIMARY` AND `correctsSessionSettlementId` IS STILL NULL,
+ * AND THAT IS A DECISION RATHER THAN AN UNFINISHED FIELD. This read is keyed on
+ * `SESSION_DATE` while a `CORRECTION` is a movement carried into a LATER PERIOD;
+ * a correction to a session in this range is not work belonging to some other
+ * range of days, it is a change to THIS session, and stating it as a second line
+ * beside its own would report one session twice in one column. So a line states
+ * the session's CURRENT authoritative position, and how much of it is closed is
+ * stated ON THE LINE as `settledToman`. The materialised `CORRECTION` rows are
+ * facts of the PERIOD that carried them and are summarised on the closed period
+ * record, which is the period-keyed surface where a period-keyed fact belongs.
+ *
+ * A SESSION APPEARS IF IT CURRENTLY EARNS SOMETHING **OR** IF IT HAS EVER BEEN
+ * SETTLED. The second half is new in C6. A session whose charge was withdrawn
+ * after its period closed is worth nothing now — every money field on its line
+ * is zero — but a closed period still carries it, and dropping the line would
+ * hide the negative correction the next close has to make.
+ *
+ * THERE IS STILL NO SECOND CALCULATION. Both halves of every line come from
+ * `settlement-facts.ts`, which is the same statement `SettlementCloseService`
+ * materialises from; if the two ever disagreed, a correction would be written
+ * for an amount nobody could account for.
  */
-
-/** One rated, still-valid session, and the active concessions standing against it. */
-type StatementRow = {
-  session_settlement_id: string;
-  session_charge_id: string;
-  service_date: string;
-  service_id: string;
-  service_name: string;
-  duration_minutes: number;
-  price_mode: TariffPriceMode;
-  applied_share_basis_points: number;
-  rated_via: RatedVia;
-  base_amount_toman: bigint;
-  therapist_gross_toman: bigint;
-  clinic_gross_toman: bigint;
-  therapist_discount_toman: bigint;
-  clinic_discount_toman: bigint;
-};
 
 type TherapistRow = { id: string; full_name: string };
 
@@ -157,7 +152,7 @@ export class SettlementStatementService {
           range: { from: query.from, to: query.to, dateBasis: 'SESSION_DATE' as const },
           therapist,
           lines,
-          totals: totalsOf(lines),
+          totals: totalsOf(rows),
           exceptions: await this.exceptions(tx, query, rows),
         };
       },
@@ -192,92 +187,46 @@ export class SettlementStatementService {
   }
 
   /**
-   * EVERY SESSION THAT COUNTS, AND THE TEST OF "COUNTS" IS TWO `voided_at IS
-   * NULL`s AND NOTHING ELSE.
+   * EVERY SESSION THIS RANGE HAS TO ACCOUNT FOR, WHICH IS TWO SETS AND NOT ONE.
    *
-   *   * `ss.voided_at IS NULL` — the APPLIED rating that stands today. Withdrawn
-   *     ratings stay in the table as the record of what was applied while they
-   *     stood, and a statement asks what the facts say NOW.
-   *   * `c.voided_at IS NULL` — the charge still stands. A withdrawn charge is a
-   *     session the clinic has taken back; it carries no current settlement
-   *     value, and its rating is left untouched rather than rewritten.
+   * The derivation itself lives in `settlement-facts.ts` and is shared with the
+   * close, so "what is this session worth, and how much of it is closed?" has
+   * one answer in this application. What this method states is the SCOPE:
    *
-   * `session_settlement_one_valid_per_charge_uq` makes the first predicate yield
-   * at most one row per charge, so no `DISTINCT` and no de-duplication is needed
-   * and a therapist cannot appear twice for one session.
+   *   * `service_date BETWEEN from AND to` — the range, on the rating's own
+   *     clinic day, which is the charge's own by the composite foreign key
+   *     `session_settlement_charge_snapshot_fkey`. Both ends inclusive, spelled
+   *     as a plain `BETWEEN` on a `DATE` column, which is a closed interval over
+   *     discrete days. THERE IS NO MAXIMUM SPAN (`reports/common.ts`).
+   *   * `charge_voided = false OR primary_line_id IS NOT NULL` — a session still
+   *     standing, OR one a closed period already carries. The first half is C5's
+   *     rule unchanged: a withdrawn charge carries no current settlement value.
+   *     The second is C6's addition, and it is why a voided charge no longer
+   *     simply disappears — once a period has settled a session, the statement
+   *     has to keep showing it so the pending negative correction is visible
+   *     rather than silently absent.
    *
-   * THE RANGE IS OVER `ss.service_date`, WHICH IS THE CHARGE'S OWN
-   * `service_date`. It cannot be anything else: the composite foreign key
-   * `session_settlement_charge_snapshot_fkey` includes both, so a rating whose
-   * clinic day disagreed with its charge's is unrepresentable rather than merely
-   * unlikely. Reading it from the rating is what lets
-   * `session_settlement_therapist_id_service_date_idx` — exactly this pair —
-   * answer the range, and `SESSION_DATE` is the basis the response echoes.
-   *
-   * BOTH ENDS ARE INCLUSIVE, spelled as a plain `BETWEEN` on a `DATE` column,
-   * which is a closed interval over discrete days and needs no half-open instant
-   * form. THERE IS NO MAXIMUM SPAN (`reports/common.ts`), and none is invented
-   * here.
-   *
-   * THE ACTIVE CONCESSIONS ARE ONE LATERAL PER CHARGE rather than a join and a
-   * `GROUP BY`: it keeps the two sums beside the row they reduce, and it returns
-   * a zeroed pair for a session with no concessions instead of dropping the line.
-   * `voided_at IS NULL` inside it is the same predicate
-   * `sumActiveTherapistAllocations` and `enforce_charge_adjustment_bounds` use,
-   * so what a withdrawn concession means cannot differ between the write path's
-   * bound and this read.
-   *
-   * `price_mode` IS READ FROM THE CHARGE and never inferred from an amount. A
-   * `FREE` session and a `PAID` session waived to nothing are different facts,
-   * and telling them apart from `base_amount_toman = 0` would be a re-inference
-   * of the one distinction `priceMode` exists to keep at source.
-   *
-   * THE SERVICE NAME IS THE CURRENT CATALOG ROW, as it is on every other report
-   * in this system; the id is the fact.
+   * The rating predicate is inside the shared derivation and is unchanged:
+   * `ss.voided_at IS NULL`, the same predicate
+   * `session_settlement_one_valid_per_charge_uq` is partial on, so at most one
+   * row comes back per charge and no de-duplication is needed.
    *
    * NO FAMILY, CHILD OR GUARDIAN IS SELECTED (frozen C1). A settlement statement
    * is about work and money between the clinic and one therapist, and the
    * arithmetic is checkable without a roster of children on it.
-   *
-   * THE ORDER IS TOTAL: the clinic day, then the charge id, which is a uuidv7 and
-   * therefore breaks the tie by the order the charges were posted.
    */
   private async rows(
     tx: Prisma.TransactionClient,
     query: SettlementStatementQuery,
-  ): Promise<StatementRow[]> {
-    return tx.$queryRaw<StatementRow[]>`
-      SELECT
-        ss.id AS session_settlement_id,
-        ss.session_charge_id,
-        ss.service_date::text AS service_date,
-        c.service_id,
-        s.name AS service_name,
-        c.duration_minutes,
-        c.price_mode::text AS price_mode,
-        ss.applied_share_basis_points,
-        ss.rated_via::text AS rated_via,
-        ss.base_amount_toman,
-        ss.therapist_gross_toman,
-        ss.clinic_gross_toman,
-        active.therapist_discount_toman,
-        active.clinic_discount_toman
-      FROM session_settlement ss
-      JOIN session_charge c ON c.id = ss.session_charge_id
-      JOIN service s ON s.id = c.service_id
-      JOIN LATERAL (
-        SELECT
-          coalesce(sum(a.therapist_discount_toman), 0)::bigint AS therapist_discount_toman,
-          coalesce(sum(a.clinic_discount_toman), 0)::bigint AS clinic_discount_toman
-        FROM charge_adjustment a
-        WHERE a.session_charge_id = c.id AND a.voided_at IS NULL
-      ) active ON TRUE
-      WHERE ss.therapist_id = ${query.therapistId}::uuid
-        AND ss.voided_at IS NULL
-        AND c.voided_at IS NULL
-        AND ss.service_date BETWEEN ${query.from}::date AND ${query.to}::date
-      ORDER BY ss.service_date ASC, ss.session_charge_id ASC
-    `;
+  ): Promise<SettlementFactRow[]> {
+    return readSettlementFacts(
+      tx,
+      query.therapistId,
+      Prisma.sql`
+        fact.service_date::date BETWEEN ${query.from}::date AND ${query.to}::date
+        AND (fact.charge_voided = false OR fact.primary_line_id IS NOT NULL)
+      `,
+    );
   }
 
   /**
@@ -315,7 +264,7 @@ export class SettlementStatementService {
   private async exceptions(
     tx: Prisma.TransactionClient,
     query: SettlementStatementQuery,
-    rows: readonly StatementRow[],
+    rows: readonly SettlementFactRow[],
   ): Promise<SettlementStatementExceptions> {
     return {
       unratedSessionCount: await this.unratedCount(tx, query),
@@ -400,23 +349,35 @@ export class SettlementStatementService {
 }
 
 /**
- * ONE ROW, AND THE ONLY PLACE IN THIS APPLICATION WHERE A SETTLEMENT NET IS
- * SUBTRACTED.
+ * ONE ROW: what this session is worth now, and how much of that a closed period
+ * already carries.
  *
- * The two gross figures and the applied percentage are copied from the snapshot
- * verbatim — not recomputed from `base × bp`, which `share-split.ts` did once
- * when the row was written and `session_settlement_split_chk` has re-checked in
- * SQL ever since. Recomputing them here would be a second answer to a question
- * that has one, and the second answer would be today's rounding rule applied to
- * a session somebody has already been shown.
+ * THE TWO NETS ARE SUBTRACTED IN `settlement-facts.ts` AND NOWHERE ELSE, by the
+ * one routine the close materialises from. The gross figures and the applied
+ * percentage are copied from the C3 snapshot verbatim — not recomputed from
+ * `base × bp`, which `share-split.ts` did once when the row was written and
+ * `session_settlement_split_chk` has re-checked in SQL ever since. Recomputing
+ * them here would be a second answer to a question that has one, and the second
+ * answer would be today's rounding rule applied to a session somebody has
+ * already been shown.
+ *
+ * A SESSION WHOSE CHARGE HAS BEEN WITHDRAWN SHOWS ZEROES AND A NON-ZERO
+ * `settledToman`. That pair is the whole point of keeping the line: it says the
+ * session is worth nothing now and that a closed period nevertheless carries
+ * some of it, which is exactly the movement the next close will carry as a
+ * negative `CORRECTION`.
+ *
+ * `lineType` IS `PRIMARY` AND `correctsSessionSettlementId` IS NULL, for the
+ * reason set out in the file header: a correction to a session in this range is
+ * a change to THIS session rather than work belonging to another range of days,
+ * and stating it as a second line would report one session twice in one column.
  *
  * `bigint` END TO END, `toString()` AT THE WIRE. Every amount in this system
- * crosses as a canonical decimal string, unsigned except `clinicNetToman`, and
- * `bigint.toString()` produces exactly that form with no negative zero.
+ * crosses as a canonical decimal string, and `bigint.toString()` produces
+ * exactly that form with no negative zero.
  */
-function toLine(row: StatementRow): SettlementStatementLine {
-  const therapistNet = row.therapist_gross_toman - row.therapist_discount_toman;
-  const clinicNet = row.clinic_gross_toman - row.clinic_discount_toman;
+function toLine(row: SettlementFactRow): SettlementStatementLine {
+  const current = currentAmounts(row);
 
   return {
     sessionSettlementId: row.session_settlement_id,
@@ -425,19 +386,18 @@ function toLine(row: StatementRow): SettlementStatementLine {
     serviceId: row.service_id,
     serviceName: row.service_name,
     durationMinutes: row.duration_minutes,
-    // PRE-C6, AND HONESTLY SO: no settlement period exists, so no line can be
-    // the carried-in delta of one that was closed.
     lineType: 'PRIMARY',
     correctsSessionSettlementId: null,
     appliedShareBasisPoints: row.applied_share_basis_points,
     ratedVia: row.rated_via,
-    baseAmountToman: row.base_amount_toman.toString(),
-    therapistGrossToman: row.therapist_gross_toman.toString(),
-    therapistDiscountToman: row.therapist_discount_toman.toString(),
-    therapistNetToman: therapistNet.toString(),
-    clinicGrossToman: row.clinic_gross_toman.toString(),
-    clinicDiscountToman: row.clinic_discount_toman.toString(),
-    clinicNetToman: clinicNet.toString(),
+    baseAmountToman: current.baseAmountToman.toString(),
+    therapistGrossToman: current.therapistGrossToman.toString(),
+    therapistDiscountToman: current.therapistDiscountToman.toString(),
+    therapistNetToman: current.therapistNetToman.toString(),
+    clinicGrossToman: current.clinicGrossToman.toString(),
+    clinicDiscountToman: current.clinicDiscountToman.toString(),
+    clinicNetToman: current.clinicNetToman.toString(),
+    settledToman: row.settled_therapist_net_toman.toString(),
   };
 }
 
@@ -455,25 +415,58 @@ function toLine(row: StatementRow): SettlementStatementLine {
  * figure here is quietly wrong is the day somebody's earnings are quietly wrong,
  * and `number` is the only reason that could happen.
  *
- * THE THREE SETTLEMENT FIGURES, PRE-C6. Nothing has ever been closed, so every
- * line in this range is unsettled, `settledToman` is zero, and
- * `netSettlementToman` is the two together — which is `therapistNetToman`. They
- * are the accepted names and they are not a ledger: no `owed`, no `payable`, no
- * `due` and no `balance` appears here, because this milestone records nothing
- * that could ever decrease such a figure.
+ * THE THREE SETTLEMENT FIGURES, AND THE ONE IDENTITY THAT TIES THEM:
  *
- * `correctionCount` IS ZERO AND `sessionCount` IS THE NUMBER OF LINES, for the
- * same reason: every line is `PRIMARY` until a period can be closed.
+ *     settledToman         = Σ what closed periods already carry
+ *     earnedUnsettledToman = netSettlementToman − settledToman
+ *     netSettlementToman   = therapistNetToman = Σ what the sessions are worth now
+ *
+ * The middle line is a SUBTRACTION rather than a second sum, which is what makes
+ * the three provably consistent: there is no arrangement of rows in which they
+ * fail to add up, because two of them are defined from the third. It is signed,
+ * and it goes negative for a range whose closed sessions have since lost value —
+ * a charge withdrawn after its period closed is the ordinary way that happens.
+ *
+ * `pendingCorrectionToman` IS THE PART OF `earnedUnsettledToman` THAT BELONGS TO
+ * SESSIONS ALREADY CLOSED, and the remainder is new work waiting for its first
+ * close. A breakdown, not a third addend: the identity above is untouched.
+ *
+ * THEY ARE THE ACCEPTED NAMES AND THEY ARE NOT A LEDGER: no `owed`, no
+ * `payable`, no `due` and no `balance` appears here, because this milestone
+ * records nothing that could ever decrease such a figure.
+ *
+ * `correctionCount` COUNTS SESSIONS, NOT MOVEMENTS, so it reads against
+ * `sessionCount`: how many sessions in this range have moved since a closed
+ * period carried them, whether that movement has already been carried into a
+ * later close or is still pending.
  */
-function totalsOf(lines: readonly SettlementStatementLine[]): SettlementStatementTotals {
+function totalsOf(rows: readonly SettlementFactRow[]): SettlementStatementTotals {
+  const lines = rows.map(toLine);
+
   const sum = (pick: (line: SettlementStatementLine) => string): bigint =>
     lines.reduce((running, line) => running + BigInt(pick(line)), 0n);
 
   const therapistNet = sum((line) => line.therapistNetToman);
+  const settled = sum((line) => line.settledToman);
+
+  const pendingCorrection = rows.reduce(
+    (running, row) =>
+      row.primary_line_id === null
+        ? running
+        : running + (currentAmounts(row).therapistNetToman - row.settled_therapist_net_toman),
+    0n,
+  );
+
+  const correctionCount = rows.filter(
+    (row) =>
+      row.primary_line_id !== null &&
+      (row.correction_line_count > 0 ||
+        currentAmounts(row).therapistNetToman !== row.settled_therapist_net_toman),
+  ).length;
 
   return {
     sessionCount: lines.length,
-    correctionCount: 0,
+    correctionCount,
     baseAmountToman: sum((line) => line.baseAmountToman).toString(),
     therapistGrossToman: sum((line) => line.therapistGrossToman).toString(),
     therapistDiscountToman: sum((line) => line.therapistDiscountToman).toString(),
@@ -481,8 +474,9 @@ function totalsOf(lines: readonly SettlementStatementLine[]): SettlementStatemen
     clinicGrossToman: sum((line) => line.clinicGrossToman).toString(),
     clinicDiscountToman: sum((line) => line.clinicDiscountToman).toString(),
     clinicNetToman: sum((line) => line.clinicNetToman).toString(),
-    earnedUnsettledToman: therapistNet.toString(),
-    settledToman: '0',
+    earnedUnsettledToman: (therapistNet - settled).toString(),
+    pendingCorrectionToman: pendingCorrection.toString(),
+    settledToman: settled.toString(),
     netSettlementToman: therapistNet.toString(),
   };
 }
