@@ -61,6 +61,8 @@ async function main(): Promise<number> {
       ['services', summary.services],
       ['rooms', summary.rooms],
       ['therapists', summary.therapists],
+      ['published services', summary.publishedServices],
+      ['published therapists', summary.publishedTherapists],
       ['families', summary.families],
       ['children', summary.children],
       ['appointments', summary.appointments],

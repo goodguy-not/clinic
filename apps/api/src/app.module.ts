@@ -19,6 +19,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
 import { SettlementModule } from './settlement/settlement.module';
 import { UsersModule } from './users/users.module';
+import { WebsiteModule } from './website/website.module';
 
 /**
  * Root of the modular monolith.
@@ -48,6 +49,7 @@ import { UsersModule } from './users/users.module';
     FamiliesModule,
     ReportsModule,
     SettlementModule,
+    WebsiteModule,
     HealthModule,
   ],
   providers: [

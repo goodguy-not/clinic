@@ -222,6 +222,47 @@ export const PERMISSIONS = [
   'settlement.rate',
   'settlement.void_rating',
   'settlement.close',
+
+  // The public website (Milestone 9, checkpoint A1). THREE NAMES, ALL THREE
+  // MANAGER-ONLY, AND THE RECEPTIONIST RECEIVES NONE OF THEM.
+  //
+  // This is the first authority in the product over what the clinic says to
+  // PEOPLE WHO ARE NOT ITS PATIENTS, and that is a different kind of act from
+  // everything above: an internal mistake is corrected internally, while a
+  // published one is corrected in front of the town, and may have been copied
+  // by a search engine before anybody noticed.
+  //
+  // `therapist.publish_profile` IS SEPARATE FROM `therapist.update`, AND THE
+  // SEPARATION IS THE WHOLE OPT-IN MODEL. Editing the personnel row — the
+  // name the diary sorts by, the specialty, the services they support — is
+  // clinic administration. Deciding that a named human being appears on a
+  // public website, with a photograph and a biography, is a decision ABOUT
+  // THAT PERSON, taken with their agreement, and it must be grantable and
+  // revocable on its own. One `therapist.update` covering both would mean that
+  // anybody allowed to fix a misspelt specialty could publish a colleague.
+  //
+  // `clinic_profile.read` EXISTS BESIDE `clinic_profile.update` for the reason
+  // every other read/write pair in this list does: seeing the address and
+  // telephone number the site publishes is not the same authority as changing
+  // them. The PUBLIC read of that profile needs NEITHER — it is the website,
+  // and it holds no permissions at all (see the route classification in
+  // `apps/api/src/website`).
+  //
+  // THE RECEPTIONIST HOLDS NONE OF THE THREE, AND THAT IS A FROZEN PRODUCT
+  // RULE RATHER THAN A DEFAULT. A later checkpoint may let this role DRAFT
+  // public content — write a description, prepare an article — and drafting is
+  // deliberately not expressible with any name here. Draft authority does not
+  // imply publish authority, so the permission that publishes will never be
+  // the permission that writes.
+  //
+  // NO NAME IS ADDED FOR PUBLISHING A SERVICE. A service's public description,
+  // its public slug and whether it is public at all are columns on the catalog
+  // row, written under `service.update`, which has been manager-only since
+  // Milestone 2 and is held by nobody else. A second name for that same act
+  // would be vocabulary with no decision behind it.
+  'therapist.publish_profile',
+  'clinic_profile.read',
+  'clinic_profile.update',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

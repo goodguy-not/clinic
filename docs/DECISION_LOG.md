@@ -3099,3 +3099,303 @@ Closure adds the one column, and nothing else.
 - **Trade-off:** one more column on a file that already has sixteen. The export
   still computes nothing and still reads the statement's own rows.
 - **Revisit when:** never for this column; it follows the statement line.
+
+## 2026-08-21 — Publication is two facts on the catalog row, not a published copy of it
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+A service or a therapist is published by columns on its own row: the INTENT
+(`is_public`) and the PUBLIC IDENTITY (`public_slug`, and on a therapist the
+approved `public_display_name`). Every public read demands all of them at once,
+and a row missing any one of them is not reachable from the website through any
+route.
+
+- **Alternatives:** a `published_service` / `published_therapist` table holding a
+  copy of what the site shows; a single `is_public` flag with the website reading
+  the internal columns directly.
+- **Reason:** a published copy drifts, and the first time it drifted the site
+  would advertise something the clinic had stopped offering. A lone flag has the
+  opposite problem: it makes publication a single boolean over columns that were
+  never written with a visitor in mind, which is how an internal note reaches a
+  public page. Intent and identity as separate facts also give the manager
+  surface two separately audited acts — prepare the content, then publish — with
+  the database refusing the second without the first.
+- **Trade-off:** a service already flagged `is_public` from Milestone 2 gains a
+  NULL slug and is therefore NOT published by this migration. That is deliberate:
+  publishing rows on the strength of a flag nobody set with a website in mind is
+  the unsafe direction.
+- **Assumptions:** the clinic's catalogue is tens of rows, so no partial listing
+  index is justified; the two unique slug indexes serve every lookup.
+- **Revisit when:** a public page needs to show something the catalog row does
+  not hold — a hero image, a structured "what to expect" block — which is
+  content, and belongs to the content checkpoint rather than to another column
+  here.
+
+## 2026-08-21 — A public therapist is opt-in, and nothing falls back to the personnel record
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+`therapist.is_public` defaults to false. An ACTIVE therapist is not a public one.
+The website reads `public_display_name`, `public_title`, `public_bio` and
+`public_photo_path` — separate, owner-approved content — and NEVER `full_name` or
+`specialty`. A therapist with no approved display name is not published at all.
+
+`therapist_public_profile_chk` refuses `is_public = true` without a slug and an
+approved display name, and the public projection shares no field name with the
+internal therapist schema, so there is no field for an internal value to fall
+back INTO.
+
+- **Alternatives:** publishing every active therapist; defaulting the public name
+  to `full_name` and the title to `specialty` when the approved content is
+  missing.
+- **Reason:** appearing on a website with a photograph and a biography is a
+  decision about a named human being, taken with their agreement. Inferring it
+  from employment publishes somebody who never agreed, and a fallback publishes a
+  personnel record as public copy — both are publication decisions nobody made.
+- **Trade-off:** a therapist is invisible on the site until a manager writes the
+  approved content, and the empty team page is the correct state until then.
+- **Revisit when:** the clinic wants a colleague listed by name only, with no
+  title and no biography — which this already supports, both being nullable.
+
+## 2026-08-21 — The public reads are classified `internal`, and there is no second access architecture
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+The five public reads carry `@InternalOnly()`: the internal key, no session. They
+are reachable only from the Next.js server, exactly like `POST /auth/login`, and
+`/health` remains the only route in the product that genuinely bypasses the key.
+
+- **Alternatives:** a fifth route classification for website reads; marking them
+  `PublicEndpoint` so a browser could call NestJS directly.
+- **Reason:** "public" describes the AUDIENCE OF THE FACTS, not the reachability
+  of the route, and the guard chain already has a kind that means "across the
+  private boundary, without a session". A new classification would be a second
+  answer to a question the four-kind model has answered since Milestone 1, and a
+  genuinely public route would put NestJS on the internet for the first time.
+  Deny-by-default is untouched: the route-coverage test counts these five.
+- **Trade-off:** the web tier must proxy or server-render every public page, which
+  is what it was going to do anyway; nothing is reachable from a visitor's
+  browser without Next in front of it.
+- **Revisit when:** a public surface needs to accept a WRITE from an anonymous
+  visitor — the request form — which arrives with its own consent, rate-limiting
+  and abuse decisions, and re-opens this question deliberately rather than by
+  inheriting an answer.
+
+## 2026-08-21 — The public contracts are purpose-built projections, and carry no internal identifier
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+`packages/contracts/src/website/*` states four public shapes. They reuse no
+internal schema, and they omit the internal UUID: a public record is addressed by
+its SLUG and by nothing else. Also absent: status, deactivation, the visibility
+flag itself, creators, timestamps, price and availability.
+
+- **Alternatives:** reusing `serviceSchema` and `therapistSchema` and stripping
+  fields in the controller; publishing the id so the web tier can key a list.
+- **Reason:** stripping is a step somebody forgets, and it re-widens silently the
+  next time an internal schema gains a column — which is precisely the failure
+  this checkpoint has to make impossible. The id is worse than unnecessary: it is
+  the key that names the same row in the tariff, appointment, charge and
+  settlement tables, handed to every visitor for no public purpose. The slug is
+  unique, so it keys a list perfectly well.
+- **Trade-off:** four more schemas to keep in step with the tables behind them,
+  and a unit test that pins each field list exactly so a widening fails a build.
+- **Revisit when:** a public page genuinely needs a service and a therapist
+  linked to each other, which needs a decision about what the link means before
+  it needs a field.
+
+## 2026-08-21 — The clinic's public profile is one row, created empty
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+`clinic_public_profile` holds exactly one row, pinned by its primary key and a
+CHECK. The migration inserts it with every column NULL, and the public read
+always succeeds — an unconfigured clinic reads as thirteen nulls rather than as a
+404 on its own contact page. No real name, address, telephone number, hours line
+or link appears anywhere in this repository; every fixture is synthetic.
+
+- **Alternatives:** a key/value settings table; no row until a manager saves one;
+  seeding plausible-looking placeholder contact details.
+- **Reason:** a key/value store makes every read a lookup with no shape and no
+  constraints, and this content is exactly where constraints matter — an
+  `https`-only link and a both-or-neither map pin are enforced in SQL. "No row
+  until saved" makes the public read a lookup that can miss, for a page that must
+  render regardless. Placeholder details are the worst option: fictional contact
+  information on a real clinic's website is a defect that reaches families.
+- **Trade-off:** thirteen nullable columns the web tier has to lay out
+  deliberately, including the case where all of them are null.
+- **Revisit when:** the owner supplies content that does not fit one line — a
+  second address, a structured week of opening hours — which is a content
+  decision, not a column.
+
+## 2026-08-21 — A1 delivers the public READ side only, and the dev seeder is the only writer
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+The columns this checkpoint adds are written by no service and no endpoint. The
+manager surface that publishes belongs to the content checkpoint. The synthetic
+clinic seeder writes them in raw SQL — publishing all but one service and all but
+one therapist, and filling the profile with obviously fictional values — so the
+web lane has something to render against.
+
+Three permission names are frozen with no route yet: `therapist.publish_profile`,
+`clinic_profile.read`, `clinic_profile.update`. All three are manager-only, and
+the receptionist's list is unchanged for the fifth milestone running.
+
+- **Alternatives:** adding `publicSlug` to the existing service create/update
+  contract now; building the manager publishing surface inside this checkpoint;
+  leaving the seeder alone and giving the web lane an empty database.
+- **Reason:** extending the service write contract would change an internal form,
+  its Server Action and its tests — Web work this checkpoint is explicitly not
+  doing — and would half-build the publishing surface the next checkpoint owns
+  whole. Freezing the permission names now is the pattern Milestone 8 checkpoint
+  C1 set, and for the same reason: the surfaces built later must not each decide
+  what authority they need. The seeder is dev-only and never in a request path,
+  so it is the honest place to put the one write this checkpoint needs.
+- **Trade-off:** for the length of one checkpoint, publishing anything requires
+  the seeder or SQL, and three permission names name no route. Both close in the
+  content checkpoint.
+- **Revisit when:** the content checkpoint lands; if it does not, the three names
+  should be withdrawn rather than left as vocabulary nobody reaches. The
+  checkpoint that owns each write path is named in the amendment below, "Every
+  manager public-content write path is owned by A2".
+
+## 2026-08-21 — The cache tag vocabulary is frozen in contracts, and no caching is implemented
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+`PUBLIC_CACHE_TAGS` and the two per-slug prefixes are constants in
+`@clinic/contracts`. Nothing in `apps/api` reads them; the API's responses still
+carry `Cache-Control: no-store` from `NoStoreInterceptor`, unchanged.
+
+- **Alternatives:** letting the web lane choose its own tag names; exempting
+  public routes from the no-store default so an intermediary could cache them.
+- **Reason:** a page tagged `public-services` and a revalidation clearing
+  `publicServices` is a bug nothing fails on — the site goes stale and nobody
+  knows for how long — so the names have to be agreed across the lanes even
+  though only one of them uses them. The no-store default stays because the web
+  tier caches with its own explicit fetch options, which do not depend on the
+  upstream header, and weakening a security default for a caching layer one tier
+  away is the wrong trade.
+- **Trade-off:** the constants name no behaviour until the web lane wires them
+  up, and a per-slug tag is built by concatenation because the contracts package
+  holds no functions.
+- **Revisit when:** the public site is measured under real traffic and the
+  round trip to NestJS turns out to matter more than the header does.
+
+## 2026-08-21 — A published public slug is immutable, and the stamp is what decides
+
+**Status:** Accepted — Milestone 9, checkpoint A1 (review revision)
+
+`service` and `therapist` carry `public_first_published_at`, stamped by
+`enforce_public_slug_stability()` the first time a row is `is_public` AND
+carries a `public_slug`. While that stamp is set the slug may not be changed and
+may not be cleared, and the stamp itself may not be rewritten. A slug that has
+never been reachable may still be corrected freely.
+
+Three consequences, all deliberate:
+
+- **unpublishing stays allowed.** Withdrawing a page is a decision the clinic is
+  entitled to make, and a 404 is honest in a way a moved URL is not.
+- **the round trip is refused.** Unpublish, rename, republish is the same silent
+  URL change with an extra step, and the stamp survives the round trip.
+- **reachability ignores `status`.** A service retired last month still had a
+  real URL last month, and somebody may still have it written down.
+
+- **Alternatives:** making the slug write-once from the moment it is first set
+  (before publication); leaving it mutable and adding a redirect, alias or
+  slug-history table; enforcing stability in the A2 service layer instead of the
+  database.
+- **Reason:** write-once-at-first-write punishes a typo caught before anybody
+  could have seen it, and this schema already separates preparing public content
+  from publishing it. A redirect table is a URL-management subsystem the product
+  has not asked for, and it would quietly make the slug mutable again — the
+  invariant would then live in whatever code remembered to write a redirect.
+  Service-layer enforcement is the weakest of the three: A1 has no write path at
+  all, so the rule would be enforced by code that does not exist yet, against a
+  column any later migration, data fix or psql prompt could edit.
+- **Trade-off:** a genuinely wrong published slug — a misspelling that went out —
+  can only be retired, not corrected: the row is unpublished and a NEW row would
+  be needed to take a new address. That is the cost of the promise, and it is
+  visible rather than silent.
+- **Revisit when:** the owner accepts a real URL breaking, or asks for
+  redirects. Either is a product decision, and the redirect version needs the
+  history table this entry declines to add speculatively.
+
+## 2026-08-21 — Every manager public-content write path is owned by A2, and none is orphaned
+
+**Status:** Accepted — Milestone 9 checkpoint plan, amended
+
+A1 adds persistence with no manager writer. That is acceptable only with a named
+owner, so the checkpoint outcome is amended to state one. **A2 owns every
+manager write path over public presentation; B2 owns the internal management UX
+for it.** Specifically A2 delivers:
+
+1. the public-facing fields on a service — public description, public slug,
+   `is_public` — added to the EXISTING manager service form and its existing
+   `service.update` / `service.create` authority;
+2. the therapist public profile — display name, title, biography, photo path,
+   display order — and the opt-in toggle, under `therapist.publish_profile`;
+3. the clinic public profile, under `clinic_profile.read` /
+   `clinic_profile.update`;
+4. the audit rows for all three, written in the same transaction as the change,
+   as every write in this application already is;
+5. the `PUBLIC_SLUG_IMMUTABLE` error code and its Persian message, which is where
+   the A1 trigger becomes a sentence a manager can read.
+
+A2 keeps its own content scope (articles, testimonials, publish/unpublish of
+those). Nothing here is a CMS: there is no page builder, no media library, no
+template system and no arbitrary content type — five owner-supplied fields on a
+person, three on a service, and thirteen on the clinic.
+
+- **Alternatives:** doing the write paths inside A1; giving them their own
+  checkpoint; leaving them to M10 deployment configuration.
+- **Reason:** A1 is the parallel-work gate and its job is the contract Agent B
+  builds against; adding internal forms to it would have made the gate wait on
+  Web work it was defined to unblock. A checkpoint of their own would split one
+  manager surface — "the public face of the clinic" — across two, and A2 already
+  owns the publishing model those forms belong to. Configuration-at-deploy is
+  the worst option and the one this amendment exists to forbid: normal
+  manager-owned content operations must never need SQL, a seed or a deploy.
+- **Trade-off:** for the length of one checkpoint the only writer of these
+  columns is the dev seeder, which is dev-only and never in a request path. If
+  A2 slips, that is the fact to escalate — the persistence is otherwise
+  orphaned.
+- **Revisit when:** A2 is scoped. If its content work is large enough to push
+  these forms out, they move to their own checkpoint BEFORE M9 closes, not into
+  M10.
+
+## 2026-08-21 — The A1 permission vocabulary, reconciled against the planning sketch
+
+**Status:** Accepted — Milestone 9, checkpoint A1
+
+A1 names three permissions — `therapist.publish_profile`, `clinic_profile.read`,
+`clinic_profile.update` — where the planning proposal sketched a broader future
+vocabulary. The AUTHORITY SEMANTICS are unchanged from the accepted plan:
+publishing is manager-only; a receptionist may later draft and may never
+publish; visibility is opt-in and manager-controlled; the public reads
+themselves hold no permission at all.
+
+What changed is only which names exist YET. Names for content that does not
+exist — articles, testimonials, their draft and publish authorities, the request
+inbox and its conversion authority — are deferred to the checkpoints that create
+the concepts, because a permission is a description of an act, and an act with
+no route and no table is a description of nothing. The A1 three are exactly the
+acts A1's own persistence makes possible.
+
+- **Alternatives:** adding the planned vocabulary in full now so later
+  checkpoints only wire it up.
+- **Reason:** this repository's rule is that a name nobody reaches is vocabulary
+  a reader has to interpret and a role map has to keep withholding
+  (`permissions.ts`). Three names ahead of their routes is the Milestone 8 C1
+  precedent and is already at the limit; a dozen would be a permission model
+  describing a product that does not exist. Matching a sketch mechanically would
+  also risk freezing the WRONG shape — the draft/publish split, in particular,
+  is a decision A2 should take with its content model in front of it.
+- **Trade-off:** A2 and A4 will each add names, so the permission list is not
+  final at A1. No A1 name changes when they do, which is the property Agent B
+  needs.
+- **Revisit when:** A2 defines the content model. If it turns out that
+  publishing an article and publishing a therapist profile are one authority,
+  `therapist.publish_profile` is the name that generalises, and that would be a
+  rename with a decision behind it rather than churn.

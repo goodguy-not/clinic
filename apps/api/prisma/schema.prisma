@@ -11,6 +11,11 @@
 // Milestone 7 — dashboard and reports: NO new table, column or rule. Clinic-wide
 //               date-keyed reading is a new access pattern over existing rows,
 //               so the milestone adds three B-tree indexes and nothing else.
+// Milestone 9, checkpoint A1 — the public website's foundation: a public slug
+//               on `service`, an opt-in public profile on `therapist`, and the
+//               single-row `clinic_public_profile`. NO public content table,
+//               NO publishing workflow and NO request inbox — those are later
+//               checkpoints.
 // Milestone 8, checkpoint C2 — therapist settlement configuration: the
 //               effective-dated share percentage a therapist takes. ONE table,
 //               and it is configuration rather than a settlement fact — nothing
@@ -454,6 +459,34 @@ model Therapist {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String        @map("created_by_user_id") @db.Uuid
 
+  /// Milestone 9, checkpoint A1 — the public website's view of this person.
+  ///
+  /// `isPublic` DEFAULTS FALSE AND IS THE ONLY THING THAT PUBLISHES ANYBODY.
+  /// Being an active therapist does not put a person on the website: that is a
+  /// decision about a named human being, taken with their agreement, and the
+  /// migration adds `therapist_public_profile_chk` so the flag cannot be set
+  /// without the approved public identity beside it.
+  ///
+  /// The public fields NEVER FALL BACK to `fullName` or `specialty`. A
+  /// therapist with no approved display name is not published at all, because
+  /// substituting the personnel record would be a publication decision nobody
+  /// made.
+  isPublic               Boolean   @default(false) @map("is_public")
+  publicSlug             String?   @unique @map("public_slug")
+  /// When this therapist FIRST became publicly reachable — public and carrying
+  /// a slug. Stamped once by `enforce_public_slug_stability()` and never
+  /// rewritten; while it is set, `publicSlug` is immutable, so a URL that has
+  /// been real cannot silently become a different one. Internal: no public read
+  /// projects it.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  publicDisplayName      String?   @map("public_display_name")
+  publicTitle            String?   @map("public_title")
+  publicBio              String?   @map("public_bio")
+  publicPhotoPath        String?   @map("public_photo_path")
+  /// Ascending, ties broken by display name and then id, so the team page has
+  /// one order rather than whatever PostgreSQL returns.
+  publicDisplayOrder     Int       @default(0) @map("public_display_order")
+
   createdBy              AppUser                          @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supportedServices      TherapistService[]
   tariffs                Tariff[]
@@ -474,14 +507,27 @@ model Therapist {
 /// this milestone; the public website is a later one. They live on the service
 /// because that is where the fact belongs.
 model Service {
-  id                String        @id @default(uuid(7)) @db.Uuid
-  name              String        @unique
-  publicDescription String?       @map("public_description")
-  isPublic          Boolean       @default(false) @map("is_public")
-  status            CatalogStatus @default(ACTIVE)
-  deactivatedAt     DateTime?     @map("deactivated_at") @db.Timestamptz
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId   String        @map("created_by_user_id") @db.Uuid
+  id                     String        @id @default(uuid(7)) @db.Uuid
+  name                   String        @unique
+  publicDescription      String?       @map("public_description")
+  isPublic               Boolean       @default(false) @map("is_public")
+  /// Milestone 9, checkpoint A1 — the service's public identity, and the only
+  /// name the website ever uses for it.
+  ///
+  /// Nullable, and a public read requires it: `isPublic` is the INTENT to
+  /// publish and the slug is the ADDRESS, and a service that has one without
+  /// the other is simply not reachable from the site. Unique across every
+  /// service, including private and inactive ones, so a slug that ever
+  /// addressed one page can never quietly address another.
+  publicSlug             String?       @unique @map("public_slug")
+  /// When this service FIRST became publicly reachable. Same rule, same
+  /// trigger, same reason as the therapist's: a published URL is a promise to
+  /// everybody who has already followed it.
+  publicFirstPublishedAt DateTime?     @map("public_first_published_at") @db.Timestamptz
+  status                 CatalogStatus @default(ACTIVE)
+  deactivatedAt          DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String        @map("created_by_user_id") @db.Uuid
 
   createdBy        AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   durations        ServiceDuration[]
@@ -1802,4 +1848,42 @@ model SettlementLine {
   @@index([sessionSettlementId])
   @@index([correctsSettlementLineId])
   @@map("settlement_line")
+}
+
+/// The clinic's own public profile: ONE ROW, FOR EVER.
+///
+/// Milestone 9, checkpoint A1. There is exactly one clinic, so this is a
+/// singleton rather than a collection: `singletonKey` is pinned to 1 by a
+/// CHECK in the migration, which is what makes "the profile" a phrase with one
+/// referent and lets the public read be a lookup that cannot miss. The
+/// migration inserts that row EMPTY — every column is nullable, and every real
+/// value is owner-supplied through the manager surface a later checkpoint
+/// builds.
+///
+/// Nothing here is clinical, financial or personal. It is what a visitor would
+/// read on the door.
+model ClinicPublicProfile {
+  singletonKey     Int     @id @default(1) @map("singleton_key")
+  displayName      String? @map("display_name")
+  tagline          String?
+  about            String?
+  addressLine      String? @map("address_line")
+  cityLabel        String? @map("city_label")
+  phonePrimary     String? @map("phone_primary")
+  phoneSecondary   String? @map("phone_secondary")
+  email            String?
+  /// One owner-written line, not a machine-readable schedule. Therapist
+  /// availability is internal scheduling configuration and is never published.
+  workingHoursNote String? @map("working_hours_note")
+  /// Degrees, WGS 84, bounded by CHECK constraints in the migration.
+  mapLatitude      Float?  @map("map_latitude")
+  mapLongitude     Float?  @map("map_longitude")
+  instagramUrl     String? @map("instagram_url")
+  telegramUrl      String? @map("telegram_url")
+
+  /// NO `updatedAt` AND NO `updatedByUserId`, for the reason no catalog table
+  /// has them: `audit_log` is the authoritative change history, and a second,
+  /// application-written copy of it would be the quieter and less trustworthy
+  /// one.
+  @@map("clinic_public_profile")
 }

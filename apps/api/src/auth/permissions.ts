@@ -56,6 +56,18 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * The receptionist's list is therefore unchanged for the fourth milestone
  * running, and the test that states it exactly is what proves it.
  *
+ * MILESTONE 9 ADDS THREE NAMES AND GRANTS THE RECEPTIONIST NONE OF THEM. The
+ * public website is what the clinic says to people who are not its patients:
+ * publishing a named colleague's photograph and biography
+ * (`therapist.publish_profile`) and setting the address, telephone number and
+ * links the site prints (`clinic_profile.read`, `clinic_profile.update`) are
+ * manager authorities, and a later checkpoint that lets a receptionist DRAFT
+ * public content will not reach any of them — draft authority does not imply
+ * publish authority, which is why the drafting name does not exist here yet.
+ * The PUBLIC reads themselves hold no permission at all: they are classified
+ * `internal`, reachable only across the internal-key boundary from the Next.js
+ * server, and they can return nothing that is not already published.
+ *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
  * report, the promise report — are the diary, the ledger read and the promise

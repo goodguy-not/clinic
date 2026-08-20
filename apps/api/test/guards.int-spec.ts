@@ -407,7 +407,17 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  route and not two — there is no per-period export and
       //                  no bulk "every therapist" file, either of which would be
       //                  a report nobody has approved.
-      expect(routes).toBe(107);
+      //
+      // public site:     the FIVE public reads (Milestone 9, checkpoint A1) —
+      //                  the published services, one published service, the
+      //                  opted-in team, one opted-in profile, and the clinic's
+      //                  own public facts. Every one is classified `internal`:
+      //                  the internal key WITHOUT a session, exactly like login,
+      //                  because a visitor has none and the browser still never
+      //                  speaks to NestJS. FIVE READS AND NO WRITE — the public
+      //                  request form is a later checkpoint, so nothing an
+      //                  anonymous caller sends can make this application write.
+      expect(routes).toBe(112);
     });
   });
 });

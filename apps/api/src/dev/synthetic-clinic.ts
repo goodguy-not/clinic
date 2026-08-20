@@ -99,6 +99,9 @@ export type SyntheticClinicSummary = {
   services: number;
   rooms: number;
   therapists: number;
+  /** Milestone 9: how much of that catalogue the seeded clinic shows the world. */
+  publishedServices: number;
+  publishedTherapists: number;
   families: number;
   children: number;
   appointments: number;
@@ -256,6 +259,25 @@ export async function seedSyntheticClinic(
 
     therapistRows.push({ id: therapist.id, serviceIds: unique(supported) });
   }
+
+  // ---- the public website's face on that clinic ----------------------------
+  //
+  // Milestone 9, checkpoint A1. The catalogue above is entered through the real
+  // services; PUBLISHING part of it is written here in SQL, because the manager
+  // surface that publishes is a later checkpoint and this seeder must not
+  // invent one. Every value is synthetic, and the run tag is inside every slug
+  // so two runs never collide on a public identity.
+  //
+  // IT PUBLISHES SOME AND NOT ALL, DELIBERATELY. One service and one therapist
+  // are left private in every run, so anybody looking at a seeded clinic can
+  // see the boundary working rather than a website that happens to show
+  // everything.
+  const published = await publishSyntheticPublicSite(
+    prisma,
+    runTag,
+    serviceRows.map((service) => service.id),
+    therapistRows.map((therapist) => therapist.id),
+  );
 
   // Prices, effective from well before the seeded history so every session in
   // range resolves. ONE SERVICE IS LEFT WITHOUT A 45-MINUTE PRICE ON PURPOSE:
@@ -738,6 +760,8 @@ export async function seedSyntheticClinic(
     services: serviceRows.length,
     rooms: roomRows.length,
     therapists: therapistRows.length,
+    publishedServices: published.services,
+    publishedTherapists: published.therapists,
     families: familyIds.length,
     children: seededChildren.length,
     appointments: summary.appointments,
@@ -753,6 +777,83 @@ export async function seedSyntheticClinic(
     voidedPayments: voidedPaymentCount,
     promises: promiseCount,
   };
+}
+
+/**
+ * Publishes part of the seeded catalogue, and fills the clinic's public profile
+ * if nothing has filled it yet.
+ *
+ * WRITTEN IN SQL RATHER THAN THROUGH A SERVICE, because no service writes these
+ * columns yet: checkpoint A1 delivers the public READ side, and CHECKPOINT A2
+ * OWNS EVERY MANAGER WRITE PATH over public presentation (DECISION_LOG,
+ * 2026-08-21 — Every manager public-content write path is owned by A2). This is
+ * the one place in the repository that writes them, it exists so the web lane
+ * has something to render against, and it is dev-only — `apps/api/src/dev`
+ * never ships in a request path. It is NOT the long-term writer, and if A2 ever
+ * failed to land, that is the fact to escalate rather than to live with.
+ *
+ * EVERYTHING HERE IS SYNTHETIC AND OBVIOUSLY SO. The telephone numbers are
+ * zeroes, the addresses name a fictional street, the links and the e-mail
+ * address use the reserved `.invalid` domain, and the map pin is the centre of
+ * Tehran rather than anybody's building. The real values are owner-supplied and
+ * this repository does not hold them.
+ */
+async function publishSyntheticPublicSite(
+  prisma: PrismaService,
+  runTag: string,
+  serviceIds: string[],
+  therapistIds: string[],
+): Promise<{ services: number; therapists: number }> {
+  // The last of each is left private, so every seeded clinic contains a record
+  // the website must refuse to show.
+  const publishableServices = serviceIds.slice(0, Math.max(serviceIds.length - 1, 0));
+  const publishableTherapists = therapistIds.slice(0, Math.max(therapistIds.length - 1, 0));
+
+  for (const [index, id] of publishableServices.entries()) {
+    await prisma.$executeRaw`
+      UPDATE service
+      SET is_public = TRUE,
+          public_slug = ${`service-${index + 1}-${runTag}`},
+          public_description = ${`شرح نمونه خدمت ${index + 1} برای وب‌سایت آزمایشی (${runTag}).`}
+      WHERE id = ${id}::uuid
+    `;
+  }
+
+  for (const [index, id] of publishableTherapists.entries()) {
+    await prisma.$executeRaw`
+      UPDATE therapist
+      SET is_public = TRUE,
+          public_slug = ${`therapist-${index + 1}-${runTag}`},
+          public_display_name = ${`درمانگر نمونه ${index + 1} (${runTag})`},
+          public_title = ${`عنوان عمومی نمونه ${index + 1}`},
+          public_bio = ${`زندگی‌نامه نمونه و کاملاً ساختگی برای درمانگر ${index + 1} (${runTag}).`},
+          public_display_order = ${index + 1}
+      WHERE id = ${id}::uuid
+    `;
+  }
+
+  // Only when the profile is still empty: a second run must not overwrite what
+  // a first one wrote, and a real deployment must never be touched by this file
+  // at all.
+  await prisma.$executeRaw`
+    UPDATE clinic_public_profile
+    SET display_name = ${`کلینیک نمونه (${runTag})`},
+        tagline = 'وب‌سایت آزمایشی؛ هیچ‌یک از این اطلاعات واقعی نیست.',
+        about = 'متن نمونه درباره کلینیک، فقط برای توسعه و آزمایش.',
+        address_line = 'خیابان نمونه، پلاک ۰',
+        city_label = 'شهر نمونه',
+        phone_primary = '021-00000000',
+        phone_secondary = NULL,
+        email = 'info@example.invalid',
+        working_hours_note = 'شنبه تا چهارشنبه، ۹ تا ۱۸ (نمونه)',
+        map_latitude = 35.7,
+        map_longitude = 51.4,
+        instagram_url = 'https://example.invalid/instagram',
+        telegram_url = 'https://example.invalid/telegram'
+    WHERE singleton_key = 1 AND display_name IS NULL
+  `;
+
+  return { services: publishableServices.length, therapists: publishableTherapists.length };
 }
 
 /**

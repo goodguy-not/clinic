@@ -518,6 +518,88 @@ describe('role to permission map', () => {
     });
   });
 
+  describe('the public website', () => {
+    // Milestone 9, checkpoint A1. The permission model is frozen before any
+    // publishing behaviour exists, for the reason the settlement model was: the
+    // surfaces built in the later checkpoints must not each decide what
+    // authority they need.
+    const WEBSITE_PERMISSIONS = [
+      'therapist.publish_profile',
+      'clinic_profile.read',
+      'clinic_profile.update',
+    ] as const;
+
+    it('defines exactly the three approved names', () => {
+      for (const permission of WEBSITE_PERMISSIONS) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+
+      expect(
+        PERMISSIONS.filter((permission) => permission.startsWith('clinic_profile.')).sort(),
+      ).toEqual(['clinic_profile.read', 'clinic_profile.update'].sort());
+    });
+
+    it('names nothing this checkpoint did not approve', () => {
+      for (const absent of [
+        // Public CONTENT and the workflow that publishes it are later
+        // checkpoints, and inventing their vocabulary now would be guessing at
+        // decisions nobody has taken.
+        'article.read',
+        'article.create',
+        'article.publish',
+        'testimonial.approve',
+        'content.publish',
+        'website.manage',
+        // The public request inbox is a later checkpoint too.
+        'website_request.read',
+        'website_request.convert',
+        // A draft authority is deliberately absent: it belongs to the
+        // checkpoint that builds drafting, and it must never be the same name
+        // as the one that publishes.
+        'content.draft',
+        // The public reads carry no permission at all — they are classified
+        // `internal` and hold none.
+        'public.read',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('gives every one of them to the manager and none of them to the receptionist', () => {
+      // Draft authority does not imply publish authority, and this role holds
+      // neither today. Publishing a colleague photograph and biography, and
+      // setting the address and telephone number a public site prints, are
+      // manager decisions.
+      const manager = permissionsForRole('MANAGER');
+      const receptionist = permissionsForRole('RECEPTIONIST');
+
+      for (const permission of WEBSITE_PERMISSIONS) {
+        expect(manager).toContain(permission);
+        expect(receptionist).not.toContain(permission);
+      }
+    });
+
+    it('keeps publishing a therapist separate from editing one', () => {
+      // The opt-in model in one assertion: `therapist.update` maintains the
+      // personnel row, `therapist.publish_profile` decides whether a named
+      // human being appears on a public website. One name covering both would
+      // mean anybody who may fix a misspelt specialty may publish a colleague.
+      expect(PERMISSIONS).toContain('therapist.update');
+      expect(PERMISSIONS).toContain('therapist.publish_profile');
+      expect(permissionsForRole('RECEPTIONIST')).not.toContain('therapist.update');
+      expect(permissionsForRole('RECEPTIONIST')).not.toContain('therapist.publish_profile');
+    });
+
+    it('adds no second name for publishing a service', () => {
+      // A service public description, its slug and its visibility are columns
+      // on the catalog row, written under `service.update`, which has been
+      // manager-only since Milestone 2.
+      for (const absent of ['service.publish', 'service.update_public_profile'] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+  });
+
   it('names only permissions that exist in the contract', () => {
     for (const granted of Object.values(ROLE_PERMISSIONS)) {
       for (const permission of granted) {

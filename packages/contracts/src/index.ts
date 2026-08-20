@@ -51,3 +51,7 @@ export * from './settlement/share-rules';
 export * from './settlement/ratings';
 export * from './settlement/statement';
 export * from './settlement/close';
+export * from './website/common';
+export * from './website/public-services';
+export * from './website/public-team';
+export * from './website/public-clinic';

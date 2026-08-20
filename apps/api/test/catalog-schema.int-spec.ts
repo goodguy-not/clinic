@@ -248,6 +248,12 @@ describe('catalog schema objects', () => {
         'session_settlement',
         'settlement_period',
         'settlement_line',
+        // Milestone 9, checkpoint A1. ONE table and no more: the clinic's own
+        // single-row public profile. The public face of a SERVICE and of a
+        // THERAPIST is columns on those rows rather than a published copy of
+        // them, and no article, testimonial, page or website-request table
+        // exists — those are later checkpoints.
+        'clinic_public_profile',
       ].sort(),
     );
   });
