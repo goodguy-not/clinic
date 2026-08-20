@@ -379,8 +379,8 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  under `settlement.read` alone. Manager-only, and the
       //                  refusal is WHOLE: there is deliberately no thinner
       //                  receptionist variant with the money removed, because
-      //                  the response is financial in its entirety. No export
-      //                  route yet and no therapist-facing route ever.
+      //                  the response is financial in its entirety. No
+      //                  therapist-facing route, ever.
       //
       // periods:         the TWO closed-period routes (Milestone 8, checkpoint
       //                  C6) — close one therapist's explicit inclusive range
@@ -392,7 +392,18 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  act it has. Closing is its own authority because it is
       //                  IRREVERSIBLE in a way rating and withdrawing are not.
       //                  The receptionist is refused whole on both.
-      expect(routes).toBe(105);
+      //
+      // export:          the ONE settlement CSV export (Milestone 8, checkpoint
+      //                  C8) — `/settlement/statement/export`, the statement's
+      //                  own path plus the Milestone 7 `/export` suffix, under
+      //                  `settlement.read` AND `report.export`. The sixth
+      //                  exportable surface in the product and the first outside
+      //                  `ReportsModule`: the read model it projects is this
+      //                  module's, so the file sits beside its screen. It is one
+      //                  route and not two — there is no per-period export and
+      //                  no bulk "every therapist" file, either of which would be
+      //                  a report nobody has approved.
+      expect(routes).toBe(106);
     });
   });
 });

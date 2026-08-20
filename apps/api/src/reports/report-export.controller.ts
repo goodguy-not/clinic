@@ -23,7 +23,8 @@ import {
 } from '../auth/permissions';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
-import { ReportExportService, type ReportExportFile } from './report-export.service';
+import { sendCsvFile } from './csv-export';
+import { ReportExportService } from './report-export.service';
 
 /**
  * THE FIVE CSV EXPORTS OF MILESTONE 7 (checkpoint C5):
@@ -55,13 +56,17 @@ import { ReportExportService, type ReportExportFile } from './report-export.serv
  * is the whole filtered result, and a paged download would silently omit the
  * rest of the period.
  *
- * THE RESPONSE IS A FILE, NOT AN ENVELOPE. `text/csv; charset=utf-8` with an
- * attachment disposition, so a browser saves it rather than rendering it, and
- * `X-Content-Type-Options: nosniff` so nothing re-interprets bytes a family's own
- * name contributed to. The global `NoStoreInterceptor` has already set
- * `Cache-Control: no-store` and `Referrer-Policy: no-referrer` — these routes are
- * not public, and a downloaded report of every family's balance is the last thing
- * that may sit in a proxy.
+ * THE RESPONSE IS A FILE, NOT AN ENVELOPE. The download headers are
+ * `sendCsvFile` in `csv-export.ts` — shared with the Milestone 8 settlement
+ * export, so every CSV this system serves is served the same way.
+ *
+ * THE SIXTH EXPORTABLE SURFACE IS NOT HERE, AND THAT IS THE RULE ABOVE HOLDING
+ * RATHER THAN BREAKING. `GET /settlement/statement/export` (Milestone 8,
+ * checkpoint C8) is `/export` on ITS report's own path, which is
+ * `/settlement/statement` — the settlement read model belongs to
+ * `SettlementModule`, and its file sits beside its screen for exactly the reason
+ * these five sit beside theirs. It demands `report.export` in the same AND-shape
+ * and writes the same single audit row through the same runner.
  *
  * ERRORS STAY JSON. `@Res({ passthrough: true })` sets headers and lets NestJS
  * send the body, so a refusal or a validation failure still travels through
@@ -84,7 +89,7 @@ export class ReportExportController {
     @Ctx() context: RequestContext,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    return send(response, await this.exports.sessions(query, session, context));
+    return sendCsvFile(response, await this.exports.sessions(query, session, context));
   }
 
   @Get('promises/export')
@@ -95,7 +100,7 @@ export class ReportExportController {
     @Ctx() context: RequestContext,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    return send(response, await this.exports.promises(query, session, context));
+    return sendCsvFile(response, await this.exports.promises(query, session, context));
   }
 
   @Get('therapist-activity/export')
@@ -106,7 +111,7 @@ export class ReportExportController {
     @Ctx() context: RequestContext,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    return send(response, await this.exports.therapistActivity(query, session, context));
+    return sendCsvFile(response, await this.exports.therapistActivity(query, session, context));
   }
 
   @Get('payments/export')
@@ -117,7 +122,7 @@ export class ReportExportController {
     @Ctx() context: RequestContext,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    return send(response, await this.exports.payments(query, session, context));
+    return sendCsvFile(response, await this.exports.payments(query, session, context));
   }
 
   @Get('family-accounts/export')
@@ -129,23 +134,6 @@ export class ReportExportController {
     @Ctx() context: RequestContext,
     @Res({ passthrough: true }) response: Response,
   ): Promise<string> {
-    return send(response, await this.exports.familyAccounts(query, session, context));
+    return sendCsvFile(response, await this.exports.familyAccounts(query, session, context));
   }
-}
-
-/**
- * The download headers, set once for all five.
- *
- * THE FILENAME IS THE SERVER'S AND IS ASCII (`csvFilename`), so it survives a
- * header intact in every browser without RFC 5987 encoding that products
- * implement inconsistently. It is quoted, and it is built from a fixed prefix and
- * two validated ISO dates — no caller-supplied text reaches it, so there is
- * nothing in it that could break out of the quotes.
- */
-function send(response: Response, file: ReportExportFile): string {
-  response.setHeader('content-type', 'text/csv; charset=utf-8');
-  response.setHeader('content-disposition', `attachment; filename="${file.filename}"`);
-  response.setHeader('x-content-type-options', 'nosniff');
-
-  return file.csv;
 }

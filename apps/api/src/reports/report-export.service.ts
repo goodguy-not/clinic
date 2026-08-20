@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type {
   FamilyAccountReportExportQuery,
   PaymentReportExportQuery,
@@ -8,13 +8,13 @@ import type {
   TherapistActivityExportQuery,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
-import { actorContext } from '../catalog/catalog-support';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
+import { runAuditedCsvExport, type ReportExportFile } from './csv-export';
 import { FamilyAccountReportService } from './family-account-report.service';
 import { PaymentReportService } from './payment-report.service';
 import { PromiseReportService } from './promise-report.service';
-import { csvFilename, toCsv, type CsvColumn } from './report-csv';
+import type { CsvColumn } from './report-csv';
 import {
   FAMILY_ACCOUNT_EXPORT_COLUMNS,
   PAYMENT_EXPORT_COLUMNS,
@@ -22,7 +22,7 @@ import {
   SESSION_EXPORT_COLUMNS,
   THERAPIST_ACTIVITY_EXPORT_COLUMNS,
 } from './report-export-columns';
-import { reportExportAudit, type ReportExportScope } from './report-export-audit';
+import type { ReportExportScope } from './report-export-audit';
 import { SessionReportService } from './session-report.service';
 import { TherapistActivityService } from './therapist-activity.service';
 
@@ -78,12 +78,11 @@ import { TherapistActivityService } from './therapist-activity.service';
  * cursor is the change to make. It is recorded in the C5 report.
  */
 
-/** What a controller hands to the HTTP layer: the bytes, and what to call them. */
-export type ReportExportFile = {
-  readonly filename: string;
-  readonly csv: string;
-  readonly rowCount: number;
-};
+/**
+ * Re-exported, not redeclared: the file shape belongs to the shared export
+ * machinery (`csv-export.ts`), and the five routes below still hand it out.
+ */
+export type { ReportExportFile };
 
 @Injectable()
 export class ReportExportService {
@@ -215,25 +214,14 @@ export class ReportExportService {
   }
 
   /**
-   * THE ONE PATH EVERY EXPORT TAKES: read the rows, write the bytes, record the
-   * act — in that order, in one transaction.
+   * EVERY EXPORT ABOVE GOES THROUGH THE ONE AUDITED RUNNER, AND THIS CLASS ADDS
+   * NOTHING TO IT.
    *
-   * THE AUDIT ROW IS WRITTEN AFTER THE ROWS ARE READ AND BEFORE THE RESPONSE IS
-   * RETURNED, INSIDE THE SAME TRANSACTION. `AuditService.record` demands a
-   * transaction client and refuses the base one, so "the export and its audit row
-   * are one atomic act" is a property of the signature rather than a convention:
-   * a caller cannot record the act without the read, and a read that fails records
-   * nothing.
-   *
-   * `rows.length` IS THE ONLY THING THE FILE TELLS THE AUDIT ROW. Not a value from
-   * it, not a name in it, not a total of it — the count of lines, which is what
-   * makes an export of four rows and an export of nine thousand distinguishable
-   * events without the trail holding either file's contents
-   * (`report-export-audit.ts`).
-   *
-   * ONE ACTION FOR ALL FIVE SURFACES, WITH THE SURFACE IN THE PAYLOAD.
-   * "How often does data leave this system?" is asked of exports as a class, and
-   * that is exactly the shape a reviewer filters on.
+   * The transaction, its isolation level and the single `report.exported` row
+   * live in `csv-export.ts`, where the Milestone 8 settlement export reaches
+   * them too (checkpoint C8). What stays here is what has always been this
+   * class's own: which surface, which columns, and whose statement reads the
+   * rows. It still computes nothing.
    */
   private async export<Row>(
     scope: ReportExportScope,
@@ -243,26 +231,11 @@ export class ReportExportService {
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<ReportExportFile> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const rows = await read(tx);
-
-        await this.audit.record(tx, actorContext(actor, context), {
-          action: 'report.exported',
-          // An export changes no row and therefore names none: `entity_id` is
-          // null, and the surface is a value in the payload
-          // (`audit/audit-actions.ts`).
-          entityType: 'report',
-          metadata: reportExportAudit(scope, rows.length),
-        });
-
-        return {
-          filename: csvFilename(filePrefix, scope.range),
-          csv: toCsv(columns, rows),
-          rowCount: rows.length,
-        };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    return runAuditedCsvExport(
+      { prisma: this.prisma, audit: this.audit },
+      { scope, filePrefix, columns, read },
+      actor,
+      context,
     );
   }
 }

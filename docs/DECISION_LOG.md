@@ -2951,3 +2951,75 @@ individually.** `settlement_period` joins `AUDIT_ENTITY_TYPES` with its table;
 - **Trade-off:** none identified.
 - **Revisit when:** a line ever becomes independently decidable, which would mean
   the immutability rule had changed.
+
+## 2026-08-20 — The settlement statement's CSV is the statement's own read, on the statement's own path
+
+**Status:** Accepted — Milestone 8, checkpoint C8
+
+`GET /settlement/statement/export` is the sixth exportable surface in the product
+and the first whose read model lives outside `ReportsModule`. It takes the
+statement's own query schema (`settlementStatementExportQuerySchema`, frozen C1),
+demands `SETTLEMENT_EXPORT_PERMISSIONS` — `settlement.read` AND `report.export` —
+and reads every row through `SettlementStatementService.exportRows`, which is the
+screen's read with nothing removed, because the statement is not paged. The
+export computes NOTHING: no predicate, no sum, no percentage, no subtraction, no
+second settlement derivation. Its column list is a projection of the frozen
+statement line and no more.
+
+**It sits on `/settlement/statement/export` rather than under `/reports/`,** which
+is the Milestone 7 rule (`/export` as a suffix on the report's own path) holding
+rather than breaking. To reuse the audited export machinery without a module
+cycle — `ReportsModule` already reaches `SettlementModule` transitively through
+appointments and the ledger — the transaction, its audit row, the filename and
+the download headers were extracted from `ReportExportService` into
+`reports/csv-export.ts` as plain functions. Nothing about the five existing
+exports changed: the same runner, the same isolation level, the same single
+`report.exported` row.
+
+**Signed values keep their signs and nothing is clamped.** A clinic net the clinic
+explicitly subsidised is exported as the negative number CLAUDE.md requires it to
+be, and it is deliberately NOT guarded against spreadsheet formula execution: a
+leading `-` on a server-produced number is a number to every spreadsheet, and an
+apostrophe would turn the figure a manager must sum into text. The formula guard
+stays on free text alone.
+
+**The file carries no totals row, and it carries its exclusions as two rows of
+their own kind.** A CSV is opened months later beside no screen, and the screen is
+where the excluded sessions are stated — so a file of settlement lines alone would
+be read as COMPLETE by a manager whose month contains sessions nobody has rated.
+Every row therefore declares its kind in the first column: `SETTLEMENT_LINE`, or
+`EXCLUDED_UNRATED` / `EXCLUDED_UNCHARGED_COMPLETED` carrying the statement's own
+count. Both exception rows are always written, including when they count zero, so
+"this range excluded nothing" cannot be confused with "this export does not report
+exclusions" — and an empty range is a file that says it is empty. An exception row
+carries a COUNT and not one unit of money: every money cell on it is EMPTY, never
+`0`, because an unrated session is the absence of a decision and not a session
+worth nothing. A FREE session is not an exception and gets no such row: it is a
+real `SETTLEMENT_LINE` of zeroes, because it is rated and settled at zero.
+`rowCount` in the audit row keeps its meaning — the count of lines the caller
+received — and the payload gains no key. The therapist is carried on every row of
+both kinds, because a flat file has no header in which to say whose statement it
+is and the ASCII filename carries only the period.
+
+- **Alternatives:** a sixth route under `/reports/`; a settlement-specific export
+  service duplicating the M7 transaction and audit row; a `settlement.export`
+  permission; the exclusions as constant columns on every row (which say nothing
+  when a range has no settlement rows at all), as a preamble line above the header
+  (which makes the file unparseable) or as a trailing note row without a kind
+  column (stranded the moment somebody sorts the sheet); one row per excluded
+  session (a read this milestone has never performed and which would name
+  sessions the statement does not); clamping or omitting negative figures.
+- **Reason:** an export must be another representation of authoritative facts, not
+  a second financial derivation — the day the two disagreed would be the day a
+  therapist's printout disagreed with the screen. One read, one runner, one audit
+  action. `report.export` already means "may take facts out of this system as a
+  file", so no new authority was invented.
+- **Trade-off:** the file has two kinds of row, which is a shape none of the five
+  Milestone 7 files has. A consumer that assumes every row is a session must
+  filter on the first column — which is exactly what the column is for, and it is
+  the price of a file that cannot lie by omission. The exception rows state counts
+  and not identities, so a manager who wants to know WHICH sessions are unrated
+  still opens the screen.
+- **Revisit when:** a reader needs the excluded sessions identified rather than
+  counted, which is a new read (and a new decision about what a settlement file
+  may name) rather than a change to this shape.

@@ -46,10 +46,18 @@
  * `freeText` — the values a family, a colleague or a catalogue entry supplied —
  * and prefixes them with an apostrophe, which those products consume as "this is
  * text". It is deliberately NOT applied to the server's own values: an amount,
- * a count, a date, an enum and a uuid must stay machine-parseable, none of them
- * can begin with a dangerous character (every amount in this system is
- * unsigned), and mutating them to be safe from a risk they do not carry would
- * corrupt the numbers the file exists to deliver.
+ * a count, a date, an enum and a uuid must stay machine-parseable, and mutating
+ * them to be safe from a risk they do not carry would corrupt the numbers the
+ * file exists to deliver.
+ *
+ * A NEGATIVE AMOUNT IS THE ONE SERVER VALUE THAT BEGINS WITH A CHARACTER ON THE
+ * LIST ABOVE, AND IT MUST STAY UNGUARDED. A signed settlement figure — a clinic
+ * net the clinic explicitly subsidised, a closed line since corrected
+ * (Milestone 8) — is written `-12000`, which every spreadsheet reads as the
+ * number it is; an apostrophe in front of it would turn the one figure a manager
+ * has to be able to sum into text, and would hide a subsidy CLAUDE.md requires
+ * to be visible. A leading `-` is dangerous only in FREE TEXT somebody supplied,
+ * which is exactly the set `freeText` marks.
  *
  * NOTHING IS TRUNCATED AND THERE IS NO ROW CAP, which is why no audit payload in
  * C5 carries a `truncated` flag: a silently shortened financial file is a worse

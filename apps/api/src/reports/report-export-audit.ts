@@ -46,13 +46,28 @@ import type { AuditJsonObject, AuditJsonValue } from '../audit/audit.types';
  * check that nothing performs.
  */
 
-/** The five exportable surfaces. Server vocabulary, as audit actions are. */
+/**
+ * The exportable surfaces. Server vocabulary, as audit actions are.
+ *
+ * `SETTLEMENT_STATEMENT` IS THE SIXTH AND IS THE ONLY ONE WHOSE READ MODEL LIVES
+ * OUTSIDE `ReportsModule` (Milestone 8, checkpoint C8). It is named here anyway,
+ * because the audited fact is "data left this system" asked of exports AS A
+ * CLASS, and a second vocabulary for the same act would split the one question
+ * the trail exists to answer.
+ *
+ * ITS SCOPE CARRIES A `therapistId` AND NOTHING ELSE, and the rule above is what
+ * makes that safe: an id is a pointer whose meaning requires the database that
+ * issued it, while a NAME is the personal data itself. The colleague's name, the
+ * percentage that applied to them, what they earned and what a period settled
+ * are all in the file and none of them may be in the permanent trail.
+ */
 export const REPORT_EXPORT_SURFACES = [
   'SESSIONS',
   'PROMISES',
   'THERAPIST_ACTIVITY',
   'PAYMENTS',
   'FAMILY_ACCOUNTS',
+  'SETTLEMENT_STATEMENT',
 ] as const;
 
 export type ReportExportSurface = (typeof REPORT_EXPORT_SURFACES)[number];

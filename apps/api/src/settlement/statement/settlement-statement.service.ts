@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   SettlementStatementExceptions,
+  SettlementStatementExportQuery,
   SettlementStatementLine,
   SettlementStatementQuery,
   SettlementStatementResponse,
@@ -10,6 +11,7 @@ import type {
 import { AppError } from '../../common/app-error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { currentAmounts, readSettlementFacts, type SettlementFactRow } from '../settlement-facts';
+import { exceptionRows, type SettlementStatementExportRow } from './settlement-export-columns';
 
 /**
  * THE SETTLEMENT STATEMENT: what the currently valid recorded facts say one
@@ -158,6 +160,69 @@ export class SettlementStatementService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  /**
+   * THE SAME STATEMENT, AS THE ROWS OF A FILE (Milestone 8, checkpoint C8).
+   *
+   * IT IS THE SCREEN'S OWN READ AND NOT A SECOND ONE. The same therapist check,
+   * the same scope predicate, the same shared derivation, the same order, the
+   * same `toLine` mapping — the statement read is not paged, so there is not
+   * even a paging window to remove. Every money figure in the exported file is
+   * therefore the figure the screen states, by construction rather than by test.
+   *
+   * IT TAKES THE TRANSACTION CLIENT rather than opening one, so the rows are read
+   * in the same transaction that writes the export's audit row and the count in
+   * that row is provably the count of the lines the caller received
+   * (`reports/csv-export.ts`). The screen keeps its own `REPEATABLE READ`
+   * transaction; the export's runner takes the same isolation level.
+   *
+   * THE EXCEPTION COUNTS ARE RETURNED TOO, AS ROWS OF THEIR OWN KIND, and they
+   * come from `this.exceptions` — the screen's own counts, read inside the same
+   * snapshot as the lines. A file is read months later beside no screen at all,
+   * and a file of settlement lines alone would be read as COMPLETE by a manager
+   * whose month contains sessions nobody has rated: the money would add up and
+   * the sessions would simply not be there. So the file states what it excluded
+   * (`settlement-export-columns.ts`), and it states it as a COUNT on a row that
+   * carries no money — never as a zero-valued settlement row, which would say
+   * somebody had decided the session was worth nothing.
+   *
+   * THE TOTALS ARE STILL NOT RETURNED. A CSV carries no totals row (the accepted
+   * M7 rule): a total is a sum of the rows above it, which a spreadsheet does for
+   * itself and which strands a row the moment somebody sorts the sheet. An
+   * exception count is not a sum of anything in the file — it is a fact that
+   * appears nowhere else in it.
+   *
+   * AN UNKNOWN THERAPIST IS STILL A `404`, AND STILL BEFORE THE AUDIT ROW. The
+   * check runs first inside the transaction, so a failed export rolls back
+   * without recording that data left the building.
+   *
+   * THIS SERVICE STILL WRITES NOTHING. The audit row belongs to the export
+   * runner; nothing on this path takes a lock, stores a total or creates a
+   * settlement fact.
+   */
+  async exportRows(
+    tx: Prisma.TransactionClient,
+    query: SettlementStatementExportQuery,
+  ): Promise<SettlementStatementExportRow[]> {
+    // Looked up ONCE, exactly as the screen looks it up, and copied onto every
+    // row: a flat file has no header to state whose statement it is, and an
+    // unknown therapist must still be the `404` the screen gives rather than an
+    // empty file with a valid-looking name on it.
+    const therapist = await this.therapist(tx, query.therapistId);
+    const rows = await this.rows(tx, query);
+
+    return [
+      ...rows.map((row): SettlementStatementExportRow => ({
+        kind: 'SETTLEMENT_LINE',
+        therapist,
+        line: toLine(row),
+      })),
+      // LAST, and always both: the sessions this range could not settle, counted
+      // from the same snapshot the lines came from, so the file cannot describe
+      // one state of the clinic in its rows and another in its exclusions.
+      ...exceptionRows(therapist, await this.exceptions(tx, query, rows)),
+    ];
   }
 
   /**
