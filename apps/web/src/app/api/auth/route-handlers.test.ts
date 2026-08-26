@@ -92,7 +92,7 @@ describe('POST /api/auth/login', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/`);
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/dashboard`);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 

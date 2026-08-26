@@ -21,7 +21,7 @@ import {
  * Every value here is synthetic.
  */
 
-const APP_ROOT = join(__dirname, '..', 'app');
+const APP_ROOT = join(__dirname, '..', 'app', '(internal)');
 
 const redirected = vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`);
@@ -76,9 +76,9 @@ describe('a page may demand several permissions, and then demands all of them', 
     // AND, not OR. A future role with `charge.read` alone must not render an
     // account whose position the API will refuse to compute for it.
     await expect(requireWith(['charge.read'], FAMILY_ACCOUNT_READ_PERMISSIONS)).rejects.toThrow(
-      'REDIRECT:/',
+      'REDIRECT:/dashboard',
     );
-    expect(redirected).toHaveBeenCalledWith('/');
+    expect(redirected).toHaveBeenCalledWith('/dashboard');
   });
 
   it('still accepts a single permission, exactly as before', async () => {
@@ -86,7 +86,9 @@ describe('a page may demand several permissions, and then demands all of them', 
     expect(user.permissions).toEqual(['payment.read']);
     expect(redirected).not.toHaveBeenCalled();
 
-    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow('REDIRECT:/');
+    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow(
+      'REDIRECT:/dashboard',
+    );
   });
 });
 
@@ -139,11 +141,11 @@ describe('the dashboard page names every authority in its aggregated response', 
 
     await expect(
       requireWith(['appointment.read', 'payment.read', 'promise.read'], DASHBOARD_READ_PERMISSIONS),
-    ).rejects.toThrow('REDIRECT:/');
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 
   it('uses the shared dashboard permission constant on the landing page', () => {
-    const page = readFileSync(join(APP_ROOT, 'page.tsx'), 'utf8');
+    const page = readFileSync(join(APP_ROOT, 'dashboard', 'page.tsx'), 'utf8');
     expect(page).toContain('requirePermission: DASHBOARD_READ_PERMISSIONS');
   });
 });
@@ -169,7 +171,7 @@ describe('clinic-wide financial reports are manager-only at the page boundary', 
         ['charge.read', 'payment.read', 'promise.read'],
         FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
       ),
-    ).rejects.toThrow('REDIRECT:/');
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 
   it('pins both report pages to the same frozen lists their API routes use', () => {

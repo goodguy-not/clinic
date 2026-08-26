@@ -29,7 +29,7 @@ export async function AppHeader() {
   const csrfToken = (await readCsrfCookie()) ?? '';
 
   const links: { href: string; label: string }[] = [];
-  links.push({ href: '/', label: COPY.dashboardTitle });
+  links.push({ href: '/dashboard', label: COPY.dashboardTitle });
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/appointments', label: COPY.appointmentsTitle });
   }
@@ -87,7 +87,7 @@ export async function AppHeader() {
     <header className="app-chrome sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-2.5 sm:px-6">
         <Link
-          href="/"
+          href="/dashboard"
           className={`flex items-center gap-2 whitespace-nowrap rounded-md px-1 py-1 text-base font-bold text-brand-900 ${FOCUS_RING}`}
         >
           <span

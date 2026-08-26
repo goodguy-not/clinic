@@ -368,20 +368,23 @@ walk(webAppRoot, (file) => {
 // it were reachable from a Client Component; the import bans below are the
 // second, legible line of that same defence.
 const CLIENT_COMPONENT_ALLOWLIST = [
-  'src/app/families/family-search.tsx',
+  // Native details cannot close itself after an in-page mobile navigation
+  // choice; this island owns only that refinement and imports no site data.
+  'src/components/public-mobile-menu.tsx',
+  'src/app/(internal)/families/family-search.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.
-  'src/app/reports/family-report-filter.tsx',
+  'src/app/(internal)/reports/family-report-filter.tsx',
   // Printing and download progress require only browser APIs and transient UI
   // state. CSV bytes still come from the named BFF and are never assembled here.
-  'src/app/reports/report-actions.tsx',
+  'src/app/(internal)/reports/report-actions.tsx',
   // A weekly set needs rows to be added and removed before its one wholesale
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.
-  'src/app/availability/weekly-availability-editor.tsx',
+  'src/app/(internal)/availability/weekly-availability-editor.tsx',
   // Booking needs private POST-based child search and an advisory preview whose
   // returned occurrences remain beside the receptionist's unpersisted intent.
-  'src/app/appointments/new/booking-workflow.tsx',
+  'src/app/(internal)/appointments/new/booking-workflow.tsx',
 ];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];

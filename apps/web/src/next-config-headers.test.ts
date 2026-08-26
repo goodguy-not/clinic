@@ -57,7 +57,7 @@ describe('next.config.ts headers for personal clinic pages', () => {
   });
 });
 
-const APP_ROOT = join(__dirname, 'app');
+const APP_ROOT = join(__dirname, 'app', '(internal)');
 
 function collectPageFiles(directory: string, found: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
@@ -72,7 +72,7 @@ function collectPageFiles(directory: string, found: string[] = []): string[] {
 
 const familyAndChildPages = collectPageFiles(APP_ROOT)
   .map((path) => path.replace(/\\/g, '/'))
-  .filter((path) => /\/app\/(families|children)\//.test(path));
+  .filter((path) => /\/\(internal\)\/(families|children)\//.test(path));
 
 // Both scheduling trees, because both render child names: the diary itself and
 // the series view, which lists every occurrence with the child booked into it.
@@ -81,7 +81,7 @@ const familyAndChildPages = collectPageFiles(APP_ROOT)
 // covered.
 const appointmentPages = collectPageFiles(APP_ROOT)
   .map((path) => path.replace(/\\/g, '/'))
-  .filter((path) => /\/app\/(appointments|appointment-series)\//.test(path));
+  .filter((path) => /\/\(internal\)\/(appointments|appointment-series)\//.test(path));
 
 describe('every family and child page', () => {
   it('finds the pages it is meant to be checking', () => {
