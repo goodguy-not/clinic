@@ -3399,3 +3399,419 @@ acts A1's own persistence makes possible.
   publishing an article and publishing a therapist profile are one authority,
   `therapist.publish_profile` is the name that generalises, and that would be a
   rename with a decision behind it rather than churn.
+
+## 2026-08-27 — Public content is two tables, and neither of them is a CMS
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`public_article` and `public_testimonial` are the whole schema footprint of
+public content, plus one `testimonial_status` enum. There is no page, block,
+component, template, media, tag, category, revision or scheduling table, and
+none is implied.
+
+An article is four content fields (slug, title, summary, body), one publication
+flag and three recorded instants. A testimonial is two content fields, a
+two-value review state and a publication flag.
+
+- **Alternatives:** a generic `content` table with a type discriminator and a
+  JSON body; a block/section model; adding tags and categories now because a
+  blog usually has them.
+- **Reason:** PROJECT_SPEC.md 11 asks for a draft/published workflow with
+  authorised publishing, readable unique URLs, and approved anonymised stories.
+  A generic content table answers a question nobody asked and makes every
+  constraint impossible to write — the privacy rules in this checkpoint are
+  CHECK constraints precisely because the columns are typed. A block model is a
+  page builder, and a page builder is a product.
+- **Trade-off:** an article that wants a pull quote or an image cannot have one
+  until somebody decides what those mean.
+- **Revisit when:** the owner supplies real copy that does not fit a title, a
+  standfirst and a body — which is a content decision, not a column.
+
+## 2026-08-27 — An article slug is NOT NULL; a service slug is not
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`public_article.public_slug` is NOT NULL from the first draft, unlike
+`service.public_slug` and `therapist.public_slug`, which A1 made nullable. The
+A1 stability rule applies unchanged through the SAME trigger function
+(`enforce_public_slug_stability`, now on three tables): the slug may be
+corrected freely until the first publication and never afterwards.
+
+- **Alternatives:** nullable for symmetry with the catalog; write-once from the
+  first write.
+- **Reason:** a service exists for internal reasons and LATER gains a public
+  identity, so "prepared but not yet addressed" is a real state for it. An
+  article exists only to be read; an article with no address is not a state, it
+  is a missing field. Reusing the A1 function rather than copying it means the
+  immutability rule is stated once for all three tables and cannot drift between
+  a service, a person and an article.
+- **Trade-off:** the manager surface must ask for a slug before the first save.
+- **Revisit when:** never for this column.
+
+## 2026-08-27 — A testimonial has two states and a flag, and no URL of its own
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`status` (`DRAFT` | `APPROVED`) is the privacy review; `is_public` is placement
+on a page; `public_testimonial_approval_chk` refuses `is_public` on anything not
+`APPROVED`. Editing the words of an APPROVED testimonial is refused
+(`TESTIMONIAL_APPROVED`); withdrawing approval unpublishes in the same
+transaction. A testimonial has no slug and no page of its own.
+
+- **Alternatives:** one `APPROVED_AND_PUBLISHED` state; approval inferred from
+  publication; allowing edits after approval; giving each testimonial a URL.
+- **Reason:** withdrawing a quotation from the website is not the same act as
+  declaring its privacy review wrong, and collapsing them would erase the fact
+  that a manager had once read and accepted those exact words. Allowing edits
+  after approval would let approved-and-published text be rewritten into
+  something nobody reviewed, which is precisely what the approval exists to
+  prevent (PROJECT_SPEC.md 11). An addressable testimonial is a page about one
+  family — linkable, quotable, indexable on its own — while a list on one page
+  implies nothing about anybody.
+- **Trade-off:** correcting a typo in approved text costs two manager acts, and
+  the quotation is off the site between them. That is the correct order.
+- **Revisit when:** the owner asks for a testimonial to be individually
+  shareable, which needs a decision about what that URL implies before it needs
+  a column.
+
+## 2026-08-27 — A testimonial holds no identifying or clinical fact, by absence
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`public_testimonial` has no family id, child id, service, therapist,
+appointment, date of treatment, age, diagnosis or outcome column. The one
+attribution field is `author_label`, an anonymised description a manager reviews
+before approving it, nullable because an unattributed quotation is the safest
+form there is.
+
+- **Alternatives:** linking the testimonial to the family it came from, for
+  traceability; recording the service it is about, to show it on that page.
+- **Reason:** PROJECT_SPEC.md 11 forbids publishing identifying child or
+  clinical data. The narrowest way to obey a rule about a category of data is
+  not to hold it: a link that exists is a link a future projection can widen
+  into, and a projection that cannot widen is one whose source columns do not
+  exist. Traceability to consent is an owner-held document (PROJECT_SPEC.md 17),
+  not a foreign key.
+- **Trade-off:** the clinic cannot show "what families say about speech therapy"
+  on the speech-therapy page, and cannot answer "whose testimonial is this?"
+  from the database.
+- **Revisit when:** the owner asks for either, which re-opens the privacy
+  question deliberately rather than by inheriting an answer.
+
+## 2026-08-27 — Public copy is plain text, and the database refuses markup
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+Article titles, summaries and bodies, and testimonial labels and bodies, may not
+contain a less-than sign. Enforced in the shared contract
+(`PUBLIC_PLAIN_TEXT_PATTERN`) and again in a CHECK on each column.
+
+- **Alternatives:** storing HTML and sanitising it before rendering; storing
+  Markdown; trusting managers.
+- **Reason:** manager-written copy rendered to strangers is the exact shape of a
+  stored cross-site-scripting defect. Every other product answers it with a
+  sanitiser in front of the renderer; this one answers it by refusing to STORE
+  markup, so there is no sanitiser to misconfigure and no path by which a
+  `<script>` reaches a column. The web tier can render these values as text with
+  no `dangerouslySetInnerHTML` anywhere near them.
+- **Trade-off:** a character a Persian clinical article will essentially never
+  need is unavailable, and an article cannot carry a link or a heading.
+- **Revisit when:** real copy genuinely needs structure — which is a deliberate
+  markup decision with a renderer behind it, not a relaxation to "usually safe".
+
+## 2026-08-27 — The receptionist drafts; only the manager publishes
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+Six new permissions: `article.read`, `article.draft`, `article.publish`,
+`testimonial.read`, `testimonial.draft`, `testimonial.approve`. The receptionist
+gains the four read and draft names — the first change to that role's list since
+Milestone 6 — and neither publication name. `therapist.publish_profile`,
+`clinic_profile.read` and `clinic_profile.update` are unchanged from A1 and stay
+manager-only.
+
+`testimonial.approve` is ONE name covering four acts: approving, withdrawing
+approval, publishing and unpublishing.
+
+- **Alternatives:** keeping drafting with the manager too; splitting
+  `testimonial.approve` into approve and publish as Milestone 8 split rating
+  from un-rating; a single `content.*` authority over all public content.
+- **Reason:** A1 froze the semantics — "draft authority does not imply publish
+  authority, so the permission that publishes will never be the permission that
+  writes" — and this is the checkpoint that makes them real. Somebody at the
+  front desk hears what families actually ask and is the right person to write a
+  first answer; nothing they write can reach a visitor. The settlement split was
+  load-bearing because an atomic correction could DEMAND both names at once,
+  which one name cannot express; nothing here demands a pair, no role holds one
+  of the four without the others, and all four turn on the same question — has a
+  manager read these words and accepted responsibility for publishing them?
+- **Trade-off:** the permission list grows by six, and the receptionist's list
+  is no longer the frozen thing it was for three milestones. Both halves are
+  pinned by exact-list tests, in the unit suite and over HTTP.
+- **Revisit when:** a clinic wants a third role — an editor who publishes
+  articles but touches no testimonial — which is a role decision, and these
+  names already express it.
+
+## 2026-08-27 — Publishing a service stays one audited act; publishing a person is three
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+A service's public description, slug and visibility are written by the EXISTING
+manager form under the existing `service.update`, and recorded by the existing
+`service.updated` action with the before and after of every public column in its
+payload. No `service.published` action and no `service.publish` permission
+exists.
+
+A therapist gets three actions — `therapist.public_profile_updated`,
+`.public_profile_published`, `.public_profile_unpublished` — under
+`therapist.publish_profile`, on routes and in a service of their own.
+
+- **Alternatives:** a publication action and route for services too, for
+  symmetry; folding the therapist public profile into `therapist.update` and the
+  personnel read.
+- **Reason:** the two entities are published differently on purpose, and the
+  difference is who the decision is about. Changing a service's description and
+  publishing it are one form submission and one state change; a second action
+  would describe one write as two facts a reader has to pair up — the
+  `appointment.availability_override` reasoning. Publishing a named colleague's
+  photograph and biography is a decision ABOUT THAT PERSON, taken with their
+  agreement, and A1 gave it its own permission precisely so it could be granted
+  and revoked alone; separating the authority buys nothing if the content leaks
+  back through the personnel read a receptionist holds.
+- **Trade-off:** "when did this service go public?" is answered by reading a
+  `service.updated` payload rather than by filtering on an action name.
+- **Revisit when:** a service's public face gains a decision of its own — a
+  scheduled launch, a per-page approval — which would be a publication act worth
+  naming.
+
+## 2026-08-27 — The audit records that public prose changed, not the prose
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+Article bodies and summaries, therapist biographies and testimonial texts are
+recorded in `audit_log` as LENGTHS. Slugs, titles, author labels, display
+orders, statuses and publication flags are recorded in full. The clinic
+profile's two telephone numbers are not recorded at all; the payload carries the
+other eleven fields and a `contactNumbersChanged` flag.
+
+- **Alternatives:** recording every payload in full; relaxing
+  `audit_identifiers_masked()` and the application guard for
+  `clinic_public_profile`; masking the clinic's telephone numbers.
+- **Reason:** `audit_log` is append-only and can never be pruned. Copying every
+  draft of a twenty-thousand-character article into it would BE the content
+  revision history this checkpoint declines to build, and copying a family's
+  account of their child's therapy into it would build a permanent, unremovable
+  store of exactly the content PROJECT_SPEC.md 11 requires a manager to review
+  before anybody sees it. For the telephone numbers, the Milestone 3 masking
+  rule is about a PERSON'S number and the clinic's own published number is
+  genuinely not one — but relaxing that rule in both tiers would let a future
+  call site mislabel family data and slip through, and masking would be lossy
+  and would fail outright on a number typed in Persian digits, putting a defect
+  in front of a manager over a number the website prints in the clear.
+- **Trade-off:** the trail cannot reconstruct what an article said last month,
+  or what the published telephone number used to be. It does say that each
+  changed, when, and by whom, and the current value is on the row.
+- **Revisit when:** the owner asks to recover withdrawn copy, which is a
+  versioning feature and needs its own table and its own retention rule.
+
+## 2026-08-27 — `public_revised_at` is the sitemap last-modified, not a second change history
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+One nullable `TIMESTAMPTZ` on `service`, `therapist`, `public_article` and
+`public_testimonial`, written by the manager write paths of this checkpoint
+whenever the row is publicly reachable after the write. On an article and a
+testimonial that means PUBLICATION ONLY — a draft edit changes nothing a visitor
+can read, so it reports no modification. It is the only thing the
+sitemap's last-modified is built from, and it is null on any row published
+before those paths existed.
+
+- **Alternatives:** deriving last-modified from `audit_log`; reusing
+  `public_first_published_at`; omitting last-modified entirely; a trigger.
+- **Reason:** deriving it from the audit trail would make a public read depend on
+  the table of actors and internal history, which is the one coupling the public
+  projection discipline exists to prevent. `public_first_published_at` is a
+  different fact, and using it would tell a crawler that a page it has cached is
+  older than it is. A null is honest, and a sitemap entry without a last-modified
+  is a correct sitemap entry. A trigger was rejected because the rule differs per
+  table — a service's public content includes its durations, which live in
+  another table — so a uniform trigger would under-report exactly where it
+  matters.
+- **Trade-off:** four columns maintained in five write paths, and an edit that
+  changes nothing still moves the stamp. Over-reporting a change is the safe
+  direction; under-reporting is not.
+- **Revisit when:** the sitemap is measured against real crawler behaviour.
+
+## 2026-08-27 — The sitemap contract carries kind and slug, never a path or a host
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`GET /public/sitemap` returns `{ kind, slug, lastModified }` per data-driven
+page, derived in ONE statement whose three branches repeat, word for word, the
+predicates of the reads that render those pages. Static pages and testimonials
+are absent.
+
+- **Alternatives:** returning full URLs; generating the sitemap XML in the API;
+  letting the web tier assemble the list from its own four fetches.
+- **Reason:** the route structure belongs to the web tier, which owns its router
+  and is the only tier that can be wrong about it; a path string here would be
+  the API asserting a URL it cannot verify. Generating XML would be Next.js
+  behaviour in the wrong tier. Assembling it in the web tier from four fetches is
+  four chances to disagree with the site — the failure being a sitemap that
+  advertises a 404 or hides a page, which this single derived read makes
+  structurally impossible and which a test asserts as a property in both
+  directions.
+- **Trade-off:** the web tier must map three `kind` values onto its own paths and
+  add its own static routes.
+- **Revisit when:** a public page exists that is neither static nor one of these
+  three kinds.
+
+## 2026-08-27 — The cache handshake is the mutation response, not a tag inside it
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+`PUBLIC_CACHE_TAGS` gains `articles`, `testimonials` and `sitemap`, plus a
+`public-article:` prefix; no A1 name changes. Nothing in `apps/api` reads a tag
+or returns one — a test walks the API source and asserts it. Every manager
+mutation returns the row it wrote, slug and publication flag included, which is
+what the web tier derives its invalidation from; the mapping from mutation to
+tags is written out once, in `website/common.ts`.
+
+- **Alternatives:** returning an `invalidatePublicCacheTags` array on every
+  mutation response; a helper function in the contracts package.
+- **Reason:** the A1 decision was that the API knows nothing about web caching,
+  and that survives A2 giving it write paths: a tag list in the response would be
+  a second, quieter answer to a question the body already answers, and would put
+  a web caching concern inside the domain layer. The contracts package contains
+  no functions, by the same A1 decision.
+- **Trade-off:** Agent B writes the mapping by hand against a documented table
+  rather than reading it off each response.
+- **Revisit when:** the mapping stops being derivable from the response — which
+  would mean a mutation affecting a page it does not name.
+
+## 2026-08-27 — A2 closes every A1 write path, and the dev seeder stops being a writer
+
+**Status:** Accepted — Milestone 9, checkpoint A2
+
+The three write paths A1 named as A2's are delivered: the public fields on the
+service form under `service.update`, the therapist public profile and opt-in
+under `therapist.publish_profile`, and the clinic profile under
+`clinic_profile.read` / `clinic_profile.update` — plus `PUBLIC_SLUG_IMMUTABLE`
+and its Persian message, which is where the A1 trigger becomes a sentence a
+manager can read. The synthetic dev seeder now writes all of them through those
+services instead of in raw SQL.
+
+- **Alternatives:** leaving the seeder's SQL in place.
+- **Reason:** the A1 amendment said configuration-at-deploy is the option it
+  exists to forbid, and that the seeder was acceptable only "for the length of
+  one checkpoint". Putting the seeder through the real services proves the paths
+  end to end on every seed run, gives a seeded clinic a genuine audit trail, and
+  removes the last place in the repository that writes a public column directly.
+- **Trade-off:** a defect in a manager write path now fails the seed. That is the
+  point.
+- **Revisit when:** never; the SQL should not come back.
+
+## 2026-08-27 — An article holds its copy twice, because publication authority cannot be represented once
+
+**Status:** Accepted — Milestone 9, checkpoint A2 (review revision)
+
+`public_article` carries `title`, `summary` and `body` — the WORKING DRAFT,
+writable under `article.draft` — and `published_title`, `published_summary` and
+`published_body` — WHAT THE WEBSITE SAYS, written only by the manager-only
+publication act. Every public projection reads the second set.
+`public_article_published_copy_chk` refuses `is_public` on a row with no
+published copy, so the flag alone can never put a draft on a page.
+
+Publishing copies the draft onto the published columns in the same statement
+that sets the flag. That is one act, not two: "publish" means "what the draft
+now says is what the website says", whether the page was empty before or was
+showing an earlier version.
+
+**The first shape of this checkpoint was wrong, and provably so.** It kept one
+set of content columns and allowed a published article to be edited, which meant
+a receptionist holding only `article.draft` could rewrite a live page and a
+visitor saw the new words immediately, with no manager act anywhere in the
+sequence — a direct breach of the frozen rule that a manager alone controls what
+becomes publicly visible. A probe against the running application confirmed it
+before this revision was written.
+
+- **Alternatives:** refusing any edit to a published article and requiring the
+  manager to type the correction (one column set, authority preserved);
+  requiring `article.publish` to edit a published article; a
+  `public_article_version` table holding published snapshots; a status enum with
+  a `PENDING_REVIEW` state.
+- **Reason:** the two one-column-set options each break one half of the accepted
+  product rule — the first makes an article uncorrectable by the people who
+  write it, and the second is the same thing wearing a permission. A version
+  table is a revision framework, which this checkpoint is explicitly forbidden
+  to build, and it would hold a history nobody has asked to read. A
+  `PENDING_REVIEW` status describes the situation without fixing it: the row
+  still has one body, so the live page still shows whatever that body currently
+  says. Two column sets on ONE row is the smallest representation that can hold
+  a live version and a pending version at the same time, and it holds exactly
+  one previous state — the one currently on the website — rather than a history.
+- **This is not the published-copy pattern A1 rejected.** A1 refused a
+  `published_service` table because a service's name IS its public name, so a
+  copy could drift into advertising something the clinic had stopped offering.
+  An article has no such second truth: the draft is not a fact about the world
+  that the published text could contradict, it is an unfinished version of that
+  text, so there is nothing for the copy to disagree with.
+- **`public_slug` is not duplicated.** It is immutable from the first
+  publication, so a draft slug and a published slug could never differ on a
+  published article; a second copy would be a column that can only ever equal
+  the first.
+- **Trade-off:** three more columns, four more CHECK constraints, and a
+  published article now stores its text twice. A manager must publish twice to
+  get a correction onto a live page — once is not enough, and that is the point.
+- **Revisit when:** the owner asks to see or restore what an article said before
+  the last publication, which is version history and needs its own table, its
+  own retention rule and its own decision.
+
+## 2026-08-27 — A draft edit is not a modification of the published page
+
+**Status:** Accepted — Milestone 9, checkpoint A2 (review revision)
+
+Editing an article's draft moves neither `public_revised_at` nor anything the
+sitemap reports. Only publication does. `articleSchema` gains one derived
+boolean, `hasUnpublishedChanges`, true while the article is public and its draft
+differs from its published copy.
+
+- **Alternatives:** bumping `public_revised_at` on every draft edit, as the
+  first shape did; storing the pending-change flag as a column; returning the
+  published text alongside the draft so a management screen could diff them.
+- **Reason:** `lastmod` is a statement to a crawler about what a visitor can
+  read, and until the manager publishes, what a visitor can read has not
+  changed — telling a crawler otherwise is telling it something false. The flag
+  is derived in the read rather than stored because a stored one would be a
+  fourth thing every write path had to keep in step, and the first time one
+  forgot, a manager would be told there was nothing to publish while the live
+  page showed something else. It carries no diff and names no field: a
+  management screen needs to know a publication is outstanding, and inventing a
+  diff format would be a decision nobody has taken — the live text is one public
+  read away.
+- **Trade-off:** a manager comparing versions makes two requests.
+- **Revisit when:** B2 builds the review screen and finds the second request
+  genuinely awkward, which is a shaping decision with a screen in front of it.
+
+## 2026-08-27 — A testimonial needs no draft-and-published pair, and that asymmetry is deliberate
+
+**Status:** Accepted — Milestone 9, checkpoint A2 (review revision)
+
+Re-checked against the same authority rule as the article revision.
+`public_testimonial` keeps one set of content columns, and editing an APPROVED
+testimonial stays refused outright (`TESTIMONIAL_APPROVED`) for manager and
+receptionist alike. No change was needed.
+
+- **Reason:** an article is the clinic's OWN writing, so a live one has to stay
+  revisable by the people who write it, and the live and pending versions have
+  to be kept apart. A testimonial is somebody ELSE's words, approved as those
+  exact words; the correct answer to "may this be rewritten while it is up?" is
+  simply no, and the correction path — withdraw approval, which unpublishes;
+  edit; approve again; publish again — already routes every step that reaches a
+  visitor through the manager. Adding a second column set here would build
+  machinery for a state the product refuses to have.
+- **Trade-off:** correcting a published testimonial takes the quotation off the
+  site while it is being corrected. That is the correct order, and it is what
+  "approved" is worth.
+- **Revisit when:** never on these grounds; the asymmetry follows from whose
+  words they are.

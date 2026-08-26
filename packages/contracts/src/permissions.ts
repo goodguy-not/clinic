@@ -263,6 +263,48 @@ export const PERMISSIONS = [
   'therapist.publish_profile',
   'clinic_profile.read',
   'clinic_profile.update',
+
+  // Public CONTENT (Milestone 9, checkpoint A2). SIX NAMES, AND THE SPLIT
+  // BETWEEN THEM IS THE FROZEN AUTHORITY RULE OF THIS MILESTONE.
+  //
+  // A1 said a later checkpoint might let a receptionist DRAFT public content
+  // and that "draft authority does not imply publish authority, so the
+  // permission that publishes will never be the permission that writes". This
+  // is that checkpoint, and these are the names that keep the promise:
+  // `article.draft` writes, `article.publish` publishes, and they are held by
+  // different roles.
+  //
+  // THE RECEPTIONIST HOLDS THE FOUR READ AND DRAFT NAMES AND NEITHER OF THE
+  // OTHER TWO. That is the first change to that role's list since Milestone 6,
+  // and it is a product rule rather than a convenience: somebody at the front
+  // desk hears what families actually ask and is the right person to write a
+  // first draft, and no draft they write can reach a visitor without a manager
+  // performing a separate, separately audited act.
+  //
+  // `article.read` AND `testimonial.read` EXIST BECAUSE DRAFTS ARE UNREADABLE
+  // ANY OTHER WAY. The public reads return published content only, so an author
+  // editing tomorrow's article has no route to it without an internal read; and
+  // a read of unpublished content is exactly the authority that ought to be
+  // nameable and withholdable on its own.
+  //
+  // `testimonial.approve` IS ONE NAME FOR FOUR ACTS — approving, withdrawing
+  // approval, publishing and unpublishing — and that is deliberate where the
+  // settlement module split rating from un-rating. The split there was
+  // load-bearing: an atomic correction could DEMAND both names at once, which
+  // is impossible with one. Here nothing demands a pair, no role holds any of
+  // the four without the others, and all four turn on the same question — has a
+  // manager read these words and accepted responsibility for publishing them?
+  // Four names would be vocabulary describing one authority four times.
+  //
+  // NO `article.delete` AND NO `testimonial.delete`. Published content is
+  // withdrawn, not erased, exactly as a catalog record is deactivated rather
+  // than deleted; the database refuses a DELETE on both tables.
+  'article.read',
+  'article.draft',
+  'article.publish',
+  'testimonial.read',
+  'testimonial.draft',
+  'testimonial.approve',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

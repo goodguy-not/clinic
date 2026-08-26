@@ -1,10 +1,14 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import {
   publicSlugSchema,
+  type PublicArticleDetailResponse,
+  type PublicArticleListResponse,
   type PublicClinicProfileResponse,
   type PublicServiceDetailResponse,
   type PublicServiceListResponse,
+  type PublicSitemapResponse,
   type PublicTeamResponse,
+  type PublicTestimonialListResponse,
   type PublicTherapistProfileResponse,
 } from '@clinic/contracts';
 import { InternalOnly } from '../auth/decorators/endpoint-access';
@@ -14,8 +18,8 @@ import { PublicSiteService } from './public-site.service';
 /**
  * THE ENTIRE PUBLIC SURFACE OF THIS API, IN ONE FILE.
  *
- * Milestone 9, checkpoint A1. Five reads, no writes, and no other controller
- * anywhere serves the website. Keeping them together is a privacy decision
+ * Milestone 9, checkpoint A1, extended in A2. NINE reads, no writes, and no
+ * other controller anywhere serves the website. Keeping them together is a privacy decision
  * rather than a filing preference: the question "what can the world see?" has
  * to be answerable by reading one screen, and it stops being answerable the
  * moment public routes are scattered through the domain modules that own the
@@ -37,7 +41,11 @@ import { PublicSiteService } from './public-site.service';
  * NO WRITE ROUTE, AND NOT BECAUSE ONE IS PENDING. The public request form is a
  * later checkpoint and will arrive with its own consent, rate-limiting and
  * inbox decisions; until it does, an anonymous caller cannot cause this
- * application to write anything.
+ * application to write anything. THE MANAGER WRITE PATHS ADDED IN A2 ARE IN
+ * OTHER FILES — `ArticlesController`, `TestimonialsController`,
+ * `ClinicProfileController`, `TherapistPublicProfileController` — every one of
+ * them behind a named permission, precisely so that this file can go on being
+ * the one screen that answers "what can the world see?".
  *
  * The responses still carry `Cache-Control: no-store` from
  * `NoStoreInterceptor`, which is left untouched: the web tier caches these
@@ -86,5 +94,40 @@ export class PublicSiteController {
   @InternalOnly()
   async getClinicProfile(): Promise<PublicClinicProfileResponse> {
     return { clinic: await this.site.getClinicProfile() };
+  }
+
+  @Get('articles')
+  @InternalOnly()
+  async listArticles(): Promise<PublicArticleListResponse> {
+    return { articles: await this.site.listArticles() };
+  }
+
+  @Get('articles/:slug')
+  @InternalOnly()
+  async getArticle(
+    @Param('slug', new ZodBodyPipe(publicSlugSchema)) slug: string,
+  ): Promise<PublicArticleDetailResponse> {
+    return { article: await this.site.getArticle(slug) };
+  }
+
+  @Get('testimonials')
+  @InternalOnly()
+  async listTestimonials(): Promise<PublicTestimonialListResponse> {
+    return { testimonials: await this.site.listTestimonials() };
+  }
+
+  /**
+   * The URL facts a sitemap is built from — not a sitemap.
+   *
+   * Classified `internal` like every other route here, and it carries no more
+   * than the pages beside it already do: the slugs of pages that answer, and
+   * when each last changed. It exists because the alternative is the web tier
+   * assembling the same list from four separate fetches, which is four chances
+   * to disagree with the site it is describing.
+   */
+  @Get('sitemap')
+  @InternalOnly()
+  async getSitemap(): Promise<PublicSitemapResponse> {
+    return { entries: await this.site.listSitemapEntries() };
   }
 }

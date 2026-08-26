@@ -86,6 +86,8 @@ const SERVICE: Service = {
   id: SERVICE_ID,
   name: 'گفتاردرمانی',
   publicDescription: null,
+  publicSlug: null,
+  publicFirstPublishedAt: null,
   isPublic: false,
   status: 'ACTIVE',
   deactivatedAt: null,

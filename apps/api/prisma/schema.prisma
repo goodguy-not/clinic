@@ -289,6 +289,24 @@ enum SessionRatedVia {
 /// `CORRECTION` is a signed movement reconciling a session already carried by a
 /// `PRIMARY` line with what that session is worth now; it lands in a later
 /// period, because a closed period is never reopened.
+/// The privacy review a testimonial has or has not passed.
+///
+/// Milestone 9, checkpoint A2. TWO VALUES, AND `DRAFT` IS WHAT EVERY ROW
+/// STARTS AS whoever wrote it. Approval is a manager act, never an inference
+/// from a record existing (PROJECT_SPEC.md 11), and `public_testimonial_
+/// approval_chk` refuses `isPublic` on anything that is not `APPROVED`.
+///
+/// There is deliberately no `REJECTED` and no `ARCHIVED`. A testimonial the
+/// clinic decides against simply stays a draft; inventing a state to record a
+/// refusal would be a workflow nobody has asked for, and the reason a manager
+/// declined somebody's words is not a fact this system should hold.
+enum TestimonialStatus {
+  DRAFT
+  APPROVED
+
+  @@map("testimonial_status")
+}
+
 enum SettlementLineType {
   PRIMARY
   CORRECTION
@@ -359,6 +377,9 @@ model AppUser {
   voidedPayments          Payment[]        @relation("PaymentVoidedBy")
   createdPaymentPromises  PaymentPromise[] @relation("PaymentPromiseCreatedBy")
   resolvedPaymentPromises PaymentPromise[] @relation("PaymentPromiseResolvedBy")
+
+  createdArticles     PublicArticle[]
+  createdTestimonials PublicTestimonial[]
 
   @@map("app_user")
 }
@@ -479,6 +500,13 @@ model Therapist {
   /// been real cannot silently become a different one. Internal: no public read
   /// projects it.
   publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  /// Milestone 9, checkpoint A2 — when the PUBLISHED content of this row last
+  /// changed, and the only thing the sitemap's last-modified is built from.
+  /// Written by the manager write paths of that checkpoint; NOT a second change
+  /// history, which `audit_log` remains. Null while the row has never been
+  /// published, and null on a row the A1 synthetic seeder published, which
+  /// correctly reports no last-modified until a manager next edits it.
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
   publicDisplayName      String?   @map("public_display_name")
   publicTitle            String?   @map("public_title")
   publicBio              String?   @map("public_bio")
@@ -524,6 +552,9 @@ model Service {
   /// trigger, same reason as the therapist's: a published URL is a promise to
   /// everybody who has already followed it.
   publicFirstPublishedAt DateTime?     @map("public_first_published_at") @db.Timestamptz
+  /// Milestone 9, checkpoint A2. Same column, same meaning and same nullability
+  /// as the therapist's: the sitemap's last-modified, and nothing else.
+  publicRevisedAt        DateTime?     @map("public_revised_at") @db.Timestamptz
   status                 CatalogStatus @default(ACTIVE)
   deactivatedAt          DateTime?     @map("deactivated_at") @db.Timestamptz
   createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
@@ -1886,4 +1917,116 @@ model ClinicPublicProfile {
   /// application-written copy of it would be the quieter and less trustworthy
   /// one.
   @@map("clinic_public_profile")
+}
+
+/// An article the clinic publishes.
+///
+/// Milestone 9, checkpoint A2. THE NARROWEST MODEL THAT SUPPORTS A
+/// DRAFT/PUBLISHED WORKFLOW WITH A READABLE UNIQUE URL (PROJECT_SPEC.md 11),
+/// and deliberately nothing more: no block model, no template, no taxonomy, no
+/// tag, no cover image, no author byline, no scheduled publication, no revision
+/// table and no co-authoring. Each of those is a product decision nobody has
+/// taken.
+///
+/// `publicSlug` IS NOT NULL, unlike a service's. A service exists for internal
+/// reasons and gains a public identity later; an article exists only to be
+/// read. The A1 stability rule applies through the same trigger function: the
+/// slug may be corrected freely until the first publication makes it a promise,
+/// and never afterwards.
+///
+/// `isPublic` IS THE DRAFT FLAG. There is no status enum, because an
+/// unpublished article IS the draft and a third state would be one the product
+/// has never described.
+///
+/// THE COPY IS HELD TWICE, AND THAT IS THE PUBLICATION AUTHORITY. The draft
+/// columns are the receptionist's; the `published*` columns are what the
+/// website reads, and only the manager-only publication act writes them. An
+/// article that has been live for a month can therefore be rewritten by
+/// anybody holding `article.draft` without the page moving, which is the
+/// accepted product rule and is not representable with one set of columns.
+///
+/// All six are PLAIN TEXT: the migration refuses a less-than sign in every one
+/// of them, so no markup can be stored and the web tier never needs a
+/// sanitiser.
+model PublicArticle {
+  id         String  @id @default(uuid(7)) @db.Uuid
+  publicSlug String  @unique @map("public_slug")
+  /// THE WORKING DRAFT. A receptionist may edit these three at any time,
+  /// including while the article is live, and nothing they write here is
+  /// visible to anybody outside the clinic.
+  title      String
+  summary    String?
+  body       String
+  /// WHAT THE WEBSITE SAYS. Written by the manager-only publication act and by
+  /// nothing else, and read by every public projection instead of the three
+  /// above. The pair is what makes "a receptionist prepares a change and the
+  /// page does not move until a manager publishes it" representable at all:
+  /// one set of columns could hold the live version or the pending one, never
+  /// both.
+  publishedTitle   String? @map("published_title")
+  publishedSummary String? @map("published_summary")
+  publishedBody    String? @map("published_body")
+  /// The intent to publish. `public_article_published_copy_chk` refuses it on a
+  /// row whose published copy nobody has written, so this flag alone can never
+  /// put a draft on the website.
+  isPublic         Boolean @default(false) @map("is_public")
+  /// Stamped once by `enforce_public_slug_stability()` at the first
+  /// publication, never rewritten, and — unlike a service's — projected
+  /// publicly, as the date a reader judges an article by.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  /// The sitemap's last-modified. See `Service.publicRevisedAt`.
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// NO `updatedAt` AND NO `updatedByUserId`: `audit_log` is the change
+  /// history, and `publicRevisedAt` is a public fact rather than a second copy
+  /// of one.
+  ///
+  /// NO LISTING INDEX EITHER, for the A1 reason: a clinic writes tens of
+  /// articles, the unique slug index serves every lookup, and an index tuned
+  /// for a list read nobody has measured is tuning nobody has measured.
+  @@map("public_article")
+}
+
+/// An approved, anonymised testimonial.
+///
+/// Milestone 9, checkpoint A2.
+///
+/// IT HOLDS NO IDENTITY AND NO CLINICAL FACT — no family, no child, no service,
+/// no therapist, no date of treatment, no age, no diagnosis, no outcome. Not
+/// projected away: ABSENT. PROJECT_SPEC.md 11 forbids publishing identifying
+/// child or clinical data, and the narrowest way to obey a rule about a
+/// category of data is not to hold it.
+///
+/// IT HAS NO SLUG AND NO URL. An addressable testimonial is a page about one
+/// family — linkable, quotable and indexable on its own. A list on one page
+/// implies nothing about anybody.
+///
+/// `status` IS THE PRIVACY REVIEW AND `isPublic` IS PLACEMENT ON A PAGE, and
+/// the two are separate because withdrawing a quotation from the website is not
+/// the same act as declaring that its review was wrong. The database enforces
+/// the order between them: `isPublic` requires `APPROVED`.
+model PublicTestimonial {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  /// An anonymised description of who is speaking — never a name — or nothing
+  /// at all. Reviewed by the manager who approves the row.
+  authorLabel String?           @map("author_label")
+  body        String
+  status      TestimonialStatus @default(DRAFT)
+  /// Set exactly when `status` is `APPROVED`; a CHECK pins the two together.
+  approvedAt  DateTime?         @map("approved_at") @db.Timestamptz
+  isPublic    Boolean           @default(false) @map("is_public")
+  /// Stamped once by `stamp_first_publication()`. Internal: no public read
+  /// projects it, and it exists so a public list has a stable order.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("public_testimonial")
 }

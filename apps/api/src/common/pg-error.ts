@@ -63,6 +63,15 @@ export function isRestrictViolation(error: unknown): boolean {
  * One table can have several constraints of the same class — `tariff` alone has
  * two exclusion constraints and two foreign keys — so "a foreign key failed" is
  * rarely a precise enough answer to map onto a user-facing error code.
+ *
+ * WHAT "NAMES" MEANS DEPENDS ON THE VIOLATION, AND THAT IS PostgreSQL'S DOING
+ * RATHER THAN A CHOICE HERE. A check or foreign-key failure reports the
+ * CONSTRAINT NAME; a unique failure reports the KEY, as
+ * `Key (public_slug)=(taken) already exists.` — the column, not the index. A
+ * caller telling two unique indexes on one table apart therefore passes the
+ * COLUMN name, which appears in both spellings (`service_public_slug_key`
+ * contains `public_slug`), and one that needs a check constraint passes its
+ * name. Both are substring matches against the same two places.
  */
 export function violatesConstraint(error: unknown, constraintName: string): boolean {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {

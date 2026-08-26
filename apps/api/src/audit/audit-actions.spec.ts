@@ -227,4 +227,87 @@ describe('audit vocabulary', () => {
     expect(new Set(AUDIT_ACTIONS).size).toBe(AUDIT_ACTIONS.length);
     expect(new Set(AUDIT_ENTITY_TYPES).size).toBe(AUDIT_ENTITY_TYPES.length);
   });
+
+  describe('the public website', () => {
+    const websiteActions = AUDIT_ACTIONS.filter((action) =>
+      /^(?:public_article|public_testimonial|clinic_public_profile)\.|^therapist\.public_/.test(
+        action,
+      ),
+    );
+
+    it('adds exactly the fourteen approved checkpoint A2 actions', () => {
+      expect([...websiteActions].sort()).toEqual(
+        [
+          'public_article.created',
+          'public_article.updated',
+          'public_article.published',
+          'public_article.unpublished',
+          'public_testimonial.created',
+          'public_testimonial.updated',
+          'public_testimonial.approved',
+          'public_testimonial.approval_revoked',
+          'public_testimonial.published',
+          'public_testimonial.unpublished',
+          'therapist.public_profile_updated',
+          'therapist.public_profile_published',
+          'therapist.public_profile_unpublished',
+          'clinic_public_profile.updated',
+        ].sort(),
+      );
+    });
+
+    it('keeps publishing separate from editing, in both directions', () => {
+      // "When did this go on the website, and when did it come off again?" is
+      // the question asked after somebody complains about a page, and an answer
+      // buried in a diff of a boolean is not something you can count.
+      for (const subject of ['public_article', 'public_testimonial'] as const) {
+        expect(AUDIT_ACTIONS).toContain(`${subject}.published`);
+        expect(AUDIT_ACTIONS).toContain(`${subject}.unpublished`);
+        expect(AUDIT_ACTIONS).toContain(`${subject}.updated`);
+      }
+    });
+
+    it('names approval and publication as different testimonial facts', () => {
+      // Approval is the privacy review PROJECT_SPEC.md 11 requires; publication
+      // is placement on a page. A single action would make withdrawing a
+      // quotation indistinguishable from declaring its review wrong.
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.approved');
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.approval_revoked');
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.published');
+    });
+
+    it('adds no second action for publishing a service', () => {
+      // A service public description, slug and visibility are columns on the
+      // catalog row written by the same form under the same authority, so
+      // `service.updated` already records it with both sides in its payload. A
+      // second name would describe one write as two facts.
+      for (const absent of ['service.published', 'service.unpublished', 'service.public_updated']) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names no act the public reads perform', () => {
+      // Reading a published page is not an audited act. Copying every visit
+      // into an append-only permanent table would build a second, undeletable
+      // record of who looked at what.
+      for (const absent of [
+        'public_article.viewed',
+        'public_article.read',
+        'website.visited',
+        'sitemap.generated',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names the three Milestone 9 tables as entity types', () => {
+      for (const entityType of [
+        'clinic_public_profile',
+        'public_article',
+        'public_testimonial',
+      ] as const) {
+        expect(AUDIT_ENTITY_TYPES).toContain(entityType);
+      }
+    });
+  });
 });

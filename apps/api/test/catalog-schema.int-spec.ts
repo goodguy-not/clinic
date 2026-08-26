@@ -254,6 +254,11 @@ describe('catalog schema objects', () => {
         // them, and no article, testimonial, page or website-request table
         // exists — those are later checkpoints.
         'clinic_public_profile',
+        // Milestone 9, checkpoint A2. TWO tables and no more: an article and a
+        // testimonial. No page, block, template, media, tag, revision or
+        // scheduling table exists, and still no website-request or inbox table.
+        'public_article',
+        'public_testimonial',
       ].sort(),
     );
   });

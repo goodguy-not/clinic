@@ -456,10 +456,19 @@ describe('public website reads (real PostgreSQL)', () => {
       }
     });
 
-    it('does not leak a public column into the internal catalog contract', async () => {
-      // The internal service and therapist reads are Milestone 2 contracts and
-      // stay exactly as they were: A1 adds columns, not fields on an existing
-      // response, so nothing that already renders these rows has to change.
+    it('keeps a therapist public profile out of the personnel read, and puts a service slug on the service', async () => {
+      // THE TWO ENTITIES ARE PUBLISHED DIFFERENTLY ON PURPOSE, and checkpoint
+      // A2 is where that difference becomes visible in the internal contracts.
+      //
+      // A SERVICE'S public description, address and visibility are columns on
+      // the catalog row, written by the same manager form under the same
+      // `service.update` (DECISION_LOG, 2026-08-21), so `publicSlug` belongs on
+      // the service read that form already uses.
+      //
+      // A THERAPIST'S public profile is a decision about a named human being
+      // under a permission A1 separated for exactly that reason, so it stays
+      // OFF the personnel read a receptionist holds `therapist.read` for. If it
+      // were here, separating the authority would have bought nothing.
       const manager = await loginAs(harness, 'MANAGER');
       await seedService({ slug: 'published-service' });
       await seedTherapist({ slug: 'published-therapist' });
@@ -473,9 +482,11 @@ describe('public website reads (real PostgreSQL)', () => {
 
       expect(services.status).toBe(200);
       expect(therapists.status).toBe(200);
-      expect(JSON.stringify(services.body)).not.toContain('publicSlug');
+      expect(services.body.services[0].publicSlug).toBe('published-service');
       expect(JSON.stringify(therapists.body)).not.toContain('publicSlug');
       expect(JSON.stringify(therapists.body)).not.toContain('publicDisplayName');
+      expect(JSON.stringify(therapists.body)).not.toContain('publicBio');
+      expect(JSON.stringify(therapists.body)).not.toContain('isPublic');
     });
   });
 });

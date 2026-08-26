@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type {
+  PublicArticleDetail,
+  PublicArticleSummary,
   PublicClinicProfile,
   PublicServiceDetail,
   PublicServiceSummary,
+  PublicSitemapEntry,
+  PublicTestimonial,
   PublicTherapistProfile,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
@@ -35,6 +40,18 @@ import { PrismaService } from '../prisma/prisma.service';
  * timestamp, a price, an availability window, or any family, child,
  * appointment, charge, payment, settlement or audit fact. None of those columns
  * is named anywhere below.
+ *
+ * MILESTONE 9, CHECKPOINT A2 ADDS FOUR READS AND CHANGES NONE OF THE FIVE
+ * ABOVE. Articles and testimonials arrive with their own tables and their own
+ * published-only predicates, written out in the same style and for the same
+ * reason; the sitemap is derived from the same predicates as the pages it
+ * lists, in one statement, so it cannot advertise a URL that answers 404.
+ *
+ * `publishedAt` ON AN ARTICLE IS THE ONE TIMESTAMP THIS SURFACE PROJECTS, and
+ * it is a deliberate exception rather than a lapse: "when was this service
+ * entered" is internal history a visitor is not owed, while the date an article
+ * was published is editorial content a reader judges it by. It is the FIRST
+ * publication, never a later edit.
  */
 
 type PublicServiceRow = {
@@ -51,6 +68,26 @@ type PublicTherapistRow = {
   public_title: string | null;
   public_bio: string | null;
   public_photo_path: string | null;
+};
+
+type PublicArticleRow = {
+  public_slug: string;
+  published_title: string;
+  published_summary: string | null;
+  public_first_published_at: Date;
+};
+
+type PublicArticleDetailRow = PublicArticleRow & { published_body: string };
+
+type PublicTestimonialRow = {
+  author_label: string | null;
+  body: string;
+};
+
+type SitemapRow = {
+  kind: 'service' | 'therapist' | 'article';
+  public_slug: string;
+  public_revised_at: Date | null;
 };
 
 type ClinicProfileRow = {
@@ -210,8 +247,13 @@ export class PublicSiteService {
    * is exactly what an unconfigured clinic HAS. Nothing is invented here: the
    * empty profile states nothing.
    */
-  async getClinicProfile(): Promise<PublicClinicProfile> {
-    const rows = await this.prisma.$queryRaw<ClinicProfileRow[]>`
+  async getClinicProfile(tx?: Prisma.TransactionClient): Promise<PublicClinicProfile> {
+    // The optional transaction client is what lets the manager write path read
+    // the profile it is about to replace, and read it again afterwards, inside
+    // its own transaction — one projection, one set of column names, and no
+    // second query that could drift from this one.
+    const client = tx ?? this.prisma;
+    const rows = await client.$queryRaw<ClinicProfileRow[]>`
       SELECT
         display_name, tagline, about, address_line, city_label,
         phone_primary, phone_secondary, email, working_hours_note,
@@ -239,6 +281,161 @@ export class PublicSiteService {
       telegramUrl: row.telegram_url,
     };
   }
+
+  /**
+   * The published articles, newest first.
+   *
+   * IT READS THE PUBLISHED COLUMNS AND NEVER THE DRAFT ONES, and that is the
+   * publication authority rather than a naming preference. An article holds its
+   * copy twice — `title`/`summary`/`body` is the working draft that anybody
+   * holding `article.draft` may rewrite, and `published_*` is what a manager
+   * last approved. Selecting the draft here is exactly the defect this
+   * projection exists to prevent: a receptionist's unreviewed prose on a live
+   * page, with nobody having decided it should be there.
+   *
+   * TWO CONDITIONS, AND THE SECOND IS NOT REDUNDANT. `is_public` is the
+   * recorded decision to publish; `public_first_published_at IS NOT NULL` is
+   * the database's own record that the decision took effect, and it is what the
+   * `publishedAt` field is built from. The trigger sets it in the same
+   * statement that sets the flag, so the two cannot disagree — and demanding
+   * both means no query here can produce a row with a null date and no code
+   * below has to invent one.
+   *
+   * A DRAFT IS UNREACHABLE THROUGH THIS READ AND THROUGH `getArticle`, and
+   * those are the only two statements in the application that select from
+   * `public_article` on behalf of a visitor.
+   */
+  async listArticles(): Promise<PublicArticleSummary[]> {
+    const rows = await this.prisma.$queryRaw<PublicArticleRow[]>`
+      SELECT a.public_slug, a.published_title, a.published_summary, a.public_first_published_at
+      FROM public_article a
+      WHERE a.is_public IS TRUE
+        AND a.public_first_published_at IS NOT NULL
+      ORDER BY a.public_first_published_at DESC, a.id DESC
+    `;
+
+    return rows.map(toPublicArticleSummary);
+  }
+
+  /**
+   * One published article, as the manager last approved it.
+   *
+   * A draft is `ARTICLE_NOT_FOUND` — the SAME answer a slug nobody has used
+   * gets, for the reason a private service is `SERVICE_NOT_FOUND`: two
+   * different answers would let anybody enumerate what the clinic is still
+   * writing. An article with a PREPARED CHANGE is not a draft: it answers, with
+   * the words that were approved.
+   */
+  async getArticle(slug: string): Promise<PublicArticleDetail> {
+    const rows = await this.prisma.$queryRaw<PublicArticleDetailRow[]>`
+      SELECT
+        a.public_slug,
+        a.published_title,
+        a.published_summary,
+        a.published_body,
+        a.public_first_published_at
+      FROM public_article a
+      WHERE a.public_slug = ${slug}
+        AND a.is_public IS TRUE
+        AND a.public_first_published_at IS NOT NULL
+    `;
+
+    const row = rows[0];
+    if (row === undefined) throw new AppError('ARTICLE_NOT_FOUND');
+
+    return { ...toPublicArticleSummary(row), body: row.published_body };
+  }
+
+  /**
+   * The approved, published testimonials.
+   *
+   * THREE CONDITIONS, AND THE APPROVAL ONE IS STATED HERE EVEN THOUGH THE
+   * DATABASE ALREADY GUARANTEES IT. `public_testimonial_approval_chk` refuses
+   * `is_public` on anything that is not `APPROVED`, so `status = 'APPROVED'`
+   * below can never change a result — which is exactly why it is written out.
+   * The cost of the constraint and this query disagreeing is publishing a
+   * family's words that no manager reviewed, and a reader of this file should
+   * be able to see the privacy rule in the predicate rather than have to go and
+   * find it in a migration.
+   *
+   * No slug, no id, no date, no status: the projection is two columns because
+   * the public contract is two fields.
+   */
+  async listTestimonials(): Promise<PublicTestimonial[]> {
+    const rows = await this.prisma.$queryRaw<PublicTestimonialRow[]>`
+      SELECT t.author_label, t.body
+      FROM public_testimonial t
+      WHERE t.is_public IS TRUE
+        AND t.status = 'APPROVED'::testimonial_status
+        AND t.approved_at IS NOT NULL
+      ORDER BY t.public_first_published_at DESC, t.id DESC
+    `;
+
+    return rows.map((row) => ({ authorLabel: row.author_label, body: row.body }));
+  }
+
+  /**
+   * Every data-driven public URL that currently exists, and its last-modified.
+   *
+   * ONE STATEMENT, THREE BRANCHES, AND EACH BRANCH REPEATS ITS PAGE'S OWN
+   * PREDICATE WORD FOR WORD. That repetition is the design, exactly as it is
+   * for the five reads above: a helper that assembled the conditions would be
+   * one place to forget one, and the failure would be a sitemap that lists a
+   * page answering 404 or omits one that answers. Written out, the sitemap is
+   * verifiably the union of the pages.
+   *
+   * NO PATH AND NO HOST. `kind` plus `slug` is what this tier knows; the route
+   * structure belongs to the web tier, which owns its router.
+   *
+   * A TESTIMONIAL IS ABSENT BECAUSE IT IS NOT A PAGE, and the static pages —
+   * home, about, contact, the privacy notice — are absent because they exist
+   * whether or not anybody publishes anything.
+   */
+  async listSitemapEntries(): Promise<PublicSitemapEntry[]> {
+    const rows = await this.prisma.$queryRaw<SitemapRow[]>`
+      SELECT 'service' AS kind, s.public_slug, s.public_revised_at, s.name AS sort_key
+      FROM service s
+      WHERE s.is_public IS TRUE
+        AND s.status = 'ACTIVE'::catalog_status
+        AND s.public_slug IS NOT NULL
+
+      UNION ALL
+
+      SELECT 'therapist' AS kind, t.public_slug, t.public_revised_at, t.public_display_name
+      FROM therapist t
+      WHERE t.is_public IS TRUE
+        AND t.status = 'ACTIVE'::catalog_status
+        AND t.public_slug IS NOT NULL
+        AND t.public_display_name IS NOT NULL
+
+      UNION ALL
+
+      SELECT 'article' AS kind, a.public_slug, a.public_revised_at, a.published_title
+      FROM public_article a
+      WHERE a.is_public IS TRUE
+        AND a.public_first_published_at IS NOT NULL
+
+      ORDER BY kind ASC, sort_key ASC
+    `;
+
+    return rows.map((row) => ({
+      kind: row.kind,
+      slug: row.public_slug,
+      lastModified: row.public_revised_at === null ? null : row.public_revised_at.toISOString(),
+    }));
+  }
+}
+
+function toPublicArticleSummary(row: PublicArticleRow): PublicArticleSummary {
+  return {
+    slug: row.public_slug,
+    title: row.published_title,
+    summary: row.published_summary,
+    // Non-null by the predicate every query above applies, restated for the
+    // type system rather than assumed: a nullable date on a public contract
+    // would be a field the web tier had to defend against.
+    publishedAt: row.public_first_published_at.toISOString(),
+  };
 }
 
 function toPublicServiceSummary(row: PublicServiceRow): PublicServiceSummary {

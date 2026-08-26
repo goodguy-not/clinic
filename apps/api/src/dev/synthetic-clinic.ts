@@ -15,6 +15,10 @@ import {
   type UserRole,
 } from '@clinic/contracts';
 import { AppointmentsService } from '../appointments/appointments.service';
+import { ArticlesService } from '../website/articles.service';
+import { ClinicProfileService } from '../website/clinic-profile.service';
+import { TestimonialsService } from '../website/testimonials.service';
+import { TherapistPublicProfileService } from '../catalog/therapists/therapist-public-profile.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { permissionsForRole } from '../auth/permissions';
 import { RoomsService } from '../catalog/rooms/rooms.service';
@@ -102,6 +106,8 @@ export type SyntheticClinicSummary = {
   /** Milestone 9: how much of that catalogue the seeded clinic shows the world. */
   publishedServices: number;
   publishedTherapists: number;
+  publishedArticles: number;
+  publishedTestimonials: number;
   families: number;
   children: number;
   appointments: number;
@@ -149,6 +155,10 @@ export async function seedSyntheticClinic(
   const adjustments = app.get(ChargeAdjustmentsService);
   const payments = app.get(PaymentsService);
   const promises = app.get(PromisesService);
+  const therapistProfiles = app.get(TherapistPublicProfileService);
+  const articles = app.get(ArticlesService);
+  const testimonials = app.get(TestimonialsService);
+  const clinicProfile = app.get(ClinicProfileService);
 
   const runTag = options.runTag ?? Math.random().toString(36).slice(2, 8);
   const weeks = options.weeks ?? 5;
@@ -262,18 +272,22 @@ export async function seedSyntheticClinic(
 
   // ---- the public website's face on that clinic ----------------------------
   //
-  // Milestone 9, checkpoint A1. The catalogue above is entered through the real
-  // services; PUBLISHING part of it is written here in SQL, because the manager
-  // surface that publishes is a later checkpoint and this seeder must not
-  // invent one. Every value is synthetic, and the run tag is inside every slug
-  // so two runs never collide on a public identity.
+  // Milestone 9. A1 seeded this in raw SQL because no manager write path
+  // existed; CHECKPOINT A2 BUILT THEM, so this now goes through the same
+  // services a manager's browser reaches — which means the seeded clinic
+  // carries a real audit trail for every publication, and this file is no
+  // longer the only writer of a public column anywhere in the repository.
+  //
+  // Every value is synthetic, and the run tag is inside every slug so two runs
+  // never collide on a public identity.
   //
   // IT PUBLISHES SOME AND NOT ALL, DELIBERATELY. One service and one therapist
-  // are left private in every run, so anybody looking at a seeded clinic can
-  // see the boundary working rather than a website that happens to show
-  // everything.
+  // are left private in every run, and one article is left in draft, so anybody
+  // looking at a seeded clinic can see the boundary working rather than a
+  // website that happens to show everything.
   const published = await publishSyntheticPublicSite(
-    prisma,
+    { services, therapistProfiles, articles, testimonials, clinicProfile },
+    manager,
     runTag,
     serviceRows.map((service) => service.id),
     therapistRows.map((therapist) => therapist.id),
@@ -762,6 +776,8 @@ export async function seedSyntheticClinic(
     therapists: therapistRows.length,
     publishedServices: published.services,
     publishedTherapists: published.therapists,
+    publishedArticles: published.articles,
+    publishedTestimonials: published.testimonials,
     families: familyIds.length,
     children: seededChildren.length,
     appointments: summary.appointments,
@@ -780,80 +796,158 @@ export async function seedSyntheticClinic(
 }
 
 /**
- * Publishes part of the seeded catalogue, and fills the clinic's public profile
- * if nothing has filled it yet.
+ * Publishes part of the seeded catalogue, writes a little public content, and
+ * fills the clinic's public profile if nothing has filled it yet.
  *
- * WRITTEN IN SQL RATHER THAN THROUGH A SERVICE, because no service writes these
- * columns yet: checkpoint A1 delivers the public READ side, and CHECKPOINT A2
- * OWNS EVERY MANAGER WRITE PATH over public presentation (DECISION_LOG,
- * 2026-08-21 — Every manager public-content write path is owned by A2). This is
- * the one place in the repository that writes them, it exists so the web lane
- * has something to render against, and it is dev-only — `apps/api/src/dev`
- * never ships in a request path. It is NOT the long-term writer, and if A2 ever
- * failed to land, that is the fact to escalate rather than to live with.
+ * WRITTEN THROUGH THE REAL MANAGER SERVICES, not in SQL. Checkpoint A1 had to
+ * use raw SQL because no write path existed; checkpoint A2 built every one of
+ * them, so this seeder now exercises exactly what a manager's browser reaches —
+ * which means a seeded clinic carries a genuine audit trail for every
+ * publication, and a defect in those paths fails the seed rather than hiding
+ * behind an UPDATE that only this file knows how to write.
  *
  * EVERYTHING HERE IS SYNTHETIC AND OBVIOUSLY SO. The telephone numbers are
- * zeroes, the addresses name a fictional street, the links and the e-mail
- * address use the reserved `.invalid` domain, and the map pin is the centre of
- * Tehran rather than anybody's building. The real values are owner-supplied and
- * this repository does not hold them.
+ * zeroes, the address names a fictional street, the links and the e-mail
+ * address use the reserved `.invalid` domain, the map pin is the centre of
+ * Tehran rather than anybody's building, and the testimonials are written for
+ * this file and quote nobody. The real values are owner-supplied and this
+ * repository does not hold them.
  */
 async function publishSyntheticPublicSite(
-  prisma: PrismaService,
+  write: {
+    services: ServicesService;
+    therapistProfiles: TherapistPublicProfileService;
+    articles: ArticlesService;
+    testimonials: TestimonialsService;
+    clinicProfile: ClinicProfileService;
+  },
+  manager: ResolvedSession,
   runTag: string,
   serviceIds: string[],
   therapistIds: string[],
-): Promise<{ services: number; therapists: number }> {
+): Promise<{ services: number; therapists: number; articles: number; testimonials: number }> {
   // The last of each is left private, so every seeded clinic contains a record
   // the website must refuse to show.
   const publishableServices = serviceIds.slice(0, Math.max(serviceIds.length - 1, 0));
   const publishableTherapists = therapistIds.slice(0, Math.max(therapistIds.length - 1, 0));
 
   for (const [index, id] of publishableServices.entries()) {
-    await prisma.$executeRaw`
-      UPDATE service
-      SET is_public = TRUE,
-          public_slug = ${`service-${index + 1}-${runTag}`},
-          public_description = ${`شرح نمونه خدمت ${index + 1} برای وب‌سایت آزمایشی (${runTag}).`}
-      WHERE id = ${id}::uuid
-    `;
+    // Read-then-replace, because the public columns share the service form with
+    // the name and the durations: sending only the public half would clear the
+    // rest.
+    const current = await write.services.get(id);
+
+    await write.services.update(
+      id,
+      {
+        name: current.name,
+        publicDescription: `شرح نمونه خدمت ${index + 1} برای وب‌سایت آزمایشی (${runTag}).`,
+        isPublic: true,
+        publicSlug: `service-${index + 1}-${runTag}`,
+        allowedDurationsMinutes: current.allowedDurationsMinutes,
+      },
+      manager,
+      requestContext(),
+    );
   }
 
   for (const [index, id] of publishableTherapists.entries()) {
-    await prisma.$executeRaw`
-      UPDATE therapist
-      SET is_public = TRUE,
-          public_slug = ${`therapist-${index + 1}-${runTag}`},
-          public_display_name = ${`درمانگر نمونه ${index + 1} (${runTag})`},
-          public_title = ${`عنوان عمومی نمونه ${index + 1}`},
-          public_bio = ${`زندگی‌نامه نمونه و کاملاً ساختگی برای درمانگر ${index + 1} (${runTag}).`},
-          public_display_order = ${index + 1}
-      WHERE id = ${id}::uuid
-    `;
+    // TWO ACTS, exactly as a manager performs them: prepare the approved
+    // content, then opt the person in. The first publishes nobody.
+    await write.therapistProfiles.update(
+      id,
+      {
+        publicSlug: `therapist-${index + 1}-${runTag}`,
+        displayName: `درمانگر نمونه ${index + 1} (${runTag})`,
+        title: `عنوان عمومی نمونه ${index + 1}`,
+        bio: `زندگی‌نامه نمونه و کاملاً ساختگی برای درمانگر ${index + 1} (${runTag}).`,
+        photoPath: null,
+        displayOrder: index + 1,
+      },
+      manager,
+      requestContext(),
+    );
+
+    await write.therapistProfiles.setVisibility(id, true, manager, requestContext());
+  }
+
+  // Two articles, and the second is left in draft on purpose: a seeded clinic
+  // should contain a page the website must refuse to serve.
+  const articleSlugs = [`article-1-${runTag}`, `article-2-${runTag}`];
+  let publishedArticles = 0;
+
+  for (const [index, slug] of articleSlugs.entries()) {
+    const article = await write.articles.create(
+      {
+        publicSlug: slug,
+        title: `مطلب نمونه ${index + 1} (${runTag})`,
+        summary: `چکیده نمونه برای مطلب ${index + 1}. هیچ‌یک از این متن‌ها واقعی نیست.`,
+        body: `متن نمونه مطلب ${index + 1}، فقط برای توسعه و آزمایش. هیچ کودک، خانواده یا جلسه‌ای در آن توصیف نشده است.`,
+      },
+      manager,
+      requestContext(),
+    );
+
+    if (index === 0) {
+      await write.articles.setPublication(article.id, true, manager, requestContext());
+      publishedArticles += 1;
+    }
+  }
+
+  // Two testimonials: one approved and published, one left unapproved, so the
+  // privacy boundary is visible in a seeded clinic rather than assumed.
+  let publishedTestimonials = 0;
+
+  for (const index of [0, 1]) {
+    const testimonial = await write.testimonials.create(
+      {
+        authorLabel: `همراه نمونه ${index + 1}`,
+        body: `رضایت‌نامه نمونه ${index + 1}؛ متنی ساختگی که هیچ فرد، کودک یا وضعیت درمانی واقعی را توصیف نمی‌کند.`,
+      },
+      manager,
+      requestContext(),
+    );
+
+    if (index === 0) {
+      await write.testimonials.setApproval(testimonial.id, true, manager, requestContext());
+      await write.testimonials.setPublication(testimonial.id, true, manager, requestContext());
+      publishedTestimonials += 1;
+    }
   }
 
   // Only when the profile is still empty: a second run must not overwrite what
   // a first one wrote, and a real deployment must never be touched by this file
   // at all.
-  await prisma.$executeRaw`
-    UPDATE clinic_public_profile
-    SET display_name = ${`کلینیک نمونه (${runTag})`},
-        tagline = 'وب‌سایت آزمایشی؛ هیچ‌یک از این اطلاعات واقعی نیست.',
-        about = 'متن نمونه درباره کلینیک، فقط برای توسعه و آزمایش.',
-        address_line = 'خیابان نمونه، پلاک ۰',
-        city_label = 'شهر نمونه',
-        phone_primary = '021-00000000',
-        phone_secondary = NULL,
-        email = 'info@example.invalid',
-        working_hours_note = 'شنبه تا چهارشنبه، ۹ تا ۱۸ (نمونه)',
-        map_latitude = 35.7,
-        map_longitude = 51.4,
-        instagram_url = 'https://example.invalid/instagram',
-        telegram_url = 'https://example.invalid/telegram'
-    WHERE singleton_key = 1 AND display_name IS NULL
-  `;
+  const existing = await write.clinicProfile.read();
 
-  return { services: publishableServices.length, therapists: publishableTherapists.length };
+  if (existing.displayName === null) {
+    await write.clinicProfile.update(
+      {
+        displayName: `کلینیک نمونه (${runTag})`,
+        tagline: 'وب‌سایت آزمایشی؛ هیچ‌یک از این اطلاعات واقعی نیست.',
+        about: 'متن نمونه درباره کلینیک، فقط برای توسعه و آزمایش.',
+        addressLine: 'خیابان نمونه، پلاک ۰',
+        cityLabel: 'شهر نمونه',
+        phonePrimary: '021-00000000',
+        phoneSecondary: null,
+        email: 'info@example.invalid',
+        workingHoursNote: 'شنبه تا چهارشنبه، ۹ تا ۱۸ (نمونه)',
+        mapLatitude: 35.7,
+        mapLongitude: 51.4,
+        instagramUrl: 'https://example.invalid/instagram',
+        telegramUrl: 'https://example.invalid/telegram',
+      },
+      manager,
+      requestContext(),
+    );
+  }
+
+  return {
+    services: publishableServices.length,
+    therapists: publishableTherapists.length,
+    articles: publishedArticles,
+    testimonials: publishedTestimonials,
+  };
 }
 
 /**

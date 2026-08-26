@@ -64,6 +64,13 @@ describe('role to permission map', () => {
         'promise.read',
         'promise.create',
         'promise.resolve',
+        // Milestone 9, checkpoint A2: DRAFTING public content, and reading the
+        // drafts in order to edit them. Publishing an article and approving a
+        // testimonial are withheld, and the negative half below states that.
+        'article.read',
+        'article.draft',
+        'testimonial.read',
+        'testimonial.draft',
       ].sort(),
     );
   });
@@ -529,6 +536,20 @@ describe('role to permission map', () => {
       'clinic_profile.update',
     ] as const;
 
+    /**
+     * Milestone 9, checkpoint A2. The content vocabulary, added with the acts
+     * that make it real — not before them, which is the rule A1 stated when it
+     * deliberately left drafting unnameable.
+     */
+    const CONTENT_DRAFT_PERMISSIONS = [
+      'article.read',
+      'article.draft',
+      'testimonial.read',
+      'testimonial.draft',
+    ] as const;
+
+    const CONTENT_PUBLISH_PERMISSIONS = ['article.publish', 'testimonial.approve'] as const;
+
     it('defines exactly the three approved names', () => {
       for (const permission of WEBSITE_PERMISSIONS) {
         expect(PERMISSIONS).toContain(permission);
@@ -541,25 +562,64 @@ describe('role to permission map', () => {
 
     it('names nothing this checkpoint did not approve', () => {
       for (const absent of [
-        // Public CONTENT and the workflow that publishes it are later
-        // checkpoints, and inventing their vocabulary now would be guessing at
-        // decisions nobody has taken.
-        'article.read',
+        // A2 named the six content permissions that describe acts it actually
+        // built. These are the ones it did NOT: a catch-all over all public
+        // content, and a create name where `article.draft` is the act.
         'article.create',
-        'article.publish',
-        'testimonial.approve',
         'content.publish',
+        'content.draft',
         'website.manage',
-        // The public request inbox is a later checkpoint too.
+        // The public request inbox is a later checkpoint.
         'website_request.read',
         'website_request.convert',
-        // A draft authority is deliberately absent: it belongs to the
-        // checkpoint that builds drafting, and it must never be the same name
-        // as the one that publishes.
-        'content.draft',
         // The public reads carry no permission at all — they are classified
         // `internal` and hold none.
         'public.read',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names drafting and publishing as different permissions', () => {
+      // THE FROZEN A1 RULE, PINNED. "Draft authority does not imply publish
+      // authority, so the permission that publishes will never be the
+      // permission that writes." Six names, and no name appears in both lists.
+      for (const permission of [...CONTENT_DRAFT_PERMISSIONS, ...CONTENT_PUBLISH_PERMISSIONS]) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+
+      for (const drafting of CONTENT_DRAFT_PERMISSIONS) {
+        expect(CONTENT_PUBLISH_PERMISSIONS).not.toContain(drafting as never);
+      }
+    });
+
+    it('gives the receptionist every draft name and no publication name', () => {
+      // BOTH HALVES, because either alone would be a lie. A receptionist may
+      // write every word of an article and may make none of it visible.
+      const receptionist = permissionsForRole('RECEPTIONIST');
+      const manager = permissionsForRole('MANAGER');
+
+      for (const permission of CONTENT_DRAFT_PERMISSIONS) {
+        expect(receptionist).toContain(permission);
+        expect(manager).toContain(permission);
+      }
+
+      for (const permission of CONTENT_PUBLISH_PERMISSIONS) {
+        expect(receptionist).not.toContain(permission);
+        expect(manager).toContain(permission);
+      }
+    });
+
+    it('names one authority over a testimonial public life, not four', () => {
+      // Approving, withdrawing approval, publishing and unpublishing are four
+      // acts and one authority: nothing in the product ever grants one without
+      // the others, and no route demands a pair of them at once — which is what
+      // made the settlement rate/void split load-bearing and makes this one
+      // unnecessary.
+      for (const absent of [
+        'testimonial.publish',
+        'testimonial.unpublish',
+        'testimonial.revoke_approval',
       ] as const) {
         expect(PERMISSIONS).not.toContain(absent as never);
       }

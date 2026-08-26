@@ -173,6 +173,25 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   RATING_REPLACEMENT_REQUIRED: 409,
   RATING_SCOPE_MISMATCH: 422,
 
+  // The public website (Milestone 9, checkpoint A2).
+  //
+  // 409 for the two slug refusals: both are well-formed requests that conflict
+  // with a record's own history or with another row, which is exactly
+  // `SERVICE_NAME_TAKEN`'s reasoning. `PUBLIC_SLUG_IMMUTABLE` is a conflict
+  // with a promise the clinic has already made to everybody holding the URL.
+  PUBLIC_SLUG_IMMUTABLE: 409,
+  PUBLIC_SLUG_TAKEN: 409,
+  // 422: nothing conflicts and nothing is missing from the request. The
+  // combination — publish this person, with no approved name to publish them
+  // under — is one the recorded content does not permit.
+  THERAPIST_PUBLIC_PROFILE_INCOMPLETE: 422,
+  ARTICLE_NOT_FOUND: 404,
+  TESTIMONIAL_NOT_FOUND: 404,
+  // 409 for both: the row is in a state that does not allow this act, and a
+  // refreshed screen explains why. Exactly `CHARGE_ALREADY_VOIDED`'s reasoning.
+  TESTIMONIAL_APPROVED: 409,
+  TESTIMONIAL_NOT_APPROVED: 409,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -284,6 +303,14 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   SETTLEMENT_PERIOD_OVERLAP:
     'The range overlaps a settlement period already closed for this therapist',
   SETTLEMENT_PERIOD_NOT_FOUND: 'Settlement period not found',
+  PUBLIC_SLUG_IMMUTABLE: 'A public slug cannot change once it has been publicly reachable',
+  PUBLIC_SLUG_TAKEN: 'Public slug is already in use',
+  THERAPIST_PUBLIC_PROFILE_INCOMPLETE:
+    'A therapist cannot be published without a public slug and an approved display name',
+  ARTICLE_NOT_FOUND: 'Article not found',
+  TESTIMONIAL_NOT_FOUND: 'Testimonial not found',
+  TESTIMONIAL_APPROVED: 'An approved testimonial cannot be edited',
+  TESTIMONIAL_NOT_APPROVED: 'A testimonial cannot be published before it is approved',
   RATING_REPLACEMENT_REQUIRED:
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',

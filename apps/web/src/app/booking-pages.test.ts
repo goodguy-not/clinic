@@ -16,6 +16,8 @@ const service: Service = {
   id: ID('1'),
   name: 'گفتاردرمانی',
   publicDescription: null,
+  publicSlug: null,
+  publicFirstPublishedAt: null,
   isPublic: false,
   status: 'ACTIVE',
   deactivatedAt: null,

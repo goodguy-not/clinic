@@ -164,6 +164,11 @@ const PROTECTED_TABLES = [
   // named here for the reset to be able to clear them.
   'settlement_period',
   'settlement_line',
+  // Milestone 9, checkpoint A2. Published content is withdrawn, never erased,
+  // so both tables carry no-delete and no-truncate triggers and both have to be
+  // named here for the reset to be able to clear them.
+  'public_article',
+  'public_testimonial',
 ];
 
 /**
@@ -175,6 +180,10 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 9. Neither names anything but the user who created it, so they go
+  // before `app_user` and nowhere in particular otherwise.
+  'public_article',
+  'public_testimonial',
   // Milestone 8, dependents first: a closed line names its period, a charge and
   // the rating it was materialised from, so it goes before all three.
   'settlement_line',

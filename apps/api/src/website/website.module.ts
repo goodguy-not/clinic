@@ -1,34 +1,52 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
+import { ArticlesController } from './articles.controller';
+import { ArticlesService } from './articles.service';
+import { ClinicProfileController } from './clinic-profile.controller';
+import { ClinicProfileService } from './clinic-profile.service';
 import { PublicSiteController } from './public-site.controller';
 import { PublicSiteService } from './public-site.service';
+import { TestimonialsController } from './testimonials.controller';
+import { TestimonialsService } from './testimonials.service';
 
 /**
- * The public website's side of the API.
+ * The public website: what the world reads, and the manager surface that
+ * decides it.
  *
- * Milestone 9, checkpoint A1: five read-only projections — the published
- * services, one published service, the opted-in team, one opted-in profile, and
- * the clinic's own public facts.
+ * Milestone 9, checkpoint A1 delivered nine read-only projections' worth of
+ * foundation — the published services, one published service, the opted-in
+ * team, one opted-in profile, and the clinic's own public facts. Checkpoint A2
+ * adds the published articles, one published article, the approved
+ * testimonials and the sitemap's URL facts, and — the point of the checkpoint —
+ * the WRITE paths behind all of it.
  *
- * IT OWNS `clinic_public_profile` AND READS TWO TABLES IT DOES NOT OWN.
- * `service` and `therapist` belong to `CatalogModule`, which remains the only
- * code that WRITES them. This module reads a deliberately narrow projection of
- * their published columns and does not import that module, because the reads it
- * needs are not the reads an administrator needs: sharing them would put the
- * public site one widened `SELECT` away from a leak, and the point of a
- * projection is that it cannot widen by accident.
+ * IT OWNS `clinic_public_profile`, `public_article` AND `public_testimonial`,
+ * AND READS TWO TABLES IT DOES NOT OWN. `service` and `therapist` belong to
+ * `CatalogModule`, which remains the only code that WRITES them — including the
+ * therapist public profile, which is a separate service and a separate
+ * permission inside that module rather than a second writer here. This module
+ * reads a deliberately narrow projection of their published columns and does
+ * not import that module, because the reads it needs are not the reads an
+ * administrator needs: sharing them would put the public site one widened
+ * `SELECT` away from a leak.
  *
- * NO `AuditModule`, BECAUSE NOTHING HERE WRITES. Reading a published page is
- * not an audited act; publishing IS, and the manager surface that publishes
- * arrives in CHECKPOINT A2 — the service's public fields on the existing
- * manager form, the therapist's public profile and opt-in under
- * `therapist.publish_profile`, and the clinic profile under
- * `clinic_profile.update` — each with its audit inside the same transaction as
- * the change, as every write in this application already is (DECISION_LOG,
- * 2026-08-21).
+ * `AuditModule` IS IMPORTED NOW, WHERE A1 DELIBERATELY DID NOT. Reading a
+ * published page is still not an audited act and nothing in
+ * `PublicSiteService` writes a row. What changed is that this module now
+ * PUBLISHES — an article going live, a testimonial passing its privacy review,
+ * the clinic's own address changing — and every one of those writes its audit
+ * row in the same transaction as the change, as every write in this
+ * application does.
  */
 @Module({
-  controllers: [PublicSiteController],
-  providers: [PublicSiteService],
+  imports: [AuditModule],
+  controllers: [
+    PublicSiteController,
+    ArticlesController,
+    TestimonialsController,
+    ClinicProfileController,
+  ],
+  providers: [PublicSiteService, ArticlesService, TestimonialsService, ClinicProfileService],
   exports: [PublicSiteService],
 })
 export class WebsiteModule {}

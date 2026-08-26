@@ -250,6 +250,67 @@ export const AUDIT_ACTIONS = [
   'session_settlement.rated',
   'session_settlement.voided',
   'settlement_period.closed',
+
+  // The public website (Milestone 9, checkpoint A2). NINE ACTIONS, AND EVERY
+  // ONE OF THEM IS A PUBLICATION-BEARING FACT SOMEBODY MAY LATER HAVE TO
+  // ACCOUNT FOR.
+  //
+  // PUBLISHING AND UNPUBLISHING ARE SEPARATE FROM EDITING, AND FROM EACH OTHER.
+  // This is the completion-versus-cancellation split applied to content, and
+  // the reason is the same: "when did this go on the website, and when did it
+  // come off again?" is precisely the question asked after somebody complains
+  // about a page, and an answer buried in a JSON diff of a boolean is not
+  // something you can count or filter. The draft actions are the ordinary
+  // editorial trail; the publication actions are the ones a reviewer reads.
+  //
+  // A TESTIMONIAL HAS FOUR, BECAUSE APPROVAL AND PUBLICATION ARE DIFFERENT
+  // FACTS. `public_testimonial.approved` records that a manager read those
+  // exact words and accepted responsibility for them — the privacy review
+  // PROJECT_SPEC.md 11 requires — while `.published` records that they were
+  // placed on a page. Withdrawing approval also unpublishes, so that one act
+  // writes BOTH `.approval_revoked` and `.unpublished` in one transaction,
+  // sharing a request id: two things genuinely happened, and a third name for
+  // the pair would describe one act as three.
+  //
+  // THE THERAPIST'S THREE NAME THE PERSON, NOT THE PAGE. Publishing a named
+  // colleague's photograph and biography is a decision ABOUT THAT PERSON taken
+  // with their agreement, and it is the one audited act in this product whose
+  // subject may one day ask to see it. `therapist.public_profile_updated` is
+  // preparing the content, which publishes nobody.
+  //
+  // THERE IS DELIBERATELY NO `service.published` OR `service.public_updated`.
+  // A service's public description, slug and visibility are columns on the
+  // catalog row, written by the SAME manager form and the SAME `service.update`
+  // authority as its name (DECISION_LOG, 2026-08-21) — it is one state change,
+  // and `service.updated` already records it with the before and after of every
+  // one of those columns in its payload. A second action would describe one
+  // write as two facts a reader would then have to pair up, which is the
+  // `appointment.availability_override` reasoning rather than the
+  // completion-versus-cancellation one.
+  //
+  // `clinic_public_profile.updated` IS ONE ACTION FOR ONE ROW. There is no
+  // publication act to separate: the profile is always live, so editing it IS
+  // publishing, and the payload carries what changed.
+  //
+  // NO FREE-TEXT REASON IS REQUIRED BY ANY OF THESE. A recorded reason exists
+  // in this product where an approved rule demands one — the availability
+  // override, a void, a concession — and no accepted M9 rule demands one for
+  // publishing. Adding a mandatory reason nobody reads is how a mandatory
+  // reason becomes a full stop.
+  'public_article.created',
+  'public_article.updated',
+  'public_article.published',
+  'public_article.unpublished',
+  'public_testimonial.created',
+  'public_testimonial.updated',
+  'public_testimonial.approved',
+  'public_testimonial.approval_revoked',
+  'public_testimonial.published',
+  'public_testimonial.unpublished',
+  'therapist.public_profile_updated',
+  'therapist.public_profile_published',
+  'therapist.public_profile_unpublished',
+  'clinic_public_profile.updated',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -333,6 +394,19 @@ export const AUDIT_ENTITY_TYPES = [
   // forbidden to create; naming the surface in the payload instead keeps the
   // audit a record of an act rather than a copy of its result.
   'report',
+  // Milestone 9. `clinic_public_profile` arrived as a table in checkpoint A1 and
+  // gains its writer in A2; the two content tables arrive with their writer in
+  // A2. All three ARE tables, so all three satisfy the assertion above.
+  //
+  // A `clinic_public_profile` row carries a NULL `entity_id`, and it is the
+  // second entry to do so after `report` — but for the opposite reason. An
+  // export names no row; this names THE row, and there is only ever one of it.
+  // Its primary key is the integer 1, and `entity_id` is a UUID column, so
+  // there is no id to write even in principle. A synthetic UUID invented to
+  // fill the column would be a foreign key to nothing.
+  'clinic_public_profile',
+  'public_article',
+  'public_testimonial',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

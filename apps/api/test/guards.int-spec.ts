@@ -156,6 +156,11 @@ describe('guard chain (real PostgreSQL)', () => {
         'appointment.override_availability',
         'appointment.read',
         'appointment.update',
+        // Milestone 9, checkpoint A2: drafting public content and reading the
+        // drafts. `article.publish` and `testimonial.approve` are the manager's
+        // alone and are asserted absent below.
+        'article.draft',
+        'article.read',
         'availability.read',
         'charge.post',
         'charge.read',
@@ -177,6 +182,8 @@ describe('guard chain (real PostgreSQL)', () => {
         'room.read',
         'service.read',
         'tariff.read',
+        'testimonial.draft',
+        'testimonial.read',
         'therapist.read',
       ]);
 
@@ -198,6 +205,13 @@ describe('guard chain (real PostgreSQL)', () => {
         // withdrawing one and reducing one are the manager's.
         'charge.void',
         'charge.adjust',
+        // Milestone 9: the content side of the same boundary. Writing the words
+        // is theirs; deciding that the world sees them is not.
+        'article.publish',
+        'testimonial.approve',
+        'therapist.publish_profile',
+        'clinic_profile.read',
+        'clinic_profile.update',
       ]) {
         expect(asReceptionist.user.permissions).not.toContain(forbidden);
       }
@@ -417,7 +431,27 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  speaks to NestJS. FIVE READS AND NO WRITE — the public
       //                  request form is a later checkpoint, so nothing an
       //                  anonymous caller sends can make this application write.
-      expect(routes).toBe(112);
+      //
+      // public content:  checkpoint A2 adds FOUR more `internal` public reads —
+      //                  the published articles, one published article, the
+      //                  approved testimonials, and the sitemap's URL facts —
+      //                  bringing the public surface to nine reads and still no
+      //                  write.
+      //
+      // content admin:   SIXTEEN manager-and-author routes, and every one of
+      //                  them names a permission. Five for articles (list, get,
+      //                  create, edit, publish), six for testimonials (list,
+      //                  get, create, edit, approve, publish), three for a
+      //                  therapist public profile (read, content, opt-in) and
+      //                  two for the clinic's own profile (read, replace).
+      //
+      //                  The split inside them is the point: `article.read` and
+      //                  `article.draft` are a receptionist's, `article.publish`
+      //                  and `testimonial.approve` are a manager's alone, and
+      //                  the therapist and clinic routes carry the three names
+      //                  A1 froze. Nothing here is `internal` and nothing here
+      //                  is reachable without a session.
+      expect(routes).toBe(132);
     });
   });
 });

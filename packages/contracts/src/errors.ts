@@ -309,6 +309,47 @@ export const ERROR_CODES = [
   // reopened, so there is no operation on it to refuse — and no code of any kind
   // about a therapist payout, which this milestone does not record.
 
+  // The public website (Milestone 9, checkpoint A2). SEVEN CODES, AND EVERY ONE
+  // OF THEM IS A REFUSAL A MANAGER CAN READ AND ACT ON.
+  //
+  // `PUBLIC_SLUG_IMMUTABLE` IS WHERE THE A1 DATABASE TRIGGER BECOMES A
+  // SENTENCE. A slug that has been publicly reachable cannot be changed or
+  // cleared, because this product has no redirect, alias or URL-history
+  // machinery and a moved URL would silently break every link anybody has
+  // already followed (DECISION_LOG, 2026-08-21). The honest answer is a refusal
+  // that says so, not a 500 from a trigger and not a silent success that
+  // rewrote a promise.
+  //
+  // `PUBLIC_SLUG_TAKEN` is the unique index seen from the manager's side, and
+  // it is deliberately not `SERVICE_NAME_TAKEN`: the slug is unique across
+  // EVERY published thing of that kind including private and retired rows, so
+  // the conflicting record may be one the manager cannot see in the list they
+  // are looking at.
+  'PUBLIC_SLUG_IMMUTABLE',
+  'PUBLIC_SLUG_TAKEN',
+  // A therapist cannot be published without the approved content the opt-in is
+  // an opt-in TO: an address and a name they agreed to appear under. Refused
+  // rather than filled in from the personnel record, which would be a
+  // publication decision nobody made.
+  'THERAPIST_PUBLIC_PROFILE_INCOMPLETE',
+  'ARTICLE_NOT_FOUND',
+  'TESTIMONIAL_NOT_FOUND',
+  // The words of an approved testimonial are frozen. Editing them would leave
+  // text on a public page that nobody reviewed, so the fix is to withdraw the
+  // approval first — which also takes it off the site — and approve the new
+  // wording deliberately.
+  'TESTIMONIAL_APPROVED',
+  // Publishing something the privacy review has not passed. It is the state
+  // PROJECT_SPEC.md 11 exists to require, surfacing as a refusal: approval is
+  // never inferred from a record existing.
+  'TESTIMONIAL_NOT_APPROVED',
+  // There is deliberately NO `ARTICLE_SLUG_REQUIRED` or `ARTICLE_INCOMPLETE`:
+  // an article's slug, title and body are NOT NULL from creation, so a draft is
+  // always publishable and there is no half-written state to refuse. And no
+  // code of any kind about a website request, its consent or its inbox — those
+  // are later checkpoints, and every one of them touches personal data this one
+  // does not accept.
+
   'INTERNAL_ERROR',
 ] as const;
 

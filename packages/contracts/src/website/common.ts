@@ -71,17 +71,47 @@ export const publicMediaPathSchema = z
  * know for how long.
  *
  * So the names are frozen here, where both tiers can read them, and no caching
- * is implemented on either side of this checkpoint.
+ * is implemented on either side. NOTHING IN `apps/api` READS THESE, INCLUDING
+ * AFTER CHECKPOINT A2: the manager write paths return the row they wrote —
+ * slug and publication flag included — which is everything the web tier needs
+ * to work out which tags a successful mutation invalidated. An API that named
+ * the tags in its responses would be a second, quieter answer to a question the
+ * response body already answers, and would put a web caching concern inside the
+ * domain layer.
  *
- * FOUR NAMES FOR THE FOUR PUBLIC FACTS, plus two prefixes for the two reads
- * that are keyed by slug. The prefixes are strings rather than functions
+ * FIVE NAMES FOR THE FIVE PUBLIC COLLECTIONS, plus three prefixes for the three
+ * reads that are keyed by slug. The prefixes are strings rather than functions
  * because this package contains no logic: the caller concatenates the slug it
  * already holds.
+ *
+ * WHICH TAGS A SUCCESSFUL MANAGER MUTATION AFFECTS — the handshake Agent B
+ * builds against, stated once, here:
+ *
+ *   service create/update ......... `services`, and `public-service:` + slug
+ *   therapist public profile ...... `team`, and `public-therapist:` + slug
+ *   therapist public visibility ... `team`, and `public-therapist:` + slug
+ *   article create/update ......... `articles`, and `public-article:` + slug
+ *   article publish/unpublish ..... `articles`, and `public-article:` + slug
+ *   testimonial write/approve ..... `testimonials`
+ *   testimonial publish ........... `testimonials`
+ *   clinic profile update ......... `clinicProfile`
+ *
+ * EVERY ONE OF THOSE ALSO AFFECTS `sitemap`, except the testimonial and clinic
+ * rows: a testimonial has no URL of its own and the clinic profile is not a
+ * data-driven page. The sitemap read is derived from the same rows as the pages
+ * it lists, so a publication that changes a page and leaves the sitemap stale
+ * would advertise a URL that no longer answers.
  */
 export const PUBLIC_CACHE_TAGS = {
   services: 'public-services',
   team: 'public-team',
   clinicProfile: 'public-clinic-profile',
+  /** Milestone 9, checkpoint A2. */
+  articles: 'public-articles',
+  /** Milestone 9, checkpoint A2. */
+  testimonials: 'public-testimonials',
+  /** Milestone 9, checkpoint A2 — the derived URL list, not a page. */
+  sitemap: 'public-sitemap',
 } as const;
 
 /** `public-service:` + the service slug. */
@@ -89,3 +119,38 @@ export const PUBLIC_SERVICE_CACHE_TAG_PREFIX = 'public-service:';
 
 /** `public-therapist:` + the therapist slug. */
 export const PUBLIC_THERAPIST_CACHE_TAG_PREFIX = 'public-therapist:';
+
+/** `public-article:` + the article slug. Milestone 9, checkpoint A2. */
+export const PUBLIC_ARTICLE_CACHE_TAG_PREFIX = 'public-article:';
+
+/**
+ * PUBLIC COPY IS PLAIN TEXT, AND THE ABSENCE OF `<` IS WHAT MAKES THAT TRUE.
+ *
+ * Milestone 9, checkpoint A2. Article titles, summaries and bodies and
+ * testimonial text are written by a manager and rendered to strangers, which is
+ * the exact shape of a stored-cross-site-scripting defect. Every other product
+ * answers it with an HTML sanitiser in front of the renderer; this one answers
+ * it by refusing to STORE markup at all, in the shared contract and again in a
+ * database CHECK, so there is no sanitiser to misconfigure and no path by which
+ * a `<script>` reaches a column.
+ *
+ * The web tier can therefore render these values as text — paragraphs split on
+ * blank lines — with no `dangerouslySetInnerHTML` anywhere near them.
+ *
+ * The cost is a character a Persian clinical article will essentially never
+ * need. If real copy ever does, the answer is a deliberate markup decision with
+ * a renderer behind it, not relaxing this to "usually safe".
+ */
+export const PUBLIC_PLAIN_TEXT_PATTERN = /^[^<]*$/;
+
+const plainText = (max: number) =>
+  z.string().trim().min(1).max(max).regex(PUBLIC_PLAIN_TEXT_PATTERN, 'must not contain markup');
+
+/** A public heading or short label. */
+export const publicHeadingSchema = plainText(200);
+
+/** A public standfirst: what a listing and a meta description show. */
+export const publicSummarySchema = plainText(400);
+
+/** A public prose body. */
+export const publicProseSchema = plainText(20000);

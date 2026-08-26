@@ -56,14 +56,26 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * The receptionist's list is therefore unchanged for the fourth milestone
  * running, and the test that states it exactly is what proves it.
  *
+ * MILESTONE 9, CHECKPOINT A2 IS THE FIRST TIME THE RECEPTIONIST'S LIST HAS
+ * GROWN SINCE MILESTONE 6, and it grows by exactly four names: `article.read`,
+ * `article.draft`, `testimonial.read` and `testimonial.draft`. Somebody at the
+ * front desk hears what families actually ask and is the right person to write
+ * a first draft of an answer, so drafting public content is theirs — and
+ * nothing they draft can reach a visitor, because `article.publish` and
+ * `testimonial.approve` are withheld and the public reads return published
+ * content only. That is the A1 promise kept in the role map rather than in a
+ * comment: the permission that publishes is not the permission that writes, and
+ * a test pins both halves.
+ *
  * MILESTONE 9 ADDS THREE NAMES AND GRANTS THE RECEPTIONIST NONE OF THEM. The
  * public website is what the clinic says to people who are not its patients:
  * publishing a named colleague's photograph and biography
  * (`therapist.publish_profile`) and setting the address, telephone number and
  * links the site prints (`clinic_profile.read`, `clinic_profile.update`) are
- * manager authorities, and a later checkpoint that lets a receptionist DRAFT
- * public content will not reach any of them — draft authority does not imply
- * publish authority, which is why the drafting name does not exist here yet.
+ * manager authorities, and the checkpoint that let a receptionist DRAFT public
+ * content reached none of them — draft authority does not imply publish
+ * authority, which is why the A2 drafting names sit beside these three rather
+ * than inside them.
  * The PUBLIC reads themselves hold no permission at all: they are classified
  * `internal`, reachable only across the internal-key boundary from the Next.js
  * server, and they can return nothing that is not already published.
@@ -133,6 +145,20 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'promise.read',
     'promise.create',
     'promise.resolve',
+
+    // Milestone 9, checkpoint A2: drafting public content, and reading the
+    // drafts in order to edit them. NOT `article.publish` and NOT
+    // `testimonial.approve` — a draft this role writes becomes visible to the
+    // world only when a manager performs a separate, separately audited act,
+    // and the public reads cannot return an unpublished row at all.
+    //
+    // `clinic_profile.read` is deliberately NOT here either. The address and
+    // telephone number the site prints are not draftable content: there is one
+    // profile, it is always live, and editing it IS publishing.
+    'article.read',
+    'article.draft',
+    'testimonial.read',
+    'testimonial.draft',
   ],
 };
 

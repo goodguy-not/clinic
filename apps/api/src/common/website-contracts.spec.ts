@@ -1,5 +1,13 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  PUBLIC_ARTICLE_CACHE_TAG_PREFIX,
   PUBLIC_CACHE_TAGS,
+  PUBLIC_SITEMAP_KINDS,
+  publicArticleDetailSchema,
+  publicArticleSummarySchema,
+  publicSitemapEntrySchema,
+  publicTestimonialSchema,
   PUBLIC_SERVICE_CACHE_TAG_PREFIX,
   PUBLIC_THERAPIST_CACHE_TAG_PREFIX,
   publicClinicProfileSchema,
@@ -47,6 +55,40 @@ describe('public website contracts', () => {
         'slug',
         'title',
       ]);
+    });
+
+    it('states four facts about a listed article and one more on the detail', () => {
+      // `publishedAt` is the ONE timestamp this surface projects, and it is a
+      // deliberate exception: the date an article was published is editorial
+      // content a reader judges it by, unlike "when was this service entered".
+      expect(keysOf(publicArticleSummarySchema)).toEqual([
+        'publishedAt',
+        'slug',
+        'summary',
+        'title',
+      ]);
+      expect(keysOf(publicArticleDetailSchema)).toEqual([
+        'body',
+        'publishedAt',
+        'slug',
+        'summary',
+        'title',
+      ]);
+    });
+
+    it('states two facts about a testimonial, and neither identifies anybody', () => {
+      // No slug, no id, no date, no status, no family, no child, no service, no
+      // therapist and no outcome. PROJECT_SPEC.md 11 forbids publishing
+      // identifying child or clinical data, and the narrowest way to obey a
+      // rule about a category of data is not to hold it.
+      expect(keysOf(publicTestimonialSchema)).toEqual(['authorLabel', 'body']);
+    });
+
+    it('states three facts per sitemap entry, and no path or host', () => {
+      // The route structure belongs to the web tier, which owns its router and
+      // is the only tier that can be wrong about it.
+      expect(keysOf(publicSitemapEntrySchema)).toEqual(['kind', 'lastModified', 'slug']);
+      expect(PUBLIC_SITEMAP_KINDS).toEqual(['service', 'therapist', 'article']);
     });
 
     it('states thirteen owner-supplied facts about the clinic', () => {
@@ -205,18 +247,64 @@ describe('public website contracts', () => {
   });
 
   describe('the cache vocabulary', () => {
-    it('freezes the four names both tiers have to agree on', () => {
+    it('freezes the names both tiers have to agree on', () => {
       // Frozen because a page tagged `public-services` and a revalidation
       // clearing `publicServices` is a bug nothing fails on: the site simply
       // goes stale and nobody knows for how long.
+      //
+      // A2 ADDS THREE AND RENAMES NONE. An added tag is a new public
+      // collection; a CHANGED one would silently strip the invalidation from
+      // every page already tagged with the old name, which is why this is an
+      // exact-equality assertion rather than a subset check.
       expect(PUBLIC_CACHE_TAGS).toEqual({
         services: 'public-services',
         team: 'public-team',
         clinicProfile: 'public-clinic-profile',
+        articles: 'public-articles',
+        testimonials: 'public-testimonials',
+        sitemap: 'public-sitemap',
       });
 
       expect(PUBLIC_SERVICE_CACHE_TAG_PREFIX).toBe('public-service:');
       expect(PUBLIC_THERAPIST_CACHE_TAG_PREFIX).toBe('public-therapist:');
+      expect(PUBLIC_ARTICLE_CACHE_TAG_PREFIX).toBe('public-article:');
+    });
+
+    it('keeps the tag vocabulary out of apps/api entirely', () => {
+      // The A1 decision, still true after A2 gave the API write paths: nothing
+      // in `apps/api` reads a cache tag or returns one. The web tier derives
+      // which tags a successful mutation invalidated from the row the mutation
+      // RETURNED — its slug and its publication flag — and an API that named
+      // them in a response would be a second, quieter answer to a question the
+      // body already answers, and would put a web caching concern inside the
+      // domain layer.
+      //
+      // Asserted by reading the source rather than by convention, because the
+      // convention is one import away from being broken silently.
+      const sourceRoot = join(__dirname, '..');
+      const offenders: string[] = [];
+
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walk(full);
+            continue;
+          }
+          if (!entry.name.endsWith('.ts')) continue;
+          // This file is the one that states the vocabulary in order to pin it.
+          if (full === __filename) continue;
+
+          const text = readFileSync(full, 'utf8');
+          for (const tag of Object.values(PUBLIC_CACHE_TAGS)) {
+            if (text.includes(`'${tag}'`) || text.includes(`"${tag}"`)) offenders.push(full);
+          }
+        }
+      };
+
+      walk(sourceRoot);
+
+      expect(offenders).toEqual([]);
     });
   });
 
