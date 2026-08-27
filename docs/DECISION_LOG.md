@@ -3815,3 +3815,390 @@ receptionist alike. No change was needed.
   "approved" is worth.
 - **Revisit when:** never on these grounds; the asymmetry follows from whose
   words they are.
+
+## 2026-08-27 — A website request is one purgeable table, and it is the only deletable table in the schema
+
+**Status:** SUPERSEDED — Milestone 9, checkpoint A3. Replaced the same day by "A
+website request is erased in place, never deleted" (review revision). The table
+footprint below stands; the DELETE half of it does not — this entry read the
+accepted retention rule as "the row must be removable", and the accepted rule is
+that the CONTENT is erased in place and a minimal lifecycle row remains.
+
+`website_request` is the whole schema footprint of the public contact form. One
+table, no enum, no inbox, no status, no assignment, no thread, no attachment and
+no queue. It is also the ONLY table in this database with no `no_delete` and no
+`no_truncate` trigger.
+
+Every other table in this schema refuses a `DELETE` outright, because every other
+table holds a fact the clinic is obliged to keep: catalog rows are deactivated,
+financial rows are voided, published content is withdrawn. This row holds a
+stranger's name, mobile number, child's age and a sentence they typed, gathered
+under a consent notice promising the clinic will not keep it indefinitely, and
+the accepted M9 retention rule is ninety days.
+
+- **Alternatives:** giving it the usual append-only triggers and having the purge
+  disable them; a soft-delete column; a separate archive table.
+- **Reason:** a purge that has to disable a trigger to run is an operation nobody
+  should be performing routinely against production, and a trigger that a routine
+  job disables is not a protection. A soft delete does not delete: the personal
+  data stays, and the promise made to the submitter would be false. An archive
+  table is the same data in a second place.
+- **Trade-off:** this table is genuinely deletable, so an accidental `DELETE`
+  here is not caught by the mechanism that catches it everywhere else. The
+  compensations are that the row is immutable while it lives
+  (`website_request_immutable`), that nothing in the application deletes anything
+  yet, and that the permanent audit row survives whatever happens to the content.
+- **Revisit when:** A4 writes the purge. If it turns out the clinic needs a
+  retained, anonymised trace of request VOLUME beyond ninety days, that is a
+  derived aggregate somebody designs — not a reason to keep the intake rows.
+
+## 2026-08-27 — The anonymous submission's audit row records the act and nothing else, including no client metadata
+
+**Status:** Accepted — Milestone 9, checkpoint A3
+
+`website_request.received` carries an `ANONYMOUS` actor, the request id, the
+entity type and the entity id. It carries NO `before`, NO `after`, NO `metadata`,
+and — the departure — NO `ip` and NO `user_agent`, which every other audited
+write in this application does record. `anonymousWebsiteAuditContext` is the only
+builder that may construct it, and dropping both is what it does.
+
+This is the accepted A3 audit fallback, taken at its narrowest end. The shared
+machinery CAN truthfully produce the record: `AuditContext` makes both fields
+optional, so passing `null` writes SQL NULLs rather than smuggling values
+through. What it cannot do alone is guarantee a future call site remembers, so
+the guarantee is one function plus an integration test that reads both columns
+back out of PostgreSQL.
+
+- **Alternatives:** using `actorContext`, which forwards both; a second,
+  purgeable audit table for anonymous acts; writing no audit row at all.
+- **Reason:** `audit_log` is append-only and unprunable — that is its entire
+  value — so a stranger's IP address written there is a permanent record of
+  somebody the clinic has promised to forget within ninety days, sitting in the
+  one table the purge cannot reach. It would also be a second, undeletable copy
+  of intake data if any payload were carried. Two audit trails is one more than a
+  reviewer can be expected to know about, and it would immediately raise "which
+  one is authoritative?". Writing nothing at all was the closest alternative and
+  was rejected because the act genuinely happened and leaves a purged row behind:
+  "somebody wrote in on this day and we kept nothing" is the honest permanent
+  record, and it is the `report.exported` shape — the ACT, never its contents.
+- **Trade-off:** after the purge the `entity_id` names a row that no longer
+  exists. `audit_log` has no foreign keys, so nothing breaks, and the dangling id
+  is the intended residue rather than a defect. Forensic questions that need the
+  submitter's address cannot be answered from the audit trail; the keyed
+  fingerprint on the purgeable row and `security-log.ts` cover the operational
+  need.
+- **Revisit when:** a real abuse incident needs evidence the fingerprint cannot
+  give. That is a retention decision for the owner, not a code change.
+
+## 2026-08-27 — Abuse control is a rolling duplicate window and a per-submitter throttle, both keyed-hashed and database-backed
+
+**Status:** Accepted — Milestone 9, checkpoint A3
+
+Two controls, no CAPTCHA, no Redis, no queue and no external anti-bot service:
+
+1. **duplicate suppression** — a resend within 24 hours of an equivalent
+   submission stores nothing and returns the ordinary success. Equivalence is the
+   mobile, the requested service, the child's age and the child's sex; the free
+   text and the contact name are deliberately excluded. The four-field identity
+   is owner-approved and frozen — see "The duplicate identity is mobile, service,
+   child age and child sex" below, which records the deviation from the earlier
+   mobile-plus-service shorthand.
+2. **a throttle** — six submissions per submitter per hour, counted from stored
+   rows. A resend is deduplicated BEFORE it is counted, so the commonest innocent
+   repeat never touches the number.
+
+Both keys are HMAC-SHA-256 digests stored in nullable columns. The submitter key
+derives from the caller's IP address, which is stored nowhere. The HMAC key is
+HKDF-derived from `INTERNAL_API_KEY` under a fixed, versioned info string.
+
+- **Alternatives:** a unique index over a bucketed dedupe key; unkeyed hashes; a
+  dedicated secret in a new required environment variable; an in-process counter;
+  a CAPTCHA.
+- **Reason:** a rolling window is not expressible as a unique constraint, and a
+  calendar bucket suppresses exactly the wrong pairs — the same message twice at
+  either side of midnight is kept, a genuine second message twenty-three hours
+  later is swallowed. So the window is a read taken under a transaction-scoped
+  advisory lock, the primitive `families/duplicate-detection.ts` already
+  established for check-then-insert. Unkeyed hashes would be reversible from a
+  database dump: an IPv4 address is four billion guesses and an Iranian mobile is
+  fewer, so an unkeyed column would simply BE the value it claims to replace. A
+  new required secret is a variable the application refuses to start without, and
+  adding one in a checkpoint that ships no deployment work would break every
+  existing dev and CI environment; HKDF gives real domain separation, so this is
+  not secret reuse. An in-process counter is not durable, not transactional and
+  not shared across instances. A CAPTCHA is a third-party dependency, a
+  privacy-relevant beacon on a page that has none, and an accessibility barrier
+  on the one form a distressed parent is trying to use.
+- **Trade-off:** rotating `INTERNAL_API_KEY` re-derives the HMAC key and silently
+  resets both windows — for a few hours after a rotation a resend would be stored
+  again and a flooder would get a fresh allowance. Nothing is corrupted and
+  nothing is disclosed. Excluding the note from the dedupe subject means a parent
+  who resubmits with genuinely new information has that resend absorbed;
+  including it would have made deduplication defeatable by a whitespace change,
+  which is the same as not having it.
+- **Revisit when:** a dedicated secret arrives with M10 hosting, or a real flood
+  shows six per hour is the wrong number. The version string in the info
+  parameter exists so old and new fingerprints stay distinguishable.
+
+## 2026-08-27 — Nothing about a suppressed duplicate or a refused submission is observable to the caller
+
+**Status:** Accepted — Milestone 9, checkpoint A3
+
+`POST /public/requests` answers `202 Accepted` with `{ received: true }` on both
+the stored path and the duplicate-suppressed path — same status, same body, no
+identifier of any kind. There is deliberately no `PUBLIC_REQUEST_DUPLICATE` error
+code. A service slug that is private, retired or fictional is
+`SERVICE_NOT_FOUND`, the identical answer the public read gives.
+
+- **Alternatives:** `201 Created` with the request id; a distinct duplicate
+  response; distinguishing "this service exists but is not published" from "no
+  such service".
+- **Reason:** any observable difference turns this endpoint into an oracle. With a
+  duplicate signal, anybody holding a mobile number could ask whether that person
+  has contacted the clinic — a disclosure about a real family made to a stranger.
+  With a distinguishable service refusal, anybody could enumerate the clinic's
+  internal catalogue, which is the leak the A1 predicates exist to prevent. `201`
+  is also simply untrue on the suppressed path: nothing was created. `202` is
+  what is true of both, and it carries no `Location` because there is no resource
+  an anonymous caller may read.
+- **Trade-off:** a visitor gets no reference number, and the web tier cannot show
+  one. The clinic telephones them; a reference number for a message nobody can
+  look up is theatre.
+- **Revisit when:** never on the duplicate side. If a reference number is ever
+  genuinely wanted, it needs an authenticated lookup, which is a different
+  product.
+
+## 2026-08-27 — Consent is three columns and a frozen version list, not a boolean
+
+**Status:** Accepted — Milestone 9, checkpoint A3
+
+A stored request carries `consent_given` (which a CHECK forces to TRUE),
+`consent_version`, and `consent_recorded_at` taken from the transaction rather
+than from the caller. `PUBLIC_REQUEST_CONSENT_VERSIONS` in `@clinic/contracts` is
+a closed list; a submission naming anything outside it is `VALIDATION_FAILED`.
+The wording itself remains owner-supplied and lives in the web tier.
+
+- **Alternatives:** a single boolean; a free-text version string; storing the full
+  consent text on every row; inventing placeholder legal copy.
+- **Reason:** "they consented" is not evidence unless the record says what they
+  consented to, so a boolean alone records nothing usable. A free-text version
+  would be whatever a caller claimed, which is worth exactly as little. Storing
+  the full text per row is a duplicate store of a constant. Placeholder legal copy
+  is forbidden by CLAUDE.md and would be worse than none: somebody would ship it.
+  Freezing the identifier in the shared contract means a stored version is a value
+  BOTH tiers agreed to before the submission happened, and new wording is a
+  deliberate two-line change that leaves historical rows naming the text their
+  submitter actually saw — the rule a tariff change already follows.
+- **Trade-off:** the API cannot verify that the web tier showed the copy that
+  identifier names. That is unavoidable across a tier boundary; what it can and
+  does refuse is an identifier nobody agreed on.
+- **Revisit when:** the owner supplies real wording. That adds copy behind the
+  existing identifier and changes nothing here.
+
+## 2026-08-27 — The public write is classified `internal`, and the age bound carries no eligibility policy
+
+**Status:** Accepted — Milestone 9, checkpoint A3
+
+Two decisions the checkpoint had to take explicitly.
+
+**Classification.** `POST /public/requests` carries `@InternalOnly()` — the
+internal key, no session — exactly like the nine public reads and like
+`POST /auth/login`. The A1 entry (2026-08-21) said this question would be
+re-opened when a public WRITE arrived. It is re-opened here and the answer is
+unchanged: "public" describes the AUDIENCE, not the reachability, and a genuinely
+public route would put NestJS on the internet for the first time to save the web
+tier a proxy it already performs for every page. Deny-by-default is untouched and
+the route-coverage test counts this one.
+
+**The age bound.** `child_age_years` is bounded 0–120 in the contract and in a
+CHECK. That is the bound of a human lifetime, chosen precisely because it decides
+nothing.
+
+- **Alternatives:** a fifth route classification for anonymous writes; marking the
+  route `PublicEndpoint`. For the age: bounding it at 18, or 14, or 7.
+- **Reason:** a new classification is a second answer to a question the four-kind
+  model has answered since Milestone 1. On the age, any narrower number is this
+  clinic refusing to hear from somebody on the basis of their age, written into a
+  validation rule where nobody would find it and nobody approved it — an
+  eligibility policy smuggled in as data hygiene. Who the clinic can help is a
+  conversation a colleague has, not a 400 a stranger receives. Age and sex are
+  staff-triage facts and nothing in the application decides anything from them.
+- **Trade-off:** the inbox A4 builds will receive occasional requests the clinic
+  cannot help. A colleague reads them and says so, which is the correct place for
+  that answer.
+- **Revisit when:** never on the age. On the classification, only if the product
+  ever needs a browser to reach NestJS directly, which nothing in the accepted
+  scope does.
+
+## 2026-08-27 — A website request is erased in place, never deleted (supersedes the same day's entry)
+
+**Status:** Accepted — Milestone 9, checkpoint A3 (review revision)
+
+**This reverses the earlier A3 entry "A website request is one purgeable table,
+and it is the only deletable table in the schema."** That entry read the accepted
+retention rule as "the row must be removable". The accepted rule is narrower and
+better: intake content is **erased in place** after ninety days, and a **minimal
+lifecycle row** remains.
+
+`website_request` therefore carries the same `no_delete` and `no_truncate`
+triggers as every other historical table in this schema, reusing the Milestone 1
+`raise_append_only_violation()` function. Retention is an UPDATE. To make that
+possible and still keep the submission contract authoritative, every purgeable
+column is nullable and a new `purged_at` marker pairs the two states in
+`website_request_purge_chk`:
+
+- `purged_at IS NULL` ⇒ the four required intake columns are NOT NULL;
+- `purged_at IS NOT NULL` ⇒ every purgeable column IS NULL.
+
+Purgeable: contact name, contact mobile, requested service, child name, child
+age, child sex, preferred contact time, note, and both abuse-control digests.
+Retained: the id, the arrival instant, and the three consent columns.
+
+`enforce_website_request_immutable` now permits exactly two changes — clearing a
+purgeable column to NULL, and stamping `purged_at` once — and refuses everything
+else, including writing a value back into an erased row.
+
+- **Alternatives:** the superseded no-trigger design; a soft-delete flag with the
+  content left in place; an archive table.
+- **Reason:** what the clinic promised the submitter is that it will not keep
+  their name, their telephone number and what they wrote about their child. It
+  did not promise to forget that a request arrived, and forgetting that is worse
+  than useless — the lifecycle row is what lets anybody afterwards say how many
+  requests came in, how many became families, and that this one was dealt with
+  rather than quietly dropped. Erasing the row outright would also mean a routine
+  job holding a real DELETE grant on a table full of personal data, which is the
+  operation this schema refuses everywhere else and whose blast radius nobody can
+  bound in advance. A soft-delete flag is not deletion at all: the personal data
+  stays. An archive table is the same data in a second place.
+- **Trade-off:** the intake columns are nullable, which on its own would have
+  weakened "required fields are required" from a database guarantee to a
+  service-layer promise. `website_request_purge_chk` is what buys it back, at the
+  cost of one extra column and a constraint a reader has to parse. A4 also
+  inherits a rule it must obey: it clears the whole purgeable set in one
+  statement, because a half-erased row is refused.
+- **Revisit when:** A4 writes the retention run. If a request must also be
+  CLOSED before it is erased, that is a status column A4 adds with its workflow;
+  the erasure shape here does not change.
+
+## 2026-08-27 — The duplicate identity is mobile, service, child age and child sex
+
+**Status:** Accepted — Milestone 9, checkpoint A3 (review revision)
+
+Owner-approved, and frozen. Two submissions are the same request when all four
+of those agree and the second arrives within 24 hours of the first.
+
+**This is a deviation from the earlier planning shorthand, which described
+duplicate suppression as mobile plus service only**, and the deviation is the
+point rather than an accident. One parent with two children needs two
+appointments. Mobile-and-service alone would have silently discarded the second
+request — a family waiting for a call nobody was ever going to make, with no
+trace anywhere that they had asked, and no way for them to tell, because a
+suppressed submission is deliberately indistinguishable from a stored one. The
+structured triage facts the form already collects are exactly what separates the
+two children, so using them costs nothing and closes that hole.
+
+The contact name, child name, preferred contact time and note stay OUT of the
+identity.
+
+- **Alternatives:** the shorthand (mobile + service); adding the child's name;
+  adding the note; reusing the family/child duplicate-detection machinery.
+- **Reason:** the free text must stay out or deduplication is defeatable by a
+  whitespace change, which is the same as not having it — and a parent who
+  resubmits after adding a sentence has made the same request twice, which is the
+  case this exists to absorb. The child's NAME is excluded for that reason and
+  one more: the mobile already identifies the caller, so a name two submissions
+  might spell differently could only ever split a duplicate pair, never join one.
+  Reusing the family/child machinery would be the real mistake: **this is not an
+  identity system and must not become one.** That machinery answers "is this the
+  same PERSON?" about clinic records a member of staff can inspect and override;
+  this answers the far smaller question "is this the same MESSAGE, again, within
+  a day?" about a stranger nobody has verified. No fuzzy matching, no Persian
+  folding, no scoring, no candidate list, and no read of `family` or `child` on
+  any anonymous path.
+- **Trade-off:** two submissions differing ONLY by a corrected age — typed 6,
+  noticed, resubmitted with 7 — are two rows rather than one. That is the right
+  way round: a receptionist seeing a near-identical pair loses a few seconds,
+  where the alternative loses a child. Callers still learn nothing either way.
+- **Revisit when:** the pilot shows real duplicate volume the four facts do not
+  absorb. The answer would be a longer window or a staff-side merge in the inbox,
+  never fuzzier matching here.
+
+## 2026-08-27 — Preferred contact time stays provisional, and it is the one open owner question
+
+**Status:** CLOSED — Milestone 9, checkpoint A3. The owner answered the same day;
+see "Preferred contact time is four values, and none of them is a time" below.
+The finding recorded here — that the accepted plan called for a closed vocabulary
+and none existed — stands as the reason the question was raised.
+
+The accepted M9 plan describes preferred contact time as a CLOSED VOCABULARY.
+**No such vocabulary exists.** PROJECT_SPEC.md 11 names the field in a list and
+stops; nothing in this repository defines time-of-day buckets for anything
+(`therapist_availability` stores real clock windows, not named parts of a day).
+
+A3 therefore ships it as an OPTIONAL, bounded, plain-text column, explicitly
+marked provisional in the contract, in the Prisma model and in the migration —
+not silently frozen as free text.
+
+**The owner question:** what are the choices a parent picks from? Two (morning /
+afternoon)? Three (morning / afternoon / evening)? Something tied to the clinic's
+own opening hours, which are owner-supplied and currently null?
+
+- **Alternatives:** inventing three buckets now; dropping the field from A3
+  entirely.
+- **Reason:** inventing buckets to satisfy the planning wording would be taking a
+  product decision in a schema, and it is the harder direction to undo — widening
+  a frozen enum after a form has shipped is worse than narrowing free text over a
+  table that will hold very few rows. Dropping the field would deviate from the
+  frozen A3 request contract, which lists it.
+- **Trade-off:** B3 was blocked on this ONE field while the question stood.
+  Everything else in the submission contract was stable, and because the field is
+  optional a form could have shipped without it.
+- **Revisit when:** ANSWERED. The owner supplied the vocabulary the same day and
+  the change was exactly what this entry predicted — a `z.enum` in
+  `@clinic/contracts` and a PostgreSQL enum in the migration. No backfill was
+  needed: no request row had been written outside a test database.
+
+## 2026-08-27 — Preferred contact time is four values, and none of them is a time
+
+**Status:** Accepted — Milestone 9, checkpoint A3 (owner decision; closes the
+same day's OPEN entry "Preferred contact time stays provisional")
+
+The vocabulary is `MORNING`, `AFTERNOON`, `EVENING`, `NO_PREFERENCE`. It is a
+PostgreSQL enum (`website_request_contact_time`) and a matching `z.enum` in
+`@clinic/contracts`, pinned against each other by an integration test in the way
+`child_sex` already is. **The field stays OPTIONAL**: a short public form need not
+ask, and an omitted value is valid.
+
+What these values MEAN, frozen:
+
+- they express only the parent's preferred time of day for a follow-up call;
+- they create **no SLA** and promise nothing about when the clinic will call;
+- they are **not tied to clock ranges** in M9 — `MORNING` is not 08:00–12:00,
+  here or anywhere;
+- **nothing may infer clinic opening hours from them**, in either direction.
+
+Nothing in this application schedules, queues, reminds, prioritises or measures
+anything from this column. The product behaves identically whatever a parent
+chooses, and the submission response is byte-identical across all four.
+
+`NO_PREFERENCE` and OMISSION are different facts and both are valid: the first is
+a parent saying any time suits them, the second is a form that did not ask.
+
+- **Alternatives:** the bounded free text the first A3 draft shipped; two buckets;
+  ranges attached to each name; deriving the buckets from the clinic's opening
+  hours.
+- **Reason:** free text is a sentence somebody has to read and interpret, where a
+  colleague scanning the inbox A4 builds needs a value they can sort and filter
+  by — the same reason `child_sex` is an enum rather than a note. Attaching clock
+  ranges would put a second, quieter answer to "when is the clinic open?" into the
+  domain contract, one the real opening hours in `clinic_public_profile` could
+  contradict, and would turn a rough parental preference into a figure somebody
+  could hold the clinic to. Deriving the buckets from opening hours has the same
+  defect with the arrow reversed: these say when a PARENT is free, which is not a
+  fact about the clinic at all.
+- **Trade-off:** a parent whose availability is genuinely narrower ("after four")
+  cannot say so in this field. They can say it in the note, which is what the note
+  is for, and a colleague reads it before calling.
+- **Revisit when:** the pilot shows the four are too coarse to be useful, or the
+  clinic later wants real callback windows. The latter is a scheduling feature
+  with its own decisions, not a widening of this enum.

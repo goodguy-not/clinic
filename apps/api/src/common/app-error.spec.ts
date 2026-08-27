@@ -21,9 +21,18 @@ describe('error vocabulary', () => {
   });
 
   it('uses only the statuses this API has agreed to return', () => {
+    // 429 joined the list in Milestone 9, checkpoint A3, and it is deliberately
+    // narrow: `PUBLIC_REQUEST_THROTTLED` is the only code that carries it, on
+    // the only route in the product an anonymous stranger can write to.
     for (const code of ERROR_CODES) {
-      expect([400, 401, 403, 404, 409, 422, 500]).toContain(ERROR_STATUS[code]);
+      expect([400, 401, 403, 404, 409, 422, 429, 500]).toContain(ERROR_STATUS[code]);
     }
+  });
+
+  it('gives 429 to exactly one code', () => {
+    const throttling = ERROR_CODES.filter((code) => ERROR_STATUS[code] === 429);
+
+    expect(throttling).toEqual(['PUBLIC_REQUEST_THROTTLED']);
   });
 
   it('carries exactly the nine approved ledger codes', () => {

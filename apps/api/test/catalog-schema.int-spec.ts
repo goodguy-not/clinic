@@ -256,9 +256,16 @@ describe('catalog schema objects', () => {
         'clinic_public_profile',
         // Milestone 9, checkpoint A2. TWO tables and no more: an article and a
         // testimonial. No page, block, template, media, tag, revision or
-        // scheduling table exists, and still no website-request or inbox table.
+        // scheduling table exists.
         'public_article',
         'public_testimonial',
+        // Milestone 9, checkpoint A3. ONE table and no more: what a stranger
+        // typed into the public contact form. NO INBOX, NO STATUS, NO
+        // ASSIGNMENT, NO THREAD, NO ATTACHMENT AND NO QUEUE TABLE — the workflow
+        // over a request is checkpoint A4. No archive or shadow table either:
+        // the ninety-day retention rule ERASES the intake columns in place, so
+        // there is nowhere for a second copy of them to live.
+        'website_request',
       ].sort(),
     );
   });

@@ -345,10 +345,28 @@ export const ERROR_CODES = [
   'TESTIMONIAL_NOT_APPROVED',
   // There is deliberately NO `ARTICLE_SLUG_REQUIRED` or `ARTICLE_INCOMPLETE`:
   // an article's slug, title and body are NOT NULL from creation, so a draft is
-  // always publishable and there is no half-written state to refuse. And no
-  // code of any kind about a website request, its consent or its inbox — those
-  // are later checkpoints, and every one of them touches personal data this one
-  // does not accept.
+  // always publishable and there is no half-written state to refuse.
+
+  // The public request form (Milestone 9, checkpoint A3). ONE CODE, AND IT IS
+  // THE ONLY REFUSAL A STRANGER CAN BE TOLD ABOUT BEYOND `VALIDATION_FAILED`.
+  //
+  // `PUBLIC_REQUEST_THROTTLED` is the abuse control seen from the visitor's
+  // side: too many submissions from one place in too short a time. It says
+  // "later", it names no limit, no counter and no window, and it is deliberately
+  // indifferent to WHAT was submitted — the point of a rate limit that cannot be
+  // used as an oracle is that the answer turns only on the caller.
+  //
+  // THERE IS DELIBERATELY NO `PUBLIC_REQUEST_DUPLICATE`. A repeated submission
+  // succeeds, with the ordinary success body, and stores nothing. A code saying
+  // otherwise would let anybody holding a mobile number ask this endpoint
+  // whether that person has already contacted the clinic, which is a disclosure
+  // about a real family made to a stranger — see
+  // `publicRequestSubmissionResponseSchema`.
+  //
+  // AND NO CODE ABOUT AN INBOX, A REQUEST STATUS, A CONVERSION OR A RETENTION
+  // RUN. Those are checkpoint A4, and none of them is a refusal an anonymous
+  // visitor could ever receive.
+  'PUBLIC_REQUEST_THROTTLED',
 
   'INTERNAL_ERROR',
 ] as const;

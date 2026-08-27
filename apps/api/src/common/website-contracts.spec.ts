@@ -1,20 +1,26 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  CURRENT_PUBLIC_REQUEST_CONSENT_VERSION,
+  PUBLIC_REQUEST_CONTACT_TIMES,
   PUBLIC_ARTICLE_CACHE_TAG_PREFIX,
   PUBLIC_CACHE_TAGS,
+  PUBLIC_REQUEST_CONSENT_VERSIONS,
+  PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS,
+  PUBLIC_SERVICE_CACHE_TAG_PREFIX,
   PUBLIC_SITEMAP_KINDS,
+  PUBLIC_THERAPIST_CACHE_TAG_PREFIX,
   publicArticleDetailSchema,
   publicArticleSummarySchema,
-  publicSitemapEntrySchema,
-  publicTestimonialSchema,
-  PUBLIC_SERVICE_CACHE_TAG_PREFIX,
-  PUBLIC_THERAPIST_CACHE_TAG_PREFIX,
   publicClinicProfileSchema,
   publicMediaPathSchema,
+  publicRequestSubmissionResponseSchema,
+  publicRequestSubmissionSchema,
   publicServiceDetailSchema,
   publicServiceSummarySchema,
+  publicSitemapEntrySchema,
   publicSlugSchema,
+  publicTestimonialSchema,
   publicTherapistProfileSchema,
   serviceSchema,
   therapistSchema,
@@ -332,6 +338,188 @@ describe('public website contracts', () => {
         false,
       );
       expect(publicClinicProfileSchema.safeParse({ ...empty, email: 'nope' }).success).toBe(false);
+    });
+  });
+  describe('the public request submission (checkpoint A3)', () => {
+    const valid = {
+      contactName: 'سرپرست نمونه',
+      contactMobile: '09120000001',
+      serviceSlug: null,
+      childAgeYears: 6,
+      childSex: 'UNSPECIFIED',
+      consent: true,
+      consentVersion: CURRENT_PUBLIC_REQUEST_CONSENT_VERSION,
+    };
+
+    it('asks for exactly these ten things and no clinical question', () => {
+      // An exact list rather than a subset check, for the reason every other
+      // assertion in this file is one: the failure mode is a field ADDED to a
+      // shape that collects a stranger's personal data, and a widening nobody
+      // notices is exactly what has to fail a test. Nothing here is a
+      // diagnosis, a referral, a screening instrument, a severity or a history.
+      expect(keysOf(publicRequestSubmissionSchema)).toEqual([
+        'childAgeYears',
+        'childName',
+        'childSex',
+        'consent',
+        'consentVersion',
+        'contactMobile',
+        'contactName',
+        'note',
+        'preferredContactTime',
+        'serviceSlug',
+      ]);
+    });
+
+    it('tells the visitor one thing, and no identifier', () => {
+      // An id would be a handle an anonymous caller could keep, quote or
+      // enumerate, and the product has no route that would answer.
+      expect(keysOf(publicRequestSubmissionResponseSchema)).toEqual(['received']);
+      expect(publicRequestSubmissionResponseSchema.safeParse({ received: false }).success).toBe(
+        false,
+      );
+    });
+
+    it('requires the six required fields and tolerates the four optional ones', () => {
+      expect(publicRequestSubmissionSchema.safeParse(valid).success).toBe(true);
+
+      for (const key of Object.keys(valid)) {
+        const without = { ...valid } as Record<string, unknown>;
+        delete without[key];
+        expect(publicRequestSubmissionSchema.safeParse(without).success).toBe(false);
+      }
+
+      expect(
+        publicRequestSubmissionSchema.safeParse({
+          ...valid,
+          childName: 'کودک نمونه',
+          preferredContactTime: 'EVENING',
+          note: 'متن نمونه.',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('treats "not sure" as a value and an absent service as a broken form', () => {
+      expect(publicRequestSubmissionSchema.safeParse({ ...valid, serviceSlug: null }).success).toBe(
+        true,
+      );
+      expect(
+        publicRequestSubmissionSchema.safeParse({ ...valid, serviceSlug: 'a-service' }).success,
+      ).toBe(true);
+    });
+
+    it('accepts all three child-sex values and refuses an absent one', () => {
+      for (const childSex of ['FEMALE', 'MALE', 'UNSPECIFIED']) {
+        expect(publicRequestSubmissionSchema.safeParse({ ...valid, childSex }).success).toBe(true);
+      }
+
+      const omitted = { ...valid } as Record<string, unknown>;
+      delete omitted['childSex'];
+      expect(publicRequestSubmissionSchema.safeParse(omitted).success).toBe(false);
+      expect(publicRequestSubmissionSchema.safeParse({ ...valid, childSex: null }).success).toBe(
+        false,
+      );
+    });
+
+    it('bounds the age broadly and encodes no eligibility rule', () => {
+      // Every one of these is a person somebody could be. Refusing any of them
+      // would be this clinic declining to hear from them, decided by a schema.
+      for (const childAgeYears of [0, 3, 7, 14, 17, 18, 40, PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS]) {
+        expect(publicRequestSubmissionSchema.safeParse({ ...valid, childAgeYears }).success).toBe(
+          true,
+        );
+      }
+
+      for (const childAgeYears of [-1, 121, 6.5, '6']) {
+        expect(publicRequestSubmissionSchema.safeParse({ ...valid, childAgeYears }).success).toBe(
+          false,
+        );
+      }
+    });
+
+    it('refuses a consent that was declined or given under wording nobody agreed', () => {
+      expect(publicRequestSubmissionSchema.safeParse({ ...valid, consent: false }).success).toBe(
+        false,
+      );
+      expect(
+        publicRequestSubmissionSchema.safeParse({ ...valid, consentVersion: 'anything' }).success,
+      ).toBe(false);
+      expect(PUBLIC_REQUEST_CONSENT_VERSIONS).toContain(CURRENT_PUBLIC_REQUEST_CONSENT_VERSION);
+    });
+
+    it('takes the preferred contact time from the frozen four, or not at all', () => {
+      // OPTIONAL AND CLOSED, WHICH ARE DIFFERENT PROPERTIES. A short form need
+      // not ask; a form that does ask may not send a sentence.
+      expect(PUBLIC_REQUEST_CONTACT_TIMES).toEqual([
+        'MORNING',
+        'AFTERNOON',
+        'EVENING',
+        'NO_PREFERENCE',
+      ]);
+
+      for (const preferredContactTime of PUBLIC_REQUEST_CONTACT_TIMES) {
+        expect(
+          publicRequestSubmissionSchema.safeParse({ ...valid, preferredContactTime }).success,
+        ).toBe(true);
+      }
+
+      // Omission and `null` both stay valid, and `NO_PREFERENCE` is a THIRD,
+      // different fact: a parent saying any time suits them.
+      const without = { ...valid } as Record<string, unknown>;
+      expect(publicRequestSubmissionSchema.safeParse(without).success).toBe(true);
+      expect(
+        publicRequestSubmissionSchema.safeParse({ ...valid, preferredContactTime: null }).success,
+      ).toBe(true);
+    });
+
+    it('refuses free text, a clock time and an invented bucket in that field', () => {
+      // The whole point of closing the vocabulary. «صبح‌ها بعد از ۹» is a
+      // sentence somebody has to read; a colleague scanning an inbox needs a
+      // value they can sort by.
+      for (const preferredContactTime of [
+        'عصرها',
+        'mornings',
+        'morning',
+        '09:00-12:00',
+        'LATE_NIGHT',
+        'ANY',
+        '',
+      ]) {
+        expect(
+          publicRequestSubmissionSchema.safeParse({ ...valid, preferredContactTime }).success,
+        ).toBe(false);
+      }
+    });
+
+    it('attaches no clock range to any of the four', () => {
+      // Stated as an assertion because it is a product rule rather than an
+      // omission: times behind these names would be a second, quieter answer to
+      // "when is the clinic open?", and nothing may derive one from the other.
+      // The contract exports the names and nothing else.
+      const exported = JSON.stringify(PUBLIC_REQUEST_CONTACT_TIMES);
+
+      expect(exported).not.toMatch(/\d/);
+    });
+
+    it('refuses markup in every free-text field', () => {
+      for (const key of ['contactName', 'childName', 'note']) {
+        expect(
+          publicRequestSubmissionSchema.safeParse({ ...valid, [key]: '<script>x</script>' })
+            .success,
+        ).toBe(false);
+      }
+    });
+
+    it('refuses a field the contract does not name', () => {
+      expect(
+        publicRequestSubmissionSchema.safeParse({ ...valid, diagnosis: 'anything' }).success,
+      ).toBe(false);
+      expect(
+        publicRequestSubmissionSchema.safeParse({ ...valid, nationalId: '0000000000' }).success,
+      ).toBe(false);
+      expect(publicRequestSubmissionSchema.safeParse({ ...valid, familyId: 'x' }).success).toBe(
+        false,
+      );
     });
   });
 });

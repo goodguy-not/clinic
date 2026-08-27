@@ -16,6 +16,12 @@
 //               single-row `clinic_public_profile`. NO public content table,
 //               NO publishing workflow and NO request inbox — those are later
 //               checkpoints.
+// Milestone 9, checkpoint A3 — the public request form: ONE table,
+//               `website_request`, holding what a stranger typed. Protected
+//               against DELETE and TRUNCATE like every other historical table
+//               here; the ninety-day retention rule is satisfied by an UPDATE
+//               that CLEARS the intake columns and leaves a minimal lifecycle
+//               row behind, never by removing the row.
 // Milestone 8, checkpoint C2 — therapist settlement configuration: the
 //               effective-dated share percentage a therapist takes. ONE table,
 //               and it is configuration rather than a settlement fact — nothing
@@ -158,6 +164,32 @@ enum ChildSex {
   UNSPECIFIED
 
   @@map("child_sex")
+}
+
+/// When a parent would rather the clinic telephoned them back.
+///
+/// Milestone 9, checkpoint A3. FOUR VALUES, AND THEY EXPRESS A PREFERENCE AND
+/// NOTHING ELSE. Not an SLA, not a promise that the call happens in that period,
+/// and not a commitment of any kind: nothing in this application schedules,
+/// queues, reminds, prioritises or measures anything from this column.
+///
+/// NO CLOCK RANGES ARE ATTACHED TO THESE, HERE OR ANYWHERE. `MORNING` is not
+/// 08:00-12:00. Binding them to times would put a second, quieter answer to
+/// "when is the clinic open?" into the schema, one the real opening hours in
+/// `clinic_public_profile` could contradict. Reading clinic hours out of them is
+/// equally wrong: they say when a PARENT is free, which is not a fact about the
+/// clinic.
+///
+/// `NO_PREFERENCE` IS A REAL ANSWER, and the pair to `ChildSex.UNSPECIFIED`.
+/// The column is nullable as well, and the two are different facts: "any time
+/// suits us" is what a parent said, NULL is a form that did not ask.
+enum WebsiteRequestContactTime {
+  MORNING
+  AFTERNOON
+  EVENING
+  NO_PREFERENCE
+
+  @@map("website_request_contact_time")
 }
 
 /// The lifecycle of an appointment as a booking.
@@ -567,6 +599,10 @@ model Service {
   tariffs          Tariff[]
   appointments     Appointment[]
   sessionCharges   SessionCharge[]
+  /// Milestone 9, checkpoint A3. The service a stranger named on the public
+  /// form, which is the ONLY direction this relation goes: a website request
+  /// points at a service, and nothing about a service depends on one.
+  websiteRequests  WebsiteRequest[]
 
   @@index([status])
   @@map("service")
@@ -2029,4 +2065,141 @@ model PublicTestimonial {
   createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("public_testimonial")
+}
+/// An unsolicited request from a stranger on the public website.
+///
+/// Milestone 9, checkpoint A3. THE FIRST ROW IN THIS SCHEMA WRITTEN BY SOMEBODY
+/// WHO IS NOT A MEMBER OF STAFF, and almost everything unusual about it follows
+/// from that.
+///
+/// IT IS NOT A FAMILY, AND IT NAMES NONE. There is no `familyId`, no `childId`
+/// and no relation to either — not projected away, ABSENT. A stranger who fills
+/// in a web form has not become a clinic record, and the step between the two is
+/// a member of staff deciding so (PROJECT_SPEC.md 11). The conversion path A4
+/// owns will add its link; until it does, no anonymous request path in this
+/// application can create or mutate a family, because there is no column
+/// through which one could.
+///
+/// THE ROW IS NEVER DELETED. THE CONTENT IS ERASED IN PLACE. This table carries
+/// the same `no_delete` and `no_truncate` triggers every other historical table
+/// in this schema carries, and the accepted M9 retention rule is satisfied by an
+/// UPDATE rather than by a DELETE: after ninety days the intake columns are
+/// CLEARED and a minimal lifecycle row remains — the id, when it arrived, the
+/// consent evidence, and `purgedAt`.
+///
+/// THOSE TWO RULES ARE NOT IN TENSION, AND IT IS WORTH SAYING WHY. What the
+/// clinic promised the submitter is that it will not keep their NAME, their
+/// TELEPHONE NUMBER and what they wrote about their child. It did not promise to
+/// forget that a request arrived, and forgetting that would be worse than
+/// useless: the lifecycle row is what lets anybody afterwards say how many
+/// requests came in, how many were converted, and that this particular one was
+/// dealt with rather than quietly dropped. Erasing the row entirely would also
+/// mean a routine job holding a real DELETE grant on a table full of personal
+/// data, which is exactly the operation this schema refuses everywhere else.
+///
+/// `purgedAt` IS THE MARKER THAT MAKES BOTH INVARIANTS ENFORCEABLE AT ONCE.
+/// While it is NULL the four required intake columns are NOT NULL — so "the
+/// contract's required fields are required" stays a database guarantee rather
+/// than a service-layer promise. Once it is set every purgeable column must be
+/// NULL. `website_request_purge_chk` states exactly that, in both directions.
+///
+/// A3 ADDS THE SHAPE, NOT THE POLICY. Nothing in this checkpoint sets
+/// `purgedAt`, and there is no schedule, no CLI and no ninety-day arithmetic
+/// anywhere in it. A4 owns when a request is purged and what closes it; what A3
+/// owes is a table on which that can be an UPDATE.
+///
+/// NO INTAKE CONTENT SURVIVES A PURGE, HERE OR ANYWHERE ELSE. `audit_log`
+/// records that a request was received, when, and under which id — and NOTHING
+/// about who sent it or what they said. That asymmetry is the whole privacy
+/// design: this row holds the content and can be emptied, the permanent store
+/// holds the act and never held the content.
+///
+/// THE TWO ABUSE-CONTROL COLUMNS ARE KEYED HASHES, NEVER THE THING THEY DERIVE
+/// FROM. `submitterFingerprint` is derived from the caller's IP address and the
+/// raw address is stored NOWHERE — not here, not in the audit row. `dedupeKey`
+/// is derived from the submission itself. Both are HMACs under a server-held
+/// key, so neither can be reversed by anybody holding a database dump: an
+/// unkeyed hash of an IPv4 address is four billion guesses, and an unkeyed hash
+/// of a mobile number is fewer. Both are nullable so a narrower cleanup can age
+/// them out ahead of the request itself — they stop being useful long before it
+/// does — and both are purgeable columns, so the ninety-day erasure clears them
+/// with everything else.
+model WebsiteRequest {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz
+
+  /// --- what the visitor told us. EVERY COLUMN IN THIS BLOCK IS PURGEABLE. ---
+  ///
+  /// All ten are nullable in Prisma's eyes and none of them is optional in the
+  /// contract's: `website_request_purge_chk` requires the four required ones to
+  /// be present while `purgedAt` is NULL, and requires every one of them to be
+  /// absent once it is set. Nullability here is the ERASURE, not the contract.
+  contactName   String? @map("contact_name")
+  contactMobile String? @map("contact_mobile")
+  /// The published service they named, or NULL for the accepted "not sure".
+  /// A slug reaches the API and an id is stored: the slug is the public
+  /// address, the id is what a colleague triaging the inbox needs to join on,
+  /// and resolving one to the other is the only thing this row borrows from the
+  /// catalog.
+  ///
+  /// Purgeable with everything else, so the lifecycle row that survives is
+  /// genuinely minimal. Keeping it would make request VOLUME BY SERVICE
+  /// answerable forever, which is a reporting decision nobody has taken — and
+  /// the honest way to take it later is a derived aggregate, not by holding back
+  /// part of an erasure.
+  requestedServiceId String? @map("requested_service_id") @db.Uuid
+  childName          String? @map("child_name")
+  /// Whole years, as the parent typed it. A STAFF-TRIAGE FACT and nothing else:
+  /// nothing in this application decides anything from it, and the CHECK
+  /// bounding it is a sanity bound rather than an eligibility rule.
+  childAgeYears      Int?      @map("child_age_years") @db.SmallInt
+  /// The existing vocabulary, reused. Required at submission and with NO
+  /// DEFAULT, unlike `child.sex`: a registration taken over the telephone may
+  /// legitimately not have reached the question yet, but a form either asked it
+  /// or did not, and a default here would silently record an answer nobody gave.
+  childSex             ChildSex? @map("child_sex")
+  /// From the frozen four. See `WebsiteRequestContactTime`: a preference, no
+  /// clock ranges, and nothing in this application acts on it.
+  ///
+  /// A PostgreSQL enum rather than bounded text, for the reason `child_sex` is
+  /// one: a colleague scanning an inbox needs a value they can sort by, not a
+  /// sentence somebody has to read and interpret. Purgeable with the rest of the
+  /// content.
+  preferredContactTime WebsiteRequestContactTime? @map("preferred_contact_time")
+  note                 String?
+
+  /// --- the consent evidence. Also purged, with the content it covers. ---
+  ///
+  /// Three columns rather than one flag. `consentGiven` is what they did,
+  /// `consentVersion` names the wording they did it under, and
+  /// `consentRecordedAt` is when — and a CHECK refuses a row where the first is
+  /// false. Storing only a boolean would record a consent nobody could later
+  /// say the terms of, which is not evidence.
+  consentGiven      Boolean  @map("consent_given")
+  consentVersion    String   @map("consent_version")
+  consentRecordedAt DateTime @map("consent_recorded_at") @db.Timestamptz
+
+  /// --- abuse control. Keyed hashes, never raw values. See the note above. ---
+  ///
+  /// Purgeable, and separately clearable ahead of the purge.
+  submitterFingerprint String? @map("submitter_fingerprint")
+  dedupeKey            String? @map("dedupe_key")
+
+  /// When the intake content was erased in place, and NULL for as long as it is
+  /// still held. Written by A4's retention run and by nothing in A3.
+  ///
+  /// It is a lifecycle fact rather than a second change history: `audit_log`
+  /// remains the authoritative record of acts, and no read of this column names
+  /// an actor. It is written once and never rewritten or cleared — an erasure
+  /// that could be un-declared would make the row say the content is present
+  /// when it is gone.
+  purgedAt DateTime? @map("purged_at") @db.Timestamptz
+
+  requestedService Service? @relation(fields: [requestedServiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The throttle read: everything one submitter sent recently.
+  @@index([submitterFingerprint, receivedAt])
+  /// The duplicate read, and the retention run's own read after it.
+  @@index([dedupeKey, receivedAt])
+  @@map("website_request")
 }

@@ -311,6 +311,46 @@ export const AUDIT_ACTIONS = [
   'therapist.public_profile_published',
   'therapist.public_profile_unpublished',
   'clinic_public_profile.updated',
+
+  // The public request form (Milestone 9, checkpoint A3). ONE ACTION, AND IT
+  // RECORDS AN ACT WITH NO CONTENT WHATSOEVER.
+  //
+  // `website_request.received` is written by the only anonymous write this
+  // application accepts. Its payload is EMPTY — no `before`, no `after`, no
+  // `metadata` — and that emptiness is the design rather than an oversight.
+  //
+  // `website_request` IS THE ONLY TABLE IN THIS SCHEMA WHOSE CONTENT IS ERASED:
+  // it holds a stranger's name, mobile, child and words, gathered under a notice
+  // promising the clinic will not keep them beyond ninety days, and the retention
+  // rule clears those columns in place. `audit_log` is append-only and
+  // unprunable. Any intake field copied into a payload here would therefore
+  // become a SECOND, PERMANENT copy of exactly the data the erasure exists to
+  // remove, and the ninety-day promise would be false the moment it was made.
+  //
+  // So this row records that a request arrived, when, and under which id, and
+  // nothing else. It is the `report.exported` shape — the ACT, never its
+  // contents — taken one step further, because an export at least names a
+  // report and this names nothing at all. AFTER THE PURGE, THE `entity_id` STILL
+  // NAMES A ROW — the minimal lifecycle row the erasure leaves behind — and that
+  // is a better residue than the dangling id an outright delete would have left:
+  // "somebody wrote in on this day, consented, and we kept nothing they said" is
+  // the honest permanent record, and both halves of it are addressable.
+  //
+  // IT ALSO CARRIES NO IP AND NO USER AGENT, unlike every other audited write in
+  // this application. See `anonymousWebsiteAuditContext` in
+  // `website/anonymous-audit.ts`, which is the only way this action may be
+  // written and drops both.
+  //
+  // NOTHING RECORDS A REFUSAL. A throttled submission and a malformed one write
+  // no audit row at all: they change no state, and an unauthenticated caller who
+  // could write to an unprunable table by asking is exactly the growth
+  // `security-log.ts` exists to keep out of it. A DUPLICATE-SUPPRESSED
+  // SUBMISSION WRITES NOTHING EITHER, for the same reason and one more — it
+  // creates no row, so there is no act and no entity to name.
+  //
+  // NO ACTION ABOUT AN INBOX, A STATUS, A CONVERSION OR A PURGE RUN. Those are
+  // checkpoint A4, and each arrives with the state change it describes.
+  'website_request.received',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -407,6 +447,12 @@ export const AUDIT_ENTITY_TYPES = [
   'clinic_public_profile',
   'public_article',
   'public_testimonial',
+  // Milestone 9, checkpoint A3. It IS a table, so it satisfies the assertion
+  // above — but it is the only entity type here whose row is emptied rather than
+  // only ever added to. The ninety-day retention rule clears its intake columns
+  // in place; the row, and therefore this audit row's subject, remains. See
+  // `website_request.received`.
+  'website_request',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

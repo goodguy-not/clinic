@@ -4,6 +4,7 @@ import { ArticlesController } from './articles.controller';
 import { ArticlesService } from './articles.service';
 import { ClinicProfileController } from './clinic-profile.controller';
 import { ClinicProfileService } from './clinic-profile.service';
+import { PublicRequestsService } from './public-requests.service';
 import { PublicSiteController } from './public-site.controller';
 import { PublicSiteService } from './public-site.service';
 import { TestimonialsController } from './testimonials.controller';
@@ -30,6 +31,16 @@ import { TestimonialsService } from './testimonials.service';
  * administrator needs: sharing them would put the public site one widened
  * `SELECT` away from a leak.
  *
+ * CHECKPOINT A3 ADDS ONE SERVICE AND NO CONTROLLER. `PublicRequestsService` is
+ * the anonymous contact form; its route lives on `PublicSiteController`,
+ * deliberately, so that the one file answering "what can the world do?" answers
+ * it completely. It owns `website_request` — protected against DELETE and
+ * TRUNCATE like every other historical table here, and erased in place by the
+ * ninety-day retention rule A4 owns — and it reads exactly one column of
+ * `service`, under the same
+ * published-only predicate every public read applies, so that a stranger cannot
+ * use the form to enumerate the internal catalogue.
+ *
  * `AuditModule` IS IMPORTED NOW, WHERE A1 DELIBERATELY DID NOT. Reading a
  * published page is still not an audited act and nothing in
  * `PublicSiteService` writes a row. What changed is that this module now
@@ -46,7 +57,13 @@ import { TestimonialsService } from './testimonials.service';
     TestimonialsController,
     ClinicProfileController,
   ],
-  providers: [PublicSiteService, ArticlesService, TestimonialsService, ClinicProfileService],
+  providers: [
+    PublicSiteService,
+    PublicRequestsService,
+    ArticlesService,
+    TestimonialsService,
+    ClinicProfileService,
+  ],
   exports: [PublicSiteService],
 })
 export class WebsiteModule {}

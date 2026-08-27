@@ -438,6 +438,18 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  bringing the public surface to nine reads and still no
       //                  write.
       //
+      // public request:  checkpoint A3 adds THE ONE ANONYMOUS WRITE IN THE
+      //                  PRODUCT — `POST /public/requests`, the contact form —
+      //                  and it is classified `internal` like every read beside
+      //                  it. That is the A1 question re-opened deliberately and
+      //                  answered the same way: accepting a write from a stranger
+      //                  does not put NestJS on the internet, the browser still
+      //                  speaks only to Next.js, and `/health` remains the one
+      //                  route in the product that bypasses the key. It holds no
+      //                  permission, because the caller by definition has no
+      //                  account, and there is NO PUBLIC READ OF WHAT IT WRITES:
+      //                  the inbox is checkpoint A4 and will be staff-only.
+      //
       // content admin:   SIXTEEN manager-and-author routes, and every one of
       //                  them names a permission. Five for articles (list, get,
       //                  create, edit, publish), six for testimonials (list,
@@ -451,7 +463,7 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the therapist and clinic routes carry the three names
       //                  A1 froze. Nothing here is `internal` and nothing here
       //                  is reachable without a session.
-      expect(routes).toBe(132);
+      expect(routes).toBe(133);
     });
   });
 });

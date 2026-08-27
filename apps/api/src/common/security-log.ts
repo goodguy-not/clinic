@@ -27,10 +27,19 @@ export type SecurityRejectionReason =
   | 'ACCOUNT_LOCKED'
   | 'ACCOUNT_DISABLED'
   | 'SESSION_INVALID'
-  | 'INTERNAL_KEY_INVALID';
+  | 'INTERNAL_KEY_INVALID'
+  // Milestone 9, checkpoint A3. The public request form's throttle, refused
+  // here rather than audited for the reason a forged cookie is: an anonymous
+  // caller who could write to an append-only, unprunable table simply by asking
+  // is a caller who can grow it without bound.
+  | 'SUBMISSION_RATE_EXCEEDED';
 
 export type SecurityRejection = {
-  event: 'auth.login.rejected' | 'auth.session.rejected' | 'auth.internal_key.rejected';
+  event:
+    | 'auth.login.rejected'
+    | 'auth.session.rejected'
+    | 'auth.internal_key.rejected'
+    | 'website.request.throttled';
   reason: SecurityRejectionReason;
   requestId: string;
   clientIp?: string | null;

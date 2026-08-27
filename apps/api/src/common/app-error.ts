@@ -192,6 +192,14 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   TESTIMONIAL_APPROVED: 409,
   TESTIMONIAL_NOT_APPROVED: 409,
 
+  // Milestone 9, checkpoint A3. 429 is the only one of its kind on this
+  // surface, and it is the honest status: the request is well formed, permitted
+  // and would otherwise have been accepted — the caller has simply made too
+  // many of them. A 403 would say "not allowed", which is false, and a 400
+  // would say "your form is wrong", which is worse: a visitor would go on
+  // editing text that was never the problem.
+  PUBLIC_REQUEST_THROTTLED: 429,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -314,6 +322,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   RATING_REPLACEMENT_REQUIRED:
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',
+  PUBLIC_REQUEST_THROTTLED: 'Too many requests have been submitted from here recently',
 
   INTERNAL_ERROR: 'Internal error',
 };

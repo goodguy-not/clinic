@@ -169,6 +169,10 @@ const PROTECTED_TABLES = [
   // named here for the reset to be able to clear them.
   'public_article',
   'public_testimonial',
+  // Milestone 9, checkpoint A3. Protected like every other historical table:
+  // the ninety-day retention rule is an UPDATE that CLEARS the intake columns,
+  // never a DELETE, so the row itself refuses both DELETE and TRUNCATE.
+  'website_request',
 ];
 
 /**
@@ -180,6 +184,8 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 9, checkpoint A3. It names a service, so it goes before `service`.
+  'website_request',
   // Milestone 9. Neither names anything but the user who created it, so they go
   // before `app_user` and nowhere in particular otherwise.
   'public_article',
