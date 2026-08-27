@@ -159,6 +159,20 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'article.draft',
     'testimonial.read',
     'testimonial.draft',
+
+    // Milestone 9, checkpoint A4. The receptionist's list grows by two, and the
+    // role map follows the WORK rather than the sensitivity of the data:
+    // answering the clinic's contact form is front-desk work, exactly as the
+    // telephone is, and a product in which only the manager could return a
+    // parent's call is one in which nobody returns it. PROJECT_SPEC.md 4 keeps
+    // configuration, financial correction and security administration from this
+    // role; a message asking for a call back is none of those.
+    //
+    // `website_request.process` INCLUDES LINKING A REQUEST TO A FAMILY, which
+    // this role can already do the harder half of — it registers families. The
+    // link route additionally demands `family.read`, which it also holds.
+    'website_request.read',
+    'website_request.process',
   ],
 };
 
@@ -232,3 +246,15 @@ export {
   SETTLEMENT_EXPORT_PERMISSIONS,
   SETTLEMENT_RATING_CORRECTION_PERMISSIONS,
 } from '@clinic/contracts';
+
+/**
+ * What linking a website request to a family requires: BOTH names.
+ *
+ * Re-exported for the reason the others are — the conversion screen has to
+ * demand exactly what the route demands, and one list stated in
+ * `@clinic/contracts` is the only way the two cannot drift.
+ *
+ * It grants nothing: manager and receptionist both hold `website_request.process`
+ * and `family.read`, and `permissions.spec.ts` pins that.
+ */
+export { WEBSITE_REQUEST_LINK_PERMISSIONS } from '@clinic/contracts';

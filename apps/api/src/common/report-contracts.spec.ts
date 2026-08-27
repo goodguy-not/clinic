@@ -80,6 +80,7 @@ const quietDashboard = {
   availabilityOverrideCount: 0,
   promises: { dueTodayCount: 0, missedCount: 0 },
   dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+  newWebsiteRequestCount: 0,
   reconciliation: emptyReconciliation,
 };
 
@@ -431,6 +432,9 @@ describe('the dashboard', () => {
         'availabilityOverrideCount',
         'promises',
         'dataIssues',
+        // Milestone 9, checkpoint A4: the website-request item PROJECT_SPEC.md 10
+        // lists and Milestone 7 could not implement, closed with the inbox.
+        'newWebsiteRequestCount',
         'reconciliation',
       ].sort(),
     );

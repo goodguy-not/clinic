@@ -185,6 +185,11 @@ describe('guard chain (real PostgreSQL)', () => {
         'testimonial.draft',
         'testimonial.read',
         'therapist.read',
+        // Milestone 9, checkpoint A4: answering the clinic's contact form.
+        // Reading the inbox and moving a request along the accepted lifecycle,
+        // including linking one to a family this role can already register.
+        'website_request.process',
+        'website_request.read',
       ]);
 
       // Still no user administration, no session administration, no catalog
@@ -448,7 +453,19 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  route in the product that bypasses the key. It holds no
       //                  permission, because the caller by definition has no
       //                  account, and there is NO PUBLIC READ OF WHAT IT WRITES:
-      //                  the inbox is checkpoint A4 and will be staff-only.
+      //                  the inbox is checkpoint A4 and is staff-only.
+      //
+      // request inbox:   checkpoint A4 adds FOUR routes, and every one of them
+      //                  names a permission: the inbox page and one request
+      //                  under `website_request.read`, the status change under
+      //                  `website_request.process`, and the family link under
+      //                  BOTH that and `family.read`. NONE of them is
+      //                  `internal`, none is on a `/public` path, and the
+      //                  promise the A3 note above made is kept — what a
+      //                  stranger writes is readable only by somebody signed
+      //                  in. The ninety-day erasure is deliberately not among
+      //                  them: it is an operator command, and no HTTP route in
+      //                  this product destroys anything.
       //
       // content admin:   SIXTEEN manager-and-author routes, and every one of
       //                  them names a permission. Five for articles (list, get,
@@ -463,7 +480,7 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the therapist and clinic routes carry the three names
       //                  A1 froze. Nothing here is `internal` and nothing here
       //                  is reachable without a session.
-      expect(routes).toBe(133);
+      expect(routes).toBe(137);
     });
   });
 });

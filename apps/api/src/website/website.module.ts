@@ -9,6 +9,9 @@ import { PublicSiteController } from './public-site.controller';
 import { PublicSiteService } from './public-site.service';
 import { TestimonialsController } from './testimonials.controller';
 import { TestimonialsService } from './testimonials.service';
+import { WebsiteRequestRetentionService } from './website-request-retention.service';
+import { WebsiteRequestsController } from './website-requests.controller';
+import { WebsiteRequestsService } from './website-requests.service';
 
 /**
  * The public website: what the world reads, and the manager surface that
@@ -41,6 +44,21 @@ import { TestimonialsService } from './testimonials.service';
  * published-only predicate every public read applies, so that a stranger cannot
  * use the form to enumerate the internal catalogue.
  *
+ * CHECKPOINT A4 ADDS THE INTERNAL SIDE OF THAT ONE ANONYMOUS WRITE, and it is
+ * the first controller in this module that is not about publishing.
+ * `WebsiteRequestsController` is the inbox — read a page of requests, open one,
+ * move it along the accepted five-status lifecycle, link it to a family that
+ * already exists — and every route on it carries a permission. NOTHING IN IT IS
+ * PUBLIC, and the separation from `PublicSiteController` is deliberate: that
+ * file answers "what can the world do?" and must go on answering it completely.
+ *
+ * `WebsiteRequestRetentionService` IS EXPORTED AND HAS NO ROUTE. It is the
+ * ninety-day erasure, and it is reached only by the `purge-website-requests`
+ * operator command — no HTTP route in this application destroys anything. It is
+ * exported rather than private because `CliModule` runs it, and it lives here
+ * rather than in the CLI so that the erasure and the table it erases are read
+ * side by side.
+ *
  * `AuditModule` IS IMPORTED NOW, WHERE A1 DELIBERATELY DID NOT. Reading a
  * published page is still not an audited act and nothing in
  * `PublicSiteService` writes a row. What changed is that this module now
@@ -56,6 +74,7 @@ import { TestimonialsService } from './testimonials.service';
     ArticlesController,
     TestimonialsController,
     ClinicProfileController,
+    WebsiteRequestsController,
   ],
   providers: [
     PublicSiteService,
@@ -63,7 +82,9 @@ import { TestimonialsService } from './testimonials.service';
     ArticlesService,
     TestimonialsService,
     ClinicProfileService,
+    WebsiteRequestsService,
+    WebsiteRequestRetentionService,
   ],
-  exports: [PublicSiteService],
+  exports: [PublicSiteService, WebsiteRequestsService, WebsiteRequestRetentionService],
 })
 export class WebsiteModule {}

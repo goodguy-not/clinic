@@ -20,6 +20,7 @@ import type { ResolvedSession } from '../common/request-context';
 import { findParticipantsWithValidCharge, readChargeTotals } from '../ledger/charge-detail';
 import { toPaymentSummary, type PaymentSummaryRow } from '../payments/payment-detail';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebsiteRequestsService } from '../website/website-requests.service';
 
 /**
  * THE CLINIC DAY AT A GLANCE, DERIVED ON EVERY REQUEST AND STORED NOWHERE.
@@ -93,6 +94,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appointments: AppointmentReadService,
+    private readonly websiteRequests: WebsiteRequestsService,
   ) {}
 
   /**
@@ -125,6 +127,13 @@ export class DashboardService {
           availabilityOverrideCount: availabilityOverrides(day.appointments),
           promises: await this.promises(tx, date),
           dataIssues: await this.dataIssues(tx, day.appointments),
+          // The inbox's own count, asked of the inbox rather than restated here.
+          // A second `WHERE status = 'NEW'` written in this file would be a
+          // second place for "waiting" to start meaning something slightly
+          // different — the mistake `AppointmentReadService` is imported to
+          // avoid. It is not scoped to `date`: a request nobody has read since
+          // three weeks ago is exactly what this number exists to surface.
+          newWebsiteRequestCount: await this.websiteRequests.newRequestCount(tx),
           reconciliation: await this.reconciliation(tx, date, session.userId),
         };
 

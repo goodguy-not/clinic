@@ -59,6 +59,7 @@ export * from './website/public-articles';
 export * from './website/public-testimonials';
 export * from './website/public-sitemap';
 export * from './website/public-requests';
+export * from './website/website-requests';
 export * from './website/articles';
 export * from './website/testimonials';
 export * from './website/therapist-public-profile';

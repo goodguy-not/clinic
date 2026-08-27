@@ -71,6 +71,11 @@ describe('role to permission map', () => {
         'article.draft',
         'testimonial.read',
         'testimonial.draft',
+        // Milestone 9, checkpoint A4: answering the clinic's contact form.
+        // Reading the inbox, moving a request along the accepted lifecycle, and
+        // linking one to a family this role can already register itself.
+        'website_request.read',
+        'website_request.process',
       ].sort(),
     );
   });
@@ -267,11 +272,20 @@ describe('role to permission map', () => {
       }
     });
 
-    it('lets both roles read the dashboard, under four authorities they already hold', () => {
+    it('lets both roles read the dashboard, under five authorities they already hold', () => {
       // The shared operational screen. Nothing here is new access: the point of
       // the list is that the route names every module it aggregates.
       expect([...DASHBOARD_READ_PERMISSIONS].sort()).toEqual(
-        ['appointment.read', 'charge.read', 'payment.read', 'promise.read'].sort(),
+        [
+          'appointment.read',
+          'charge.read',
+          'payment.read',
+          'promise.read',
+          // Milestone 9, checkpoint A4: `newWebsiteRequestCount` is
+          // `website_request` counted, so the route names the authority to read
+          // one. Both internal roles hold it, so nobody's access changed.
+          'website_request.read',
+        ].sort(),
       );
 
       // `charge.read` IS PART OF IT, and its absence would be a side channel.
@@ -569,9 +583,14 @@ describe('role to permission map', () => {
         'content.publish',
         'content.draft',
         'website.manage',
-        // The public request inbox is a later checkpoint.
-        'website_request.read',
+        // A4 named the two inbox authorities that describe acts it built. These
+        // are the ones it did NOT: a conversion name would be a second authority
+        // to create a family, reachable from a screen where the duplicate check
+        // could be skipped, and there is no separate authority for the retention
+        // run because no signed-in user performs it.
         'website_request.convert',
+        'website_request.purge',
+        'website_request.delete',
         // The public reads carry no permission at all — they are classified
         // `internal` and hold none.
         'public.read',

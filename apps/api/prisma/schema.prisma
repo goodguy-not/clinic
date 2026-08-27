@@ -192,6 +192,38 @@ enum WebsiteRequestContactTime {
   @@map("website_request_contact_time")
 }
 
+/// How far the clinic has got with a message somebody left on the website.
+///
+/// Milestone 9, checkpoint A4. FIVE VALUES, FROZEN BY PROJECT_SPEC.md 11, AND
+/// THE SENTENCE AFTER THEM IN THE SPECIFICATION IS PART OF THE DEFINITION:
+/// "this is not a full CRM". There is no owner, no assignee, no reminder, no
+/// priority, no pipeline stage and no lead score here or anywhere near here.
+///
+/// `NEW` IS THE ARRIVAL STATE AND NOTHING RETURNS TO IT. It means "nobody at the
+/// clinic has touched this yet", which stops being true the moment somebody
+/// does; a status that could be restored would let the inbox claim a request had
+/// never been looked at.
+///
+/// `CONTACTED` AND `FOLLOW_UP_NEEDED` ARE THE WORKING PAIR and move freely in
+/// both directions — ring, leave a message, mark it for another try, ring again.
+///
+/// `CONVERTED_TO_FAMILY` IS NOT A STATUS SOMEBODY TYPES. It is what LINKING
+/// produces, and `website_request_link_chk` makes the two one fact: a converted
+/// request always names a family and a linked request is always converted.
+///
+/// `CLOSED` IS TERMINAL BECAUSE THE RETENTION CLOCK IS. The accepted rule erases
+/// a closed, never-linked request ninety days after CLOSURE, and a closure that
+/// could be undone would be an erasure that could be deferred for ever.
+enum WebsiteRequestStatus {
+  NEW
+  CONTACTED
+  FOLLOW_UP_NEEDED
+  CONVERTED_TO_FAMILY
+  CLOSED
+
+  @@map("website_request_status")
+}
+
 /// The lifecycle of an appointment as a booking.
 ///
 /// Level one of the two-level model: this describes the SHARED BOOKING — one
@@ -412,6 +444,12 @@ model AppUser {
 
   createdArticles     PublicArticle[]
   createdTestimonials PublicTestimonial[]
+
+  /// Milestone 9, checkpoint A4. The colleague who tied a stranger's message to
+  /// a family. It is the ONLY actor column on `website_request`: who moved a
+  /// status is `audit_log`'s answer, and a link is different because it is a
+  /// standing claim about whose message this was rather than a past act.
+  linkedWebsiteRequests WebsiteRequest[]
 
   @@map("app_user")
 }
@@ -807,16 +845,21 @@ model Family {
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId  String       @map("created_by_user_id") @db.Uuid
 
-  createdBy      AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  guardians      Guardian[]
-  children       Child[]
-  drafts         RegistrationDraft[]
-  sessionCharges SessionCharge[]
+  createdBy       AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  guardians       Guardian[]
+  children        Child[]
+  drafts          RegistrationDraft[]
+  sessionCharges  SessionCharge[]
   /// Money is received from a FAMILY, never from a child: charges identify the
   /// child, payments move the family's position as a whole (DECISION_LOG,
   /// 2026-08-15 — A payment is a family fact).
-  payments       Payment[]
-  promises       PaymentPromise[]
+  payments        Payment[]
+  promises        PaymentPromise[]
+  /// Milestone 9, checkpoint A4. The website messages that turned out to be this
+  /// family. A family may have several — a parent who wrote in twice before
+  /// anybody rang back is one family and two messages — and a request has at
+  /// most one family, which is the direction that matters.
+  websiteRequests WebsiteRequest[]
 
   @@index([status])
   @@index([searchFamilyName])
@@ -1985,27 +2028,27 @@ model ClinicPublicProfile {
 /// of them, so no markup can be stored and the web tier never needs a
 /// sanitiser.
 model PublicArticle {
-  id         String  @id @default(uuid(7)) @db.Uuid
-  publicSlug String  @unique @map("public_slug")
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  publicSlug             String    @unique @map("public_slug")
   /// THE WORKING DRAFT. A receptionist may edit these three at any time,
   /// including while the article is live, and nothing they write here is
   /// visible to anybody outside the clinic.
-  title      String
-  summary    String?
-  body       String
+  title                  String
+  summary                String?
+  body                   String
   /// WHAT THE WEBSITE SAYS. Written by the manager-only publication act and by
   /// nothing else, and read by every public projection instead of the three
   /// above. The pair is what makes "a receptionist prepares a change and the
   /// page does not move until a manager publishes it" representable at all:
   /// one set of columns could hold the live version or the pending one, never
   /// both.
-  publishedTitle   String? @map("published_title")
-  publishedSummary String? @map("published_summary")
-  publishedBody    String? @map("published_body")
+  publishedTitle         String?   @map("published_title")
+  publishedSummary       String?   @map("published_summary")
+  publishedBody          String?   @map("published_body")
   /// The intent to publish. `public_article_published_copy_chk` refuses it on a
   /// row whose published copy nobody has written, so this flag alone can never
   /// put a draft on the website.
-  isPublic         Boolean @default(false) @map("is_public")
+  isPublic               Boolean   @default(false) @map("is_public")
   /// Stamped once by `enforce_public_slug_stability()` at the first
   /// publication, never rewritten, and — unlike a service's — projected
   /// publicly, as the date a reader judges an article by.
@@ -2046,26 +2089,27 @@ model PublicArticle {
 /// the same act as declaring that its review was wrong. The database enforces
 /// the order between them: `isPublic` requires `APPROVED`.
 model PublicTestimonial {
-  id          String            @id @default(uuid(7)) @db.Uuid
+  id                     String            @id @default(uuid(7)) @db.Uuid
   /// An anonymised description of who is speaking — never a name — or nothing
   /// at all. Reviewed by the manager who approves the row.
-  authorLabel String?           @map("author_label")
-  body        String
-  status      TestimonialStatus @default(DRAFT)
+  authorLabel            String?           @map("author_label")
+  body                   String
+  status                 TestimonialStatus @default(DRAFT)
   /// Set exactly when `status` is `APPROVED`; a CHECK pins the two together.
-  approvedAt  DateTime?         @map("approved_at") @db.Timestamptz
-  isPublic    Boolean           @default(false) @map("is_public")
+  approvedAt             DateTime?         @map("approved_at") @db.Timestamptz
+  isPublic               Boolean           @default(false) @map("is_public")
   /// Stamped once by `stamp_first_publication()`. Internal: no public read
   /// projects it, and it exists so a public list has a stable order.
-  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
-  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+  publicFirstPublishedAt DateTime?         @map("public_first_published_at") @db.Timestamptz
+  publicRevisedAt        DateTime?         @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String            @map("created_by_user_id") @db.Uuid
 
   createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("public_testimonial")
 }
+
 /// An unsolicited request from a stranger on the public website.
 ///
 /// Milestone 9, checkpoint A3. THE FIRST ROW IN THIS SCHEMA WRITTEN BY SOMEBODY
@@ -2134,8 +2178,8 @@ model WebsiteRequest {
   /// contract's: `website_request_purge_chk` requires the four required ones to
   /// be present while `purgedAt` is NULL, and requires every one of them to be
   /// absent once it is set. Nullability here is the ERASURE, not the contract.
-  contactName   String? @map("contact_name")
-  contactMobile String? @map("contact_mobile")
+  contactName          String?                    @map("contact_name")
+  contactMobile        String?                    @map("contact_mobile")
   /// The published service they named, or NULL for the accepted "not sure".
   /// A slug reaches the API and an id is stored: the slug is the public
   /// address, the id is what a colleague triaging the inbox needs to join on,
@@ -2147,17 +2191,17 @@ model WebsiteRequest {
   /// answerable forever, which is a reporting decision nobody has taken — and
   /// the honest way to take it later is a derived aggregate, not by holding back
   /// part of an erasure.
-  requestedServiceId String? @map("requested_service_id") @db.Uuid
-  childName          String? @map("child_name")
+  requestedServiceId   String?                    @map("requested_service_id") @db.Uuid
+  childName            String?                    @map("child_name")
   /// Whole years, as the parent typed it. A STAFF-TRIAGE FACT and nothing else:
   /// nothing in this application decides anything from it, and the CHECK
   /// bounding it is a sanity bound rather than an eligibility rule.
-  childAgeYears      Int?      @map("child_age_years") @db.SmallInt
+  childAgeYears        Int?                       @map("child_age_years") @db.SmallInt
   /// The existing vocabulary, reused. Required at submission and with NO
   /// DEFAULT, unlike `child.sex`: a registration taken over the telephone may
   /// legitimately not have reached the question yet, but a form either asked it
   /// or did not, and a default here would silently record an answer nobody gave.
-  childSex             ChildSex? @map("child_sex")
+  childSex             ChildSex?                  @map("child_sex")
   /// From the frozen four. See `WebsiteRequestContactTime`: a preference, no
   /// clock ranges, and nothing in this application acts on it.
   ///
@@ -2195,11 +2239,68 @@ model WebsiteRequest {
   /// when it is gone.
   purgedAt DateTime? @map("purged_at") @db.Timestamptz
 
+  /// --- the lifecycle A4 adds. NONE OF IT IS PURGEABLE, AND NONE OF IT IS
+  /// --- CONTENT: it says what the CLINIC did, never what the visitor said. ---
+  ///
+  /// HOW FAR THE CLINIC HAS GOT. `NEW` on arrival, and the legal moves are in
+  /// `website_request_status_transition` — a trigger rather than a service rule,
+  /// because a status that could be edited by a data fix would make the closure
+  /// instant below, and therefore the retention clock, unenforceable.
+  status          WebsiteRequestStatus @default(NEW)
+  /// When the request was last moved, and NULL exactly while it is still `NEW`.
+  ///
+  /// IT IS NOT A SECOND AUDIT TRAIL. It names no actor, carries no reason and
+  /// keeps only the latest move; `audit_log` remains the authoritative record of
+  /// who did what. It exists because a colleague looking at a list of requests
+  /// marked "follow up needed" has to know which of them has been sitting there
+  /// since last month, and asking the audit log that on every row would serve
+  /// audit internals as ordinary request fields.
+  statusChangedAt DateTime?            @map("status_changed_at") @db.Timestamptz
+  /// When the clinic finished with it. Present exactly when `status` is
+  /// `CLOSED`, and THE INSTANT THE NINETY-DAY RETENTION CLOCK STARTS FROM.
+  ///
+  /// Written once and never rewritten or cleared, which is the same discipline
+  /// `purgedAt` is under and for a stronger reason: this one is an input to an
+  /// irreversible erasure, so a closure that could move would be a deadline that
+  /// could be postponed indefinitely by anybody with an UPDATE.
+  closedAt        DateTime?            @map("closed_at") @db.Timestamptz
+
+  /// --- the family link. THE COLUMN A3 DELIBERATELY DID NOT HAVE. ---
+  ///
+  /// A3 said this table names no family and that the step between a stranger's
+  /// form and a clinic record is a member of staff deciding so. THAT IS STILL
+  /// TRUE, AND THIS COLUMN IS HOW THE DECISION IS RECORDED — not how it is
+  /// bypassed. Nothing in the anonymous submission path can write it: it is set
+  /// only by a signed-in colleague holding `website_request.process`, naming a
+  /// family that already exists, and creating a family from a request remains
+  /// the ordinary registration workflow with its ordinary duplicate detection.
+  ///
+  /// AT MOST ONE FAMILY, EVER. One nullable column is the shape of that rule, and
+  /// the immutability trigger makes it write-once so a link cannot be quietly
+  /// re-pointed at somebody else afterwards. There is still NO `childId`: a
+  /// child is a record with a confirmed birth date, and "he is six" is not one.
+  ///
+  /// A LINKED REQUEST IS NEVER PURGED. `website_request_purge_eligibility_chk`
+  /// states that as a constraint rather than as a predicate the retention run is
+  /// trusted to remember: a converted request is part of a family's history, and
+  /// the ninety-day promise was made about strangers the clinic never heard from
+  /// again.
+  linkedFamilyId String?   @map("linked_family_id") @db.Uuid
+  linkedAt       DateTime? @map("linked_at") @db.Timestamptz
+  /// The one actor column on this table. See `AppUser.linkedWebsiteRequests`.
+  linkedByUserId String?   @map("linked_by_user_id") @db.Uuid
+
   requestedService Service? @relation(fields: [requestedServiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  linkedFamily     Family?  @relation(fields: [linkedFamilyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  linkedBy         AppUser? @relation(fields: [linkedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// The throttle read: everything one submitter sent recently.
   @@index([submitterFingerprint, receivedAt])
   /// The duplicate read, and the retention run's own read after it.
   @@index([dedupeKey, receivedAt])
+  /// The inbox read: a page of one or more statuses, newest first. It also
+  /// serves the dashboard's `NEW` count and the retention run's scan for closed
+  /// requests, both of which are this index with a narrower predicate.
+  @@index([status, receivedAt])
   @@map("website_request")
 }

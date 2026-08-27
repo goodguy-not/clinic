@@ -129,6 +129,9 @@ describe('the dashboard page names every authority in its aggregated response', 
       'charge.read',
       'payment.read',
       'promise.read',
+      // Milestone 9, checkpoint A4: the dashboard states how many website
+      // requests are waiting, so it names the authority to read one.
+      'website_request.read',
     ]);
 
     const user = await requireWith([...DASHBOARD_READ_PERMISSIONS], DASHBOARD_READ_PERMISSIONS);

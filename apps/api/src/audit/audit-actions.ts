@@ -351,6 +351,47 @@ export const AUDIT_ACTIONS = [
   // NO ACTION ABOUT AN INBOX, A STATUS, A CONVERSION OR A PURGE RUN. Those are
   // checkpoint A4, and each arrives with the state change it describes.
   'website_request.received',
+
+  // The inbox (Milestone 9, checkpoint A4). THREE ACTIONS, AND THE A3 RULE
+  // APPLIES TO ALL THREE UNCHANGED: THEY RECORD THE ACT AND NEVER ITS CONTENTS.
+  //
+  // `audit_log` is append-only and unprunable, and `website_request` is the only
+  // table in this schema whose content is erased. Any intake field copied into a
+  // payload here would become a second, permanent copy of exactly the data the
+  // erasure exists to remove — so no parent name, no mobile, no child name, no
+  // age, no sex, no requested service, no note and no contact preference appears
+  // in any payload below, and no abuse-control digest does either.
+  //
+  // `website_request.status_changed` CARRIES THE TWO STATUSES AND NOTHING ELSE.
+  // `before` is the status it was in, `after` the status it moved to, and there
+  // is NO REASON FIELD — the frozen M9 rule. That is not a gap: a reason box on a
+  // status change is where a colleague would write what the parent said, which is
+  // clinical detail about a real child, in the one table this product erases and
+  // in the audit rows that outlive it. What somebody learns on the telephone
+  // belongs in the family record, written deliberately.
+  //
+  // A STATUS IS NOT INTAKE CONTENT. It is what the CLINIC decided, not what the
+  // visitor said, and a permanent record that a request was closed rather than
+  // followed up is exactly the accountability the retained lifecycle row exists
+  // to provide.
+  //
+  // `website_request.linked_to_family` NAMES THE FAMILY, AND THAT IS THE ONE
+  // IDENTIFIER ANY OF THESE ROWS CARRIES. It has to: the whole point of the act
+  // is that this message became that family, and an audit row that could not say
+  // which family would be unable to answer the only question anybody would ever
+  // ask of it. A family id is a clinic record's own identifier, not a stranger's
+  // personal data, and it survives the ninety-day erasure for the same reason the
+  // family does — a linked request is never purged at all.
+  //
+  // `website_request.purged` RECORDS THE ERASURE, WITH AN EMPTY PAYLOAD. It says
+  // that this row's content was destroyed and, by its own timestamp, when. It
+  // names no field it cleared and no value it cleared, because a list of what was
+  // deleted is a description of what was there. Its actor is `SYSTEM`: the
+  // retention run is an operator command with no session, and no signed-in user
+  // performs it.
+  'website_request.status_changed',
+  'website_request.linked_to_family',
+  'website_request.purged',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -368,6 +368,38 @@ export const ERROR_CODES = [
   // visitor could ever receive.
   'PUBLIC_REQUEST_THROTTLED',
 
+  // The website request inbox (Milestone 9, checkpoint A4). THREE CODES, ALL
+  // THREE INTERNAL, AND NO ANONYMOUS CALLER CAN EVER RECEIVE ONE. The A3 comment
+  // above said a code about an inbox, a status or a conversion would belong to
+  // this checkpoint; these are those codes, and they are refusals shown to a
+  // COLLEAGUE processing a message, never to the person who sent it.
+  //
+  // `WEBSITE_REQUEST_NOT_FOUND` is the ordinary miss. It is the answer for an id
+  // that never existed and for one that does — there is no state in which a
+  // request is hidden from a caller holding `website_request.read`, so the code
+  // never has to distinguish "gone" from "not yours".
+  //
+  // `WEBSITE_REQUEST_TRANSITION_INVALID` is the accepted lifecycle refusing a
+  // move: back to `NEW`, out of `CLOSED`, out of `CONVERTED_TO_FAMILY`, or into
+  // the status a request is already in. It names no status and no rule, because
+  // the legal moves are stated in `WEBSITE_REQUEST_LEGAL_TRANSITIONS` and the
+  // screen offers exactly those — a caller receiving this has raced somebody
+  // else, and the honest answer is "reload and look at it again".
+  //
+  // `WEBSITE_REQUEST_ALREADY_LINKED` is the one-family rule seen from the
+  // colleague's side, and it is deliberately the same answer whether the second
+  // link names the SAME family or a different one. A link is a claim about whose
+  // message this was; re-pointing it at another family would rewrite that claim,
+  // and confirming "yes, it is already that family" would make this route a way
+  // to test family membership against a request id.
+  //
+  // THERE IS NO CODE FOR THE RETENTION RUN. It is an operator command with no
+  // caller to answer: it purges what is eligible, says how many, and refuses
+  // nothing.
+  'WEBSITE_REQUEST_NOT_FOUND',
+  'WEBSITE_REQUEST_TRANSITION_INVALID',
+  'WEBSITE_REQUEST_ALREADY_LINKED',
+
   'INTERNAL_ERROR',
 ] as const;
 

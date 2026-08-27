@@ -4202,3 +4202,233 @@ a parent saying any time suits them, the second is a form that did not ask.
 - **Revisit when:** the pilot shows the four are too coarse to be useful, or the
   clinic later wants real callback windows. The latter is a scheduling feature
   with its own decisions, not a widening of this enum.
+
+## 2026-08-28 — Both end states of a website request are final
+
+**Status:** Accepted — Milestone 9, checkpoint A4 (owner decision)
+
+The five frozen statuses are `NEW`, `CONTACTED`, `FOLLOW_UP_NEEDED`,
+`CONVERTED_TO_FAMILY`, `CLOSED` (PROJECT_SPEC.md 11). What A4 had to settle is
+which MOVES between them are legal, and the owner decision is:
+
+- `NEW` is the arrival state and **nothing returns to it**;
+- `CONTACTED` and `FOLLOW_UP_NEEDED` move freely in both directions;
+- any open state may go to `CLOSED` or, by LINKING, to `CONVERTED_TO_FAMILY`;
+- **`CLOSED` is terminal** and **`CONVERTED_TO_FAMILY` is terminal**;
+- a move to the status a request is already in is refused.
+
+`CLOSED` IS TERMINAL BECAUSE THE RETENTION CLOCK IS. The accepted rule erases a
+closed, never-linked request ninety days after CLOSURE. If a closure could be
+undone, `closed_at` would be a value that moves, "this has been closed for ninety
+days" would stop being a fact the database can hold, and an erasure could be
+deferred indefinitely by reopening.
+
+The matrix lives in `WEBSITE_REQUEST_LEGAL_TRANSITIONS` in `@clinic/contracts` so
+the screen offers exactly the legal moves; NestJS refuses the rest with
+`WEBSITE_REQUEST_TRANSITION_INVALID`; and `website_request_status_transition`, a
+PostgreSQL trigger, refuses them underneath both. The trigger is the guarantee.
+
+- **Alternatives:** letting `CLOSED` be reopened to `FOLLOW_UP_NEEDED` with the
+  closure instant cleared and the ninety days restarted; letting
+  `CONVERTED_TO_FAMILY` be closed afterwards.
+- **Reason:** the first makes the retention deadline postponable by anybody
+  holding an UPDATE, which is exactly the property a retention promise cannot
+  have. The second adds a status change that carries no information a reader
+  could act on — a converted request is already part of a family's history.
+- **Trade-off:** a request closed by mistake cannot be reopened. The colleague
+  telephones the family and writes what they learn in the family record, which is
+  where the clinic's own version of a conversation belongs in any case; and the
+  content is still there to work from for ninety days.
+- **Revisit when:** the pilot shows mistaken closures are common. Reopening would
+  then need a decision about what happens to the retention clock, which is the
+  decision this entry actually took.
+
+## 2026-08-28 — Conversion is a link to a family somebody registered, never a mapping
+
+**Status:** Accepted — Milestone 9, checkpoint A4
+
+`POST /website-requests/:id/link` names a family that **already exists** and does
+nothing else. It writes no family, no guardian and no child, and it copies no
+intake field into any permanent record.
+
+The other half of the accepted conversion path — "this is a new family" — is the
+**existing registration workflow**, with its existing duplicate detection, its
+existing confirmation step and its existing `family.create` authority. The
+request's fields are shown beside that form for a colleague to copy from, and the
+family that comes out of it is linked afterwards through the same route. The
+request detail read IS the prefill contract; there is no mapping endpoint.
+
+**No field is mapped automatically, and three in particular are not:**
+
+- `childAgeYears` IS NOT A BIRTH DATE. It is whole years as a parent typed them
+  — a staff-triage fact — and a child record carries a date somebody at the
+  clinic confirmed. Deriving one from the other would write a wrong,
+  authoritative-looking date onto a permanent record.
+- `contactName` IS NOT `familyName`. One is the person asking to be called; the
+  other is what the clinic files the family under.
+- `childName` IS NOT a first name and a last name. It is one box a stranger
+  typed.
+
+A request is linked to **at most one family, ever**: one nullable column, made
+write-once by a trigger, and a second link — to the same family or a different
+one — is `WEBSITE_REQUEST_ALREADY_LINKED` in both cases.
+
+- **Alternatives:** a `POST /website-requests/:id/convert` that created the
+  family; a server-side prefill projection that mapped request fields onto the
+  registration request shape.
+- **Reason:** a conversion endpoint would be a second family-creation path with a
+  second chance to skip the duplicate check, reachable from a screen whose input
+  is text a stranger typed. A mapping projection would freeze the three guesses
+  above into the contract, where they would look authoritative.
+- **Trade-off:** somebody registering a family from a request retypes a name and
+  a telephone number. That is a few seconds against a permanently wrong date of
+  birth, and the person doing it is the one who has just spoken to the parent.
+- **Revisit when:** the public form is changed to collect a real date of birth,
+  which is a product decision about what to ask a stranger rather than a mapping
+  decision.
+
+## 2026-08-28 — The inbox needs two permissions, and the receptionist holds both
+
+**Status:** Accepted — Milestone 9, checkpoint A4
+
+`website_request.read` and `website_request.process`. Manager and receptionist
+hold both; nobody else holds either; linking additionally demands `family.read`
+(`WEBSITE_REQUEST_LINK_PERMISSIONS`).
+
+The role map follows the WORK rather than the sensitivity of the data: answering
+the clinic's contact form is front-desk work, exactly as the telephone is, and a
+product in which only the manager could return a parent's call is one in which
+nobody returns it. PROJECT_SPEC.md 4 keeps configuration, financial correction
+and security administration from the receptionist; a message asking for a call
+back is none of those.
+
+`website_request.read` is a NEW NAME rather than a reuse of `family.read`,
+because the inbox holds the messages of people who never became patients, under a
+notice promising the clinic would not keep them beyond ninety days. Somebody
+trusted with the clinic's own records is not automatically somebody trusted with
+those.
+
+No name is added for conversion (creating a family is `family.create`, on the
+existing workflow) and none for the retention run (no signed-in user performs
+it).
+
+- **Alternatives:** one `website_request.manage`; a separate
+  `website_request.link`; giving the receptionist read and withholding process.
+- **Reason:** one name could not express the AND-list linking needs. A separate
+  link name would be granularity with no decision behind it — no role holds
+  either half without the other, and nothing demands the pair the way
+  `SETTLEMENT_RATING_CORRECTION_PERMISSIONS` does. Read without process would
+  leave the front desk able to see a parent waiting and unable to record that
+  they had rung them.
+- **Trade-off:** a receptionist can close a request, and closing starts the
+  erasure clock. That is the same authority they already have to deactivate a
+  family record, and it is audited.
+- **Revisit when:** the clinic wants a role that reads the inbox without acting
+  on it. The two names already make that expressible.
+
+## 2026-08-28 — The dashboard's website figure is the count of untouched requests
+
+**Status:** Accepted — Milestone 9, checkpoint A4
+
+`newWebsiteRequestCount` on `GET /dashboard` is the number of requests in status
+`NEW` — messages that have arrived and that nobody at the clinic has touched.
+This closes the one PROJECT_SPEC.md 10 dashboard item Milestone 7 could not
+implement.
+
+It is **not scoped to the dashboard's day**, and it is the only count on that
+screen that is not — the exception `missedCount` already is, for the same reason:
+a request that arrived three weeks ago and has never been read is exactly what
+the number exists to surface.
+
+`website_request.read` JOINS `DASHBOARD_READ_PERMISSIONS`, on the `charge.read`
+precedent: a route that counts a table's rows must name the authority to read
+that table, or withholding an authority stops meaning anything. Both internal
+roles hold it, so no access changed.
+
+- **Alternatives:** counting every request that is not `CLOSED` or
+  `CONVERTED_TO_FAMILY`; counting today's arrivals; a block of per-status counts.
+- **Reason:** `NEW` is the only reading that can only FALL as the morning's work
+  is done, which is the property that makes a number worth putting on a
+  dashboard. An "open requests" figure including `FOLLOW_UP_NEEDED` would sit
+  there all week and would be a workload metric nobody asked for; today's
+  arrivals would hide a backlog behind a quiet morning. Per-status counts already
+  exist — on the inbox, where the list is.
+- **Trade-off:** a request marked `FOLLOW_UP_NEEDED` and then forgotten is not on
+  the dashboard. The inbox's `statusCounts` says how many there are, and the
+  status change instant says how long they have been there.
+- **Revisit when:** the pilot shows follow-ups being dropped. That is an argument
+  for a second, differently named count rather than for widening this one.
+
+## 2026-08-28 — The ninety-day erasure is an operator command, and the deadline is a CHECK
+
+**Status:** Accepted — Milestone 9, checkpoint A4
+
+`node dist/cli/main.js purge-website-requests [--dry-run]`. It clears every
+purgeable column of every request that is `CLOSED`, was **never linked to a
+family**, and was closed **ninety days or more ago**, and stamps `purged_at`. It
+never deletes a row — `website_request` keeps its `no_delete` and `no_truncate`
+triggers — and it is idempotent: `purged_at IS NULL` is in the predicate and is
+written by the same statement that clears the content.
+
+**The same three conditions are also a database constraint**
+(`website_request_purge_eligibility_chk`), including the ninety days. The
+predicate is how the run finds its work; the constraint is what makes a mistake
+in that predicate a loud failure rather than a quiet destruction, and it means
+shortening the retention window is a migration somebody reviews.
+
+One transaction per request, so a failure part-way leaves the erasures already
+performed permanent — the correct outcome for an operation whose whole point is
+that it eventually happens. Each row's clearing and its audit entry stay atomic
+together. The audit row carries a `SYSTEM` actor and an **empty payload**: a list
+of what was cleared would be a description of what was there.
+
+- **Alternatives:** a scheduled runner inside the API; a cron entry shipped with
+  the application; a nightly job framework.
+- **Reason:** the accepted M9 scope has no scheduler, queue or background-job
+  framework, and Milestone 10 owns deployment. An unattended process holding a
+  destructive grant over a table of personal data, before anybody has decided how
+  it is invoked, monitored and alerted on, is exactly the thing to defer — and a
+  retention job that fails silently is indistinguishable from one nobody
+  installed.
+- **Trade-off:** until M10 the erasure happens when somebody runs it. The command
+  is safe to run at any frequency, and `--dry-run` reports what it would do
+  without writing anything.
+- **Revisit when:** M10 chooses a scheduling mechanism. It calls this command;
+  nothing about the erasure itself changes.
+
+## 2026-08-28 — A purged request is a different shape on the wire, not a blank one
+
+**Status:** Accepted — Milestone 9, checkpoint A4
+
+Every inbox read is a discriminated union on `contentPurged`. A live request
+carries the intake fields and a purged one carries only the lifecycle row; there
+is no shape in `@clinic/contracts` that can express "purged, and here is the
+telephone number".
+
+That mirrors the database exactly: `website_request_purge_chk` requires all four
+required intake columns while `purged_at` is NULL and forbids every purgeable one
+once it is set. The discriminator is read off `purged_at` rather than off a null
+name, because `purged_at` is the fact and the nulls are its consequence.
+
+A purged request is still readable and still answers `200`. Refusing it with a
+404 would be wrong twice over: the row exists, and a colleague looking at an
+inbox entry is entitled to be told that the content was erased rather than left
+to conclude the record has been lost.
+
+**The inbox has no search term**, deliberately. Searching it by telephone number
+would make it a way to ask "has this person contacted the clinic?" of a store the
+clinic has promised to erase. It has a status filter, a page and nothing else —
+no date range, no sort parameter, no free text.
+
+- **Alternatives:** one shape with every intake field nullable; hiding purged
+  requests from the list; a text search over the inbox.
+- **Reason:** nullable-everything is a shape somebody eventually populates, and
+  it makes the "required means required" guarantee unstateable on the wire.
+  Hiding purged rows would make the lifecycle record — the entire justification
+  for erasing in place rather than deleting — invisible to the only people who
+  can read it.
+- **Trade-off:** a consumer must branch on `contentPurged`. That is one `if`
+  against a class of leak that cannot then happen.
+- **Revisit when:** the inbox grows past what a status filter and a page can
+  navigate. That is a volume problem with its own answer, and a mobile-number
+  search is not it.

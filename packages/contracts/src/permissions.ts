@@ -305,6 +305,54 @@ export const PERMISSIONS = [
   'testimonial.read',
   'testimonial.draft',
   'testimonial.approve',
+
+  // The website request inbox (Milestone 9, checkpoint A4). TWO NAMES, AND THE
+  // RECEPTIONIST HOLDS BOTH OF THEM.
+  //
+  // This is the FIRST authority in the product over something a STRANGER wrote,
+  // and the role map follows the work rather than the sensitivity: answering the
+  // clinic's contact form is front-desk work, exactly as the telephone is, and a
+  // product where only the manager could return a parent's call would be one
+  // where nobody returns it. PROJECT_SPEC.md 4 keeps configuration, financial
+  // correction and security administration from the receptionist; a message
+  // asking for a call back is none of those.
+  //
+  // `website_request.read` IS SEPARATE FROM EVERY OTHER READ IN THIS LIST
+  // BECAUSE OF WHAT IT READS. The inbox holds a name, a telephone number, a
+  // child's age and sex, and words a distressed parent typed into a public
+  // website under a notice promising the clinic would not keep them beyond
+  // ninety days. No existing name describes that: `family.read` is the clinic's
+  // OWN records, and somebody trusted with those is not automatically somebody
+  // trusted with the messages of people who never became patients. Making it its
+  // own name is what lets a future role hold one without the other.
+  //
+  // `website_request.process` IS ONE NAME FOR MOVING A REQUEST ALONG AND FOR
+  // LINKING IT TO A FAMILY, and that is deliberate where the settlement module
+  // split rating from un-rating. The split there was load-bearing: an atomic
+  // correction could DEMAND both names at once, which is impossible with one.
+  // Here nothing demands a pair, no role holds either half without the other,
+  // and both turn on the same question — is this person the one who answers the
+  // clinic's contact form? Two names would be vocabulary describing one
+  // authority twice.
+  //
+  // LINKING NEVERTHELESS DEMANDS `family.read` AS WELL
+  // (`WEBSITE_REQUEST_LINK_PERMISSIONS`), because it names a family and returns
+  // that family's name. The permission model has to be an accurate description
+  // of what a route reads, or withholding an authority stops meaning anything.
+  //
+  // NO NAME IS ADDED FOR CONVERSION, AND THAT IS THE POINT OF THE CONVERSION
+  // DESIGN. Creating a family from a request is the EXISTING registration
+  // workflow under the EXISTING `family.create`, with its existing duplicate
+  // detection; the request is linked afterwards under `website_request.process`.
+  // A `website_request.convert` would be a second authority to create a family,
+  // reachable from a screen where the duplicate check could be forgotten.
+  //
+  // NO NAME IS ADDED FOR THE RETENTION RUN EITHER. The ninety-day erasure is an
+  // operator command executed against a deployed database, with a SYSTEM actor
+  // and no session; a permission naming it would describe an act no signed-in
+  // user can perform.
+  'website_request.read',
+  'website_request.process',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -368,13 +416,22 @@ export const FAMILY_ACCOUNT_READ_PERMISSIONS = [
  * than empty; the `CLINIC_WIDE` variant needs `report.read_financial` as well,
  * and that is decided inside the response rather than by refusing the request.
  *
- * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all four.
+ * `website_request.read` IS THE FIFTH NAME, ADDED IN MILESTONE 9 CHECKPOINT A4
+ * FOR THE SAME REASON. The dashboard now states how many website requests are
+ * waiting (PROJECT_SPEC.md 10 lists them), and that count is
+ * `website_request` read through the inbox's own predicate. A route that stated
+ * it without naming the authority to read a request would be a side channel: a
+ * future role holding the diary and the ledger but not the inbox would learn,
+ * morning by morning, how many strangers had written to the clinic.
+ *
+ * IT CHANGES NO ACCESS TODAY: manager and receptionist both hold all five.
  */
 export const DASHBOARD_READ_PERMISSIONS = [
   'appointment.read',
   'charge.read',
   'payment.read',
   'promise.read',
+  'website_request.read',
 ] as const satisfies readonly Permission[];
 
 /**
@@ -508,6 +565,29 @@ export const SETTLEMENT_EXPORT_PERMISSIONS = [
 export const SETTLEMENT_RATING_CORRECTION_PERMISSIONS = [
   'settlement.void_rating',
   'settlement.rate',
+] as const satisfies readonly Permission[];
+
+/**
+ * WHAT LINKING A WEBSITE REQUEST TO A FAMILY REQUIRES: BOTH NAMES.
+ *
+ * `website_request.process` because it moves a request into
+ * `CONVERTED_TO_FAMILY`, and `family.read` because the request body names a
+ * family, the route confirms that family exists and is active, and the response
+ * carries its name. A caller holding only the first would be able to attach a
+ * stranger's message to a family they may not open, and would learn from the
+ * refusal alone whether a given family id exists.
+ *
+ * AND, NOT OR, in both tiers — `PermissionsGuard` in NestJS and the page that
+ * renders the conversion control.
+ *
+ * IT GRANTS NOTHING NEW: manager and receptionist both hold both names, and
+ * `permissions.spec.ts` pins that. Creating a family from a request is a
+ * different act with a different list — the existing registration workflow under
+ * `family.create` — and this route cannot create one.
+ */
+export const WEBSITE_REQUEST_LINK_PERMISSIONS = [
+  'website_request.process',
+  'family.read',
 ] as const satisfies readonly Permission[];
 
 export const permissionSchema = z.enum(PERMISSIONS);

@@ -72,6 +72,12 @@ describe('website request schema objects', () => {
       submitter_fingerprint: null as string | null,
       dedupe_key: null as string | null,
       purged_at: null as string | null,
+      // Milestone 9, checkpoint A4. The lifecycle columns default to an
+      // untouched, never-closed request, which is what an anonymous submission
+      // actually writes; the retention cases below override them.
+      status: 'NEW',
+      status_changed_at: null as string | null,
+      closed_at: null as string | null,
       ...overrides,
     };
 
@@ -80,16 +86,39 @@ describe('website request schema objects', () => {
         id, received_at, contact_name, contact_mobile, requested_service_id,
         child_name, child_age_years, child_sex, preferred_contact_time, note,
         consent_given, consent_version, consent_recorded_at,
-        submitter_fingerprint, dedupe_key, purged_at
+        submitter_fingerprint, dedupe_key, purged_at,
+        status, status_changed_at, closed_at
       ) VALUES (
         ${row.id}::uuid, transaction_timestamp(),
         ${row.contact_name}, ${row.contact_mobile}, NULL,
         ${row.child_name}, ${row.child_age_years}, ${row.child_sex}::child_sex,
         ${row.preferred_contact_time}::website_request_contact_time, ${row.note},
         ${row.consent_given}, ${row.consent_version}, transaction_timestamp(),
-        ${row.submitter_fingerprint}, ${row.dedupe_key}, ${row.purged_at}::timestamptz
+        ${row.submitter_fingerprint}, ${row.dedupe_key}, ${row.purged_at}::timestamptz,
+        ${row.status}::website_request_status,
+        ${row.status_changed_at}::timestamptz, ${row.closed_at}::timestamptz
       )
     `;
+  }
+
+  /**
+   * A request the clinic finished with more than ninety days ago — the ONLY
+   * state in which the erasure below is permitted at all.
+   *
+   * Milestone 9, checkpoint A4 tightened this: `website_request_purge_eligibility
+   * _chk` refuses `purged_at` on a request that is not CLOSED, that is linked to
+   * a family, or that was closed less than ninety days ago. The A3 cases here
+   * assert what the erasure DOES to a row; they now have to put the row in the
+   * state the erasure is allowed to touch, which is a strengthening of the
+   * retention guarantee rather than a change to it.
+   */
+  function insertPurgeable(overrides: Record<string, unknown> = {}): Promise<number> {
+    return insert({
+      status: 'CLOSED',
+      status_changed_at: new Date(Date.now() - 91 * 24 * 3600 * 1000).toISOString(),
+      closed_at: new Date(Date.now() - 91 * 24 * 3600 * 1000).toISOString(),
+      ...overrides,
+    });
   }
 
   describe('the inventory', () => {
@@ -106,6 +135,10 @@ describe('website request schema objects', () => {
         'website_request_submitter_fingerprint_chk',
         'website_request_dedupe_key_chk',
         'website_request_purge_chk',
+        // Milestone 9, checkpoint A4.
+        'website_request_lifecycle_chk',
+        'website_request_link_chk',
+        'website_request_purge_eligibility_chk',
       ]) {
         expect(names).toContain(expected);
       }
@@ -117,6 +150,8 @@ describe('website request schema objects', () => {
       expect(names).toContain('website_request_immutable');
       expect(names).toContain('website_request_no_delete');
       expect(names).toContain('website_request_no_truncate');
+      // Milestone 9, checkpoint A4: the legal-transition and write-once rules.
+      expect(names).toContain('website_request_status_transition');
     });
 
     it('keeps the two abuse-control indexes', async () => {
@@ -178,9 +213,10 @@ describe('website request schema objects', () => {
     });
 
     it('lets the retention erasure clear every purgeable column in one UPDATE', async () => {
-      // THIS IS THE STATEMENT A4's RETENTION RUN WILL MAKE. Nothing in A3 issues
-      // it; this asserts that the table permits it, which is what A3 owes.
-      await insert({
+      // THIS IS THE STATEMENT A4's RETENTION RUN MAKES, and it is now made
+      // against a row in the only state that permits it: closed, never linked,
+      // and closed more than ninety days ago.
+      await insertPurgeable({
         child_name: 'کودک نمونه',
         preferred_contact_time: 'EVENING',
         note: 'متن نمونه.',
@@ -236,7 +272,7 @@ describe('website request schema objects', () => {
     });
 
     it('refuses a HALF-erased row, which is the failure that would look like success', async () => {
-      await insert();
+      await insertPurgeable();
 
       // A retention run that cleared the name and left the telephone number.
       await expect(
@@ -259,14 +295,14 @@ describe('website request schema objects', () => {
       await expect(insert({ child_sex: null })).rejects.toThrow();
 
       await expect(
-        insert({ purged_at: new Date().toISOString(), note: 'متن باقی‌مانده' }),
+        insertPurgeable({ purged_at: new Date().toISOString(), note: 'متن باقی‌مانده' }),
       ).rejects.toThrow();
     });
 
     it('writes the erasure instant once and never rewrites or clears it', async () => {
       // An erasure that could be un-declared would let the row claim the content
       // is still held when it is gone.
-      await insert();
+      await insertPurgeable();
       await harness.prisma.$executeRaw`
         UPDATE website_request SET
           contact_name = NULL, contact_mobile = NULL, child_age_years = NULL,
@@ -286,7 +322,7 @@ describe('website request schema objects', () => {
     });
 
     it('refuses to write content back into an erased row', async () => {
-      await insert();
+      await insertPurgeable();
       await harness.prisma.$executeRaw`
         UPDATE website_request SET
           contact_name = NULL, contact_mobile = NULL, child_age_years = NULL,
@@ -406,18 +442,28 @@ describe('website request schema objects', () => {
     });
   });
 
-  describe('a request names no family and no child record', () => {
-    it('has no column through which one could', async () => {
-      // Structural rather than a rule somebody remembers. The conversion path
-      // A4 owns will add its link deliberately.
+  describe('a request names no child record, and names a family only when staff said so', () => {
+    it('has one deliberate family column and nothing else to hang a record on', async () => {
+      // A3 had NO family column at all, and said the conversion path A4 owns
+      // would add its link deliberately. This is that link, and the shape of the
+      // A3 guarantee is unchanged: `linked_family_id` is written only by a
+      // signed-in colleague through `POST /website-requests/:id/link`, the
+      // anonymous submission path writes NULL into it, and there is still no
+      // column through which a stranger's form could reach a child, a guardian
+      // or an appointment.
       const rows = await harness.prisma.$queryRaw<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
         WHERE table_name = 'website_request'
       `;
       const columns = rows.map((row) => row.column_name);
 
-      expect(columns).not.toContain('family_id');
+      expect(columns).toContain('linked_family_id');
+      // AND STILL NO BIRTH DATE ANYWHERE. `child_age_years` is whole years as a
+      // parent typed them; a child record carries a date somebody at the clinic
+      // confirmed, and nothing here invites the second to be derived from the
+      // first.
       expect(columns).not.toContain('child_id');
+      expect(columns).not.toContain('child_birth_date');
       expect(columns).not.toContain('guardian_id');
       expect(columns).not.toContain('appointment_id');
       // And no raw client metadata of any kind.

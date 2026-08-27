@@ -434,6 +434,7 @@ describe('frozen dashboard endpoint', () => {
     },
     promises: { dueTodayCount: 0, missedCount: 0 },
     dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+    newWebsiteRequestCount: 0,
     reconciliation: {
       scope: 'RECORDED_BY_ME',
       dateBasis: 'PAYMENT_RECORDED_AT',

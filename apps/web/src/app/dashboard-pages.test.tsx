@@ -35,6 +35,7 @@ const own: OwnScopedDashboardResponse = {
   },
   promises: { dueTodayCount: 1, missedCount: 3 },
   dataIssues: { missingTariffCount: 2, unchargedCompletedSessionCount: 1 },
+  newWebsiteRequestCount: 2,
   reconciliation: {
     scope: 'RECORDED_BY_ME',
     dateBasis: 'PAYMENT_RECORDED_AT',

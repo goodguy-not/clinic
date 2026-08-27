@@ -200,6 +200,16 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // editing text that was never the problem.
   PUBLIC_REQUEST_THROTTLED: 429,
 
+  // The inbox (Milestone 9, checkpoint A4). A missing request is a 404; an
+  // illegal move and a second link are both 409 — the request exists and the
+  // caller may read it, but the state it is in refuses the act. A 400 would say
+  // "your request is malformed", which is false: the same body would have been
+  // accepted a moment earlier, and on a race it is the caller's SCREEN that is
+  // stale rather than their input.
+  WEBSITE_REQUEST_NOT_FOUND: 404,
+  WEBSITE_REQUEST_TRANSITION_INVALID: 409,
+  WEBSITE_REQUEST_ALREADY_LINKED: 409,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -323,6 +333,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',
   PUBLIC_REQUEST_THROTTLED: 'Too many requests have been submitted from here recently',
+  WEBSITE_REQUEST_NOT_FOUND: 'Website request not found',
+  WEBSITE_REQUEST_TRANSITION_INVALID: 'This website request cannot move to that status',
+  WEBSITE_REQUEST_ALREADY_LINKED: 'This website request is already linked to a family',
 
   INTERNAL_ERROR: 'Internal error',
 };

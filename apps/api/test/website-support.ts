@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { CURRENT_PUBLIC_REQUEST_CONSENT_VERSION } from '@clinic/contracts';
 import { internalHeaders, seedUser, TEST_PASSWORD, type Harness } from './harness';
 
 /**
@@ -74,4 +75,103 @@ export function testimonialDraft(): Record<string, unknown> {
     authorLabel: 'Synthetic parent label',
     body: 'Synthetic testimonial text written for a test. It names nobody and describes nothing.',
   };
+}
+
+// --- website requests (Milestone 9, checkpoint A4) --------------------------
+
+/** A complete, valid anonymous submission. Every field is synthetic. */
+export function submission(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    contactName: 'سرپرست نمونه',
+    contactMobile: '09120000001',
+    serviceSlug: null,
+    childName: 'کودک نمونه',
+    childAgeYears: 6,
+    childSex: 'UNSPECIFIED',
+    preferredContactTime: 'MORNING',
+    note: 'متن نمونه برای آزمون. دربارهٔ هیچ کودک واقعی نیست.',
+    consent: true,
+    consentVersion: CURRENT_PUBLIC_REQUEST_CONSENT_VERSION,
+    ...overrides,
+  };
+}
+
+/**
+ * Submits a request through the real anonymous endpoint and returns its id.
+ *
+ * THE ID COMES OUT OF THE DATABASE AND NOT OUT OF THE RESPONSE, deliberately:
+ * the accepted A3 response carries no identifier at all, so that an anonymous
+ * caller holds no handle it could quote back. A test that could read one from
+ * the body would be testing a contract this product does not have.
+ */
+export async function submitRequest(
+  harness: Harness,
+  overrides: Record<string, unknown> = {},
+  ip = '203.0.113.10',
+): Promise<string> {
+  const response = await request(harness.app.getHttpServer())
+    .post('/public/requests')
+    // A synthetic caller address, so the row carries the keyed submitter digest
+    // a real submission would. The suites that assert the digest is never SERVED
+    // need one to exist in the first place.
+    .set({ ...asVisitor(), 'x-client-ip': ip })
+    .send(submission(overrides));
+
+  if (response.status !== 202) {
+    throw new Error(`Expected 202 submitting a request, got ${String(response.status)}`);
+  }
+
+  const rows = await harness.prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM website_request ORDER BY received_at DESC, id DESC LIMIT 1
+  `;
+
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('no website_request row was written');
+  return id;
+}
+
+/**
+ * Backdates a request's closure so the ninety-day retention deadline has passed.
+ *
+ * Written with the triggers disabled, because `closed_at` is write-once by
+ * design and moving it is exactly what a test must not be able to do through
+ * any ordinary path. Nothing in the application can perform this statement.
+ */
+export async function backdateClosure(harness: Harness, id: string, days: number): Promise<void> {
+  await harness.prisma.$executeRawUnsafe('ALTER TABLE website_request DISABLE TRIGGER USER');
+  try {
+    await harness.prisma.$executeRaw`
+      UPDATE website_request
+      SET closed_at = transaction_timestamp() - ${`${days} days`}::interval
+      WHERE id = ${id}::uuid
+    `;
+  } finally {
+    await harness.prisma.$executeRawUnsafe('ALTER TABLE website_request ENABLE TRIGGER USER');
+  }
+}
+
+/** Reads one request row straight out of PostgreSQL. */
+export async function readRequestRow(
+  harness: Harness,
+  id: string,
+): Promise<Record<string, unknown>> {
+  const rows = await harness.prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT * FROM website_request WHERE id = ${id}::uuid
+  `;
+
+  const row = rows[0];
+  if (row === undefined) throw new Error('website_request row is missing');
+  return row;
+}
+
+/** The audit payloads written against one request, oldest first. */
+export async function auditPayloadsFor(
+  harness: Harness,
+  entityId: string,
+): Promise<{ action: string; before: unknown; after: unknown; metadata: unknown }[]> {
+  return harness.prisma.$queryRaw`
+    SELECT action, before, after, metadata FROM audit_log
+    WHERE entity_type = 'website_request' AND entity_id = ${entityId}::uuid
+    ORDER BY id ASC
+  `;
 }

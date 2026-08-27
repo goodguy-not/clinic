@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { CliModule } from './cli.module';
 import { bootstrapManager } from './bootstrap-manager';
+import { purgeWebsiteRequests } from './purge-website-requests';
 import { resetPassword } from './reset-password';
 import type { CliIo } from './cli-io';
 
@@ -15,9 +16,14 @@ const USAGE = [
   'Usage:',
   '  bootstrap-manager --username <name> --display-name <name> [--password-stdin]',
   '  reset-password    --username <name> [--password-stdin]',
+  '  purge-website-requests [--dry-run]',
   '',
   'Passwords are generated and printed once unless --password-stdin is given.',
   'A password may never be passed as an argument.',
+  '',
+  'purge-website-requests erases the content of closed, never-linked website',
+  'requests ninety days after closure. It never deletes a row, and it is safe',
+  'to run again. Use --dry-run to see how many are eligible without erasing.',
 ].join('\n');
 
 export function parseFlags(argv: readonly string[]): Map<string, string | true> {
@@ -66,13 +72,6 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   }
 
   const passwordFromStdin = flags.get('password-stdin') === true;
-  const username = stringFlag(flags, 'username');
-
-  if (username === null) {
-    io.err('--username is required.');
-    io.err(USAGE);
-    return 2;
-  }
 
   // Logging is disabled for the context: the only bytes this process writes to
   // stdout are the CLI's own, so a generated password can never be interleaved
@@ -82,7 +81,14 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   try {
     switch (command) {
       case 'bootstrap-manager': {
+        const username = stringFlag(flags, 'username');
         const displayName = stringFlag(flags, 'display-name');
+
+        if (username === null) {
+          io.err('--username is required.');
+          io.err(USAGE);
+          return 2;
+        }
 
         if (displayName === null) {
           io.err('--display-name is required for bootstrap-manager.');
@@ -92,8 +98,25 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
         return await bootstrapManager(app, { username, displayName, passwordFromStdin }, io);
       }
 
-      case 'reset-password':
+      case 'reset-password': {
+        const username = stringFlag(flags, 'username');
+
+        if (username === null) {
+          io.err('--username is required.');
+          io.err(USAGE);
+          return 2;
+        }
+
         return await resetPassword(app, { username, passwordFromStdin }, io);
+      }
+
+      // Milestone 9, checkpoint A4. The only command here that names no user:
+      // the ninety-day erasure acts on messages from people who have no account,
+      // and its audit rows carry a SYSTEM actor for exactly that reason. Hence
+      // `--username` is required by the two account commands rather than up
+      // front — it would be meaningless on this one.
+      case 'purge-website-requests':
+        return await purgeWebsiteRequests(app, { dryRun: flags.get('dry-run') === true }, io);
 
       default:
         io.err(`Unknown command: ${command}`);
