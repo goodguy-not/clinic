@@ -25,124 +25,114 @@ export default async function PublicHomePage() {
   return (
     <main id="main-content">
       <Hero clinic={clinic} />
-      <Journey />
+      <Orientation />
       <Services read={home.services} />
       <Team read={home.team} />
-      <AboutAndContact clinic={clinic} profileStatus={home.clinic.status} />
+      <About clinic={clinic} />
+      <Request clinic={clinic} profileStatus={home.clinic.status} />
     </main>
   );
 }
 
 function Hero({ clinic }: { clinic: PublicClinicProfile }) {
-  const primaryHref = clinic.phonePrimary === null ? '#contact' : `tel:${clinic.phonePrimary}`;
-  const primaryLabel = clinic.phonePrimary === null ? 'راه‌های ارتباطی' : 'تماس با کلینیک';
-
   return (
     <section className="public-hero" aria-labelledby="hero-title">
-      <div className="public-shell public-hero__grid">
+      <div className="public-shell public-hero__layout">
         <div className="public-hero__copy public-enter">
-          <p className="public-eyebrow">
-            <span aria-hidden="true" />
-            کلینیک توانبخشی والا
-          </p>
-          <h1 id="hero-title">برای هر قدم، یک مسیر روشن‌تر</h1>
+          <p className="public-eyebrow">کلینیک توانبخشی والا</p>
+          <h1 id="hero-title">
+            <span>قدم‌به‌قدم،</span>
+            <span className="public-hero__title-accent">رو به توانایی.</span>
+          </h1>
           <p className="public-hero__lead">
-            در والا می‌توانید با خدمات منتشرشده، تیم درمان و راه‌های ارتباط با کلینیک آشنا شوید؛
-            ساده، شفاف و بدون پیچیدگی.
+            والا جایی برای شناخت روشن مسیر توانبخشی، آشنایی با درمانگران و برداشتن یک قدم قابل‌فهم
+            برای ادامه است.
           </p>
           <div className="public-hero__actions">
-            <a href={primaryHref} className="public-focus public-button public-button--primary">
-              {primaryLabel}
+            <a href="#request" className="public-focus public-button public-button--primary">
+              درخواست پیگیری
               <ArrowIcon />
             </a>
-            <a href="#services" className="public-focus public-button public-button--quiet">
-              آشنایی با خدمات
+            <a href="#services" className="public-focus public-inline-link">
+              ابتدا خدمات را ببینید
+              <ArrowIcon />
             </a>
           </div>
-          <ul className="public-promises" aria-label="ویژگی‌های تجربهٔ وب‌سایت">
-            <li>
-              <CheckIcon /> اطلاعات روشن
-            </li>
-            <li>
-              <CheckIcon /> معرفی تیم با رضایت
-            </li>
-            <li>
-              <CheckIcon /> مسیر تماس ساده
-            </li>
-          </ul>
+          {clinic.phonePrimary !== null ? (
+            <p className="public-hero__direct">
+              برای تماس مستقیم:‌{' '}
+              <a href={`tel:${clinic.phonePrimary}`} className="public-focus">
+                <bdi dir="ltr">{clinic.phonePrimary}</bdi>
+              </a>
+            </p>
+          ) : null}
         </div>
 
-        <div className="public-hero-art public-enter public-enter--late" aria-hidden="true">
-          <div className="public-hero-art__sun" />
-          <div className="public-hero-art__orb public-hero-art__orb--one" />
-          <div className="public-hero-art__orb public-hero-art__orb--two" />
-          <svg className="public-hero-art__path" viewBox="0 0 560 500" focusable="false">
-            <path d="M104 414c42-112 90-62 128-154 43-104 106 25 148-82 20-51 48-69 86-77" />
-            <circle cx="105" cy="413" r="8" />
-            <circle cx="466" cy="101" r="8" />
-          </svg>
-          <div className="public-hero-art__figure">
-            <span className="public-hero-art__head" />
-            <span className="public-hero-art__body" />
-            <span className="public-hero-art__arm" />
-            <span className="public-hero-art__leg" />
-          </div>
-          <span className="public-hero-art__word public-hero-art__word--one">شناخت</span>
-          <span className="public-hero-art__word public-hero-art__word--two">همراهی</span>
-          <span className="public-hero-art__word public-hero-art__word--three">حرکت</span>
+        <div className="public-hero__manifesto public-enter public-enter--late">
+          <p>مسیر والا</p>
+          <ol aria-label="مسیر آشنایی و پیگیری در والا">
+            <li>
+              <span>۰۱</span>
+              <strong>شناخت</strong>
+              <small>بدانید چه خدماتی در دسترس است.</small>
+            </li>
+            <li>
+              <span>۰۲</span>
+              <strong>همراهی</strong>
+              <small>با آدم‌های این مسیر آشنا شوید.</small>
+            </li>
+            <li>
+              <span>۰۳</span>
+              <strong>ادامه</strong>
+              <small>برای پیگیری، یک درخواست کوتاه بفرستید.</small>
+            </li>
+          </ol>
         </div>
       </div>
-      <div className="public-hero__wave" aria-hidden="true" />
+      <a href="#orientation" className="public-focus public-hero__scroll" aria-label="ادامهٔ صفحه">
+        <span aria-hidden="true" />
+        ادامه
+      </a>
     </section>
   );
 }
 
-function Journey() {
-  const steps = [
-    {
-      number: '۱',
-      title: 'خدمات را بشناسید',
-      text: 'فهرست خدمات منتشرشده را ببینید و تصویر اولیه‌ای از مسیرهای موجود پیدا کنید.',
-      href: '#services',
-      tone: 'coral',
-    },
-    {
-      number: '۲',
-      title: 'با تیم آشنا شوید',
-      text: 'پروفایل‌هایی را بخوانید که با رضایت درمانگران برای وب‌سایت تأیید شده‌اند.',
-      href: '#team',
-      tone: 'violet',
-    },
-    {
-      number: '۳',
-      title: 'مستقیم تماس بگیرید',
-      text: 'از راه‌های ثبت‌شدهٔ کلینیک برای پرسیدن سؤال و پیگیری گام بعد استفاده کنید.',
-      href: '#contact',
-      tone: 'green',
-    },
-  ] as const;
-
+function Orientation() {
   return (
-    <section className="public-journey public-section" aria-labelledby="journey-title">
-      <div className="public-shell">
-        <div className="public-section-heading public-section-heading--center">
+    <section id="orientation" className="public-orientation" aria-labelledby="orientation-title">
+      <div className="public-shell public-orientation__layout">
+        <div className="public-orientation__heading">
           <p className="public-kicker">شروع بدون سردرگمی</p>
-          <h2 id="journey-title">از کجا شروع کنیم؟</h2>
-          <p>سه مسیر کوتاه برای رسیدن به اطلاعاتی که بیشتر خانواده‌ها در ابتدا می‌خواهند.</p>
+          <h2 id="orientation-title">لازم نیست از همان ابتدا همه‌چیز را بدانید.</h2>
         </div>
-        <ol className="public-journey__grid">
-          {steps.map((step) => (
-            <li key={step.number} className={`public-step public-step--${step.tone}`}>
-              <span className="public-step__number">{step.number}</span>
-              <div>
-                <h3>{step.title}</h3>
-                <p>{step.text}</p>
-                <a href={step.href} className="public-focus public-text-link">
-                  ادامهٔ مسیر <ArrowIcon />
-                </a>
-              </div>
-            </li>
-          ))}
+        <p className="public-orientation__intro">
+          برای شروع، همین سه چیز کافی است: محدودهٔ خدمات را بشناسید، دربارهٔ تیم بخوانید و اگر آماده
+          بودید، راه پیگیری را انتخاب کنید.
+        </p>
+      </div>
+      <div className="public-shell">
+        <ol className="public-route">
+          <li>
+            <span className="public-route__number">۱</span>
+            <div>
+              <strong>خدمت مناسب را پیدا کنید</strong>
+              <p>توضیح‌های منتشرشده کمک می‌کنند یک تصویر اولیه و ساده داشته باشید.</p>
+            </div>
+          </li>
+          <li>
+            <span className="public-route__number">۲</span>
+            <div>
+              <strong>زمینهٔ تیم را بشناسید</strong>
+              <p>فقط اطلاعاتی نمایش داده می‌شود که برای حضور عمومی تأیید شده است.</p>
+            </div>
+          </li>
+          <li>
+            <span className="public-route__number">۳</span>
+            <div>
+              <strong>پیگیری را به والا بسپارید</strong>
+              <p>یک درخواست کوتاه، شروع گفت‌وگو را ساده و مشخص می‌کند.</p>
+            </div>
+          </li>
         </ol>
       </div>
     </section>
@@ -161,28 +151,27 @@ function Services({ read }: { read: PublicRead<PublicServiceSummary[]> }) {
       <div className="public-shell">
         <div className="public-section-heading public-section-heading--split">
           <div>
-            <p className="public-kicker">خدمات کلینیک</p>
-            <h2 id="services-title">مسیرهای مراقبت، روشن و قابل شناخت</h2>
+            <p className="public-kicker">خدمات</p>
+            <h2 id="services-title">هر مسیر، از یک شناخت روشن شروع می‌شود.</h2>
           </div>
-          <p>این فهرست مستقیماً از خدماتی می‌آید که کلینیک برای نمایش عمومی منتشر کرده است.</p>
+          <p>فهرست زیر مستقیماً از خدماتی می‌آید که کلینیک برای نمایش عمومی منتشر کرده است.</p>
         </div>
 
         {services.length > 0 ? (
-          <div className="public-services__grid">
+          <ol className="public-services__list">
             {services.map((service, index) => (
-              <article key={service.slug} className="public-service-card">
-                <ServiceGlyph index={index} />
-                <p className="public-service-card__index">
-                  خدمت {(index + 1).toLocaleString('fa-IR')}
-                </p>
+              <li key={service.slug} className="public-service-row">
+                <span className="public-service-row__index">
+                  {(index + 1).toLocaleString('fa-IR', { minimumIntegerDigits: 2 })}
+                </span>
                 <h3>{service.name}</h3>
                 <p>
                   {service.description ??
                     'توضیح عمومی این خدمت پس از تکمیل محتوای کلینیک در همین بخش نمایش داده می‌شود.'}
                 </p>
-              </article>
+              </li>
             ))}
-          </div>
+          </ol>
         ) : (
           <PublicEmpty
             unavailable={read.status === 'unavailable'}
@@ -200,34 +189,34 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
 
   return (
     <section id="team" className="public-team public-section" aria-labelledby="team-title">
-      <div className="public-shell">
-        <div className="public-section-heading public-section-heading--split public-section-heading--light">
-          <div>
-            <p className="public-kicker">آدم‌های این مسیر</p>
-            <h2 id="team-title">آشنایی با تیم درمان</h2>
-          </div>
-          <p>تنها پروفایل‌هایی نمایش داده می‌شوند که برای حضور عمومی در وب‌سایت تأیید شده‌اند.</p>
+      <div className="public-shell public-team__layout">
+        <div className="public-team__intro">
+          <p className="public-kicker">تیم درمان</p>
+          <h2 id="team-title">درمان، پیش از هر چیز یک رابطهٔ انسانی است.</h2>
+          <p>
+            در اینجا فقط پروفایل‌هایی دیده می‌شوند که درمانگر برای نمایش عمومی آن‌ها رضایت داده است.
+          </p>
         </div>
 
         {team.length > 0 ? (
-          <div className="public-team__grid">
+          <div className="public-team__list">
             {team.map((person, index) => (
-              <article key={person.slug} className="public-person-card">
-                <div
-                  className={`public-person-card__portrait public-person-card__portrait--${index % 4}`}
-                >
-                  <span>{firstCharacter(person.displayName)}</span>
-                  <i aria-hidden="true" />
-                </div>
-                <div className="public-person-card__copy">
+              <article key={person.slug} className="public-person-row">
+                <span className="public-person-row__index" aria-hidden="true">
+                  {(index + 1).toLocaleString('fa-IR', { minimumIntegerDigits: 2 })}
+                </span>
+                <div>
                   <h3>{person.displayName}</h3>
                   {person.title !== null ? (
-                    <p className="public-person-card__title">{person.title}</p>
+                    <p className="public-person-row__title">{person.title}</p>
                   ) : null}
                   {person.bio !== null ? (
-                    <p className="public-person-card__bio">{person.bio}</p>
+                    <p className="public-person-row__bio">{person.bio}</p>
                   ) : null}
                 </div>
+                <span className="public-person-row__mark" aria-hidden="true">
+                  {firstCharacter(person.displayName)}
+                </span>
               </article>
             ))}
           </div>
@@ -244,7 +233,27 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
   );
 }
 
-function AboutAndContact({
+function About({ clinic }: { clinic: PublicClinicProfile }) {
+  return (
+    <section id="about" className="public-about public-section" aria-labelledby="about-title">
+      <div className="public-shell public-about__layout">
+        <p className="public-about__word" aria-hidden="true">
+          والا
+        </p>
+        <div className="public-about__copy">
+          <p className="public-kicker">دربارهٔ والا</p>
+          <h2 id="about-title">فضایی برای فهمیدن، پرسیدن و ادامه‌دادن.</h2>
+          <p>
+            {clinic.about ??
+              'معرفی تأییدشدهٔ کلینیک پس از تکمیل محتوای مالک در این بخش قرار می‌گیرد. تا آن زمان، خدمات و پروفایل‌های منتشرشده در همین صفحه قابل مشاهده‌اند.'}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Request({
   clinic,
   profileStatus,
 }: {
@@ -261,26 +270,20 @@ function AboutAndContact({
   ].some((value) => value !== null);
 
   return (
-    <section id="about" className="public-about public-section" aria-labelledby="about-title">
-      <div className="public-shell public-about__grid">
-        <div className="public-about__story">
-          <p className="public-kicker">دربارهٔ کلینیک</p>
-          <h2 id="about-title">فضایی برای شناخت پیش از تماس</h2>
+    <section id="request" className="public-request" aria-labelledby="request-title">
+      <div className="public-shell public-request__layout">
+        <div className="public-request__intro">
+          <p className="public-kicker">گام بعدی</p>
+          <h2 id="request-title">یک درخواست کوتاه، شروع یک گفت‌وگوی روشن.</h2>
           <p>
-            {clinic.about ??
-              'معرفی تأییدشدهٔ کلینیک پس از تکمیل محتوای مالک در این بخش قرار می‌گیرد. تا آن زمان، خدمات و پروفایل‌های منتشرشده در همین صفحه قابل مشاهده‌اند.'}
+            مسیر اصلی پیگیری در این وب‌سایت، ثبت یک درخواست کوتاه خواهد بود. تا فعال‌شدن فرم،
+            می‌توانید از راه‌های تأییدشدهٔ کلینیک استفاده کنید.
           </p>
-          <div className="public-about__motif" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
+          <span className="public-request__status">فرم درخواست در مرحلهٔ بعد فعال می‌شود</span>
         </div>
 
-        <div id="contact" className="public-contact-card" aria-labelledby="contact-title">
-          <p className="public-kicker">گام بعدی</p>
-          <h2 id="contact-title">ارتباط با کلینیک</h2>
+        <div id="contact" className="public-request__contact" aria-labelledby="contact-title">
+          <p id="contact-title">راه‌های ارتباطی</p>
           {hasContact ? (
             <dl className="public-contact-list">
               {clinic.phonePrimary !== null ? (
@@ -316,8 +319,8 @@ function AboutAndContact({
               ) : null}
             </dl>
           ) : (
-            <div className="public-contact-card__empty" role="status">
-              <span aria-hidden="true">…</span>
+            <div className="public-contact-empty" role="status">
+              <span aria-hidden="true">—</span>
               <p>
                 {profileStatus === 'unavailable'
                   ? 'دریافت اطلاعات تماس موقتاً ممکن نیست. لطفاً کمی بعد دوباره بررسی کنید.'
@@ -353,30 +356,12 @@ function PublicEmpty({
 }) {
   return (
     <div className={`public-empty${dark ? ' public-empty--dark' : ''}`} role="status">
-      <span aria-hidden="true">{unavailable ? '↻' : '○'}</span>
+      <span aria-hidden="true">{unavailable ? '↻' : '—'}</span>
       <div>
         <h3>{unavailable ? 'نمایش اطلاعات موقتاً ممکن نیست' : title}</h3>
         <p>{unavailable ? 'صفحه همچنان در دسترس است؛ لطفاً کمی بعد دوباره بررسی کنید.' : text}</p>
       </div>
     </div>
-  );
-}
-
-function ServiceGlyph({ index }: { index: number }) {
-  return (
-    <span className={`public-service-glyph public-service-glyph--${index % 3}`} aria-hidden="true">
-      <i />
-      <i />
-      <i />
-    </span>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 18 18" aria-hidden="true" focusable="false">
-      <path d="m4 9 3 3 7-7" />
-    </svg>
   );
 }
 

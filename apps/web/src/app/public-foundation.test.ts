@@ -57,8 +57,19 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(menu).toContain('<details');
   });
 
+  it('keeps staff login out of public chrome and centers the future request flow', () => {
+    const chrome = readFileSync(join(SRC, 'components', 'public-chrome.tsx'), 'utf8');
+    const page = read('(public)', 'page.tsx');
+
+    expect(chrome).not.toContain('href="/login"');
+    expect(chrome).not.toContain('ورود کارکنان');
+    expect(chrome).toContain("const contactHref = '/#request'");
+    expect(page).toContain('id="request"');
+    expect(page).toContain('فرم درخواست در مرحلهٔ بعد فعال می‌شود');
+  });
+
   it('states a complete reduced-motion policy in the public style scope', () => {
-    const css = read('globals.css');
+    const css = read('(public)', 'public.css');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation-duration: 0.01ms !important');
     expect(css).toContain('transition-duration: 0.01ms !important');

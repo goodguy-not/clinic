@@ -30,7 +30,6 @@ export function PublicMobileMenu({
       <summary className="public-focus public-menu__summary" aria-label="باز کردن منو">
         <span aria-hidden="true" />
         <span aria-hidden="true" />
-        <span aria-hidden="true" />
       </summary>
       <nav className="public-menu__panel" aria-label="پیمایش موبایل">
         {items.map((item) => (

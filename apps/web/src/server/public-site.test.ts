@@ -45,7 +45,13 @@ describe('public website reads', () => {
     expect(calls.every(([, init]) => init.cache === 'force-cache')).toBe(true);
     expect(
       calls.map(([, init]) => (init as RequestInit & { next: { tags: string[] } }).next.tags[0]),
-    ).toEqual(expect.arrayContaining(Object.values(PUBLIC_CACHE_TAGS)));
+    ).toEqual(
+      expect.arrayContaining([
+        PUBLIC_CACHE_TAGS.clinicProfile,
+        PUBLIC_CACHE_TAGS.services,
+        PUBLIC_CACHE_TAGS.team,
+      ]),
+    );
     expect(calls.every(([, init]) => !('x-session-id' in (init.headers as object)))).toBe(true);
   });
 

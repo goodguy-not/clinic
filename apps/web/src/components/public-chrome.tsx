@@ -6,7 +6,6 @@ const navigation = [
   { href: '/#services', label: 'خدمات' },
   { href: '/#team', label: 'تیم درمان' },
   { href: '/#about', label: 'درباره ما' },
-  { href: '/#contact', label: 'ارتباط با کلینیک' },
 ] as const;
 
 export function PublicMark({
@@ -34,9 +33,9 @@ export function PublicMark({
   );
 }
 
-export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
-  const contactHref = clinic.phonePrimary === null ? '/#contact' : `tel:${clinic.phonePrimary}`;
-  const contactLabel = clinic.phonePrimary === null ? 'راه‌های ارتباطی' : 'تماس با کلینیک';
+export function PublicHeader() {
+  const contactHref = '/#request';
+  const contactLabel = 'درخواست پیگیری';
 
   return (
     <header className="public-header">
@@ -77,14 +76,12 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
           <Link href="/" className="public-focus public-brand-link public-brand-link--footer">
             <PublicMark light />
           </Link>
-          <p>
-            فضایی روشن برای آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توانبخشی والا.
-          </p>
+          <p>برای فهمیدن، پرسیدن و برداشتن قدم بعدی در مسیر توانبخشی.</p>
         </div>
 
         <nav aria-label="پیوندهای پایین صفحه" className="public-footer__links">
           <strong>دسترسی سریع</strong>
-          {navigation.slice(0, 3).map((item) => (
+          {navigation.map((item) => (
             <Link key={item.href} href={item.href} className="public-focus">
               {item.label}
             </Link>
@@ -107,8 +104,8 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
       </div>
       <div className="public-shell public-footer__base">
         <span>اطلاعات این وب‌سایت از محتوای تأییدشدهٔ کلینیک نمایش داده می‌شود.</span>
-        <Link href="/login" className="public-focus">
-          ورود کارکنان
+        <Link href="/#request" className="public-focus">
+          درخواست پیگیری
         </Link>
       </div>
     </footer>
