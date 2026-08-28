@@ -13,8 +13,7 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  // Persian, right-to-left, Vazirmatn self-hosted via globals.css. Brand assets
-  // beyond the wordmark arrive with the public-site milestone.
+  // Persian, right-to-left, Vazirmatn self-hosted via globals.css.
   return (
     <html lang="fa" dir="rtl">
       <body className="min-h-dvh">{children}</body>

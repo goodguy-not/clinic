@@ -26,6 +26,23 @@ describe('M9 B1 route ownership', () => {
 });
 
 describe('M9 B1 public boundary and interaction policy', () => {
+  it('uses the approved Vala identity and exact production artwork', () => {
+    const page = read('(public)', 'page.tsx');
+    const chrome = readFileSync(join(SRC, 'components', 'public-chrome.tsx'), 'utf8');
+
+    expect(page).toContain("title: 'کلینیک توانبخشی والا'");
+    expect(page).toContain('کلینیک توانبخشی والا');
+    expect(page).not.toContain('clinic.displayName');
+    expect(chrome).toContain('/brand/vala-logo-horizontal.svg');
+    expect(chrome).toContain('/brand/vala-logo-horizontal-white.svg');
+    expect(chrome).toContain('/brand/vala-icon.svg');
+    expect(chrome).not.toContain('public-brand__mark');
+    expect(existsSync(join(SRC, '..', 'public', 'brand', 'vala-logo-horizontal.svg'))).toBe(true);
+    expect(existsSync(join(APP, 'favicon.ico'))).toBe(true);
+    expect(existsSync(join(APP, 'apple-icon.png'))).toBe(true);
+    expect(existsSync(join(APP, 'icon.png'))).toBe(true);
+  });
+
   it('keeps the home server-rendered and consumes the dedicated public reader', () => {
     const page = read('(public)', 'page.tsx');
     expect(page).not.toMatch(/^['"]use client['"]/m);

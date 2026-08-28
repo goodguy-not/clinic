@@ -170,24 +170,26 @@ body {
 /* --------------------------------------------------------------------------
  * Public experience — M9 B1
  *
- * A warm "living pathway" visual language: deep aubergine grounds the site,
- * while coral, saffron and mint make movement feel optimistic without borrowing
- * the authenticated application's clinical-teal identity. The public surface is
- * scoped below `.public-site`, so internal screens retain their existing system.
+ * Vala's approved Navy and Gold anchor a warm "living pathway" visual language.
+ * Coral, mint and sky stay in supporting roles so the public surface feels human
+ * and optimistic without diluting the brand. The system remains scoped below
+ * `.public-site`, so internal screens retain their existing visual language.
  * -------------------------------------------------------------------------- */
 
 .public-site {
-  --public-ink: #2f2038;
-  --public-ink-soft: #66586e;
+  --public-navy: #012c5b;
+  --public-gold: #ffc21a;
+  --public-ink: #092b4d;
+  --public-ink-soft: #51677b;
   --public-paper: #fffaf3;
-  --public-cream: #f9f0e4;
-  --public-coral: #f57d68;
-  --public-coral-deep: #d95c4c;
-  --public-saffron: #f4bd52;
-  --public-mint: #8bd3bd;
-  --public-green: #1d715e;
-  --public-violet: #72558d;
-  --public-plum: #38233f;
+  --public-cream: #f6efe5;
+  --public-coral: #ef806f;
+  --public-coral-deep: #b94843;
+  --public-mint: #8acdbb;
+  --public-green: #176955;
+  --public-sky: #9ccddd;
+  --public-sky-soft: #deeff3;
+  --public-focus: #176b8a;
   min-height: 100dvh;
   overflow: clip;
   background: var(--public-paper);
@@ -202,8 +204,8 @@ body {
 }
 
 .public-site ::selection {
-  background: #f8cfc4;
-  color: var(--public-plum);
+  background: #ffe683;
+  color: var(--public-navy);
 }
 
 .public-shell {
@@ -219,7 +221,7 @@ body {
 .public-focus:focus-visible {
   box-shadow:
     0 0 0 3px var(--public-paper),
-    0 0 0 6px var(--public-violet);
+    0 0 0 6px var(--public-focus);
 }
 
 .public-skip-link {
@@ -229,7 +231,7 @@ body {
   inset-inline-start: 0.75rem;
   padding: 0.6rem 1rem;
   border-radius: 999px;
-  background: var(--public-plum);
+  background: var(--public-navy);
   color: white;
   font-weight: 750;
   transform: translateY(-180%);
@@ -244,15 +246,15 @@ body {
   position: sticky;
   z-index: 40;
   inset-block-start: 0;
-  border-block-end: 1px solid rgb(56 35 63 / 8%);
-  background: rgb(255 250 243 / 90%);
+  border-block-end: 1px solid rgb(1 44 91 / 10%);
+  background: rgb(255 250 243 / 92%);
   backdrop-filter: blur(18px);
 }
 
 .public-header__inner {
   display: flex;
   width: min(100% - 2rem, 80rem);
-  min-height: 4.8rem;
+  min-height: 5.15rem;
   margin-inline: auto;
   align-items: center;
   justify-content: space-between;
@@ -261,33 +263,20 @@ body {
 
 .public-brand-link {
   display: inline-flex;
-  color: var(--public-plum);
+  align-items: center;
   text-decoration: none;
 }
 
 .public-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 1rem;
-  font-weight: 850;
-  letter-spacing: -0.025em;
-  white-space: nowrap;
+  display: block;
+  width: 9.3rem;
+  line-height: 0;
 }
 
-.public-brand__mark {
-  width: 2.65rem;
-  height: 2.65rem;
-  overflow: visible;
-  padding: 0.38rem;
-  border-radius: 42% 58% 58% 42% / 45% 42% 58% 55%;
-  background: var(--public-saffron);
-  box-shadow: 0.25rem 0.25rem 0 var(--public-coral);
-  fill: none;
-  stroke: var(--public-plum);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 3;
+.public-brand__artwork {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .public-nav {
@@ -298,7 +287,7 @@ body {
 
 .public-nav__link {
   padding: 0.55rem 0.8rem;
-  color: #56465e;
+  color: #405970;
   font-size: 0.88rem;
   font-weight: 700;
   text-decoration: none;
@@ -309,7 +298,7 @@ body {
 
 .public-nav__link:hover {
   background: #f5eadf;
-  color: var(--public-plum);
+  color: var(--public-navy);
 }
 
 .public-header__actions {
@@ -354,15 +343,15 @@ body {
 
 .public-button--header {
   min-height: 2.8rem;
-  background: var(--public-plum);
-  color: white;
+  background: var(--public-gold);
+  color: var(--public-navy);
   font-size: 0.84rem;
-  box-shadow: 0 0.35rem 1rem rgb(56 35 63 / 15%);
+  box-shadow: 0 0.35rem 1rem rgb(1 44 91 / 15%);
 }
 
 .public-button--header:hover {
-  background: #4d3156;
-  box-shadow: 0 0.55rem 1.3rem rgb(56 35 63 / 22%);
+  background: #ffd044;
+  box-shadow: 0 0.55rem 1.3rem rgb(1 44 91 / 22%);
 }
 
 .public-menu {
@@ -378,7 +367,7 @@ body {
   list-style: none;
   place-content: center;
   gap: 0.28rem;
-  border: 1px solid rgb(56 35 63 / 14%);
+  border: 1px solid rgb(1 44 91 / 14%);
   border-radius: 0.9rem;
   background: white;
 }
@@ -392,7 +381,7 @@ body {
   width: 1.15rem;
   height: 2px;
   border-radius: 99px;
-  background: var(--public-plum);
+  background: var(--public-navy);
   transition: transform 160ms ease;
 }
 
@@ -418,10 +407,10 @@ body {
   overflow-y: auto;
   gap: 0.25rem;
   padding: 0.75rem;
-  border: 1px solid rgb(56 35 63 / 10%);
+  border: 1px solid rgb(1 44 91 / 10%);
   border-radius: 1.25rem;
   background: white;
-  box-shadow: 0 1.3rem 3rem rgb(56 35 63 / 18%);
+  box-shadow: 0 1.3rem 3rem rgb(1 44 91 / 18%);
 }
 
 .public-menu__link {
@@ -438,8 +427,8 @@ body {
 
 .public-button--mobile {
   margin-block-start: 0.35rem;
-  background: var(--public-coral);
-  color: var(--public-plum);
+  background: var(--public-navy);
+  color: white;
 }
 
 .public-hero {
@@ -447,8 +436,8 @@ body {
   isolation: isolate;
   overflow: hidden;
   background:
-    radial-gradient(circle at 15% 25%, rgb(244 189 82 / 20%), transparent 25rem),
-    linear-gradient(150deg, #fffaf3 0%, #fdf2e5 62%, #f4e4d8 100%);
+    radial-gradient(circle at 15% 25%, rgb(255 194 26 / 20%), transparent 25rem),
+    linear-gradient(150deg, #fffaf3 0%, #f8f2e9 62%, #e9f2f1 100%);
 }
 
 .public-hero::before {
@@ -458,7 +447,7 @@ body {
   inset-inline-start: -7rem;
   width: 18rem;
   height: 18rem;
-  border: 1.3rem solid rgb(139 211 189 / 22%);
+  border: 1.3rem solid rgb(138 205 187 / 23%);
   border-radius: 50%;
   content: '';
 }
@@ -495,14 +484,14 @@ body {
   width: 2.1rem;
   height: 0.45rem;
   border-radius: 999px 35% 999px 35%;
-  background: var(--public-coral);
+  background: var(--public-gold);
   transform: rotate(-5deg);
 }
 
 .public-hero h1 {
   max-width: 11ch;
   margin: 0;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: clamp(2.7rem, 5.8vw, 5rem);
   font-weight: 900;
   letter-spacing: -0.065em;
@@ -526,19 +515,20 @@ body {
 }
 
 .public-button--primary {
-  background: var(--public-coral);
-  color: var(--public-plum);
-  box-shadow: 0.35rem 0.45rem 0 var(--public-plum);
+  background: var(--public-navy);
+  color: white;
+  box-shadow: 0.35rem 0.45rem 0 var(--public-gold);
 }
 
 .public-button--primary:hover {
-  box-shadow: 0.2rem 0.3rem 0 var(--public-plum);
+  background: #073b6b;
+  box-shadow: 0.2rem 0.3rem 0 var(--public-gold);
 }
 
 .public-button--quiet {
-  border-color: rgb(56 35 63 / 18%);
+  border-color: rgb(1 44 91 / 18%);
   background: rgb(255 255 255 / 62%);
-  color: var(--public-plum);
+  color: var(--public-navy);
 }
 
 .public-button--quiet:hover {
@@ -551,7 +541,7 @@ body {
   gap: 0.65rem 1.25rem;
   margin: 2.2rem 0 0;
   padding: 0;
-  color: #594b60;
+  color: #405970;
   font-size: 0.79rem;
   font-weight: 650;
   list-style: none;
@@ -582,10 +572,10 @@ body {
   aspect-ratio: 1.08;
   justify-self: end;
   border-radius: 46% 54% 40% 60% / 50% 44% 56% 50%;
-  background: var(--public-plum);
+  background: var(--public-navy);
   box-shadow:
-    1.1rem 1.2rem 0 rgb(245 125 104 / 70%),
-    -0.75rem -0.55rem 0 rgb(139 211 189 / 55%);
+    1.1rem 1.2rem 0 rgb(239 128 111 / 64%),
+    -0.75rem -0.55rem 0 rgb(138 205 187 / 55%);
 }
 
 .public-hero-art::after {
@@ -604,8 +594,8 @@ body {
   width: 6.8rem;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--public-saffron);
-  box-shadow: 0 0 0 0.8rem rgb(244 189 82 / 13%);
+  background: var(--public-gold);
+  box-shadow: 0 0 0 0.8rem rgb(255 194 26 / 14%);
 }
 
 .public-hero-art__orb {
@@ -637,7 +627,7 @@ body {
   width: 100%;
   height: 100%;
   overflow: visible;
-  fill: var(--public-saffron);
+  fill: var(--public-gold);
   stroke: rgb(255 255 255 / 72%);
   stroke-dasharray: 3 11;
   stroke-linecap: round;
@@ -705,7 +695,7 @@ body {
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
   background: white;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 0.72rem;
   font-weight: 800;
   box-shadow: 0 0.5rem 1.4rem rgb(18 10 21 / 22%);
@@ -751,7 +741,7 @@ body {
 .public-section-heading h2,
 .public-about h2 {
   margin: 0;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: clamp(2rem, 4.3vw, 3.45rem);
   font-weight: 900;
   letter-spacing: -0.05em;
@@ -805,10 +795,10 @@ body {
   min-height: 18rem;
   overflow: hidden;
   padding: 1.6rem;
-  border: 1px solid rgb(56 35 63 / 9%);
+  border: 1px solid rgb(1 44 91 / 9%);
   border-radius: 1.8rem 1.8rem 1.8rem 0.45rem;
   background: white;
-  box-shadow: 0 1rem 2.4rem rgb(56 35 63 / 6%);
+  box-shadow: 0 1rem 2.4rem rgb(1 44 91 / 6%);
   grid-template-columns: auto 1fr;
   gap: 1.1rem;
   transition:
@@ -830,7 +820,7 @@ body {
 
 .public-step:hover {
   transform: translateY(-0.35rem);
-  box-shadow: 0 1.4rem 3rem rgb(56 35 63 / 10%);
+  box-shadow: 0 1.4rem 3rem rgb(1 44 91 / 10%);
 }
 
 .public-step--coral {
@@ -838,7 +828,7 @@ body {
 }
 
 .public-step--violet {
-  --step-accent: var(--public-violet);
+  --step-accent: var(--public-sky);
 }
 
 .public-step--green {
@@ -852,14 +842,14 @@ body {
   place-items: center;
   border-radius: 50% 45% 55% 48%;
   background: var(--step-accent);
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 1.15rem;
   font-weight: 900;
 }
 
 .public-step h3 {
   margin: 0.3rem 0 0.65rem;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 1.15rem;
   font-weight: 850;
 }
@@ -875,7 +865,7 @@ body {
   align-items: center;
   gap: 0.35rem;
   margin-block-start: 1.3rem;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 0.84rem;
   font-weight: 850;
   text-decoration: none;
@@ -901,10 +891,10 @@ body {
   min-height: 20rem;
   overflow: hidden;
   padding: 1.6rem;
-  border: 1px solid rgb(56 35 63 / 8%);
+  border: 1px solid rgb(1 44 91 / 8%);
   border-radius: 2.2rem 0.8rem 2.2rem 2.2rem;
   background: rgb(255 255 255 / 78%);
-  box-shadow: 0 0.8rem 2.2rem rgb(56 35 63 / 5%);
+  box-shadow: 0 0.8rem 2.2rem rgb(1 44 91 / 5%);
   transition:
     transform 180ms ease,
     background-color 180ms ease;
@@ -924,7 +914,7 @@ body {
 
 .public-service-card h3 {
   margin: 0;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 1.3rem;
   font-weight: 900;
 }
@@ -961,7 +951,7 @@ body {
   inset-inline-start: 2.65rem;
   width: 2rem;
   height: 2rem;
-  border: 0.42rem solid var(--public-plum);
+  border: 0.42rem solid var(--public-navy);
   border-radius: 50%;
 }
 
@@ -971,7 +961,7 @@ body {
   width: 2.9rem;
   height: 0.5rem;
   border-radius: 999px;
-  background: var(--public-saffron);
+  background: var(--public-gold);
   transform: rotate(-12deg);
 }
 
@@ -980,13 +970,13 @@ body {
 }
 
 .public-service-glyph--2 {
-  --glyph-main: #bda4d0;
+  --glyph-main: var(--public-sky);
 }
 
 .public-team {
   position: relative;
   overflow: hidden;
-  background: var(--public-plum);
+  background: var(--public-navy);
   color: white;
 }
 
@@ -1018,11 +1008,11 @@ body {
 }
 
 .public-section-heading--light > p {
-  color: #d8cddd;
+  color: #d5e1ec;
 }
 
 .public-section-heading--light .public-kicker {
-  color: var(--public-saffron);
+  color: var(--public-gold);
 }
 
 .public-team__grid {
@@ -1068,10 +1058,10 @@ body {
   border: 0.6rem solid rgb(255 255 255 / 42%);
   border-radius: 50%;
   background: var(--public-paper);
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 2.25rem;
   font-weight: 900;
-  box-shadow: 0 1rem 2rem rgb(56 35 63 / 18%);
+  box-shadow: 0 1rem 2rem rgb(1 44 91 / 18%);
 }
 
 .public-person-card__portrait i {
@@ -1080,7 +1070,7 @@ body {
   width: 90%;
   height: 65%;
   border-radius: 50% 50% 0 0;
-  background: rgb(56 35 63 / 22%);
+  background: rgb(1 44 91 / 22%);
 }
 
 .public-person-card__portrait--1 {
@@ -1088,7 +1078,7 @@ body {
 }
 
 .public-person-card__portrait--2 {
-  background: #d0b2dd;
+  background: var(--public-sky);
 }
 
 .public-person-card__portrait--3 {
@@ -1109,7 +1099,7 @@ body {
 
 .public-person-card__title {
   margin: 0.2rem 0 0;
-  color: var(--public-saffron);
+  color: var(--public-gold);
   font-size: 0.78rem;
   font-weight: 750;
 }
@@ -1118,7 +1108,7 @@ body {
   display: -webkit-box;
   overflow: hidden;
   margin: 0.7rem 0 0;
-  color: #d8cddd;
+  color: #d5e1ec;
   font-size: 0.78rem;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -1131,7 +1121,7 @@ body {
   gap: 1rem;
   margin-inline: auto;
   padding: 1.25rem 1.4rem;
-  border: 1px dashed rgb(56 35 63 / 22%);
+  border: 1px dashed rgb(1 44 91 / 22%);
   border-radius: 1.4rem;
   background: rgb(255 255 255 / 55%);
 }
@@ -1144,7 +1134,7 @@ body {
   place-items: center;
   border-radius: 50%;
   background: var(--public-mint);
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 1.35rem;
   font-weight: 900;
 }
@@ -1155,7 +1145,7 @@ body {
 }
 
 .public-empty h3 {
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 1rem;
   font-weight: 850;
 }
@@ -1175,12 +1165,12 @@ body {
 }
 
 .public-empty--dark p {
-  color: #d8cddd;
+  color: #d5e1ec;
 }
 
 .public-about {
   background:
-    radial-gradient(circle at 84% 80%, rgb(139 211 189 / 24%), transparent 22rem),
+    radial-gradient(circle at 84% 80%, rgb(138 205 187 / 24%), transparent 22rem),
     var(--public-paper);
 }
 
@@ -1231,7 +1221,7 @@ body {
 .public-about__motif span:nth-child(2) {
   inset-inline-start: 3rem;
   height: 3.6rem;
-  background: var(--public-saffron);
+  background: var(--public-gold);
 }
 
 .public-about__motif span:nth-child(3) {
@@ -1245,7 +1235,7 @@ body {
   width: 5.5rem;
   height: 0.55rem;
   border-radius: 999px;
-  background: var(--public-plum);
+  background: var(--public-navy);
   transform: rotate(-9deg);
   transform-origin: 0 50%;
 }
@@ -1254,12 +1244,13 @@ body {
   scroll-margin-block-start: 6rem;
   padding: clamp(1.5rem, 4vw, 2.6rem);
   border-radius: 3rem 0.9rem 3rem 3rem;
-  background: var(--public-coral);
-  box-shadow: 1rem 1rem 0 var(--public-saffron);
+  border: 1px solid rgb(1 44 91 / 8%);
+  background: var(--public-sky-soft);
+  box-shadow: 1rem 1rem 0 var(--public-gold);
 }
 
 .public-contact-card .public-kicker {
-  color: var(--public-plum);
+  color: var(--public-navy);
 }
 
 .public-contact-card h2 {
@@ -1275,20 +1266,20 @@ body {
 .public-contact-list > div {
   display: grid;
   padding-block: 0.8rem;
-  border-block-end: 1px solid rgb(56 35 63 / 17%);
+  border-block-end: 1px solid rgb(1 44 91 / 17%);
   grid-template-columns: 8rem 1fr;
   gap: 1rem;
 }
 
 .public-contact-list dt {
-  color: rgb(56 35 63 / 68%);
+  color: rgb(1 44 91 / 68%);
   font-size: 0.78rem;
   font-weight: 750;
 }
 
 .public-contact-list dd {
   margin: 0;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-weight: 800;
 }
 
@@ -1308,7 +1299,7 @@ body {
   gap: 0.9rem;
   margin-block-start: 1.5rem;
   padding: 1rem;
-  border: 1px solid rgb(56 35 63 / 18%);
+  border: 1px solid rgb(1 44 91 / 18%);
   border-radius: 1.2rem;
   background: rgb(255 255 255 / 22%);
 }
@@ -1320,22 +1311,22 @@ body {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
-  background: var(--public-plum);
+  background: var(--public-navy);
   color: white;
   font-weight: 900;
 }
 
 .public-contact-card__empty p {
   margin: 0;
-  color: var(--public-plum);
+  color: var(--public-navy);
   font-size: 0.88rem;
   font-weight: 650;
 }
 
 .public-footer {
   padding-block: 4rem 1.5rem;
-  background: #281a2e;
-  color: #d9cfdd;
+  background: #001f42;
+  color: #d5e1ec;
 }
 
 .public-footer__grid {
@@ -1345,13 +1336,17 @@ body {
 }
 
 .public-brand-link--footer {
-  color: white;
+  width: fit-content;
+}
+
+.public-brand-link--footer .public-brand {
+  width: 10.5rem;
 }
 
 .public-footer__intro p {
   max-width: 31rem;
   margin: 1.1rem 0 0;
-  color: #bcaec2;
+  color: #b9c9d8;
   font-size: 0.88rem;
 }
 
@@ -1371,12 +1366,12 @@ body {
 }
 
 .public-footer a {
-  color: #d9cfdd;
+  color: #d5e1ec;
   text-decoration: none;
 }
 
 .public-footer a:hover {
-  color: var(--public-saffron);
+  color: var(--public-gold);
 }
 
 .public-footer__base {
@@ -1387,7 +1382,7 @@ body {
   margin-block-start: 3rem;
   padding-block-start: 1.2rem;
   border-block-start: 1px solid rgb(255 255 255 / 10%);
-  color: #9f8fa6;
+  color: #91a7ba;
   font-size: 0.72rem;
 }
 
@@ -1502,12 +1497,12 @@ body {
   }
 
   .public-brand {
-    font-size: 0.9rem;
+    width: 2.85rem;
   }
 
-  .public-brand__mark {
-    width: 2.35rem;
-    height: 2.35rem;
+  .public-brand__artwork {
+    max-height: 2.85rem;
+    object-fit: contain;
   }
 
   .public-hero h1 {

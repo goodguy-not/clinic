@@ -42,6 +42,9 @@
 # Real environment files are never committed.
 *.example text eol=lf
 
+# Owner-approved brand artwork is copied byte-for-byte from its immutable pack.
+apps/web/public/brand/*.svg -text
+
 # Extensionless dotfiles, which no wildcard above reaches.
 .editorconfig   text eol=lf
 .gitattributes  text eol=lf

@@ -6,18 +6,14 @@ import type {
   PublicTherapistProfile,
 } from '@clinic/contracts';
 import { ArrowIcon } from '@/components/public-chrome';
-import { getPublicClinicProfile, getPublicHomeData, type PublicRead } from '@/server/public-site';
+import { getPublicHomeData, type PublicRead } from '@/server/public-site';
 
 export const revalidate = 900;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { data: clinic } = await getPublicClinicProfile();
-  const title = clinic.displayName ?? 'کلینیک توان‌بخشی';
-
   return {
-    title,
-    description:
-      clinic.tagline ?? 'آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توان‌بخشی.',
+    title: 'کلینیک توانبخشی والا',
+    description: 'آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توانبخشی والا.',
     robots: { index: true, follow: true },
   };
 }
@@ -47,12 +43,12 @@ function Hero({ clinic }: { clinic: PublicClinicProfile }) {
         <div className="public-hero__copy public-enter">
           <p className="public-eyebrow">
             <span aria-hidden="true" />
-            همراه مسیر توان‌بخشی
+            کلینیک توانبخشی والا
           </p>
-          <h1 id="hero-title">{clinic.displayName ?? 'برای هر قدم، یک مسیر روشن‌تر'}</h1>
+          <h1 id="hero-title">برای هر قدم، یک مسیر روشن‌تر</h1>
           <p className="public-hero__lead">
-            {clinic.tagline ??
-              'اینجا می‌توانید با خدمات، تیم درمان و راه‌های ارتباط با کلینیک آشنا شوید؛ ساده، شفاف و بدون پیچیدگی.'}
+            در والا می‌توانید با خدمات منتشرشده، تیم درمان و راه‌های ارتباط با کلینیک آشنا شوید؛
+            ساده، شفاف و بدون پیچیدگی.
           </p>
           <div className="public-hero__actions">
             <a href={primaryHref} className="public-focus public-button public-button--primary">
@@ -269,9 +265,7 @@ function AboutAndContact({
       <div className="public-shell public-about__grid">
         <div className="public-about__story">
           <p className="public-kicker">دربارهٔ کلینیک</p>
-          <h2 id="about-title">
-            {clinic.displayName === null ? 'فضایی برای شناخت پیش از تماس' : clinic.displayName}
-          </h2>
+          <h2 id="about-title">فضایی برای شناخت پیش از تماس</h2>
           <p>
             {clinic.about ??
               'معرفی تأییدشدهٔ کلینیک پس از تکمیل محتوای مالک در این بخش قرار می‌گیرد. تا آن زمان، خدمات و پروفایل‌های منتشرشده در همین صفحه قابل مشاهده‌اند.'}

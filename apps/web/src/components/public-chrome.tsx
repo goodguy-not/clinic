@@ -9,17 +9,28 @@ const navigation = [
   { href: '/#contact', label: 'ارتباط با کلینیک' },
 ] as const;
 
-export function PublicMark({ compact = false }: { compact?: boolean }) {
+export function PublicMark({
+  compact = false,
+  light = false,
+}: {
+  compact?: boolean;
+  light?: boolean;
+}) {
+  const logoSrc = light
+    ? '/brand/vala-logo-horizontal-white.svg'
+    : '/brand/vala-logo-horizontal.svg';
+
   return (
-    <span className="public-brand" aria-label="صفحهٔ نخست">
-      <svg className="public-brand__mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-        <path d="M11 29.5c5.2-1.2 8.1-5.1 9.2-11.7 5.9 1.6 10.7 5.1 14.4 10.6" />
-        <path d="M17.4 35.5c4.2-1 7.3-3.6 9.3-7.8" />
-        <circle cx="12" cy="18" r="4" />
-        <circle cx="35.5" cy="32.5" r="3.5" />
-      </svg>
-      {compact ? null : <span>مسیر توان‌بخشی</span>}
-    </span>
+    <picture className="public-brand">
+      {compact ? <source media="(max-width: 35rem)" srcSet="/brand/vala-icon.svg" /> : null}
+      <img
+        src={logoSrc}
+        width="1311"
+        height="582"
+        alt="والا، کلینیک توانبخشی"
+        className="public-brand__artwork"
+      />
+    </picture>
   );
 }
 
@@ -31,7 +42,7 @@ export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
     <header className="public-header">
       <div className="public-header__inner">
         <Link href="/" className="public-focus public-brand-link">
-          <PublicMark />
+          <PublicMark compact />
         </Link>
 
         <nav className="public-nav public-nav--desktop" aria-label="پیمایش اصلی">
@@ -64,11 +75,10 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
       <div className="public-shell public-footer__grid">
         <div className="public-footer__intro">
           <Link href="/" className="public-focus public-brand-link public-brand-link--footer">
-            <PublicMark />
+            <PublicMark light />
           </Link>
           <p>
-            {clinic.tagline ??
-              'فضایی روشن برای آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک.'}
+            فضایی روشن برای آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توانبخشی والا.
           </p>
         </div>
 
