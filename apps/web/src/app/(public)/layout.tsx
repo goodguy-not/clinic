@@ -11,7 +11,7 @@ export default async function PublicLayout({ children }: { children: ReactNode }
       <a href="#main-content" className="public-skip-link">
         رفتن به محتوای اصلی
       </a>
-      <PublicHeader />
+      <PublicHeader clinic={clinic} />
       {children}
       <PublicFooter clinic={clinic} />
     </div>

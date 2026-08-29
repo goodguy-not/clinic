@@ -23,27 +23,6 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
 
   return (
     <div className="public-service-explorer">
-      <div className="public-service-explorer__list" aria-label="انتخاب خدمت برای مشاهدهٔ توضیح">
-        {services.map((service, index) => (
-          <button
-            type="button"
-            key={service.slug}
-            className="public-service-choice public-focus"
-            aria-pressed={index === activeIndex}
-            aria-controls="public-service-stage"
-            onClick={() => select(index)}
-            onFocus={() => select(index)}
-            onMouseEnter={() => select(index)}
-          >
-            <span className="public-service-choice__marker" aria-hidden="true" />
-            <span>{service.name}</span>
-            <span className="public-service-choice__arrow" aria-hidden="true">
-              ↙
-            </span>
-          </button>
-        ))}
-      </div>
-
       <article id="public-service-stage" className="public-service-stage" aria-live="polite">
         <div className="public-service-stage__image">
           <Image
@@ -54,17 +33,36 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
             alt=""
             sizes="(max-width: 54rem) 100vw, 55vw"
           />
-          <span className="public-photo-note">تصویر آزمایشی</span>
+          <span className="public-photo-note">تصویر آزمایشی — نه فضای واقعی والا</span>
         </div>
         <div className="public-service-stage__copy">
-          <p>خدمت انتخاب‌شده</p>
+          <p className="public-kicker public-kicker--gold">خدمت منتشرشده</p>
           <h3>{active.name}</h3>
           <p>
             {active.description ??
               'توضیح تأییدشدهٔ این خدمت پس از تکمیل محتوای کلینیک در همین بخش نمایش داده می‌شود.'}
           </p>
+          <a href="#request" className="public-focus public-button public-button--service">
+            درخواست ارزیابی
+          </a>
         </div>
       </article>
+
+      <div className="public-service-explorer__list" aria-label="انتخاب خدمت برای مشاهدهٔ توضیح">
+        {services.map((service, index) => (
+          <button
+            type="button"
+            key={service.slug}
+            className="public-service-choice public-focus"
+            aria-pressed={index === activeIndex}
+            aria-controls="public-service-stage"
+            onClick={() => select(index)}
+            onFocus={() => select(index)}
+          >
+            <span>{service.name}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -6,8 +6,6 @@ import { useRef } from 'react';
 type NavigationItem = { href: string; label: string };
 
 /**
- * The public site's only interactive island.
- *
  * `<details>` provides the disclosure, keyboard behavior, and no-JS fallback.
  * This island owns one refinement the native element cannot express: closing
  * the menu after an in-page destination is selected, so it does not cover the

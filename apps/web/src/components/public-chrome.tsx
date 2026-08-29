@@ -6,6 +6,8 @@ const navigation = [
   { href: '/#services', label: 'خدمات' },
   { href: '/#team', label: 'تیم درمان' },
   { href: '/#about', label: 'دربارهٔ والا' },
+  { href: '/#family-experience', label: 'تجربهٔ خانواده‌ها' },
+  { href: '/#contact', label: 'تماس' },
 ] as const;
 
 export function PublicMark({
@@ -33,38 +35,59 @@ export function PublicMark({
   );
 }
 
-export function PublicHeader() {
+export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
   const contactHref = '/#request';
-  const contactLabel = 'درخواست پیگیری';
+  const contactLabel = 'درخواست ارزیابی';
 
   return (
-    <header className="public-header">
-      <div className="public-header__inner">
-        <Link href="/" className="public-focus public-brand-link">
-          <PublicMark compact />
-        </Link>
-
-        <nav className="public-nav public-nav--desktop" aria-label="پیمایش اصلی">
-          {navigation.map((item) => (
-            <Link key={item.href} href={item.href} className="public-focus public-nav__link">
-              {item.label}
+    <>
+      <header className="public-header">
+        <div className="public-header__inner">
+          <div className="public-header__orientation">
+            <Link href="/" className="public-focus public-brand-link">
+              <PublicMark compact />
             </Link>
-          ))}
-        </nav>
 
-        <div className="public-header__actions">
-          <a href={contactHref} className="public-focus public-button public-button--header">
-            {contactLabel}
-            <ArrowIcon />
-          </a>
-          <PublicMobileMenu
-            items={navigation}
-            contactHref={contactHref}
-            contactLabel={contactLabel}
-          />
+            <nav className="public-nav public-nav--desktop" aria-label="پیمایش اصلی">
+              {navigation.map((item) => (
+                <Link key={item.href} href={item.href} className="public-focus public-nav__link">
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="public-header__actions">
+            {clinic.workingHoursNote !== null || clinic.phonePrimary !== null ? (
+              <div className="public-header__contact">
+                {clinic.workingHoursNote !== null ? <span>{clinic.workingHoursNote}</span> : null}
+                {clinic.phonePrimary !== null ? (
+                  <a href={`tel:${clinic.phonePrimary}`} className="public-focus">
+                    <bdi dir="ltr">{clinic.phonePrimary}</bdi>
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+            <a href={contactHref} className="public-focus public-button public-button--header">
+              {contactLabel}
+              <span aria-hidden="true">←</span>
+            </a>
+            <PublicMobileMenu
+              items={navigation}
+              contactHref={contactHref}
+              contactLabel={contactLabel}
+            />
+          </div>
         </div>
+      </header>
+      <div className="public-mobile-sticky" role="region" aria-label="شروع درخواست ارزیابی">
+        <span>برای شروع آماده‌اید؟</span>
+        <a href={contactHref} className="public-focus">
+          {contactLabel}
+          <span aria-hidden="true">←</span>
+        </a>
       </div>
-    </header>
+    </>
   );
 }
 
@@ -76,16 +99,31 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
           <Link href="/" className="public-focus public-brand-link public-brand-link--footer">
             <PublicMark light />
           </Link>
-          <p>برای فهمیدن، پرسیدن و برداشتن قدم بعدی در مسیر توانبخشی.</p>
+          <p>همراه خانواده برای فهمیدن شرایط و روشن‌کردن قدم بعدی.</p>
         </div>
 
-        <nav aria-label="پیوندهای پایین صفحه" className="public-footer__links">
-          <strong>دسترسی سریع</strong>
-          {navigation.map((item) => (
-            <Link key={item.href} href={item.href} className="public-focus">
-              {item.label}
-            </Link>
-          ))}
+        <nav aria-label="خدمات و تیم" className="public-footer__links">
+          <strong>آشنایی با والا</strong>
+          <Link href="/#services" className="public-focus">
+            خدمات
+          </Link>
+          <Link href="/#team" className="public-focus">
+            تیم درمان
+          </Link>
+          <Link href="/#about" className="public-focus">
+            دربارهٔ والا
+          </Link>
+        </nav>
+
+        <nav aria-label="پیوندهای عمومی" className="public-footer__links">
+          <strong>اطلاعات</strong>
+          <Link href="/#family-experience" className="public-focus">
+            تجربهٔ خانواده‌ها
+          </Link>
+          <Link href="/#contact" className="public-focus">
+            تماس
+          </Link>
+          <span aria-label="صفحهٔ حریم خصوصی در مرحلهٔ بعد تکمیل می‌شود">حریم خصوصی</span>
         </nav>
 
         <div className="public-footer__contact">
@@ -96,17 +134,20 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
             </a>
           ) : (
             <Link href="/#contact" className="public-focus">
-              مشاهدهٔ راه‌های ارتباطی
+              راه‌های ارتباطی
             </Link>
           )}
           {clinic.cityLabel !== null ? <span>{clinic.cityLabel}</span> : null}
+          {clinic.addressLine !== null ? <span>{clinic.addressLine}</span> : null}
+          <Link href="/#request" className="public-focus public-footer__cta">
+            درخواست ارزیابی
+            <span aria-hidden="true">←</span>
+          </Link>
         </div>
       </div>
       <div className="public-shell public-footer__base">
-        <span>اطلاعات این وب‌سایت از محتوای تأییدشدهٔ کلینیک نمایش داده می‌شود.</span>
-        <Link href="/#request" className="public-focus">
-          درخواست پیگیری
-        </Link>
+        <span>اطلاعات عمومی از محتوای تأییدشدهٔ کلینیک نمایش داده می‌شود.</span>
+        <span>© والا</span>
       </div>
     </footer>
   );
@@ -115,7 +156,7 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
 export function ArrowIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-      <path d="M4 10h11M11 6l4 4-4 4" />
+      <path d="M16 10H5m4-4-4 4 4 4" />
     </svg>
   );
 }

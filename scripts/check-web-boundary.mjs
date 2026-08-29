@@ -371,9 +371,18 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Native details cannot close itself after an in-page mobile navigation
   // choice; this island owns only that refinement and imports no site data.
   'src/components/public-mobile-menu.tsx',
+  // The concern-first opening swaps only authored B1 guidance and development
+  // photography; it receives the one clinic label as a serialisable prop.
+  'src/components/public-concern-guide.tsx',
   // Service exploration swaps one illustrative crop and published description
   // in place; all service facts still arrive as serialisable Server Component props.
   'src/components/public-service-explorer.tsx',
+  // The Home spaces teaser owns only the active synthetic photograph. The real
+  // About content and its public read remain in the later server-owned page.
+  'src/components/public-space-teaser.tsx',
+  // Horizontal paging, focus spotlight and snap behaviour require browser
+  // geometry; every therapist fact still arrives through the public server read.
+  'src/components/public-team-track.tsx',
   'src/app/(internal)/families/family-search.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.

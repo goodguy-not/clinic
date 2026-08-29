@@ -50,15 +50,24 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(page).not.toContain('@/server/api-client');
   });
 
-  it('keeps public interaction in two narrow islands', () => {
+  it('keeps public interaction in narrow, server-independent islands', () => {
     const menu = readFileSync(join(SRC, 'components', 'public-mobile-menu.tsx'), 'utf8');
+    const concerns = readFileSync(join(SRC, 'components', 'public-concern-guide.tsx'), 'utf8');
     const services = readFileSync(join(SRC, 'components', 'public-service-explorer.tsx'), 'utf8');
+    const team = readFileSync(join(SRC, 'components', 'public-team-track.tsx'), 'utf8');
     expect(menu).toMatch(/^['"]use client['"]/);
     expect(menu).toContain("removeAttribute('open')");
     expect(menu).toContain('<details');
+    expect(concerns).toMatch(/^['"]use client['"]/);
+    expect(concerns).toContain('از کجا شروع کنیم؟');
     expect(services).toMatch(/^['"]use client['"]/);
     expect(services).toContain('useState(0)');
     expect(services).not.toContain('@/server/');
+    expect(team).toMatch(/^['"]use client['"]/);
+    expect(team).toContain('scrollIntoView');
+    expect(team).toContain('مشاهدهٔ درمانگران بعدی');
+    expect(team).toContain('مشاهدهٔ درمانگران قبلی');
+    expect(team).not.toContain('@/server/');
   });
 
   it('keeps staff login out of public chrome and centers the future request flow', () => {
@@ -68,8 +77,22 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(chrome).not.toContain('href="/login"');
     expect(chrome).not.toContain('ورود کارکنان');
     expect(chrome).toContain("const contactHref = '/#request'");
+    expect(chrome).toContain("const contactLabel = 'درخواست ارزیابی'");
+    expect(chrome).not.toContain('درخواست پیگیری');
     expect(page).toContain('id="request"');
     expect(page).toContain('فرم درخواست در مرحلهٔ بعد فعال می‌شود');
+  });
+
+  it('implements the corrected horizontal team track without autoplay', () => {
+    const page = read('(public)', 'page.tsx');
+    const team = readFileSync(join(SRC, 'components', 'public-team-track.tsx'), 'utf8');
+
+    expect(page).toContain('<PublicTeamTrack therapists={read.data} />');
+    expect(page).not.toContain('.slice(0, 4)');
+    expect(team).toContain('href={`/team/${person.slug}`}');
+    expect(team).toContain('همهٔ تیم درمان');
+    expect(team).not.toContain('setInterval');
+    expect(team).not.toContain('setTimeout');
   });
 
   it('states a complete reduced-motion policy in the public style scope', () => {
