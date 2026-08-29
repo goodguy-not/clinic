@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import type { ReactNode } from 'react';
 import type {
   PublicClinicProfile,
@@ -6,9 +7,17 @@ import type {
   PublicTherapistProfile,
 } from '@clinic/contracts';
 import { ArrowIcon } from '@/components/public-chrome';
+import { PublicServiceExplorer } from '@/components/public-service-explorer';
 import { getPublicHomeData, type PublicRead } from '@/server/public-site';
 
 export const revalidate = 900;
+
+const SYNTHETIC_PORTRAITS = [
+  '/dev/vala-synthetic/08-therapist-portrait-b.jpg',
+  '/dev/vala-synthetic/07-therapist-portrait-a.jpg',
+  '/dev/vala-synthetic/10-therapist-portrait-d.jpg',
+  '/dev/vala-synthetic/09-therapist-portrait-c.jpg',
+] as const;
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
@@ -25,7 +34,7 @@ export default async function PublicHomePage() {
   return (
     <main id="main-content">
       <Hero clinic={clinic} />
-      <Orientation />
+      <Introduction />
       <Services read={home.services} />
       <Team read={home.team} />
       <About clinic={clinic} />
@@ -37,16 +46,42 @@ export default async function PublicHomePage() {
 function Hero({ clinic }: { clinic: PublicClinicProfile }) {
   return (
     <section className="public-hero" aria-labelledby="hero-title">
+      <div className="public-hero__media public-enter public-enter--image">
+        <Image
+          src="/dev/vala-synthetic/05-corridor.jpg"
+          width="940"
+          height="480"
+          alt=""
+          className="public-hero__main-image"
+          priority
+          sizes="(max-width: 54rem) 100vw, 47vw"
+        />
+        <div className="public-hero__detail">
+          <Image
+            src="/dev/vala-synthetic/13-hand-therapy-detail.jpg"
+            width="365"
+            height="217"
+            alt=""
+            sizes="(max-width: 36rem) 10rem, 18rem"
+          />
+        </div>
+        <span className="public-photo-note public-hero__photo-note">تصاویر آزمایشی</span>
+      </div>
+
       <div className="public-shell public-hero__layout">
         <div className="public-hero__copy public-enter">
-          <p className="public-eyebrow">کلینیک توانبخشی والا</p>
+          <p className="public-eyebrow">
+            <span aria-hidden="true" />
+            کلینیک توانبخشی والا
+          </p>
           <h1 id="hero-title">
-            <span>قدم‌به‌قدم،</span>
-            <span className="public-hero__title-accent">رو به توانایی.</span>
+            <span>توانایی، یک‌باره</span>
+            <span>ساخته نمی‌شود.</span>
+            <em>اما قدم بعدی می‌تواند روشن باشد.</em>
           </h1>
           <p className="public-hero__lead">
-            والا جایی برای شناخت روشن مسیر توانبخشی، آشنایی با درمانگران و برداشتن یک قدم قابل‌فهم
-            برای ادامه است.
+            {clinic.tagline ??
+              'اینجا می‌توانید خدمات منتشرشده را بشناسید، با تیم درمان آشنا شوید و برای ادامهٔ مسیر درخواست پیگیری بفرستید.'}
           </p>
           <div className="public-hero__actions">
             <a href="#request" className="public-focus public-button public-button--primary">
@@ -54,42 +89,22 @@ function Hero({ clinic }: { clinic: PublicClinicProfile }) {
               <ArrowIcon />
             </a>
             <a href="#services" className="public-focus public-inline-link">
-              ابتدا خدمات را ببینید
+              شناخت خدمات
               <ArrowIcon />
             </a>
           </div>
           {clinic.phonePrimary !== null ? (
             <p className="public-hero__direct">
-              برای تماس مستقیم:‌{' '}
+              تماس مستقیم{' '}
               <a href={`tel:${clinic.phonePrimary}`} className="public-focus">
                 <bdi dir="ltr">{clinic.phonePrimary}</bdi>
               </a>
             </p>
           ) : null}
         </div>
-
-        <div className="public-hero__manifesto public-enter public-enter--late">
-          <p>مسیر والا</p>
-          <ol aria-label="مسیر آشنایی و پیگیری در والا">
-            <li>
-              <span>۰۱</span>
-              <strong>شناخت</strong>
-              <small>بدانید چه خدماتی در دسترس است.</small>
-            </li>
-            <li>
-              <span>۰۲</span>
-              <strong>همراهی</strong>
-              <small>با آدم‌های این مسیر آشنا شوید.</small>
-            </li>
-            <li>
-              <span>۰۳</span>
-              <strong>ادامه</strong>
-              <small>برای پیگیری، یک درخواست کوتاه بفرستید.</small>
-            </li>
-          </ol>
-        </div>
       </div>
-      <a href="#orientation" className="public-focus public-hero__scroll" aria-label="ادامهٔ صفحه">
+
+      <a href="#introduction" className="public-focus public-hero__scroll" aria-label="ادامهٔ صفحه">
         <span aria-hidden="true" />
         ادامه
       </a>
@@ -97,43 +112,25 @@ function Hero({ clinic }: { clinic: PublicClinicProfile }) {
   );
 }
 
-function Orientation() {
+function Introduction() {
   return (
-    <section id="orientation" className="public-orientation" aria-labelledby="orientation-title">
-      <div className="public-shell public-orientation__layout">
-        <div className="public-orientation__heading">
-          <p className="public-kicker">شروع بدون سردرگمی</p>
-          <h2 id="orientation-title">لازم نیست از همان ابتدا همه‌چیز را بدانید.</h2>
-        </div>
-        <p className="public-orientation__intro">
-          برای شروع، همین سه چیز کافی است: محدودهٔ خدمات را بشناسید، دربارهٔ تیم بخوانید و اگر آماده
-          بودید، راه پیگیری را انتخاب کنید.
+    <section id="introduction" className="public-introduction" aria-labelledby="intro-title">
+      <div className="public-shell public-introduction__layout">
+        <p className="public-introduction__aside">
+          شناخت
+          <span aria-hidden="true" />
+          همراهی
+          <span aria-hidden="true" />
+          ادامه
         </p>
-      </div>
-      <div className="public-shell">
-        <ol className="public-route">
-          <li>
-            <span className="public-route__number">۱</span>
-            <div>
-              <strong>خدمت مناسب را پیدا کنید</strong>
-              <p>توضیح‌های منتشرشده کمک می‌کنند یک تصویر اولیه و ساده داشته باشید.</p>
-            </div>
-          </li>
-          <li>
-            <span className="public-route__number">۲</span>
-            <div>
-              <strong>زمینهٔ تیم را بشناسید</strong>
-              <p>فقط اطلاعاتی نمایش داده می‌شود که برای حضور عمومی تأیید شده است.</p>
-            </div>
-          </li>
-          <li>
-            <span className="public-route__number">۳</span>
-            <div>
-              <strong>پیگیری را به والا بسپارید</strong>
-              <p>یک درخواست کوتاه، شروع گفت‌وگو را ساده و مشخص می‌کند.</p>
-            </div>
-          </li>
-        </ol>
+        <div>
+          <p className="public-kicker">شروع بدون سردرگمی</p>
+          <h2 id="intro-title">لازم نیست از همان ابتدا همه‌چیز را بدانید.</h2>
+          <p>
+            ابتدا محدودهٔ خدمات را ببینید. بعد آدم‌های این مسیر و فضای کلینیک را بشناسید. اگر هنوز
+            پرسشی باقی بود، یک درخواست کوتاه برای شروع گفت‌وگو کافی است.
+          </p>
+        </div>
       </div>
     </section>
   );
@@ -143,35 +140,21 @@ function Services({ read }: { read: PublicRead<PublicServiceSummary[]> }) {
   const services = read.data.slice(0, 6);
 
   return (
-    <section
-      id="services"
-      className="public-services public-section"
-      aria-labelledby="services-title"
-    >
+    <section id="services" className="public-services" aria-labelledby="services-title">
       <div className="public-shell">
-        <div className="public-section-heading public-section-heading--split">
+        <div className="public-section-heading public-section-heading--services">
           <div>
             <p className="public-kicker">خدمات</p>
-            <h2 id="services-title">هر مسیر، از یک شناخت روشن شروع می‌شود.</h2>
+            <h2 id="services-title">مسیرهای متفاوت، یک نقطهٔ شروع روشن.</h2>
           </div>
-          <p>فهرست زیر مستقیماً از خدماتی می‌آید که کلینیک برای نمایش عمومی منتشر کرده است.</p>
+          <p>
+            نام و توضیح هر خدمت مستقیماً از محتوایی می‌آید که کلینیک برای نمایش عمومی منتشر کرده
+            است.
+          </p>
         </div>
 
         {services.length > 0 ? (
-          <ol className="public-services__list">
-            {services.map((service, index) => (
-              <li key={service.slug} className="public-service-row">
-                <span className="public-service-row__index">
-                  {(index + 1).toLocaleString('fa-IR', { minimumIntegerDigits: 2 })}
-                </span>
-                <h3>{service.name}</h3>
-                <p>
-                  {service.description ??
-                    'توضیح عمومی این خدمت پس از تکمیل محتوای کلینیک در همین بخش نمایش داده می‌شود.'}
-                </p>
-              </li>
-            ))}
-          </ol>
+          <PublicServiceExplorer services={services} />
         ) : (
           <PublicEmpty
             unavailable={read.status === 'unavailable'}
@@ -188,37 +171,52 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
   const team = read.data.slice(0, 4);
 
   return (
-    <section id="team" className="public-team public-section" aria-labelledby="team-title">
-      <div className="public-shell public-team__layout">
-        <div className="public-team__intro">
-          <p className="public-kicker">تیم درمان</p>
-          <h2 id="team-title">درمان، پیش از هر چیز یک رابطهٔ انسانی است.</h2>
+    <section id="team" className="public-team" aria-labelledby="team-title">
+      <div className="public-shell">
+        <div className="public-team__heading">
+          <p className="public-kicker public-kicker--light">تیم درمان</p>
+          <h2 id="team-title">این مسیر را آدم‌ها می‌سازند.</h2>
           <p>
-            در اینجا فقط پروفایل‌هایی دیده می‌شوند که درمانگر برای نمایش عمومی آن‌ها رضایت داده است.
+            فقط پروفایل‌هایی نمایش داده می‌شوند که درمانگر برای حضور عمومی آن‌ها رضایت داده است.
+            تصاویر نشانه‌گذاری‌شده، موقت و آزمایشی‌اند.
           </p>
         </div>
 
         {team.length > 0 ? (
-          <div className="public-team__list">
-            {team.map((person, index) => (
-              <article key={person.slug} className="public-person-row">
-                <span className="public-person-row__index" aria-hidden="true">
-                  {(index + 1).toLocaleString('fa-IR', { minimumIntegerDigits: 2 })}
-                </span>
-                <div>
-                  <h3>{person.displayName}</h3>
-                  {person.title !== null ? (
-                    <p className="public-person-row__title">{person.title}</p>
-                  ) : null}
-                  {person.bio !== null ? (
-                    <p className="public-person-row__bio">{person.bio}</p>
-                  ) : null}
-                </div>
-                <span className="public-person-row__mark" aria-hidden="true">
-                  {firstCharacter(person.displayName)}
-                </span>
-              </article>
-            ))}
+          <div className="public-team__portraits">
+            {team.map((person, index) => {
+              const hasRealPhoto = person.photoPath !== null;
+              const photo =
+                person.photoPath === null
+                  ? SYNTHETIC_PORTRAITS[index % SYNTHETIC_PORTRAITS.length]!
+                  : `/${person.photoPath}`;
+
+              return (
+                <article key={person.slug} className="public-person">
+                  <div className="public-person__image">
+                    <Image
+                      src={photo}
+                      width="460"
+                      height="560"
+                      alt={hasRealPhoto ? person.displayName : ''}
+                      sizes="(max-width: 36rem) 100vw, (max-width: 54rem) 50vw, 38vw"
+                    />
+                    {!hasRealPhoto ? (
+                      <span className="public-photo-note">تصویر آزمایشی — این درمانگر نیست</span>
+                    ) : null}
+                  </div>
+                  <div className="public-person__copy">
+                    <h3>{person.displayName}</h3>
+                    {person.title !== null ? (
+                      <p className="public-person__title">{person.title}</p>
+                    ) : null}
+                    {person.bio !== null ? (
+                      <p className="public-person__bio">{person.bio}</p>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <PublicEmpty
@@ -235,18 +233,48 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
 
 function About({ clinic }: { clinic: PublicClinicProfile }) {
   return (
-    <section id="about" className="public-about public-section" aria-labelledby="about-title">
+    <section id="about" className="public-about" aria-labelledby="about-title">
       <div className="public-shell public-about__layout">
-        <p className="public-about__word" aria-hidden="true">
-          والا
-        </p>
         <div className="public-about__copy">
-          <p className="public-kicker">دربارهٔ والا</p>
-          <h2 id="about-title">فضایی برای فهمیدن، پرسیدن و ادامه‌دادن.</h2>
+          <p className="public-kicker">فضای والا</p>
+          <h2 id="about-title">یک کلینیک، پیش از هر چیز باید قابل شناختن باشد.</h2>
           <p>
             {clinic.about ??
-              'معرفی تأییدشدهٔ کلینیک پس از تکمیل محتوای مالک در این بخش قرار می‌گیرد. تا آن زمان، خدمات و پروفایل‌های منتشرشده در همین صفحه قابل مشاهده‌اند.'}
+              'معرفی تأییدشدهٔ کلینیک پس از تکمیل محتوای مالک در این بخش قرار می‌گیرد. تصاویر فعلی فقط برای سنجش ترکیب‌بندی، برش و رفتار واکنش‌گرا استفاده شده‌اند.'}
           </p>
+        </div>
+
+        <div className="public-about__essay" aria-label="تصاویر آزمایشی از فضای کلینیک">
+          <figure className="public-about__image public-about__image--main">
+            <Image
+              src="/dev/vala-synthetic/01-reception.jpg"
+              width="630"
+              height="390"
+              alt=""
+              sizes="(max-width: 54rem) 85vw, 40vw"
+            />
+          </figure>
+          <figure className="public-about__image public-about__image--detail">
+            <Image
+              src="/dev/vala-synthetic/06-brand-wall.jpg"
+              width="420"
+              height="300"
+              alt=""
+              sizes="(max-width: 54rem) 48vw, 25vw"
+            />
+          </figure>
+          <figure className="public-about__image public-about__image--room">
+            <Image
+              src="/dev/vala-synthetic/04-treatment-room.jpg"
+              width="420"
+              height="280"
+              alt=""
+              sizes="(max-width: 54rem) 63vw, 28vw"
+            />
+          </figure>
+          <span className="public-photo-note public-about__photo-note">
+            تصاویر آزمایشی — نه کلینیک والا
+          </span>
         </div>
       </div>
     </section>
@@ -273,51 +301,54 @@ function Request({
     <section id="request" className="public-request" aria-labelledby="request-title">
       <div className="public-shell public-request__layout">
         <div className="public-request__intro">
-          <p className="public-kicker">گام بعدی</p>
-          <h2 id="request-title">یک درخواست کوتاه، شروع یک گفت‌وگوی روشن.</h2>
+          <p className="public-kicker public-kicker--light">قدم بعدی</p>
+          <h2 id="request-title">اگر هنوز مطمئن نیستید، از همین‌جا شروع کنید.</h2>
           <p>
             مسیر اصلی پیگیری در این وب‌سایت، ثبت یک درخواست کوتاه خواهد بود. تا فعال‌شدن فرم،
-            می‌توانید از راه‌های تأییدشدهٔ کلینیک استفاده کنید.
+            راه‌های تأییدشدهٔ ارتباطی در همین بخش نمایش داده می‌شوند.
           </p>
-          <span className="public-request__status">فرم درخواست در مرحلهٔ بعد فعال می‌شود</span>
+          <span className="public-request__status">
+            <span aria-hidden="true" />
+            فرم درخواست در مرحلهٔ بعد فعال می‌شود
+          </span>
         </div>
 
         <div id="contact" className="public-request__contact" aria-labelledby="contact-title">
           <p id="contact-title">راه‌های ارتباطی</p>
           {hasContact ? (
-            <dl className="public-contact-list">
+            <div className="public-contact-cloud">
               {clinic.phonePrimary !== null ? (
-                <ContactRow label="تلفن اصلی">
+                <ContactItem label="تلفن اصلی">
                   <a href={`tel:${clinic.phonePrimary}`} className="public-focus">
                     <bdi dir="ltr">{clinic.phonePrimary}</bdi>
                   </a>
-                </ContactRow>
+                </ContactItem>
               ) : null}
               {clinic.phoneSecondary !== null ? (
-                <ContactRow label="تلفن دیگر">
+                <ContactItem label="تلفن دیگر">
                   <a href={`tel:${clinic.phoneSecondary}`} className="public-focus">
                     <bdi dir="ltr">{clinic.phoneSecondary}</bdi>
                   </a>
-                </ContactRow>
+                </ContactItem>
               ) : null}
               {clinic.email !== null ? (
-                <ContactRow label="ایمیل">
+                <ContactItem label="ایمیل">
                   <a href={`mailto:${clinic.email}`} className="public-focus">
                     <bdi dir="ltr">{clinic.email}</bdi>
                   </a>
-                </ContactRow>
+                </ContactItem>
               ) : null}
               {clinic.addressLine !== null || clinic.cityLabel !== null ? (
-                <ContactRow label="نشانی">
+                <ContactItem label="نشانی">
                   <span>{[clinic.cityLabel, clinic.addressLine].filter(Boolean).join('، ')}</span>
-                </ContactRow>
+                </ContactItem>
               ) : null}
               {clinic.workingHoursNote !== null ? (
-                <ContactRow label="ساعت پاسخ‌گویی">
+                <ContactItem label="ساعت پاسخ‌گویی">
                   <span>{clinic.workingHoursNote}</span>
-                </ContactRow>
+                </ContactItem>
               ) : null}
-            </dl>
+            </div>
           ) : (
             <div className="public-contact-empty" role="status">
               <span aria-hidden="true">—</span>
@@ -334,11 +365,11 @@ function Request({
   );
 }
 
-function ContactRow({ label, children }: { label: string; children: ReactNode }) {
+function ContactItem({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
+    <div className="public-contact-item">
+      <span>{label}</span>
+      <strong>{children}</strong>
     </div>
   );
 }
@@ -363,8 +394,4 @@ function PublicEmpty({
       </div>
     </div>
   );
-}
-
-function firstCharacter(value: string): string {
-  return Array.from(value.trim())[0] ?? '•';
 }

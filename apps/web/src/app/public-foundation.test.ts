@@ -50,11 +50,15 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(page).not.toContain('@/server/api-client');
   });
 
-  it('uses one narrowly allow-listed island for mobile-menu close behavior', () => {
+  it('keeps public interaction in two narrow islands', () => {
     const menu = readFileSync(join(SRC, 'components', 'public-mobile-menu.tsx'), 'utf8');
+    const services = readFileSync(join(SRC, 'components', 'public-service-explorer.tsx'), 'utf8');
     expect(menu).toMatch(/^['"]use client['"]/);
     expect(menu).toContain("removeAttribute('open')");
     expect(menu).toContain('<details');
+    expect(services).toMatch(/^['"]use client['"]/);
+    expect(services).toContain('useState(0)');
+    expect(services).not.toContain('@/server/');
   });
 
   it('keeps staff login out of public chrome and centers the future request flow', () => {

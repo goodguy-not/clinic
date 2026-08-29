@@ -5,7 +5,7 @@ import { PublicMobileMenu } from './public-mobile-menu';
 const navigation = [
   { href: '/#services', label: 'خدمات' },
   { href: '/#team', label: 'تیم درمان' },
-  { href: '/#about', label: 'درباره ما' },
+  { href: '/#about', label: 'دربارهٔ والا' },
 ] as const;
 
 export function PublicMark({
