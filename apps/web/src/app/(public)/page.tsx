@@ -79,6 +79,7 @@ function FirstVisit() {
             height="810"
             alt=""
             sizes="(max-width: 47.99rem) 100vw, 31vw"
+            loading="eager"
           />
           <figcaption>تصویر آزمایشی — نه مراجع یا درمانگر واقعی والا</figcaption>
         </figure>

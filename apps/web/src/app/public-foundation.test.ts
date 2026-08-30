@@ -60,6 +60,8 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(menu).toContain('<details');
     expect(concerns).toMatch(/^['"]use client['"]/);
     expect(concerns).toContain('از کجا شروع کنیم؟');
+    expect(concerns).toContain('loading="eager"');
+    expect(concerns).not.toContain('priority');
     expect(services).toMatch(/^['"]use client['"]/);
     expect(services).toContain('useState(0)');
     expect(services).not.toContain('@/server/');
@@ -99,8 +101,13 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(team).not.toContain('setTimeout');
     expect(spaces).toContain('مشاهدهٔ فضای بعدی');
     expect(spaces).toContain('مشاهدهٔ فضای قبلی');
+    expect(spaces).toContain('public-space-browser__controls-bar');
     expect(spaces).toContain('/dev/vala-synthetic/05-corridor.jpg');
     expect(spaces).not.toContain('href="/about"');
+    expect(spaces).not.toContain('priority={index === 0}');
+    expect(page).toMatch(
+      /src="\/dev\/vala-synthetic\/12-therapist-child-interaction\.jpg"[\s\S]*?loading="eager"/,
+    );
   });
 
   it('states a complete reduced-motion policy in the public style scope', () => {

@@ -79,31 +79,6 @@ export function PublicSpaceTeaser() {
         }
       }}
     >
-      <div className="public-shell public-space-browser__toolbar">
-        <p aria-live="polite">
-          فضای {persianIndices[activeIndex]} از {persianIndices.at(-1)}
-        </p>
-        <div className="public-team-track__controls" aria-label="پیمایش فضاها">
-          <button
-            type="button"
-            className="public-focus public-track-button"
-            onClick={() => goTo(activeIndex + 1)}
-            disabled={!hasNext}
-            aria-label="مشاهدهٔ فضای بعدی"
-          >
-            <span aria-hidden="true">←</span>
-          </button>
-          <button
-            type="button"
-            className="public-focus public-track-button"
-            onClick={() => goTo(activeIndex - 1)}
-            disabled={!hasPrevious}
-            aria-label="مشاهدهٔ فضای قبلی"
-          >
-            <span aria-hidden="true">→</span>
-          </button>
-        </div>
-      </div>
       <div
         ref={viewportRef}
         className="public-space-browser__panels"
@@ -128,7 +103,6 @@ export function PublicSpaceTeaser() {
                 fill
                 alt=""
                 sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
-                priority={index === 0}
               />
               <span className="public-space-panel__veil" aria-hidden="true" />
               <span className="public-space-panel__index">{persianIndices[index]}</span>
@@ -143,12 +117,10 @@ export function PublicSpaceTeaser() {
           );
         })}
       </div>
-      <div className="public-space-browser__footer">
-        <p>تصاویر آزمایشی‌اند و فضای واقعی کلینیک والا را نشان نمی‌دهند.</p>
-        <span className="public-space-browser__future">
-          <strong>دربارهٔ والا و فضاها</strong>
-          <small>معرفی کامل فضاها هنوز منتشر نشده است.</small>
-        </span>
+      <div className="public-shell public-space-browser__controls-bar">
+        <p aria-live="polite">
+          فضای {persianIndices[activeIndex]} از {persianIndices.at(-1)}
+        </p>
         <div className="public-track-dots" aria-label="انتخاب فضای پیش‌نمایش">
           {spaces.map((space, index) => (
             <button
@@ -162,6 +134,33 @@ export function PublicSpaceTeaser() {
             />
           ))}
         </div>
+        <div className="public-team-track__controls" aria-label="پیمایش فضاها">
+          <button
+            type="button"
+            className="public-focus public-track-button"
+            onClick={() => goTo(activeIndex + 1)}
+            disabled={!hasNext}
+            aria-label="مشاهدهٔ فضای بعدی"
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+          <button
+            type="button"
+            className="public-focus public-track-button"
+            onClick={() => goTo(activeIndex - 1)}
+            disabled={!hasPrevious}
+            aria-label="مشاهدهٔ فضای قبلی"
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+      <div className="public-space-browser__footer">
+        <p>تصاویر آزمایشی‌اند و فضای واقعی کلینیک والا را نشان نمی‌دهند.</p>
+        <span className="public-space-browser__future">
+          <strong>دربارهٔ والا و فضاها</strong>
+          <small>معرفی کامل فضاها هنوز منتشر نشده است.</small>
+        </span>
       </div>
     </div>
   );

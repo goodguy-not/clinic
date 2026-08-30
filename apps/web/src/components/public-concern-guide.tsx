@@ -85,7 +85,7 @@ export function PublicConcernGuide({ cityLabel }: { cityLabel: string | null }) 
               width="760"
               height="450"
               alt=""
-              priority
+              loading="eager"
               sizes="(max-width: 47.99rem) 100vw, 44vw"
             />
             <span className="public-photo-note">تصویر آزمایشی — نه فضای واقعی والا</span>
