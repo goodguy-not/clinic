@@ -82,7 +82,7 @@ describe('M9 B1 public boundary and interaction policy', () => {
 
     expect(chrome).not.toContain('href="/login"');
     expect(chrome).not.toContain('ورود کارکنان');
-    expect(chrome).toContain("const contactHref = '/#request'");
+    expect(chrome).toContain("const contactHref = '/contact#request'");
     expect(chrome).toContain("const contactLabel = 'درخواست ارزیابی'");
     expect(chrome).not.toContain('درخواست پیگیری');
     expect(page).toContain('id="request"');
@@ -97,9 +97,9 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(page).toContain('<PublicTeamTrack therapists={read.data} />');
     expect(page).not.toContain('.slice(0, 4)');
     expect(team).toContain('همهٔ تیم درمان');
-    expect(team).toContain('پروفایل کامل هنوز منتشر نشده است');
-    expect(team).not.toContain('href={`/team/${person.slug}`}');
-    expect(team).not.toContain('href="/team"');
+    expect(team).toContain('دیدن پروفایل');
+    expect(team).toContain('href={`/team/${person.slug}`}');
+    expect(team).toContain('href="/team"');
     expect(team).not.toContain('setInterval');
     expect(team).not.toContain('setTimeout');
     expect(spaces).toContain('مشاهدهٔ فضای بعدی');
@@ -113,7 +113,7 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(spaces).toContain('HOVER_INTENT_MS');
     expect(spaces).toContain('public-space-browser__controls-bar');
     expect(spaces).toContain('/dev/vala-synthetic/05-corridor.jpg');
-    expect(spaces).not.toContain('href="/about"');
+    expect(spaces).toContain('href="/about#spaces"');
     expect(spaces).not.toContain('priority={index === 0}');
     expect(page).toMatch(
       /src="\/dev\/vala-synthetic\/12-therapist-child-interaction\.jpg"[\s\S]*?loading="eager"/,

@@ -39,7 +39,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Typed as a rooted path because the redirect helpers only accept one: the id
   // is encoded into a literal shape here, never taken from a caller-supplied
   // destination.
-  const editPath: `/${string}` = `/services/${encodeURIComponent(id)}/edit`;
+  const editPath: `/${string}` = `/catalog/services/${encodeURIComponent(id)}/edit`;
 
   const parsed = updateServiceRequestSchema.safeParse(serviceFormToRequest(body));
 
@@ -49,5 +49,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (!result.ok) return failureRedirect(request, editPath, result.code);
 
-  return secureRedirect(request, '/services');
+  return secureRedirect(request, '/catalog/services');
 }

@@ -3,11 +3,12 @@ import type { PublicClinicProfile } from '@clinic/contracts';
 import { PublicMobileMenu } from './public-mobile-menu';
 
 const navigation = [
-  { href: '/#services', label: 'خدمات' },
-  { href: '/#team', label: 'تیم درمان' },
-  { href: '/#about', label: 'دربارهٔ والا' },
-  { href: '/#family-experience', label: 'تجربهٔ خانواده‌ها' },
-  { href: '/#contact', label: 'تماس' },
+  { href: '/services', label: 'خدمات' },
+  { href: '/team', label: 'تیم درمان' },
+  { href: '/about', label: 'دربارهٔ والا' },
+  { href: '/articles', label: 'خواندنی‌ها' },
+  { href: '/testimonials', label: 'تجربهٔ خانواده‌ها' },
+  { href: '/contact', label: 'تماس' },
 ] as const;
 
 export function PublicMark({
@@ -36,7 +37,7 @@ export function PublicMark({
 }
 
 export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
-  const contactHref = '/#request';
+  const contactHref = '/contact#request';
   const contactLabel = 'درخواست ارزیابی';
 
   return (
@@ -104,26 +105,31 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
 
         <nav aria-label="خدمات و تیم" className="public-footer__links">
           <strong>آشنایی با والا</strong>
-          <Link href="/#services" className="public-focus">
+          <Link href="/services" className="public-focus">
             خدمات
           </Link>
-          <Link href="/#team" className="public-focus">
+          <Link href="/team" className="public-focus">
             تیم درمان
           </Link>
-          <Link href="/#about" className="public-focus">
+          <Link href="/about" className="public-focus">
             دربارهٔ والا
           </Link>
         </nav>
 
         <nav aria-label="پیوندهای عمومی" className="public-footer__links">
           <strong>اطلاعات</strong>
-          <Link href="/#family-experience" className="public-focus">
+          <Link href="/testimonials" className="public-focus">
             تجربهٔ خانواده‌ها
           </Link>
-          <Link href="/#contact" className="public-focus">
+          <Link href="/articles" className="public-focus">
+            خواندنی‌ها
+          </Link>
+          <Link href="/contact" className="public-focus">
             تماس
           </Link>
-          <span aria-label="صفحهٔ حریم خصوصی در مرحلهٔ بعد تکمیل می‌شود">حریم خصوصی</span>
+          <Link href="/privacy" className="public-focus">
+            حریم خصوصی
+          </Link>
         </nav>
 
         <div className="public-footer__contact">
@@ -133,13 +139,13 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
               <bdi dir="ltr">{clinic.phonePrimary}</bdi>
             </a>
           ) : (
-            <Link href="/#contact" className="public-focus">
+            <Link href="/contact" className="public-focus">
               راه‌های ارتباطی
             </Link>
           )}
           {clinic.cityLabel !== null ? <span>{clinic.cityLabel}</span> : null}
           {clinic.addressLine !== null ? <span>{clinic.addressLine}</span> : null}
-          <Link href="/#request" className="public-focus public-footer__cta">
+          <Link href="/contact#request" className="public-focus public-footer__cta">
             درخواست ارزیابی
             <span aria-hidden="true">←</span>
           </Link>

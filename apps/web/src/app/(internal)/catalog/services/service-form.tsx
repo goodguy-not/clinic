@@ -42,7 +42,7 @@ export function ServiceForm({
     <PageShell>
       <PageHeader
         title={isEdit ? COPY.serviceEditTitle : COPY.serviceNewTitle}
-        backHref="/services"
+        backHref="/catalog/services"
         backLabel={COPY.back}
       />
 

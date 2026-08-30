@@ -34,11 +34,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const status = catalogStatusSchema.safeParse(body['status']);
-  if (!status.success) return failureRedirect(request, '/services', 'VALIDATION_FAILED');
+  if (!status.success) return failureRedirect(request, '/catalog/services', 'VALIDATION_FAILED');
 
   const result = await api.changeServiceStatus(body['id'] ?? '', status.data, { sessionToken });
 
-  if (!result.ok) return failureRedirect(request, '/services', result.code);
+  if (!result.ok) return failureRedirect(request, '/catalog/services', result.code);
 
-  return secureRedirect(request, '/services');
+  return secureRedirect(request, '/catalog/services');
 }

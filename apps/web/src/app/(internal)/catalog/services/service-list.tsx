@@ -43,7 +43,7 @@ export function ServiceList({
         backLabel={COPY.back}
         action={
           canCreate ? (
-            <ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>
+            <ButtonLink href="/catalog/services/new">{COPY.serviceAddAction}</ButtonLink>
           ) : undefined
         }
       />
@@ -55,7 +55,7 @@ export function ServiceList({
           message={COPY.serviceEmpty}
           action={
             canCreate ? (
-              <ButtonLink href="/services/new">{COPY.serviceAddAction}</ButtonLink>
+              <ButtonLink href="/catalog/services/new">{COPY.serviceAddAction}</ButtonLink>
             ) : undefined
           }
         />
@@ -92,7 +92,7 @@ export function ServiceList({
                 canUpdate || canUpdateStatus ? (
                   <>
                     {canUpdate ? (
-                      <ButtonLink href={`/services/${service.id}/edit`} tone="secondary">
+                      <ButtonLink href={`/catalog/services/${service.id}/edit`} tone="secondary">
                         {COPY.edit}
                       </ButtonLink>
                     ) : null}

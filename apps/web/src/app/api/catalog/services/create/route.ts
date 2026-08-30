@@ -31,11 +31,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const candidate = serviceFormToRequest(body);
   const parsed = createServiceRequestSchema.safeParse(candidate);
 
-  if (!parsed.success) return failureRedirect(request, '/services/new', 'VALIDATION_FAILED');
+  if (!parsed.success)
+    return failureRedirect(request, '/catalog/services/new', 'VALIDATION_FAILED');
 
   const result = await api.createService(parsed.data, { sessionToken });
 
-  if (!result.ok) return failureRedirect(request, '/services/new', result.code);
+  if (!result.ok) return failureRedirect(request, '/catalog/services/new', result.code);
 
-  return secureRedirect(request, '/services');
+  return secureRedirect(request, '/catalog/services');
 }

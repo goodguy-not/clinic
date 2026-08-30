@@ -43,7 +43,7 @@ export async function AppHeader() {
     links.push({ href: '/settlements', label: 'تسویهٔ درمانگران' });
   }
   if (user.permissions.includes('service.read')) {
-    links.push({ href: '/services', label: COPY.servicesTitle });
+    links.push({ href: '/catalog/services', label: COPY.servicesTitle });
   }
   if (user.permissions.includes('room.read')) {
     links.push({ href: '/rooms', label: COPY.roomsTitle });

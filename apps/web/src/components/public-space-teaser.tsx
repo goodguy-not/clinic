@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const HOVER_INTENT_MS = 90;
@@ -40,7 +41,7 @@ const spaces = [
 
 const persianIndices = ['۰۱', '۰۲', '۰۳', '۰۴', '۰۵'] as const;
 
-export function PublicSpaceTeaser() {
+export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const hoverTimerRef = useRef<number | null>(null);
@@ -146,6 +147,7 @@ export function PublicSpaceTeaser() {
                 fill
                 alt=""
                 sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
+                loading="eager"
               />
               <span className="public-space-panel__veil" aria-hidden="true" />
               <span className="public-space-panel__index">{persianIndices[index]}</span>
@@ -154,7 +156,7 @@ export function PublicSpaceTeaser() {
                 <small>{space.caption}</small>
               </span>
               <span className="public-space-panel__detail" aria-hidden="true">
-                <Image src={space.detail} fill alt="" sizes="112px" />
+                <Image src={space.detail} fill alt="" sizes="112px" loading="eager" />
               </span>
             </button>
           );
@@ -200,10 +202,17 @@ export function PublicSpaceTeaser() {
       </div>
       <div className="public-space-browser__footer">
         <p>تصاویر آزمایشی‌اند و فضای واقعی کلینیک والا را نشان نمی‌دهند.</p>
-        <span className="public-space-browser__future">
-          <strong>دربارهٔ والا و فضاها</strong>
-          <small>معرفی کامل فضاها هنوز منتشر نشده است.</small>
-        </span>
+        {full ? (
+          <span className="public-space-browser__future">
+            <strong>نمایش ساختاری کامل</strong>
+            <small>در انتظار عکس‌ها و توضیحات تأییدشدهٔ فضای واقعی</small>
+          </span>
+        ) : (
+          <Link href="/about#spaces" className="public-focus public-space-browser__future">
+            <strong>دربارهٔ والا و فضاها</strong>
+            <small>دیدن تجربهٔ کامل فضاها</small>
+          </Link>
+        )}
       </div>
     </div>
   );

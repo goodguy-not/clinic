@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type {
   PublicClinicProfile,
@@ -99,6 +100,9 @@ function Services({ read }: { read: PublicRead<PublicServiceSummary[]> }) {
           <h2 id="services-title">در والا چه کارهایی انجام می‌شود</h2>
         </div>
         <p>نام هر خدمت را انتخاب کنید؛ تصویر و توضیح تأییدشده همان‌جا تغییر می‌کند.</p>
+        <Link href="/services" className="public-focus public-text-link">
+          همهٔ خدمات <span aria-hidden="true">←</span>
+        </Link>
       </div>
 
       {services.length > 0 ? (
@@ -129,6 +133,9 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
             فقط پروفایل‌های دارای رضایت برای حضور عمومی نمایش داده می‌شوند. تصاویر نشانه‌گذاری‌شده،
             موقت و آزمایشی‌اند.
           </p>
+          <Link href="/team" className="public-focus public-text-link">
+            همهٔ تیم درمان <span aria-hidden="true">←</span>
+          </Link>
         </div>
 
         {read.data.length > 0 ? (
@@ -179,6 +186,9 @@ function FamilyExperienceBoundary() {
           این بخش در صفحهٔ اصلی جای خود را حفظ کرده است، اما تا زمان انتشار روایت‌های تأییدشده، هیچ
           نقل‌قول یا خانوادهٔ ساختگی نمایش نمی‌دهیم.
         </p>
+        <Link href="/testimonials" className="public-focus public-text-link">
+          تجربه‌های منتشرشده <span aria-hidden="true">←</span>
+        </Link>
       </div>
     </section>
   );

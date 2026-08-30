@@ -1,0 +1,153 @@
+import type { Metadata } from 'next';
+import { DevelopmentPhoto, PageHero, PublicPageEmpty } from '@/components/public-content';
+import { getPublicClinicProfile } from '@/server/public-site';
+
+export const metadata: Metadata = {
+  title: 'تماس و نشانی | والا',
+  description: 'راه‌های ارتباطی و موقعیت تأییدشدهٔ کلینیک توانبخشی والا.',
+};
+
+export default async function ContactPage() {
+  const read = await getPublicClinicProfile();
+  const clinic = read.data;
+  const hasContact = [
+    clinic.phonePrimary,
+    clinic.phoneSecondary,
+    clinic.email,
+    clinic.addressLine,
+    clinic.cityLabel,
+    clinic.workingHoursNote,
+  ].some(Boolean);
+  const hasMap = clinic.mapLatitude !== null && clinic.mapLongitude !== null;
+  const mapHref = hasMap
+    ? `https://www.openstreetmap.org/?mlat=${clinic.mapLatitude}&mlon=${clinic.mapLongitude}#map=16/${clinic.mapLatitude}/${clinic.mapLongitude}`
+    : null;
+
+  return (
+    <main id="main-content">
+      <PageHero
+        eyebrow="تماس"
+        title="آمدن به والا"
+        lead="می‌توانید با راه‌های تأییدشدهٔ زیر تماس بگیرید یا از مسیر درخواست ارزیابی شروع کنید."
+      />
+      <section className="public-shell b2-contact-layout" aria-label="راه‌های تماس و نشانی">
+        <div className="b2-contact-card">
+          <p className="public-kicker public-kicker--gold">اطلاعات تأییدشده</p>
+          {hasContact ? (
+            <dl>
+              {clinic.phonePrimary ? (
+                <>
+                  <dt>تلفن اصلی</dt>
+                  <dd>
+                    <a
+                      href={`tel:${clinic.phonePrimary}`}
+                      className="public-focus public-text-link public-text-link--light"
+                    >
+                      <bdi dir="ltr">{clinic.phonePrimary}</bdi>
+                    </a>
+                  </dd>
+                </>
+              ) : null}
+              {clinic.phoneSecondary ? (
+                <>
+                  <dt>تلفن دیگر</dt>
+                  <dd>
+                    <a
+                      href={`tel:${clinic.phoneSecondary}`}
+                      className="public-focus public-text-link public-text-link--light"
+                    >
+                      <bdi dir="ltr">{clinic.phoneSecondary}</bdi>
+                    </a>
+                  </dd>
+                </>
+              ) : null}
+              {clinic.email ? (
+                <>
+                  <dt>ایمیل</dt>
+                  <dd>
+                    <a
+                      href={`mailto:${clinic.email}`}
+                      className="public-focus public-text-link public-text-link--light"
+                    >
+                      <bdi dir="ltr">{clinic.email}</bdi>
+                    </a>
+                  </dd>
+                </>
+              ) : null}
+              {clinic.cityLabel || clinic.addressLine ? (
+                <>
+                  <dt>نشانی</dt>
+                  <dd>{[clinic.cityLabel, clinic.addressLine].filter(Boolean).join('، ')}</dd>
+                </>
+              ) : null}
+              {clinic.workingHoursNote ? (
+                <>
+                  <dt>ساعت تماس</dt>
+                  <dd>{clinic.workingHoursNote}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : (
+            <PublicPageEmpty
+              unavailable={read.status === 'unavailable'}
+              title="اطلاعات تماس هنوز تکمیل نشده است"
+              text="نشانی و شماره‌های واقعی فقط پس از تأیید مالک کلینیک در این بخش نمایش داده می‌شوند."
+            />
+          )}
+        </div>
+        <DevelopmentPhoto
+          src="/dev/vala-synthetic/05-corridor.jpg"
+          className="b2-contact-photo"
+          sizes="(max-width: 56rem) 100vw, 48vw"
+          priority
+        />
+      </section>
+
+      <section className="public-shell b2-location" aria-labelledby="location-title">
+        <div>
+          <p className="public-kicker">موقعیت</p>
+          <h2 id="location-title">پیدا کردن مسیر</h2>
+          {hasMap && mapHref ? (
+            <p>
+              موقعیت ثبت‌شدهٔ کلینیک آماده است. برای دیدن مسیر، نقشه را در سرویس بیرونی باز کنید.
+            </p>
+          ) : (
+            <p className="b2-muted">
+              موقعیت دقیق هنوز از سوی مالک کلینیک تأیید نشده است؛ نقشهٔ ساختگی نمایش داده نمی‌شود.
+            </p>
+          )}
+        </div>
+        <div className="b2-map-state" data-ready={hasMap || undefined}>
+          <span aria-hidden="true" />
+          {hasMap && mapHref ? (
+            <a
+              href={mapHref}
+              target="_blank"
+              rel="noreferrer"
+              className="public-focus public-button public-button--gold"
+            >
+              باز کردن مسیر در نقشه <span aria-hidden="true">↗</span>
+            </a>
+          ) : (
+            <strong>موقعیت در انتظار تأیید</strong>
+          )}
+        </div>
+      </section>
+
+      <section id="request" className="b2-contact-request">
+        <div className="public-shell">
+          <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
+          <h2>ترجیح می‌دهید ما تماس بگیریم؟</h2>
+          <p>
+            فرم درخواست ارزیابی در مرحلهٔ B3 فعال می‌شود. این صفحه فعلاً هیچ اطلاعاتی دریافت یا
+            ارسال نمی‌کند.
+          </p>
+          <div className="public-request__status" role="status">
+            <span aria-hidden="true" />
+            فرم هنوز فعال نشده است
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}

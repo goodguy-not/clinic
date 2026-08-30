@@ -2,6 +2,7 @@
 
 import type { PublicTherapistProfile } from '@clinic/contracts';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const SYNTHETIC_PORTRAITS = [
@@ -176,15 +177,15 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
             const isReceded = spotlightIndex !== null && !isActive;
 
             return (
-              <article
+              <Link
                 key={person.slug}
+                href={`/team/${person.slug}`}
                 ref={(node) => {
                   itemRefs.current[index] = node;
                 }}
                 className="public-person-card"
                 data-active={isActive || undefined}
                 data-receded={isReceded || undefined}
-                tabIndex={0}
                 aria-label={`${person.displayName}${person.title !== null ? `، ${person.title}` : ''}`}
                 onPointerEnter={() => setSpotlightIndex(index)}
                 onPointerDown={() => setSpotlightIndex(index)}
@@ -211,20 +212,20 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                     <small aria-hidden="true">&nbsp;</small>
                   )}
                   <span className="public-person-card__future">
-                    پروفایل کامل هنوز منتشر نشده است
+                    دیدن پروفایل <span aria-hidden="true">←</span>
                   </span>
                 </div>
-              </article>
+              </Link>
             );
           })}
         </div>
       </div>
 
       <div className="public-team-track__footer">
-        <span className="public-team-track__future">
+        <Link href="/team" className="public-focus public-team-track__future">
           <strong>همهٔ تیم درمان</strong>
-          <small>صفحهٔ کامل تیم هنوز منتشر نشده است.</small>
-        </span>
+          <small>دیدن همهٔ پروفایل‌های عمومی</small>
+        </Link>
         {pageStarts.length > 1 ? (
           <div className="public-track-dots" aria-label="صفحه‌های تیم درمان">
             {pageStarts.map((pageStart, index) => (

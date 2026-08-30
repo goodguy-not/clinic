@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PUBLIC_CACHE_TAGS } from '@clinic/contracts';
-import { getPublicHomeData } from './public-site';
+import {
+  getPublicArticle,
+  getPublicArticles,
+  getPublicHomeData,
+  getPublicService,
+  getPublicTeam,
+  getPublicTestimonials,
+  getPublicTherapist,
+} from './public-site';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -67,6 +75,93 @@ describe('public website reads', () => {
     expect(result.clinic.data.displayName).toBeNull();
     expect(result.services.data).toEqual([]);
     expect(result.team.data).toEqual([]);
+  });
+
+  it('parses every A2 content read through its purpose-built projection', async () => {
+    const responses: Record<string, unknown> = {
+      '/public/services/speech-therapy': {
+        service: {
+          slug: 'speech-therapy',
+          name: 'گفتاردرمانی',
+          description: null,
+          sessionDurationsMinutes: [45],
+        },
+      },
+      '/public/team': { therapists: [] },
+      '/public/team/public-person': {
+        therapist: {
+          slug: 'public-person',
+          displayName: 'درمانگر عمومی',
+          title: null,
+          bio: null,
+          photoPath: null,
+        },
+      },
+      '/public/articles': {
+        articles: [
+          {
+            slug: 'first-visit',
+            title: 'جلسهٔ اول',
+            summary: null,
+            publishedAt: '2026-08-01T08:00:00.000Z',
+          },
+        ],
+      },
+      '/public/articles/first-visit': {
+        article: {
+          slug: 'first-visit',
+          title: 'جلسهٔ اول',
+          summary: null,
+          publishedAt: '2026-08-01T08:00:00.000Z',
+          body: 'متن تأییدشده',
+        },
+      },
+      '/public/testimonials': { testimonials: [{ authorLabel: null, body: 'روایت تأییدشده' }] },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const path = new URL(String(input)).pathname;
+        return Response.json(responses[path]);
+      }),
+    );
+
+    const [service, team, therapist, articles, article, testimonials] = await Promise.all([
+      getPublicService('speech-therapy'),
+      getPublicTeam(),
+      getPublicTherapist('public-person'),
+      getPublicArticles(),
+      getPublicArticle('first-visit'),
+      getPublicTestimonials(),
+    ]);
+
+    expect(service.status === 'ready' && service.data.sessionDurationsMinutes).toEqual([45]);
+    expect(team.data).toEqual([]);
+    expect(therapist.status === 'ready' && therapist.data.displayName).toBe('درمانگر عمومی');
+    expect(articles.data).toHaveLength(1);
+    expect(article.status === 'ready' && article.data.body).toBe('متن تأییدشده');
+    expect(testimonials.data).toEqual([{ authorLabel: null, body: 'روایت تأییدشده' }]);
+  });
+
+  it('distinguishes a private-or-missing detail from a transport failure without exposing why', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const path = new URL(String(input)).pathname;
+        return path.endsWith('/private-service')
+          ? new Response(null, { status: 404 })
+          : new Response(null, { status: 503 });
+      }),
+    );
+
+    await expect(getPublicService('private-service')).resolves.toEqual({
+      status: 'not-found',
+      data: null,
+    });
+    await expect(getPublicService('temporarily-down')).resolves.toEqual({
+      status: 'unavailable',
+      data: null,
+    });
   });
 });
 

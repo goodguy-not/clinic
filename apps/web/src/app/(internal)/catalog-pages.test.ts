@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { Room, Service } from '@clinic/contracts';
 import { RoomForm } from './rooms/room-form';
 import { RoomList } from './rooms/room-list';
-import { ServiceForm } from './services/service-form';
-import { ServiceList } from './services/service-list';
+import { ServiceForm } from './catalog/services/service-form';
+import { ServiceList } from './catalog/services/service-list';
 
 /**
  * Rendering assertions for the catalog screens.
@@ -100,7 +100,7 @@ describe('service list', () => {
     );
 
     expect(empty).toContain('هنوز خدمتی ثبت نشده است');
-    expect(empty).toContain('/services/new');
+    expect(empty).toContain('/catalog/services/new');
   });
 
   it('announces an error with role="alert"', () => {
@@ -240,7 +240,7 @@ describe('room list', () => {
     );
 
     expect(serviceMarkup).toContain('Synthetic Service');
-    expect(serviceMarkup).not.toContain('/services/new');
+    expect(serviceMarkup).not.toContain('/catalog/services/new');
     expect(serviceMarkup).not.toContain('/services/status');
     expect(serviceMarkup).not.toContain('/edit');
     expect(roomMarkup).toContain('Synthetic Room');

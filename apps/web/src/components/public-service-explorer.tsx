@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { PublicServiceSummary } from '@clinic/contracts';
 import Image from 'next/image';
+import Link from 'next/link';
 
 const DEVELOPMENT_IMAGES = [
   '/dev/vala-synthetic/12-therapist-child-interaction.jpg',
@@ -32,6 +33,7 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
             height="470"
             alt=""
             sizes="(max-width: 54rem) 100vw, 55vw"
+            loading="eager"
           />
           <span className="public-photo-note">تصویر آزمایشی — نه فضای واقعی والا</span>
         </div>
@@ -42,9 +44,20 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
             {active.description ??
               'توضیح تأییدشدهٔ این خدمت پس از تکمیل محتوای کلینیک در همین بخش نمایش داده می‌شود.'}
           </p>
-          <a href="#request" className="public-focus public-button public-button--service">
-            درخواست ارزیابی
-          </a>
+          <div className="public-service-stage__actions">
+            <Link
+              href={`/services/${active.slug}`}
+              className="public-focus public-text-link public-text-link--light"
+            >
+              دیدن جزئیات
+            </Link>
+            <Link
+              href={`/contact?service=${encodeURIComponent(active.slug)}#request`}
+              className="public-focus public-button public-button--service"
+            >
+              درخواست ارزیابی
+            </Link>
+          </div>
         </div>
       </article>
 
