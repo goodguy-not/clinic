@@ -64,7 +64,8 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(services).toContain('useState(0)');
     expect(services).not.toContain('@/server/');
     expect(team).toMatch(/^['"]use client['"]/);
-    expect(team).toContain('scrollIntoView');
+    expect(team).toContain('scrollBy');
+    expect(team).toContain('inlineDelta');
     expect(team).toContain('مشاهدهٔ درمانگران بعدی');
     expect(team).toContain('مشاهدهٔ درمانگران قبلی');
     expect(team).not.toContain('@/server/');
@@ -86,13 +87,20 @@ describe('M9 B1 public boundary and interaction policy', () => {
   it('implements the corrected horizontal team track without autoplay', () => {
     const page = read('(public)', 'page.tsx');
     const team = readFileSync(join(SRC, 'components', 'public-team-track.tsx'), 'utf8');
+    const spaces = readFileSync(join(SRC, 'components', 'public-space-teaser.tsx'), 'utf8');
 
     expect(page).toContain('<PublicTeamTrack therapists={read.data} />');
     expect(page).not.toContain('.slice(0, 4)');
-    expect(team).toContain('href={`/team/${person.slug}`}');
     expect(team).toContain('همهٔ تیم درمان');
+    expect(team).toContain('پروفایل کامل هنوز منتشر نشده است');
+    expect(team).not.toContain('href={`/team/${person.slug}`}');
+    expect(team).not.toContain('href="/team"');
     expect(team).not.toContain('setInterval');
     expect(team).not.toContain('setTimeout');
+    expect(spaces).toContain('مشاهدهٔ فضای بعدی');
+    expect(spaces).toContain('مشاهدهٔ فضای قبلی');
+    expect(spaces).toContain('/dev/vala-synthetic/05-corridor.jpg');
+    expect(spaces).not.toContain('href="/about"');
   });
 
   it('states a complete reduced-motion policy in the public style scope', () => {

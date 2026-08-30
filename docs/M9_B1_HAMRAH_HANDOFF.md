@@ -8,7 +8,7 @@ photography-led service explorer, the horizontal Team rail, a development-only s
 the truthful testimonial boundary, the evaluation entry, contact information and the final
 footer language.
 
-Home remains a Server Component. Its interactive surface is limited to four allow-listed,
+Home remains a Server Component. Its interactive surface is limited to five allow-listed,
 server-independent islands: mobile navigation, concern guidance, service selection, spaces
 selection and the Team rail. Every clinic, service and therapist fact still comes from the A1
 public reads.
@@ -16,8 +16,9 @@ public reads.
 ## Deliberate B1 boundaries
 
 - Therapist profiles, Team index, Services index/detail, About/Spaces, Contact, Privacy,
-  Articles and Testimonials remain B2. Home links may point at those future public routes, but
-  no B2 route or publishing read was added here.
+  Articles and Testimonials remain B2. Home does not expose links to those unpublished routes;
+  future Team and Spaces destinations are rendered as honest non-link status text. No B2 route
+  or publishing read was added here.
 - The evaluation form, Server Action and confirmation state remain B3. B1 provides only the
   entry section and approved explanatory language.
 - No testimonial or article was fabricated for Home. The Home testimonial position is an

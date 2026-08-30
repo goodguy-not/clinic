@@ -2,7 +2,6 @@
 
 import type { PublicTherapistProfile } from '@clinic/contracts';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const SYNTHETIC_PORTRAITS = [
@@ -13,8 +12,8 @@ const SYNTHETIC_PORTRAITS = [
 ] as const;
 
 function getVisibleCount(width: number) {
-  if (width >= 1180) return 4;
-  if (width >= 880) return 3;
+  if (width >= 1182) return 4;
+  if (width >= 940) return 3;
   if (width >= 620) return 2;
   return 1;
 }
@@ -26,27 +25,34 @@ function toPersianNumber(value: number) {
 export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistProfile[] }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLElement | null>>([]);
+  const scrollFrameRef = useRef<number | null>(null);
   const [visibleCount, setVisibleCount] = useState(4);
   const [startIndex, setStartIndex] = useState(0);
   const [spotlightIndex, setSpotlightIndex] = useState<number | null>(null);
 
   const maxStart = Math.max(0, therapists.length - visibleCount);
   const pageStarts = useMemo(() => {
-    const starts: number[] = [];
-    for (let index = 0; index < maxStart; index += 2) starts.push(index);
+    const starts: number[] = [0];
+    const step = Math.max(1, Math.min(2, visibleCount));
+    for (let index = step; index < maxStart; index += step) starts.push(index);
     if (starts.at(-1) !== maxStart) starts.push(maxStart);
-    return starts.length > 0 ? starts : [0];
-  }, [maxStart]);
+    return starts;
+  }, [maxStart, visibleCount]);
 
   const goTo = useCallback(
     (index: number) => {
       const targetIndex = Math.max(0, Math.min(index, maxStart));
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      itemRefs.current[targetIndex]?.scrollIntoView({
-        behavior: reduceMotion ? 'auto' : 'smooth',
-        block: 'nearest',
-        inline: 'start',
-      });
+      const viewport = viewportRef.current;
+      const target = itemRefs.current[targetIndex];
+      if (viewport !== null && target !== null && target !== undefined) {
+        const inlineDelta =
+          target.getBoundingClientRect().right - viewport.getBoundingClientRect().right;
+        viewport.scrollBy({
+          left: inlineDelta,
+          behavior: reduceMotion ? 'auto' : 'smooth',
+        });
+      }
       setStartIndex(targetIndex);
     },
     [maxStart],
@@ -68,9 +74,43 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
     return () => observer.disconnect();
   }, [therapists.length]);
 
-  const step = Math.max(1, Math.min(2, visibleCount));
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    },
+    [],
+  );
+
+  const syncStartFromScroll = useCallback(() => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      const viewport = viewportRef.current;
+      if (viewport === null) return;
+
+      const viewportRight = viewport.getBoundingClientRect().right;
+      let closestIndex = 0;
+      let closestDistance = Number.POSITIVE_INFINITY;
+      itemRefs.current.forEach((item, index) => {
+        if (item === null) return;
+        const distance = Math.abs(item.getBoundingClientRect().right - viewportRight);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestIndex = index;
+        }
+      });
+
+      const boundedIndex = Math.min(closestIndex, maxStart);
+      const closestPage = pageStarts.reduce((closest, pageStart) =>
+        Math.abs(pageStart - boundedIndex) < Math.abs(closest - boundedIndex) ? pageStart : closest,
+      );
+      setStartIndex(closestPage);
+    });
+  }, [maxStart, pageStarts]);
+
   const hasPrevious = startIndex > 0;
   const hasNext = startIndex < maxStart;
+  const previousStart = [...pageStarts].reverse().find((pageStart) => pageStart < startIndex) ?? 0;
+  const nextStart = pageStarts.find((pageStart) => pageStart > startIndex) ?? maxStart;
 
   return (
     <div
@@ -90,7 +130,7 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
           <button
             type="button"
             className="public-focus public-track-button"
-            onClick={() => goTo(startIndex + step)}
+            onClick={() => goTo(nextStart)}
             disabled={!hasNext}
             aria-label="مشاهدهٔ درمانگران بعدی"
           >
@@ -99,7 +139,7 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
           <button
             type="button"
             className="public-focus public-track-button"
-            onClick={() => goTo(startIndex - step)}
+            onClick={() => goTo(previousStart)}
             disabled={!hasPrevious}
             aria-label="مشاهدهٔ درمانگران قبلی"
           >
@@ -114,14 +154,15 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
         role="region"
         aria-label="فهرست افقی درمانگران"
         tabIndex={0}
+        onPointerUp={syncStartFromScroll}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' && hasNext) {
             event.preventDefault();
-            goTo(startIndex + step);
+            goTo(nextStart);
           }
           if (event.key === 'ArrowRight' && hasPrevious) {
             event.preventDefault();
-            goTo(startIndex - step);
+            goTo(previousStart);
           }
         }}
       >
@@ -143,6 +184,8 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                 className="public-person-card"
                 data-active={isActive || undefined}
                 data-receded={isReceded || undefined}
+                tabIndex={0}
+                aria-label={`${person.displayName}${person.title !== null ? `، ${person.title}` : ''}`}
                 onPointerEnter={() => setSpotlightIndex(index)}
                 onPointerDown={() => setSpotlightIndex(index)}
                 onFocusCapture={() => setSpotlightIndex(index)}
@@ -167,13 +210,9 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                   ) : (
                     <small aria-hidden="true">&nbsp;</small>
                   )}
-                  <Link
-                    href={`/team/${person.slug}`}
-                    className="public-focus public-text-link public-person-card__link"
-                    aria-label={`مشاهدهٔ پروفایل ${person.displayName}`}
-                  >
-                    پروفایل درمانگر
-                  </Link>
+                  <span className="public-person-card__future">
+                    پروفایل کامل هنوز منتشر نشده است
+                  </span>
                 </div>
               </article>
             );
@@ -182,9 +221,10 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
       </div>
 
       <div className="public-team-track__footer">
-        <Link href="/team" className="public-focus public-text-link">
-          همهٔ تیم درمان
-        </Link>
+        <span className="public-team-track__future">
+          <strong>همهٔ تیم درمان</strong>
+          <small>صفحهٔ کامل تیم هنوز منتشر نشده است.</small>
+        </span>
         {pageStarts.length > 1 ? (
           <div className="public-track-dots" aria-label="صفحه‌های تیم درمان">
             {pageStarts.map((pageStart, index) => (
