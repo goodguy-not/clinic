@@ -1,7 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+const HOVER_INTENT_MS = 90;
 
 const spaces = [
   {
@@ -41,6 +43,7 @@ const persianIndices = ['۰۱', '۰۲', '۰۳', '۰۴', '۰۵'] as const;
 export function PublicSpaceTeaser() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const hoverTimerRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const goTo = useCallback((index: number) => {
@@ -61,6 +64,38 @@ export function PublicSpaceTeaser() {
       }
     }
   }, []);
+
+  const clearHoverIntent = useCallback(() => {
+    if (hoverTimerRef.current === null) return;
+    window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  }, []);
+
+  const openOnHover = useCallback(
+    (index: number, pointerType: string) => {
+      if (
+        pointerType === 'touch' ||
+        !window.matchMedia('(hover: hover) and (pointer: fine)').matches ||
+        !window.matchMedia('(min-width: 64rem)').matches
+      ) {
+        return;
+      }
+
+      clearHoverIntent();
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        goTo(index);
+        return;
+      }
+
+      hoverTimerRef.current = window.setTimeout(() => {
+        hoverTimerRef.current = null;
+        goTo(index);
+      }, HOVER_INTENT_MS);
+    },
+    [clearHoverIntent, goTo],
+  );
+
+  useEffect(() => clearHoverIntent, [clearHoverIntent]);
 
   const hasPrevious = activeIndex > 0;
   const hasNext = activeIndex < spaces.length - 1;
@@ -95,8 +130,16 @@ export function PublicSpaceTeaser() {
               type="button"
               className="public-focus public-space-panel"
               aria-pressed={active}
-              onClick={() => goTo(index)}
-              onFocus={() => goTo(index)}
+              onPointerEnter={(event) => openOnHover(index, event.pointerType)}
+              onPointerLeave={clearHoverIntent}
+              onClick={() => {
+                clearHoverIntent();
+                goTo(index);
+              }}
+              onFocus={() => {
+                clearHoverIntent();
+                goTo(index);
+              }}
             >
               <Image
                 src={space.image}

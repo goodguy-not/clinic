@@ -70,6 +70,9 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(team).toContain('inlineDelta');
     expect(team).toContain('مشاهدهٔ درمانگران بعدی');
     expect(team).toContain('مشاهدهٔ درمانگران قبلی');
+    expect(team).toMatch(
+      /aria-label="مشاهدهٔ درمانگران بعدی"[\s\S]*?>←<[\s\S]*?aria-label="مشاهدهٔ درمانگران قبلی"[\s\S]*?>→</,
+    );
     expect(team).not.toContain('@/server/');
   });
 
@@ -101,12 +104,22 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(team).not.toContain('setTimeout');
     expect(spaces).toContain('مشاهدهٔ فضای بعدی');
     expect(spaces).toContain('مشاهدهٔ فضای قبلی');
+    expect(spaces).toMatch(
+      /aria-label="مشاهدهٔ فضای بعدی"[\s\S]*?>←<[\s\S]*?aria-label="مشاهدهٔ فضای قبلی"[\s\S]*?>→</,
+    );
+    expect(spaces).toContain("'(hover: hover) and (pointer: fine)'");
+    expect(spaces).toContain('onPointerEnter');
+    expect(spaces).toContain('onPointerLeave');
+    expect(spaces).toContain('HOVER_INTENT_MS');
     expect(spaces).toContain('public-space-browser__controls-bar');
     expect(spaces).toContain('/dev/vala-synthetic/05-corridor.jpg');
     expect(spaces).not.toContain('href="/about"');
     expect(spaces).not.toContain('priority={index === 0}');
     expect(page).toMatch(
       /src="\/dev\/vala-synthetic\/12-therapist-child-interaction\.jpg"[\s\S]*?loading="eager"/,
+    );
+    expect(read('(public)', 'public.css')).toMatch(
+      /\.public-team-track__controls\s*{[^}]*direction:\s*ltr/,
     );
   });
 

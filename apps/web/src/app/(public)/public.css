@@ -682,6 +682,7 @@
 
 .public-team-track__controls {
   display: flex;
+  direction: ltr;
   gap: 0.5rem;
 }
 
