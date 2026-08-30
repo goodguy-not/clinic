@@ -383,6 +383,10 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Horizontal paging, focus spotlight and snap behaviour require browser
   // geometry; every therapist fact still arrives through the public server read.
   'src/components/public-team-track.tsx',
+  // The B2 family-experience cards need local flip state only. Published
+  // testimonial text is passed in as serialisable public-contract data, while
+  // the two clearly labelled development cards contain no clinic facts.
+  'src/components/public-testimonial-grid.tsx',
   'src/app/(internal)/families/family-search.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.

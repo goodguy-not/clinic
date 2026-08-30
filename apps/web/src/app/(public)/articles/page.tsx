@@ -25,6 +25,12 @@ export default async function ArticlesPage() {
         eyebrow="خواندنی‌ها"
         title="سؤال‌هایی که زیاد می‌شنویم"
         lead="مطالب این صفحه عمومی‌اند و جای ارزیابی شرایط خود شما یا فرزندتان را نمی‌گیرند."
+        aside={
+          <p className="b2-hero-note">
+            هر عنوان یک سؤال است؛ اطلاعات نویسنده، موضوع و زمان مطالعه پس از افزوده‌شدن به قرارداد
+            عمومی نمایش داده می‌شود.
+          </p>
+        }
       />
 
       <section className="public-shell b2-articles" aria-label="مقاله‌های منتشرشده">
@@ -38,11 +44,12 @@ export default async function ArticlesPage() {
             />
             <div>
               <p className="public-kicker">پیشنهاد برای شروع</p>
+              <small>موضوع و زمان مطالعه هنوز منتشر نشده است</small>
               <h2>{featured.title}</h2>
               {featured.summary ? <p>{featured.summary}</p> : null}
               <time dateTime={featured.publishedAt}>{formatPersianDate(featured.publishedAt)}</time>
               <strong>
-                خواندن <span aria-hidden="true">←</span>
+                خواندن این سؤال <span aria-hidden="true">←</span>
               </strong>
             </div>
           </Link>
@@ -55,23 +62,38 @@ export default async function ArticlesPage() {
         )}
 
         {articles.length ? (
-          <div className="b2-article-list">
-            {articles.map((article, index) => (
-              <Link
-                key={article.slug}
-                href={`/articles/${article.slug}`}
-                className="public-focus b2-article-row"
-              >
-                <span>{toPersianNumber(String(index + 2).padStart(2, '0'))}</span>
-                <div>
-                  <h2>{article.title}</h2>
-                  {article.summary ? <p>{article.summary}</p> : null}
-                </div>
-                <time dateTime={article.publishedAt}>{formatPersianDate(article.publishedAt)}</time>
-                <strong aria-hidden="true">←</strong>
-              </Link>
-            ))}
-          </div>
+          <>
+            <div className="b2-topic-row" aria-label="موضوع‌های منتشرشده">
+              <button type="button" className="public-focus" aria-pressed="true">
+                همه
+              </button>
+              <p>
+                {toPersianNumber(read.data.length)} نوشته؛ دادهٔ موضوع‌بندی هنوز منتشر نشده است.
+              </p>
+            </div>
+            <div className="b2-article-list">
+              {articles.map((article, index) => (
+                <Link
+                  key={article.slug}
+                  href={`/articles/${article.slug}`}
+                  className="public-focus b2-article-row"
+                >
+                  <span>{toPersianNumber(String(index + 2).padStart(2, '0'))}</span>
+                  <div>
+                    <h2>{article.title}</h2>
+                    {article.summary ? <p>{article.summary}</p> : null}
+                  </div>
+                  <time dateTime={article.publishedAt}>
+                    {formatPersianDate(article.publishedAt)}
+                  </time>
+                  <strong aria-hidden="true">←</strong>
+                </Link>
+              ))}
+            </div>
+            <p className="b2-index-note">
+              شماره‌ها جایگاه نوشته در این فهرست‌اند، نه شمارهٔ انتشار.
+            </p>
+          </>
         ) : null}
       </section>
       <div className="public-shell b2-section-end">

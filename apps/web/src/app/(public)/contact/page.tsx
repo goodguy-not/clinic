@@ -95,42 +95,62 @@ export default async function ContactPage() {
             />
           )}
         </div>
-        <DevelopmentPhoto
-          src="/dev/vala-synthetic/05-corridor.jpg"
-          className="b2-contact-photo"
-          sizes="(max-width: 56rem) 100vw, 48vw"
-          priority
-        />
+        <div className="b2-map-column">
+          <div className="b2-map-state" data-ready={hasMap || undefined}>
+            <span aria-hidden="true" />
+            {hasMap && mapHref ? (
+              <a
+                href={mapHref}
+                target="_blank"
+                rel="noreferrer"
+                className="public-focus public-button public-button--gold"
+              >
+                باز کردن مسیر در نقشه <span aria-hidden="true">↗</span>
+              </a>
+            ) : (
+              <strong>موقعیت در انتظار تأیید</strong>
+            )}
+          </div>
+          <p>
+            {hasMap
+              ? 'موقعیت ثبت‌شده برای بازکردن در سرویس نقشه آماده است.'
+              : 'قاب نقشه آماده است؛ مختصات ساختگی نمایش داده نمی‌شود.'}
+          </p>
+        </div>
       </section>
 
-      <section className="public-shell b2-location" aria-labelledby="location-title">
+      <section className="public-shell b2-arrival-rule" aria-label="اطلاعات رسیدن به کلینیک">
         <div>
-          <p className="public-kicker">موقعیت</p>
-          <h2 id="location-title">پیدا کردن مسیر</h2>
-          {hasMap && mapHref ? (
-            <p>
-              موقعیت ثبت‌شدهٔ کلینیک آماده است. برای دیدن مسیر، نقشه را در سرویس بیرونی باز کنید.
-            </p>
-          ) : (
-            <p className="b2-muted">
-              موقعیت دقیق هنوز از سوی مالک کلینیک تأیید نشده است؛ نقشهٔ ساختگی نمایش داده نمی‌شود.
-            </p>
-          )}
+          <small>حمل‌ونقل عمومی</small>
+          <strong>اطلاعات تأییدشده هنوز منتشر نشده است</strong>
         </div>
-        <div className="b2-map-state" data-ready={hasMap || undefined}>
-          <span aria-hidden="true" />
-          {hasMap && mapHref ? (
-            <a
-              href={mapHref}
-              target="_blank"
-              rel="noreferrer"
-              className="public-focus public-button public-button--gold"
-            >
-              باز کردن مسیر در نقشه <span aria-hidden="true">↗</span>
-            </a>
-          ) : (
-            <strong>موقعیت در انتظار تأیید</strong>
-          )}
+        <div>
+          <small>پارکینگ</small>
+          <strong>اطلاعات تأییدشده هنوز منتشر نشده است</strong>
+        </div>
+        <div>
+          <small>دسترسی بدون پله</small>
+          <strong>اطلاعات تأییدشده هنوز منتشر نشده است</strong>
+        </div>
+      </section>
+
+      <section className="b2-arrival-band" aria-labelledby="arrival-title">
+        <div className="public-shell b2-arrival-band__inner">
+          <div>
+            <p className="public-kicker">وقتی رسیدید</p>
+            <h2 id="arrival-title">پیش از ورود چه بدانید</h2>
+            <ul className="b2-hairline-list">
+              <li>راهنمای تأییدشدهٔ ورودی هنوز منتشر نشده است.</li>
+              <li>راهنمای تأییدشدهٔ پذیرش هنوز منتشر نشده است.</li>
+              <li>راهنمای تأییدشدهٔ همراهان هنوز منتشر نشده است.</li>
+            </ul>
+          </div>
+          <DevelopmentPhoto
+            src="/dev/vala-synthetic/05-corridor.jpg"
+            className="b2-contact-photo"
+            sizes="(max-width: 56rem) 100vw, 46vw"
+            priority
+          />
         </div>
       </section>
 

@@ -58,27 +58,45 @@ export default async function TherapistPage({ params }: Props) {
           priority
         />
         <div className="b2-profile__copy">
-          <Link href="/team" className="public-focus public-text-link">
-            همهٔ تیم درمان
-          </Link>
-          <p className="public-eyebrow">
-            <span aria-hidden="true" />
-            پروفایل عمومی
-          </p>
+          <div className="b2-profile__utility">
+            <Link href="/team" className="public-focus public-text-link">
+              تیم درمان / {person.displayName}
+            </Link>
+            <span>
+              {team.data.length
+                ? `${toPersianNumber(position + 1)} از ${toPersianNumber(team.data.length)}`
+                : null}
+            </span>
+          </div>
           <h1>{person.displayName}</h1>
           {person.title ? <p className="b2-profile__title">{person.title}</p> : null}
+          <section className="b2-work-areas" aria-labelledby="work-areas-title">
+            <h2 id="work-areas-title">حوزه‌های کاری</h2>
+            <div>
+              <span>{person.title ?? 'اطلاعات تأییدشده هنوز منتشر نشده است'}</span>
+            </div>
+          </section>
           <section aria-labelledby="bio-title" className="b2-biography">
-            <h2 id="bio-title">معرفی</h2>
+            <h2 id="bio-title">زندگی‌نامه</h2>
             {person.bio ? (
               <p>{person.bio}</p>
             ) : (
               <p className="b2-muted">زندگی‌نامهٔ عمومی هنوز تکمیل نشده است.</p>
             )}
           </section>
-          <p className="b2-profile__position">
-            {team.data.length
-              ? `${toPersianNumber(position + 1)} از ${toPersianNumber(team.data.length)}`
-              : null}
+          <section className="b2-profile-relations" aria-label="ارتباط‌های محتوایی">
+            <div>
+              <small>خدمات مرتبط در والا</small>
+              <strong>اطلاعات تأییدشده هنوز منتشر نشده است</strong>
+            </div>
+            <div>
+              <small>خواندنی مرتبط</small>
+              <strong>نوشتهٔ مرتبط هنوز منتشر نشده است</strong>
+            </div>
+          </section>
+          <EvaluationCallout title={`دربارهٔ کار با ${person.displayName} سؤال دارید؟`} />
+          <p className="b2-provenance-note">
+            این پروفایل فقط از نام، عنوان، تصویر و زندگی‌نامهٔ عمومیِ منتشرشده استفاده می‌کند.
           </p>
         </div>
       </article>
@@ -87,6 +105,16 @@ export default async function TherapistPage({ params }: Props) {
         <nav className="b2-profile-nav" aria-label="پروفایل‌های دیگر تیم درمان">
           <div className="public-shell b2-profile-nav__inner">
             <Link href={`/team/${previous.slug}`} className="public-focus b2-profile-nav__item">
+              <TherapistPhoto
+                photoPath={previous.photoPath}
+                fallback={
+                  THERAPIST_IMAGES[
+                    (position - 1 + THERAPIST_IMAGES.length) % THERAPIST_IMAGES.length
+                  ]!
+                }
+                name={previous.displayName}
+                className="b2-profile-nav__photo"
+              />
               <span aria-hidden="true">→</span>
               <small>پروفایل قبلی</small>
               <strong>{previous.displayName}</strong>
@@ -95,6 +123,12 @@ export default async function TherapistPage({ params }: Props) {
               href={`/team/${next.slug}`}
               className="public-focus b2-profile-nav__item b2-profile-nav__item--next"
             >
+              <TherapistPhoto
+                photoPath={next.photoPath}
+                fallback={THERAPIST_IMAGES[(position + 1) % THERAPIST_IMAGES.length]!}
+                name={next.displayName}
+                className="b2-profile-nav__photo"
+              />
               <small>پروفایل بعدی</small>
               <strong>{next.displayName}</strong>
               <span aria-hidden="true">←</span>
@@ -102,9 +136,6 @@ export default async function TherapistPage({ params }: Props) {
           </div>
         </nav>
       ) : null}
-      <div className="public-shell b2-section-end">
-        <EvaluationCallout />
-      </div>
     </main>
   );
 }

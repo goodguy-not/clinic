@@ -22,14 +22,28 @@ export default async function ServicesPage() {
     <main id="main-content">
       <PageHero
         eyebrow="خدمات"
-        title="برای هر قدم، یک همراه روشن"
-        lead="خدمت‌ها را با توضیحی که خود کلینیک برای انتشار تأیید کرده است مرور کنید."
+        title="در والا چه کارهایی انجام می‌شود؟"
+        lead="در این صفحه فقط توضیح‌های عمومی و تأییدشدهٔ هر خدمت نمایش داده می‌شود؛ برای انتخاب مسیر، ارزیابی لازم است."
+        aside={
+          services.data.length ? (
+            <nav className="b2-page-index" aria-label="فهرست این صفحه">
+              <strong>فهرست این صفحه</strong>
+              {services.data.map((service) => (
+                <a key={service.slug} href={`#service-${service.slug}`} className="public-focus">
+                  <span>{service.name}</span>
+                  <small>خدمت منتشرشده</small>
+                </a>
+              ))}
+            </nav>
+          ) : null
+        }
       />
       <section className="public-shell b2-service-list" aria-label="فهرست خدمات منتشرشده">
         {services.data.length ? (
           services.data.map((service, index) => (
             <Link
               key={service.slug}
+              id={`service-${service.slug}`}
               href={`/services/${service.slug}`}
               className="public-focus b2-service-row"
             >
@@ -47,8 +61,12 @@ export default async function ServicesPage() {
                 ) : (
                   <p className="b2-muted">توضیح عمومی این خدمت هنوز تکمیل نشده است.</p>
                 )}
+                <div className="b2-service-row__facts">
+                  <small>ممکن است چه شرایطی مرتبط باشد</small>
+                  <span>جزئیات تأییدشده هنوز منتشر نشده است.</span>
+                </div>
                 <strong>
-                  دیدن جزئیات <span aria-hidden="true">←</span>
+                  صفحهٔ {service.name} <span aria-hidden="true">←</span>
                 </strong>
               </div>
             </Link>

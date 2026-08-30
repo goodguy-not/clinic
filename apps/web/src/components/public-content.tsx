@@ -23,22 +23,27 @@ export function PageHero({
   title,
   lead,
   children,
+  aside,
 }: {
   eyebrow: string;
   title: string;
   lead?: string;
   children?: ReactNode;
+  aside?: ReactNode;
 }) {
   return (
     <header className="b2-hero">
       <div className="public-shell b2-hero__inner">
-        <p className="public-eyebrow">
-          <span aria-hidden="true" />
-          {eyebrow}
-        </p>
-        <h1>{title}</h1>
-        {lead ? <p className="b2-hero__lead">{lead}</p> : null}
-        {children}
+        <div className="b2-hero__copy">
+          <p className="public-eyebrow">
+            <span aria-hidden="true" />
+            {eyebrow}
+          </p>
+          <h1>{title}</h1>
+          {lead ? <p className="b2-hero__lead">{lead}</p> : null}
+          {children}
+        </div>
+        {aside ? <div className="b2-hero__aside">{aside}</div> : null}
       </div>
     </header>
   );

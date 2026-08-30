@@ -43,9 +43,10 @@ describe('M9 B2 public content routes', () => {
 
     expect(profile).not.toContain('روش کار');
     expect(profile).not.toContain('سابقه و آموزش');
-    expect(profile).not.toContain('حوزه‌های کاری');
-    expect(articles).not.toContain('author');
-    expect(articles).not.toContain('topic');
+    expect(profile).toContain('حوزه‌های کاری');
+    expect(profile).toContain('اطلاعات تأییدشده هنوز منتشر نشده است');
+    expect(profile).not.toMatch(/person\.(?:workAreas|services|articles)/);
+    expect(articles).not.toMatch(/article\.(?:author|topic)/);
     expect(privacy).toContain('متن نهایی هنوز منتشر نشده است');
   });
 });

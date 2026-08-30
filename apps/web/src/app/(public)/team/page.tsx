@@ -22,10 +22,23 @@ export default async function TeamPage() {
     <main id="main-content">
       <PageHero
         eyebrow="تیم درمان"
-        title="آدم‌هایی که در مسیر کنار شما هستند"
+        title="با چه کسی کار می‌کنید؟"
         lead="در این صفحه فقط همکارانی دیده می‌شوند که پروفایل عمومی‌شان با رضایت و محتوای تأییدشده منتشر شده است."
+        aside={
+          <div className="b2-count-note">
+            <strong>{toPersianNumber(team.data.length)}</strong>
+            <p>پروفایل عمومی منتشرشده؛ انتخاب درمانگر پس از درخواست ارزیابی با تیم مرور می‌شود.</p>
+          </div>
+        }
       />
-      <section className="public-shell b2-team-list" aria-label="درمانگران عمومی والا">
+      <section className="public-shell b2-team-list" aria-labelledby="team-group-title">
+        <header className="b2-team-group-heading">
+          <div>
+            <h2 id="team-group-title">تیم درمان</h2>
+            <span>{toPersianNumber(team.data.length)} درمانگر</span>
+          </div>
+          <p>دادهٔ تأییدشدهٔ حوزه‌بندی تخصصی هنوز در قرارداد عمومی سایت وجود ندارد.</p>
+        </header>
         {team.data.length ? (
           team.data.map((person, index) => (
             <Link
@@ -44,13 +57,11 @@ export default async function TeamPage() {
                 <span>{toPersianNumber(String(index + 1).padStart(2, '0'))}</span>
                 <h2>{person.displayName}</h2>
                 {person.title ? <p className="b2-team-row__title">{person.title}</p> : null}
-                {person.bio ? (
-                  <p>{person.bio}</p>
-                ) : (
-                  <p className="b2-muted">معرفی عمومی هنوز تکمیل نشده است.</p>
-                )}
+                <div className="b2-team-row__areas" aria-label="حوزه‌های کاری">
+                  <span>{person.title ?? 'حوزهٔ کاری تأییدشده هنوز منتشر نشده است'}</span>
+                </div>
                 <strong>
-                  دیدن پروفایل <span aria-hidden="true">←</span>
+                  پروفایل درمانگر <span aria-hidden="true">←</span>
                 </strong>
               </div>
             </Link>
