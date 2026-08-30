@@ -19,3 +19,8 @@ allowBuilds:
   prisma: true
   sharp: true
   unrs-resolver: true
+
+# Backport vercel/next.js#97333: Turbopack must remove deleted App Router
+# fragments from its manifest loader or route moves can poison dev matching.
+patchedDependencies:
+  next@16.2.12: patches/next@16.2.12.patch
