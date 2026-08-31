@@ -246,7 +246,11 @@ describe('no token or return URL enters a redirect', () => {
  * `requireSession` would be an unauthenticated endpoint that no existing test
  * could notice.
  *
- * Family search is the first and only entry, exactly as anticipated. It is an
+ * Family search is an authenticated entry. The public evaluation request is
+ * the single deliberate anonymous action: it is the Web boundary for A3's one
+ * anonymous write and still enforces the same strict Origin policy.
+ *
+ * Family search is
  * action rather than a Route Handler because the term is personal data: an
  * action answers in the response to its own POST, so — unlike a handler, which
  * must redirect and therefore needs a URL or a cookie to carry state across the
@@ -269,20 +273,34 @@ const serverActionModules = collectSourceFiles(APP_ROOT)
   .map((path) => ({ path: path.split(sep).join('/'), source: readFileSync(path, 'utf8') }))
   .filter((module) => USE_SERVER_DIRECTIVE.test(module.source));
 
+const anonymousServerActions = serverActionModules.filter((module) =>
+  module.path.endsWith('/(public)/request/action.ts'),
+);
+const authenticatedServerActions = serverActionModules.filter(
+  (module) => !anonymousServerActions.includes(module),
+);
+
 describe('every Server Action authorises for itself', () => {
   it('enumerates the Server Action modules that exist', () => {
     // Stated as an exact count for the same reason the handler count is: a file
     // that stops being found must fail here rather than pass silently.
-    expect(serverActionModules).toHaveLength(2);
+    expect(serverActionModules).toHaveLength(3);
+    expect(anonymousServerActions).toHaveLength(1);
   });
 
-  it.each(serverActionModules.map((module) => [module.path, module] as const))(
+  it.each(authenticatedServerActions.map((module) => [module.path, module] as const))(
     '%s resolves a session and names a permission',
     (_path, module) => {
       expect(module.source).toContain('requireSession');
       expect(module.source).toMatch(/requirePermission:/);
     },
   );
+
+  it('keeps the one anonymous action narrow and tied to the A3 boundary', () => {
+    const action = anonymousServerActions[0];
+    expect(action?.source).toContain('submitPublicRequest');
+    expect(action?.source).not.toContain('requireSession');
+  });
 
   it.each(serverActionModules.map((module) => [module.path, module] as const))(
     '%s enforces strict Origin',

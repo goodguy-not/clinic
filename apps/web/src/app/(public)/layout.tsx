@@ -3,6 +3,7 @@ import { PublicFooter, PublicHeader } from '@/components/public-chrome';
 import { getPublicClinicProfile } from '@/server/public-site';
 import './public.css';
 import './b2.css';
+import './request.css';
 
 export default async function PublicLayout({ children }: { children: ReactNode }) {
   const { data: clinic } = await getPublicClinicProfile();

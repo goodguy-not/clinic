@@ -8,6 +8,7 @@ import {
   getPublicTeam,
   getPublicTestimonials,
   getPublicTherapist,
+  submitPublicRequest,
 } from './public-site';
 
 afterEach(() => {
@@ -161,6 +162,77 @@ describe('public website reads', () => {
     await expect(getPublicService('temporarily-down')).resolves.toEqual({
       status: 'unavailable',
       data: null,
+    });
+  });
+});
+
+describe('public request write boundary', () => {
+  const submission = {
+    contactName: 'والد نمونه',
+    contactMobile: '09121234567',
+    serviceSlug: null,
+    childAgeYears: 13,
+    childSex: 'UNSPECIFIED' as const,
+    consent: true as const,
+    consentVersion: '2026-08-27' as const,
+  };
+
+  it('posts only to A3 with the internal key and parses the neutral success', async () => {
+    const fetchSpy = vi.fn(async () => Response.json({ received: true }, { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await expect(submitPublicRequest(submission, { clientIp: '203.0.113.10' })).resolves.toEqual({
+      ok: true,
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new URL(url).pathname).toBe('/public/requests');
+    expect(init.method).toBe('POST');
+    expect(init.cache).toBe('no-store');
+    const headers = init.headers as Headers;
+    expect(headers.get('x-internal-key')).toBeTruthy();
+    expect(headers.get('x-client-ip')).toBe('203.0.113.10');
+    expect(headers.has('x-session-id')).toBe(false);
+    expect(JSON.parse(String(init.body))).toEqual(submission);
+  });
+
+  it('keeps duplicate success indistinguishable and refuses widened success shapes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ received: true }, { status: 202 }))
+        .mockResolvedValueOnce(Response.json({ received: true, duplicate: true }, { status: 202 })),
+    );
+
+    await expect(submitPublicRequest(submission, { clientIp: null })).resolves.toEqual({
+      ok: true,
+    });
+    await expect(submitPublicRequest(submission, { clientIp: null })).resolves.toEqual({
+      ok: false,
+      reason: 'unavailable',
+    });
+  });
+
+  it.each([
+    [429, 'PUBLIC_REQUEST_THROTTLED', 'throttled'],
+    [404, 'SERVICE_NOT_FOUND', 'service-context'],
+    [400, 'VALIDATION_FAILED', 'invalid'],
+    [503, 'INTERNAL_ERROR', 'unavailable'],
+  ] as const)('maps %s/%s without leaking the API message', async (status, code, reason) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json(
+          { error: { code, message: 'internal detail', requestId: crypto.randomUUID() } },
+          { status },
+        ),
+      ),
+    );
+
+    await expect(submitPublicRequest(submission, { clientIp: null })).resolves.toEqual({
+      ok: false,
+      reason,
     });
   });
 });

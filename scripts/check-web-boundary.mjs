@@ -387,6 +387,9 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // testimonial text is passed in as serialisable public-contract data, while
   // the two clearly labelled development cards contain no clinic facts.
   'src/components/public-testimonial-grid.tsx',
+  // The public request needs transient selection-tray state, focus return and
+  // useActionState. The server-only action remains the sole API boundary.
+  'src/app/(public)/request/request-form.tsx',
   'src/app/(internal)/families/family-search.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.

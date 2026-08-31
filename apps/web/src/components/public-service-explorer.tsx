@@ -52,7 +52,7 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
               دیدن جزئیات
             </Link>
             <Link
-              href={`/contact?service=${encodeURIComponent(active.slug)}#request`}
+              href={`/request?service=${encodeURIComponent(active.slug)}`}
               className="public-focus public-button public-button--service"
             >
               درخواست ارزیابی

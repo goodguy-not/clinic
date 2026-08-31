@@ -144,9 +144,7 @@ export function EvaluationCallout({
   title?: string;
   serviceSlug?: string;
 }) {
-  const href = serviceSlug
-    ? `/contact?service=${encodeURIComponent(serviceSlug)}#request`
-    : '/contact#request';
+  const href = serviceSlug ? `/request?service=${encodeURIComponent(serviceSlug)}` : '/request';
 
   return (
     <aside className="b2-cta" aria-labelledby="b2-cta-title">

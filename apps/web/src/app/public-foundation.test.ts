@@ -82,11 +82,11 @@ describe('M9 B1 public boundary and interaction policy', () => {
 
     expect(chrome).not.toContain('href="/login"');
     expect(chrome).not.toContain('ورود کارکنان');
-    expect(chrome).toContain("const contactHref = '/contact#request'");
+    expect(chrome).toContain("const contactHref = '/request'");
     expect(chrome).toContain("const contactLabel = 'درخواست ارزیابی'");
     expect(chrome).not.toContain('درخواست پیگیری');
     expect(page).toContain('id="request"');
-    expect(page).toContain('فرم درخواست در مرحلهٔ بعد فعال می‌شود');
+    expect(page).toContain('href="/request"');
   });
 
   it('implements the corrected horizontal team track without autoplay', () => {

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { DevelopmentPhoto, PageHero, PublicPageEmpty } from '@/components/public-content';
 import { getPublicClinicProfile } from '@/server/public-site';
 
@@ -159,13 +160,13 @@ export default async function ContactPage() {
           <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
           <h2>ترجیح می‌دهید ما تماس بگیریم؟</h2>
           <p>
-            فرم درخواست ارزیابی در مرحلهٔ B3 فعال می‌شود. این صفحه فعلاً هیچ اطلاعاتی دریافت یا
-            ارسال نمی‌کند.
+            اطلاعات کوتاهی ثبت می‌شود، تیم والا آن را بررسی می‌کند و کلینیک برای هماهنگی قدم بعدی با
+            خانواده تماس می‌گیرد. این درخواست به معنی رزرو نوبت نیست.
           </p>
-          <div className="public-request__status" role="status">
-            <span aria-hidden="true" />
-            فرم هنوز فعال نشده است
-          </div>
+          <Link href="/request" className="public-focus public-button public-button--gold">
+            شروع درخواست ارزیابی
+            <span aria-hidden="true">←</span>
+          </Link>
         </div>
       </section>
     </main>

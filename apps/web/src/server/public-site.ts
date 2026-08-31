@@ -14,6 +14,8 @@ import {
   publicTeamResponseSchema,
   publicTestimonialListResponseSchema,
   publicTherapistProfileResponseSchema,
+  publicRequestSubmissionResponseSchema,
+  errorEnvelopeSchema,
   type PublicArticleDetail,
   type PublicArticleSummary,
   type PublicClinicProfile,
@@ -22,11 +24,19 @@ import {
   type PublicSitemapEntry,
   type PublicTestimonial,
   type PublicTherapistProfile,
+  type PublicRequestSubmission,
 } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 
 const PUBLIC_REVALIDATE_SECONDS = 15 * 60;
 const PUBLIC_REQUEST_TIMEOUT_MS = 5_000;
+
+export type PublicRequestWriteResult =
+  { ok: true } | { ok: false; reason: 'invalid' | 'service-context' | 'throttled' | 'unavailable' };
+
+type PublicVisitorContext = {
+  clientIp: string | null;
+};
 
 export type PublicRead<T> = { status: 'ready'; data: T } | { status: 'unavailable'; data: T };
 export type PublicDetailRead<T> =
@@ -251,4 +261,55 @@ export async function getPublicSitemap(): Promise<PublicRead<PublicSitemapEntry[
     { entries: [] },
   );
   return { status: result.status, data: result.data.entries };
+}
+
+/**
+ * The sole public write crosses the same server-only boundary as every public
+ * read. The browser never learns the NestJS address or internal key, and every
+ * successful response is parsed against A3's deliberately neutral shape.
+ */
+export async function submitPublicRequest(
+  body: PublicRequestSubmission,
+  context: PublicVisitorContext,
+): Promise<PublicRequestWriteResult> {
+  const { API_BASE_URL, INTERNAL_API_KEY } = loadServerEnv();
+  const headers = new Headers({
+    accept: 'application/json',
+    'content-type': 'application/json',
+    'x-internal-key': INTERNAL_API_KEY,
+    'x-request-id': randomUUID(),
+  });
+  if (context.clientIp !== null && context.clientIp !== '') {
+    headers.set('x-client-ip', context.clientIp);
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/public/requests`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(PUBLIC_REQUEST_TIMEOUT_MS),
+    });
+
+    if (response.ok) {
+      const parsed = publicRequestSubmissionResponseSchema.safeParse(await response.json());
+      return parsed.success ? { ok: true } : { ok: false, reason: 'unavailable' };
+    }
+
+    const envelope = errorEnvelopeSchema.safeParse(await response.json().catch(() => null));
+    const code = envelope.success ? envelope.data.error.code : null;
+    if (response.status === 429 && code === 'PUBLIC_REQUEST_THROTTLED') {
+      return { ok: false, reason: 'throttled' };
+    }
+    if (response.status === 404 && code === 'SERVICE_NOT_FOUND') {
+      return { ok: false, reason: 'service-context' };
+    }
+    if (response.status === 400 && code === 'VALIDATION_FAILED') {
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: false, reason: 'unavailable' };
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
 }

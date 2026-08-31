@@ -220,10 +220,10 @@ function EvaluationEntry({
             اطلاعات شما ثبت می‌شود، تیم والا آن را بررسی می‌کند و برای هماهنگی ارزیابی با خانواده
             تماس می‌گیرد. این کار به معنی رزرو یا تأیید نوبت نیست.
           </p>
-          <div className="public-request__status" role="status">
-            <span aria-hidden="true" />
-            فرم درخواست در مرحلهٔ بعد فعال می‌شود
-          </div>
+          <Link href="/request" className="public-focus public-button public-button--gold">
+            شروع درخواست ارزیابی
+            <span aria-hidden="true">←</span>
+          </Link>
         </div>
 
         <div id="contact" className="public-request__contact" aria-labelledby="contact-title">

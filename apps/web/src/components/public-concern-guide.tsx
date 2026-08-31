@@ -95,7 +95,7 @@ export function PublicConcernGuide({ cityLabel }: { cityLabel: string | null }) 
             <h2>{active.title}</h2>
             <p>{active.body}</p>
             <div className="public-answer__actions">
-              <a href="#request" className="public-focus public-button public-button--gold">
+              <a href="/request" className="public-focus public-button public-button--gold">
                 درخواست ارزیابی
                 <span aria-hidden="true">←</span>
               </a>

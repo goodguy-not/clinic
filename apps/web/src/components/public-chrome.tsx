@@ -37,7 +37,7 @@ export function PublicMark({
 }
 
 export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
-  const contactHref = '/contact#request';
+  const contactHref = '/request';
   const contactLabel = 'درخواست ارزیابی';
 
   return (
@@ -145,7 +145,7 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
           )}
           {clinic.cityLabel !== null ? <span>{clinic.cityLabel}</span> : null}
           {clinic.addressLine !== null ? <span>{clinic.addressLine}</span> : null}
-          <Link href="/contact#request" className="public-focus public-footer__cta">
+          <Link href="/request" className="public-focus public-footer__cta">
             درخواست ارزیابی
             <span aria-hidden="true">←</span>
           </Link>
