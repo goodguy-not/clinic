@@ -36,6 +36,9 @@ export async function AppHeader() {
   if (user.permissions.includes('family.read')) {
     links.push({ href: '/families', label: COPY.familiesTitle });
   }
+  if (user.permissions.includes('website_request.read')) {
+    links.push({ href: '/website-requests', label: COPY.websiteRequestsTitle });
+  }
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/reports', label: 'گزارش‌ها' });
   }

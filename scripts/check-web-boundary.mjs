@@ -391,6 +391,12 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // useActionState. The server-only action remains the sole API boundary.
   'src/app/(public)/request/request-form.tsx',
   'src/app/(internal)/families/family-search.tsx',
+  // Website-request conversion keeps the family search result and explicit
+  // selection in local state; the authorised server action owns every read.
+  'src/app/(internal)/website-requests/website-request-family-search.tsx',
+  // Terminal request actions use the browser's confirmation dialog only; the
+  // POST handler and backend remain authoritative for the actual mutation.
+  'src/app/(internal)/website-requests/confirmed-submit-button.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.
   'src/app/(internal)/reports/family-report-filter.tsx',

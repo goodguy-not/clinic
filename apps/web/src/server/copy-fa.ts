@@ -51,6 +51,7 @@ export const COPY = {
   dashboardNoAppointments: 'برای این روز نوبتی ثبت نشده است.',
   dashboardAttention: 'نیازمند پیگیری',
   dashboardAttentionClear: 'مورد باز یا خطای داده‌ای برای پیگیری وجود ندارد.',
+  dashboardWebsiteRequests: 'درخواست‌های جدید ارزیابی وب‌سایت',
   dashboardPromiseDueToday: 'قول پرداخت سررسید امروز',
   dashboardPromiseMissed: 'قول پرداخت عقب‌افتاده',
   dashboardMissingTariff: 'نوبت بدون تعرفهٔ قابل اعمال',
@@ -353,6 +354,7 @@ export const COPY = {
   // --- families and children -------------------------------------------------
 
   familiesTitle: 'خانواده‌ها',
+  websiteRequestsTitle: 'درخواست‌های ارزیابی وب‌سایت',
   familiesDescription: 'جست‌وجوی خانواده بر اساس نام، شمارهٔ تماس یا شمارهٔ پرونده.',
   familySearchLabel: 'جست‌وجو',
   familySearchHelp:

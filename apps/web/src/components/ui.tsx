@@ -343,6 +343,7 @@ export function ChoiceOption({
   badge,
   type = 'radio',
   defaultChecked = false,
+  required = false,
 }: {
   id: string;
   name: string;
@@ -358,6 +359,7 @@ export function ChoiceOption({
   badge?: ReactNode;
   type?: 'radio' | 'checkbox';
   defaultChecked?: boolean;
+  required?: boolean;
 }) {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3">
@@ -367,6 +369,7 @@ export function ChoiceOption({
         value={value}
         type={type}
         defaultChecked={defaultChecked}
+        required={required}
         className={`mt-1 size-4 shrink-0 accent-brand-700 ${FOCUS_RING}`}
       />
       <label htmlFor={id} className="flex flex-col gap-0.5">

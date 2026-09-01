@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { DuplicateCandidate } from '@clinic/contracts';
+import { z } from 'zod';
 import { api } from '@/server/api-client';
 import { readCsrfCookie, requireSession, readSessionToken } from '@/server/auth-session';
 import { readDraftToken } from '@/server/draft-cookie';
@@ -36,7 +37,11 @@ const CONFIRM_ACTION: Record<string, `/api/${string}`> = {
  * confirm/discard form actions, which is what keeps it out of the browser's
  * hands entirely.
  */
-export default async function ConfirmRegistrationPage() {
+export default async function ConfirmRegistrationPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireSession({ requirePermission: 'family.read' });
 
   const draftToken = await readDraftToken();
@@ -73,6 +78,12 @@ export default async function ConfirmRegistrationPage() {
   const draft = result.data;
   const isChild = draft.purpose === 'CHILD_CREATE' || draft.purpose === 'CHILD_UPDATE';
   const csrfToken = (await readCsrfCookie()) ?? '';
+  const query = await searchParams;
+  const rawRequestId = query['fromWebsiteRequest'];
+  const parsedRequestId = z
+    .uuid()
+    .safeParse(typeof rawRequestId === 'string' ? rawRequestId : undefined);
+  const websiteRequestId = parsedRequestId.success ? parsedRequestId.data : null;
 
   return (
     <>
@@ -84,6 +95,9 @@ export default async function ConfirmRegistrationPage() {
 
         <form method="post" action={CONFIRM_ACTION[draft.purpose]} className="flex flex-col gap-4">
           <input type="hidden" name="csrfToken" value={csrfToken} />
+          {websiteRequestId !== null ? (
+            <input type="hidden" name="websiteRequestId" value={websiteRequestId} />
+          ) : null}
 
           {draft.candidates.map((candidate) => (
             <CandidatePanel key={acknowledgementId(candidate)} candidate={candidate} />

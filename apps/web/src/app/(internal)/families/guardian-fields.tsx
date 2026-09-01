@@ -14,7 +14,13 @@ import { GUARDIAN_RELATIONSHIP_LABEL } from './relationship-labels';
  * exactly one can be checked across the whole form, and `required` on each
  * option enforces that one is chosen without any script.
  */
-export function GuardianFields({ guardians }: { guardians?: Guardian[] }) {
+export function GuardianFields({
+  guardians,
+  websiteContact,
+}: {
+  guardians?: Guardian[];
+  websiteContact?: { fullName: string; mobile: string };
+}) {
   const slots = Array.from({ length: GUARDIAN_SLOTS }, (_unused, index) => guardians?.[index]);
 
   return (
@@ -39,7 +45,7 @@ export function GuardianFields({ guardians }: { guardians?: Guardian[] }) {
                   type="text"
                   name={`guardian-${slot}-fullName`}
                   maxLength={120}
-                  defaultValue={guardian?.fullName ?? ''}
+                  defaultValue={guardian?.fullName ?? (slot === 1 ? websiteContact?.fullName : '')}
                   className={CONTROL_CLASS}
                 />
               </label>
@@ -92,7 +98,7 @@ export function GuardianFields({ guardians }: { guardians?: Guardian[] }) {
                   type="tel"
                   dir="ltr"
                   name={`guardian-${slot}-mobile`}
-                  defaultValue={guardian?.mobile ?? ''}
+                  defaultValue={guardian?.mobile ?? (slot === 1 ? websiteContact?.mobile : '')}
                   className={`${CONTROL_CLASS} text-start`}
                 />
               </label>
@@ -120,7 +126,9 @@ export function GuardianFields({ guardians }: { guardians?: Guardian[] }) {
                 name="primaryGuardian"
                 value={slot}
                 required
-                defaultChecked={guardian?.isPrimaryContact ?? false}
+                defaultChecked={
+                  guardian?.isPrimaryContact ?? (slot === 1 && websiteContact !== undefined)
+                }
                 className={`size-4 accent-brand-700 ${FOCUS_RING}`}
               />
               {COPY.guardianPrimaryLabel}

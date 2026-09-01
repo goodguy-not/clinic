@@ -10,6 +10,8 @@ import {
   sessionReportResponseSchema,
   promiseReportResponseSchema,
   therapistActivityResponseSchema,
+  websiteRequestDetailSchema,
+  websiteRequestInboxResponseSchema,
   appointmentDayResponseSchema,
   appointmentSeriesOperationResponseSchema,
   appointmentSeriesResponseSchema,
@@ -84,6 +86,11 @@ import {
   type TherapistActivityQuery,
   type TherapistActivityExportQuery,
   type TherapistActivityResponse,
+  type WebsiteRequestDetail,
+  type WebsiteRequestInboxQuery,
+  type WebsiteRequestInboxResponse,
+  type ChangeWebsiteRequestStatusRequest,
+  type LinkWebsiteRequestRequest,
   type ErrorCode,
   familyAccountResponseSchema,
   type FamilyAccountQuery,
@@ -563,6 +570,51 @@ export const api = {
 
     return call(`/dashboard${suffix}`, 'GET', dashboardResponseSchema, context);
   },
+
+  websiteRequestInbox: (
+    query: WebsiteRequestInboxQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestInboxResponse>> => {
+    const search = new URLSearchParams();
+    for (const status of query.statuses ?? []) search.append('statuses', status);
+    if (query.page !== undefined) search.set('page', String(query.page));
+    if (query.pageSize !== undefined) search.set('pageSize', String(query.pageSize));
+    const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+
+    return call(`/website-requests${suffix}`, 'GET', websiteRequestInboxResponseSchema, context);
+  },
+
+  getWebsiteRequest: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(`/website-requests/${encodeURIComponent(id)}`, 'GET', websiteRequestDetailSchema, context),
+
+  changeWebsiteRequestStatus: (
+    id: string,
+    body: ChangeWebsiteRequestStatusRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(
+      `/website-requests/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      websiteRequestDetailSchema,
+      context,
+      body,
+    ),
+
+  linkWebsiteRequest: (
+    id: string,
+    body: LinkWebsiteRequestRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(
+      `/website-requests/${encodeURIComponent(id)}/link`,
+      'POST',
+      websiteRequestDetailSchema,
+      context,
+      body,
+    ),
 
   login: (body: LoginRequest, context: CallerContext): Promise<ApiResult<LoginResponse>> =>
     call('/auth/login', 'POST', loginResponseSchema, context, body),

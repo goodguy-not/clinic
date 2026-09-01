@@ -79,6 +79,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResponse }) {
   const issueFree =
     dashboard.promises.dueTodayCount === 0 &&
     dashboard.promises.missedCount === 0 &&
+    dashboard.newWebsiteRequestCount === 0 &&
     dashboard.dataIssues.missingTariffCount === 0 &&
     dashboard.dataIssues.unchargedCompletedSessionCount === 0 &&
     appointment.unresolvedOutcomes === 0;
@@ -161,6 +162,11 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResponse }) {
             </div>
           ) : null}
           <ul className="grid list-none gap-2 p-0">
+            <AttentionRow
+              href="/website-requests?statuses=NEW"
+              label={COPY.dashboardWebsiteRequests}
+              value={dashboard.newWebsiteRequestCount}
+            />
             <AttentionRow
               href={dayHref}
               label={COPY.dashboardUnresolvedAppointments}

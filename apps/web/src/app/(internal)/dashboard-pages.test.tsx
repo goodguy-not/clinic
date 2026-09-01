@@ -137,6 +137,7 @@ describe('daily dashboard operational states', () => {
       ...own,
       appointments: { ...own.appointments, unresolvedOutcomes: 0 },
       availabilityOverrideCount: 1,
+      newWebsiteRequestCount: 0,
       promises: { dueTodayCount: 0, missedCount: 0 },
       dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
     });
@@ -163,6 +164,7 @@ describe('daily dashboard operational states', () => {
       },
       promises: { dueTodayCount: 0, missedCount: 0 },
       availabilityOverrideCount: 0,
+      newWebsiteRequestCount: 0,
       dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
       reconciliation: {
         ...own.reconciliation,
@@ -193,6 +195,14 @@ describe('daily dashboard operational states', () => {
     expect(pageSource).toContain('requirePermission: DASHBOARD_READ_PERMISSIONS');
     expect(pageSource).toContain('COPY.dashboardLoadFailure');
     expect(pageSource).toContain('COPY.dashboardRetry');
+  });
+
+  it('shows the authoritative new website-request count as a link to the inbox', () => {
+    const markup = render(own);
+
+    expect(markup).toContain(COPY.dashboardWebsiteRequests);
+    expect(markup).toContain('/website-requests?statuses=NEW');
+    expect(markup).toContain('>۲<');
   });
 });
 

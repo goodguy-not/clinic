@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(60);
-    expect(stateChangingHandlers.length).toBe(59);
+    expect(handlers.length).toBe(62);
+    expect(stateChangingHandlers.length).toBe(61);
   });
 
   it('exposes no catch-all route', () => {
@@ -152,6 +152,8 @@ describe('route handler inventory', () => {
       '/api/staff/role',
       '/api/staff/status',
       '/api/staff/unlock',
+      '/api/website-requests/link',
+      '/api/website-requests/status',
     ]);
   });
 });
@@ -284,7 +286,7 @@ describe('every Server Action authorises for itself', () => {
   it('enumerates the Server Action modules that exist', () => {
     // Stated as an exact count for the same reason the handler count is: a file
     // that stops being found must fail here rather than pass silently.
-    expect(serverActionModules).toHaveLength(3);
+    expect(serverActionModules).toHaveLength(4);
     expect(anonymousServerActions).toHaveLength(1);
   });
 
