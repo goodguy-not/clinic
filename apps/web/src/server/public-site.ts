@@ -96,7 +96,6 @@ async function readPublic<T>(
       headers: {
         accept: 'application/json',
         'x-internal-key': INTERNAL_API_KEY,
-        'x-request-id': randomUUID(),
       },
       cache: 'force-cache',
       next: { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [tag] },
@@ -127,7 +126,6 @@ async function readPublicDetail<T>(
       headers: {
         accept: 'application/json',
         'x-internal-key': INTERNAL_API_KEY,
-        'x-request-id': randomUUID(),
       },
       cache: 'force-cache',
       next: { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [tag] },
@@ -144,7 +142,9 @@ async function readPublicDetail<T>(
   }
 }
 
-export async function getPublicClinicProfile(): Promise<PublicRead<PublicClinicProfile>> {
+export const getPublicClinicProfile = cache(async function getPublicClinicProfile(): Promise<
+  PublicRead<PublicClinicProfile>
+> {
   const result = await readPublic(
     '/public/clinic-profile',
     publicClinicProfileResponseSchema,
@@ -153,7 +153,7 @@ export async function getPublicClinicProfile(): Promise<PublicRead<PublicClinicP
   );
 
   return { status: result.status, data: result.data.clinic };
-}
+});
 
 export async function getPublicHomeData(): Promise<PublicHomeData> {
   const [clinic, services, team] = await Promise.all([

@@ -62,6 +62,7 @@ describe('public website reads', () => {
       ]),
     );
     expect(calls.every(([, init]) => !('x-session-id' in (init.headers as object)))).toBe(true);
+    expect(calls.every(([, init]) => !('x-request-id' in (init.headers as object)))).toBe(true);
   });
 
   it('fails closed to deliberate empty public states', async () => {
@@ -191,6 +192,9 @@ describe('public request write boundary', () => {
     expect(init.cache).toBe('no-store');
     const headers = init.headers as Headers;
     expect(headers.get('x-internal-key')).toBeTruthy();
+    expect(headers.get('x-request-id')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
     expect(headers.get('x-client-ip')).toBe('203.0.113.10');
     expect(headers.has('x-session-id')).toBe(false);
     expect(JSON.parse(String(init.body))).toEqual(submission);
