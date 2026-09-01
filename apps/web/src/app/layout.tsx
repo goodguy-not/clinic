@@ -1,11 +1,15 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { publicSiteOrigin } from '@/env';
 import { COPY } from '@/server/copy-fa';
 import './globals.css';
 
-export const metadata: Metadata = {
-  title: COPY.appTitle,
-};
+export function generateMetadata(): Metadata {
+  return {
+    metadataBase: new URL(publicSiteOrigin()),
+    title: COPY.appTitle,
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',

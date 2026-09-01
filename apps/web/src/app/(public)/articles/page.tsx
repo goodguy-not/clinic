@@ -9,11 +9,13 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicArticles } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'خواندنی‌ها | والا',
   description: 'نوشته‌های عمومی و منتشرشدهٔ کلینیک توانبخشی والا.',
-};
+  path: '/articles',
+});
 
 export default async function ArticlesPage() {
   const read = await getPublicArticles();

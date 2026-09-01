@@ -8,14 +8,19 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicService, getPublicServices } from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const read = await getPublicService(slug);
-  if (read.status !== 'ready') return { title: 'خدمت | والا', robots: { index: false } };
-  return { title: `${read.data.name} | والا`, description: read.data.description ?? undefined };
+  if (read.status !== 'ready') return privatePublicMetadata('خدمت | والا');
+  return publicMetadata({
+    title: `${read.data.name} | والا`,
+    description: read.data.description,
+    path: `/services/${read.data.slug}`,
+  });
 }
 
 export default async function ServiceDetailPage({ params }: Props) {

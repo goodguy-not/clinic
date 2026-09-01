@@ -1763,13 +1763,14 @@ Never commit a real value for any of these. `.env` and `.env.local` are ignored;
 
 ### `apps/web` — `apps/web/.env.local`
 
-| Variable                | Required | Purpose                                                   |
-| ----------------------- | -------- | --------------------------------------------------------- |
-| `DEPLOYMENT_MODE`       | yes      | `production` or `non-production`. No default, by design.  |
-| `API_BASE_URL`          | yes      | Where NestJS listens.                                     |
-| `INTERNAL_API_KEY`      | yes      | Must match the API's value.                               |
-| `SESSION_COOKIE_SECRET` | yes      | HMAC key for the session and CSRF cookie signatures.      |
-| `WEB_ALLOWED_ORIGINS`   | yes      | Comma-separated exact origins. All `https` in production. |
+| Variable                | Required        | Purpose                                                       |
+| ----------------------- | --------------- | ------------------------------------------------------------- |
+| `DEPLOYMENT_MODE`       | yes             | `production` or `non-production`. No default, by design.      |
+| `API_BASE_URL`          | yes             | Where NestJS listens.                                         |
+| `INTERNAL_API_KEY`      | yes             | Must match the API's value.                                   |
+| `SESSION_COOKIE_SECRET` | yes             | HMAC key for the session and CSRF cookie signatures.          |
+| `WEB_ALLOWED_ORIGINS`   | yes             | Comma-separated exact origins. All `https` in production.     |
+| `PUBLIC_SITE_ORIGIN`    | production only | Owner-approved HTTPS origin for canonical and discovery URLs. |
 
 `DEPLOYMENT_MODE` is independent of `NODE_ENV` on purpose. `next start` forces
 `NODE_ENV=production` even when you are testing a production build over plain HTTP on a LAN,
@@ -1777,6 +1778,12 @@ and that is a non-production _deployment_. Tying cookie security to `NODE_ENV` w
 break that case or invite an override flag that eventually gets set on a real server.
 Nothing is exposed through `NEXT_PUBLIC_*`, and a boundary check fails the build if a
 `NEXT_PUBLIC_` variable ever names a secret.
+
+`PUBLIC_SITE_ORIGIN` must be a bare origin, must also appear in
+`WEB_ALLOWED_ORIGINS`, and cannot be localhost in a production deployment. For
+local/LAN work it may be omitted; the first allowed origin is then used only as
+the preview canonical. The final launch domain is an owner-supplied deployment
+value and must not be guessed in source control.
 
 ## Bootstrapping the first manager
 

@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import { DevelopmentPhoto, EvaluationCallout, PageHero } from '@/components/public-content';
 import { PublicSpaceTeaser } from '@/components/public-space-teaser';
 import { getPublicClinicProfile } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'دربارهٔ والا و فضاها | والا',
-  description: 'آشنایی با کلینیک توانبخشی والا و تجربهٔ تصویری فضاها.',
-};
+  description: 'معرفی عمومی منتشرشدهٔ کلینیک توانبخشی والا و راهنمای پیش از مراجعه.',
+  path: '/about',
+});
 
 export default async function AboutPage() {
   const clinic = await getPublicClinicProfile();

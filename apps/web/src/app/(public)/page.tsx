@@ -11,16 +11,17 @@ import { PublicConcernGuide } from '@/components/public-concern-guide';
 import { PublicServiceExplorer } from '@/components/public-service-explorer';
 import { PublicSpaceTeaser } from '@/components/public-space-teaser';
 import { PublicTeamTrack } from '@/components/public-team-track';
+import { publicMetadata } from '@/server/public-seo';
 import { getPublicHomeData, type PublicRead } from '@/server/public-site';
 
 export const revalidate = 900;
 
 export async function generateMetadata(): Promise<Metadata> {
-  return {
+  return publicMetadata({
     title: 'کلینیک توانبخشی والا',
     description: 'آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توانبخشی والا.',
-    robots: { index: true, follow: true },
-  };
+    path: '/',
+  });
 }
 
 export default async function PublicHomePage() {

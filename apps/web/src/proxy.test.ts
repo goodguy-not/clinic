@@ -149,6 +149,7 @@ describe('production over plain HTTP', () => {
   it('returns an explicit error rather than looping forever', () => {
     vi.stubEnv('DEPLOYMENT_MODE', 'production');
     vi.stubEnv('WEB_ALLOWED_ORIGINS', 'https://clinic.test');
+    vi.stubEnv('PUBLIC_SITE_ORIGIN', 'https://clinic.test');
 
     const response = proxy(get('http://clinic.test/login'));
 
@@ -161,6 +162,7 @@ describe('production over plain HTTP', () => {
   it('issues normally when the forwarded protocol is https', () => {
     vi.stubEnv('DEPLOYMENT_MODE', 'production');
     vi.stubEnv('WEB_ALLOWED_ORIGINS', 'https://clinic.test');
+    vi.stubEnv('PUBLIC_SITE_ORIGIN', 'https://clinic.test');
 
     const response = proxy(get('http://clinic.test/login', {}, { 'x-forwarded-proto': 'https' }));
 

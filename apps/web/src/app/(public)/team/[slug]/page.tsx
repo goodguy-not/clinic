@@ -8,14 +8,23 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicTeam, getPublicTherapist } from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const read = await getPublicTherapist(slug);
-  if (read.status !== 'ready') return { title: 'تیم درمان | والا', robots: { index: false } };
-  return { title: `${read.data.displayName} | والا`, description: read.data.bio ?? undefined };
+  if (read.status !== 'ready') return privatePublicMetadata('تیم درمان | والا');
+  return publicMetadata({
+    title: `${read.data.displayName} | والا`,
+    description:
+      read.data.bio ??
+      (read.data.title
+        ? `${read.data.displayName}، ${read.data.title} در تیم درمان والا.`
+        : undefined),
+    path: `/team/${read.data.slug}`,
+  });
 }
 
 export default async function TherapistPage({ params }: Props) {

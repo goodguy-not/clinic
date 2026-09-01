@@ -9,11 +9,13 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicServices } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'خدمات توانبخشی | والا',
   description: 'خدمات عمومی و منتشرشدهٔ کلینیک توانبخشی والا.',
-};
+  path: '/services',
+});
 
 export default async function ServicesPage() {
   const services = await getPublicServices();

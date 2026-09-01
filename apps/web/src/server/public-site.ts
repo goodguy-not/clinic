@@ -1,5 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { cache } from 'react';
 import {
   PUBLIC_CACHE_TAGS,
   PUBLIC_ARTICLE_CACHE_TAG_PREFIX,
@@ -182,7 +183,7 @@ export async function getPublicServices(): Promise<PublicRead<PublicServiceSumma
   return { status: result.status, data: result.data.services };
 }
 
-export async function getPublicService(
+export const getPublicService = cache(async function getPublicService(
   slug: string,
 ): Promise<PublicDetailRead<PublicServiceDetail>> {
   const result = await readPublicDetail(
@@ -193,7 +194,7 @@ export async function getPublicService(
   return result.status === 'ready'
     ? { status: 'ready', data: result.data.service }
     : { status: result.status, data: null };
-}
+});
 
 export async function getPublicTeam(): Promise<PublicRead<PublicTherapistProfile[]>> {
   const result = await readPublic(
@@ -207,7 +208,7 @@ export async function getPublicTeam(): Promise<PublicRead<PublicTherapistProfile
   return { status: result.status, data: result.data.therapists };
 }
 
-export async function getPublicTherapist(
+export const getPublicTherapist = cache(async function getPublicTherapist(
   slug: string,
 ): Promise<PublicDetailRead<PublicTherapistProfile>> {
   const result = await readPublicDetail(
@@ -218,7 +219,7 @@ export async function getPublicTherapist(
   return result.status === 'ready'
     ? { status: 'ready', data: result.data.therapist }
     : { status: result.status, data: null };
-}
+});
 
 export async function getPublicArticles(): Promise<PublicRead<PublicArticleSummary[]>> {
   const result = await readPublic(
@@ -230,7 +231,7 @@ export async function getPublicArticles(): Promise<PublicRead<PublicArticleSumma
   return { status: result.status, data: result.data.articles };
 }
 
-export async function getPublicArticle(
+export const getPublicArticle = cache(async function getPublicArticle(
   slug: string,
 ): Promise<PublicDetailRead<PublicArticleDetail>> {
   const result = await readPublicDetail(
@@ -241,7 +242,7 @@ export async function getPublicArticle(
   return result.status === 'ready'
     ? { status: 'ready', data: result.data.article }
     : { status: result.status, data: null };
-}
+});
 
 export async function getPublicTestimonials(): Promise<PublicRead<PublicTestimonial[]>> {
   const result = await readPublic(

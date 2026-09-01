@@ -9,11 +9,13 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicTeam } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'تیم درمان | والا',
   description: 'پروفایل‌های عمومی و با رضایت تیم درمان کلینیک توانبخشی والا.',
-};
+  path: '/team',
+});
 
 export default async function TeamPage() {
   const team = await getPublicTeam();

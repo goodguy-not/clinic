@@ -4,7 +4,7 @@ import { getPublicClinicProfile } from '@/server/public-site';
 
 export const metadata: Metadata = {
   title: 'درخواست شما ثبت شد | والا',
-  robots: { index: false, follow: false },
+  robots: { index: false, follow: false, nocache: true },
 };
 
 export default async function RequestReceivedPage() {

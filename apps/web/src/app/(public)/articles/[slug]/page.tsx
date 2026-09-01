@@ -8,14 +8,21 @@ import {
   toPersianNumber,
 } from '@/components/public-content';
 import { getPublicArticle, getPublicArticles } from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const read = await getPublicArticle(slug);
-  if (read.status !== 'ready') return { title: 'خواندنی‌ها | والا', robots: { index: false } };
-  return { title: `${read.data.title} | والا`, description: read.data.summary ?? undefined };
+  if (read.status !== 'ready') return privatePublicMetadata('خواندنی‌ها | والا');
+  return publicMetadata({
+    title: `${read.data.title} | والا`,
+    description: read.data.summary,
+    path: `/articles/${read.data.slug}`,
+    kind: 'article',
+    publishedTime: read.data.publishedAt,
+  });
 }
 
 export default async function ArticlePage({ params }: Props) {

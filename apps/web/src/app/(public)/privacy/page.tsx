@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'حریم خصوصی | والا',
   description: 'صفحهٔ اطلاع‌رسانی حریم خصوصی وب‌سایت والا.',
-  robots: { index: true, follow: true },
-};
+  path: '/privacy',
+});
 
 export default function PrivacyPage() {
   const sections = [

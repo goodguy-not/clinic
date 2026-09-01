@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
 import { RequestForm } from './request-form';
 import { getPublicService } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'درخواست ارزیابی | والا',
-  description: 'ثبت اطلاعات کوتاه برای بررسی تیم والا و هماهنگی قدم بعدی.',
-};
+  description:
+    'ثبت درخواست ارزیابی برای بررسی تیم والا و تماس جهت هماهنگی؛ این درخواست رزرو نوبت نیست.',
+  path: '/request',
+});
 
 type Props = { searchParams: Promise<{ service?: string | string[] }> };
 

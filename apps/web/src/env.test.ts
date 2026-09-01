@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadServerEnv, parseAllowedOrigins } from './env';
+import { loadServerEnv, parseAllowedOrigins, publicSiteOrigin } from './env';
 
 const validEnv = {
   NODE_ENV: 'test',
@@ -131,6 +131,7 @@ describe('loadServerEnv', () => {
         ...validEnv,
         DEPLOYMENT_MODE: 'production',
         WEB_ALLOWED_ORIGINS: 'https://clinic.test,https://www.clinic.test',
+        PUBLIC_SITE_ORIGIN: 'https://clinic.test',
       });
 
       expect(env.WEB_ALLOWED_ORIGINS).toContain('https://clinic.test');
@@ -138,6 +139,39 @@ describe('loadServerEnv', () => {
 
     it('allows http only in a non-production deployment', () => {
       expect(loadServerEnv(validEnv).WEB_ALLOWED_ORIGINS).toBe('http://localhost:3000');
+    });
+  });
+
+  describe('PUBLIC_SITE_ORIGIN', () => {
+    it('uses the first allowed origin only for non-production previews', () => {
+      expect(publicSiteOrigin(loadServerEnv(validEnv))).toBe('http://localhost:3000');
+    });
+
+    it('requires an owner-approved origin in production', () => {
+      expect(() =>
+        loadServerEnv({
+          ...validEnv,
+          DEPLOYMENT_MODE: 'production',
+          WEB_ALLOWED_ORIGINS: 'https://clinic.test',
+        }),
+      ).toThrow(/PUBLIC_SITE_ORIGIN/);
+    });
+
+    it('rejects localhost, paths, and an origin outside the CSRF allowlist', () => {
+      expect(() =>
+        loadServerEnv({
+          ...validEnv,
+          DEPLOYMENT_MODE: 'production',
+          WEB_ALLOWED_ORIGINS: 'https://localhost',
+          PUBLIC_SITE_ORIGIN: 'https://localhost',
+        }),
+      ).toThrow(/non-localhost/);
+      expect(() =>
+        loadServerEnv({ ...validEnv, PUBLIC_SITE_ORIGIN: 'http://localhost:3000/path' }),
+      ).toThrow(/bare origin/);
+      expect(() =>
+        loadServerEnv({ ...validEnv, PUBLIC_SITE_ORIGIN: 'https://clinic.test' }),
+      ).toThrow(/WEB_ALLOWED_ORIGINS/);
     });
   });
 });

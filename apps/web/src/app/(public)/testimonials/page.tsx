@@ -2,11 +2,13 @@ import type { Metadata } from 'next';
 import { EvaluationCallout, PageHero, PublicPageEmpty } from '@/components/public-content';
 import { PublicTestimonialGrid } from '@/components/public-testimonial-grid';
 import { getPublicTestimonials } from '@/server/public-site';
+import { publicMetadata } from '@/server/public-seo';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: 'تجربهٔ خانواده‌ها | والا',
   description: 'روایت‌های ناشناس، تأییدشده و منتشرشدهٔ همراهان والا.',
-};
+  path: '/testimonials',
+});
 
 export default async function TestimonialsPage() {
   const testimonials = await getPublicTestimonials();
