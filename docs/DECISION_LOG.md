@@ -4432,3 +4432,139 @@ no date range, no sort parameter, no free text.
 - **Revisit when:** the inbox grows past what a status filter and a page can
   navigate. That is a volume problem with its own answer, and a mobile-number
   search is not it.
+
+## 2026-09-08 — Milestone 9 closes on one tip, and the editorial forms it promised did not ship
+
+**Status:** Accepted — Milestone 9 closure
+
+The accepted backend tip `d70481a` is a strict ancestor of the accepted web tip
+`a8a3e90`; `git merge-base` returns `d70481a` itself and `a8a3e90..d70481a` is
+empty. There was never a second implementation to reconcile, so the two lanes are
+unified by fast-forward and the accepted Milestone 9 base is `a8a3e90`. No merge
+commit records work that nobody did.
+
+**The milestone did not deliver everything it promised.** The API owns the whole
+manager write side of public content — `POST/PATCH /content/articles`,
+`PATCH /content/articles/:id/publication`, the six `content/testimonials` routes,
+`PATCH /catalog/therapists/:id/public-profile` and its `visibility` sibling — and
+the six permissions `article.read/draft/publish` and
+`testimonial.read/draft/approve` are defined, role-mapped and tested. **The web
+tier has no screen for any of them.** There is no internal page and no route
+handler under `apps/web/src/app` that writes an article, a testimonial, a
+therapist public profile or the clinic profile. The only Milestone 9 internal UI
+that exists is the website-request inbox.
+
+The practical consequence is that a manager cannot publish a word of the public
+site from the product. Everything the public pages render today reaches the
+database through the development seeder or through a direct API call. Nothing is
+broken and nothing is unsafe — the authority model, the audit rows and the
+database constraints are all in place and all exercised — but the milestone's
+editorial promise is undelivered, not deferred by design.
+
+**That gap transfers to Milestone 9.5**, which exists for it. It is not a defect
+to be fixed inside Milestone 9, and Milestone 9 is not reopened to absorb it.
+
+- **Alternatives:** merge the two tips with a merge commit; hold Milestone 9 open
+  until the editorial forms exist; record the milestone as fully delivered.
+- **Reason:** a fast-forward is what the history actually is. Holding the
+  milestone open would misdate work that is genuinely finished, and recording it
+  as complete would put a false statement in the only place a later reader looks.
+- **Trade-off:** the milestone closes with a named hole in it. A closure record
+  that names its own gap is worth more than a tidy one that does not.
+- **Revisit when:** never for the ancestry. The gap is revisited by Milestone 9.5
+  delivering the forms.
+
+## 2026-09-08 — The public team is therapists only for the pilot
+
+**Status:** Accepted — Milestone 9 closure (owner decision)
+
+The public Team surface lists therapists and nobody else. Founder, manager and
+receptionist public profiles are explicitly deferred, not forgotten.
+
+No second public-person model is introduced to hold them. The opt-in that already
+exists — `therapist.is_public`, `therapist.publish_profile`, the public slug and
+the public profile columns on the personnel row — is the whole mechanism, and it
+is scoped to therapists because a therapist is the person a parent is choosing.
+
+- **Alternatives:** a general `public_person` table covering every role; publish
+  non-therapist staff through the existing therapist row.
+- **Reason:** a general model would be built now to satisfy a decision nobody has
+  taken, and publishing a non-therapist as a therapist would put a false
+  professional claim on a public page.
+- **Trade-off:** if the owner later decides the founder should appear, that is
+  new modelling work rather than a row insert.
+- **Revisit when:** the owner decides a non-therapist appears publicly. Until
+  that decision exists, no new public-person model is built.
+
+## 2026-09-08 — Uploaded media lives on an API-owned disk
+
+**Status:** Accepted — Milestone 9.5 / pilot (owner decision)
+
+NestJS owns the storage and the serving of uploaded media, on a persistent disk
+attached to the API. It is the same tier that already owns PostgreSQL, the domain
+rules and the audit trail, so an uploaded portrait is subject to the same
+authority checks as the row that names it.
+
+Media bytes do not go into PostgreSQL, and no external object storage is
+introduced.
+
+- **Alternatives:** `bytea` columns in PostgreSQL; S3-compatible object storage;
+  serving uploads from the Next.js tier.
+- **Reason:** byte columns make every backup and every migration carry the media,
+  and object storage adds a credential, a bill and a second availability
+  dependency to a single-clinic pilot. Serving from Next.js would put the web
+  tier in front of a store it does not own, against the architecture boundary.
+- **Trade-off:** the API becomes stateful beyond its database, so the disk has to
+  be provisioned and backed up deliberately, and horizontal scaling of the API is
+  no longer free.
+- **Revisit when:** a later infrastructure decision requires it — a second API
+  instance, a media volume that outgrows the disk, or a deployment target with no
+  persistent local storage.
+
+## 2026-09-08 — Editorial authority and operational authority are split
+
+**Status:** Accepted — Milestone 9.5 (owner decision)
+
+A receptionist may draft routine public service and therapist content under
+narrow editorial authority. **A manager alone publishes.** This extends the split
+Milestone 9 checkpoint A2 already froze for articles and testimonials —
+`article.draft` writes and `article.publish` publishes, held by different roles —
+to service and therapist public copy.
+
+Editorial authority is narrow by construction and stops at prose. It does not
+widen receptionist operational authority over service durations, active status,
+tariffs, availability, booking restrictions, or a therapist's public visibility
+opt-in. `therapist.publish_profile` in particular stays manager-only: deciding
+that a named colleague appears on a public website is a decision about that
+person, not a copy edit.
+
+- **Alternatives:** keep every public write manager-only; grant the receptionist
+  `service.update` and `therapist.update`.
+- **Reason:** the front desk hears what families actually ask and is the right
+  author of a first draft, but `service.update` and `therapist.update` also carry
+  duration, status and specialty — operational configuration that
+  PROJECT_SPEC.md 4 keeps away from that role. Draft authority must therefore be
+  its own name, not a widening of an existing one.
+- **Trade-off:** more permission names, and a manager is in the path of every
+  publication. That queue is the control.
+- **Revisit when:** the manager publish step is measurably the reason public copy
+  goes stale. The answer would be delegated publish authority with its own audit,
+  never a widened draft permission.
+
+## 2026-09-08 — Milestone 9.5 is a pre-pilot extension, and Milestone 10 is unchanged
+
+**Status:** Accepted — milestone boundary (owner decision)
+
+Milestone 9 remains closed and accepted at `a8a3e90`. Milestone 9.5 opens as the
+pre-pilot editorial and media extension: the internal editorial forms Milestone 9
+did not deliver, the receptionist draft authority above, and API-owned media
+upload and serving. Milestone 10 remains hardening, production and
+pilot-readiness work and absorbs none of this.
+
+- **Alternatives:** reopen Milestone 9; fold the editorial work into Milestone 10.
+- **Reason:** reopening a closed milestone destroys the meaning of closing one,
+  and folding editorial features into a hardening milestone would mean hardening a
+  surface that is still being designed.
+- **Trade-off:** a fractional milestone number, and one more boundary to hold.
+- **Revisit when:** Milestone 9.5 grows past the editorial and media scope named
+  here. Anything beyond it is Milestone 10's or a later milestone's.

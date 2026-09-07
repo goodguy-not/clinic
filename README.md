@@ -1746,6 +1746,307 @@ committed scope for a later milestone.
    test and the fix — read the instant from the database, as the fixtures already do
    (DECISION_LOG, 2026-08-06) — is left to whoever next touches that suite.
 
+## Therapist settlement (Milestone 8)
+
+What a completed session earned the therapist who delivered it, snapshotted at the
+moment it is decided and never recalculated afterwards. Settlement is **based on
+completed-session value regardless of whether or when the family pays**
+(CLAUDE.md), so nothing in this milestone reads a payment.
+
+```text
+GET  /settlement/share-rules                       the agreed percentages
+GET  /settlement/share-rule-resolution             which rule a date resolves to
+POST /settlement/share-rules                       write one
+POST /settlement/share-rules/{id}/void             withdraw one
+POST /settlement/session-charges/{id}/rating       decide one session
+GET  /settlement/session-charges/{id}/rating       read that decision
+POST /settlement/session-ratings/{id}/void         withdraw a decision
+POST /settlement/rating-corrections                void and replace, atomically
+GET  /settlement/statement                         a therapist, a date range
+GET  /settlement/statement/export                  CSV, audited
+POST /settlement/periods                           close a period, irreversibly
+GET  /settlement/periods                           what has been closed
+GET  /settlement/periods/{id}/lines                a closed period, line by line
+```
+
+### Scope, and what is deliberately absent
+
+Present: effective-dated share rules per therapist, a per-session settlement fact
+carrying the applied percentage as a snapshot, the therapist/clinic split of a
+session concession, a statement covering a therapist and a date range, its
+manager-only CSV, and irreversible period close with materialised lines.
+
+Absent, and each of these is a decision rather than an omission:
+
+- **no therapist-facing account, screen or permission.** A therapist cannot sign
+  in — there is no therapist portal in the initial scope (PROJECT_SPEC.md) — so a
+  permission naming them would describe a role that cannot log in. A therapist
+  sees their settlement because a manager shows it to them.
+- **no payment to the therapist.** The statement says what was earned. Money
+  leaving the clinic is not modelled anywhere in this product.
+- **no `therapist_share.update`.** A rule is never edited; a correction voids the
+  row and writes a replacement, exactly as a tariff does.
+- **no un-close.** A closed period is immutable and is never reopened, which is
+  why `settlement.close` is its own authority rather than a side effect of being
+  allowed to read a statement.
+- **no per-service or per-programme rate.** A share rule is scoped to the
+  therapist and to nothing else (DECISION_LOG, 2026-08-19).
+
+### Share rules
+
+A rule names a therapist, a percentage in basis points and an effective range. An
+exclusion constraint (`therapist_share_rule_no_overlap_excl`) makes overlapping
+ranges for one therapist impossible in the database rather than in a service, so
+"which rule applies on this date" always has exactly one answer or none. A rule
+may be written for an inactive therapist (DECISION_LOG, 2026-08-19), because
+settlement outlives employment.
+
+`SHARE_RULE_NOT_FOUND` is refused rather than defaulted. There is no fallback
+percentage anywhere: a share rule is the only source of settlement policy
+(DECISION_LOG, 2026-08-19).
+
+### The session settlement fact
+
+`session_settlement` records what one completed session earned, and it holds the
+applied percentage as a **snapshot** — not a foreign key that could be followed to
+a rule somebody later changed. It is bound to its charge by a composite foreign
+key over `(id, appointment_participant_id, therapist_id, service_date,
+amount_toman)`, so the charge's identifying facts cannot drift out from under the
+settlement that was computed from them.
+
+Voiding a charge leaves the applied share snapshot standing (DECISION_LOG,
+2026-08-19). The historical record of what was decided survives the correction of
+what it was decided about.
+
+### Concessions, and where the floor is
+
+A session discount may be borne entirely by the clinic, entirely by the therapist,
+or split (CLAUDE.md). The therapist-borne and clinic-borne amounts must sum to the
+family's total discount, and that is enforced by
+`enforce_charge_adjustment_bounds` and
+`enforce_session_settlement_allocation_guard` as database triggers, not as
+service-layer arithmetic.
+
+**Therapist net share is never negative and the family's effective charge is never
+negative.** **Clinic net may be negative**, and a negative clinic net is an
+explicit clinic subsidy that must stay visible in reports and fully audited
+(CLAUDE.md). For a therapist who does not participate in discounts, the
+therapist-borne amount is zero and the clinic bears the whole discount even when
+that makes clinic net negative.
+
+### Closing a period
+
+Closing materialises `settlement_line` rows — `PRIMARY` for each rated session and
+`CORRECTION` for each adjustment landing after an earlier close — and
+`settlement_line_one_primary_per_charge_uq` makes a second primary line for one
+charge impossible. A closed period is a record of what a close made final; nothing
+rewrites it (DECISION_LOG, 2026-08-19).
+
+### Permissions
+
+Seven manager-only names, and the receptionist holds none of them:
+`therapist_share.read`, `therapist_share.create`, `therapist_share.void`,
+`settlement.read`, `settlement.rate`, `settlement.void_rating`,
+`settlement.close`. Taking the statement out of the building is `settlement.read`
+**and** `report.export` — the Milestone 7 authority, not a second export name.
+
+### Persian pages
+
+`/settlements` lists therapists and their periods; `/settlements/{therapistId}` is
+the statement; `/settlements/periods/{id}` is a closed period line by line.
+
+### Database objects
+
+`therapist_share_rule` and `session_settlement` (Milestone 8's two facts),
+`settlement_period` and `settlement_line` (what a close materialises), the
+`session_rated_via` and `settlement_line_type` enums, two allocation triggers, and
+composite unique indexes on `session_charge` that exist only so the snapshot
+foreign keys above can be declared.
+
+## Public website (Milestone 9)
+
+The clinic's public site, the anonymous evaluation request behind it, and the
+internal inbox that answers one. This is the first surface in the product built
+for **people who are not its patients**, and the privacy consequences drive most
+of its design.
+
+```text
+GET  /public/services                     published services
+GET  /public/services/{slug}
+GET  /public/team                         therapists who opted in
+GET  /public/team/{slug}
+GET  /public/clinic-profile               address, telephone, hours
+GET  /public/articles                     published articles
+GET  /public/articles/{slug}
+GET  /public/testimonials                 approved and published
+GET  /public/sitemap                      kind and slug, never a path or a host
+POST /public/requests                     the anonymous evaluation request
+
+GET   /content/articles                   internal; drafts are unreadable elsewhere
+POST  /content/articles
+PATCH /content/articles/{id}
+PATCH /content/articles/{id}/publication
+GET   /content/testimonials
+POST  /content/testimonials
+PATCH /content/testimonials/{id}
+PATCH /content/testimonials/{id}/approval
+PATCH /content/testimonials/{id}/publication
+GET   /content/clinic-profile
+PATCH /catalog/therapists/{id}/public-profile
+PATCH /catalog/therapists/{id}/public-profile/visibility
+
+GET   /website-requests                   the inbox
+GET   /website-requests/{id}
+PATCH /website-requests/{id}/status
+POST  /website-requests/{id}/link         link to a family somebody registered
+```
+
+### Scope, and what is deliberately absent
+
+Present: the public read side, publication as two facts on the catalog row rather
+than a published copy of it, articles and testimonials as two tables that are not
+a CMS, the anonymous request with its abuse controls and consent columns, the
+inbox with its lifecycle and conversion, the ninety-day erasure command, and the
+public pages themselves in the frozen Hamrah visual direction.
+
+Absent, and each of these is a decision rather than an omission:
+
+- **no online booking and no online payment.** The public action registers
+  information; the clinic reviews it and contacts the family. It never implies a
+  booking and never promises a response time.
+- **no parent portal and no public account of any kind.** The public reads hold no
+  permissions and the public write creates no user.
+- **no internal identifier on any public contract.** The public projections are
+  purpose-built and carry slugs, never row ids (DECISION_LOG, 2026-08-21).
+- **no free-text search on the inbox.** Searching it by telephone number would
+  make it a way to ask "has this person contacted the clinic?" of a store the
+  clinic has promised to erase.
+- **no client metadata in the submission's audit row** — no IP address, no user
+  agent. The audit records the act and nothing else (DECISION_LOG, 2026-08-27).
+- **no `article.delete` and no `testimonial.delete`.** Published content is
+  withdrawn, not erased; the database refuses a DELETE on both tables.
+- **no CMS, no template system and no arbitrary content type.** Public copy is
+  plain text and the database refuses markup (DECISION_LOG, 2026-08-27).
+
+### Publication, and the opt-in
+
+A service is published by two facts on its catalog row — there is no published
+copy of it. A therapist is different: `therapist.is_public` is an **opt-in about a
+named human being**, taken with their agreement, which is why
+`therapist.publish_profile` is a separate authority from `therapist.update`.
+Anybody allowed to fix a misspelt specialty must not thereby be able to publish a
+colleague. Nothing falls back to the personnel record: a public therapist shows
+`public_display_name`, never `full_name` (DECISION_LOG, 2026-08-21).
+
+A published slug is immutable, and the first-published stamp is what decides
+(DECISION_LOG, 2026-08-21).
+
+### An article holds its copy twice
+
+`public_article` carries the draft copy and the published copy in separate
+columns, because publication authority cannot be represented once (DECISION_LOG,
+2026-08-27): somebody editing tomorrow's draft must not change what a visitor is
+reading today. A draft edit is therefore not a modification of the published page.
+A testimonial needs no such pair, and that asymmetry is deliberate.
+
+The audit records **that** public prose changed, not the prose (DECISION_LOG,
+2026-08-27).
+
+### The anonymous request
+
+`website_request` is the only purgeable table in the schema, and it is erased **in
+place** rather than deleted (DECISION_LOG, 2026-08-27) — a lifecycle row survives
+so that a colleague reading the inbox is told the content was erased rather than
+left to conclude the record was lost. Every inbox read is a discriminated union on
+`contentPurged`; there is no wire shape that can express "purged, and here is the
+telephone number".
+
+Consent is three columns and a frozen version list, not a boolean. Abuse control
+is a rolling duplicate window and a per-submitter throttle, both keyed-hashed and
+database-backed, and **nothing about a suppressed duplicate or a refused
+submission is observable to the caller** — the public response is the same either
+way. The duplicate identity is mobile, service, child age and child sex, and it is
+owner-approved and frozen.
+
+Child age is a whole-year triage value with the wide sanity bound `0..120`. It is
+**not** an eligibility rule.
+
+The ninety-day erasure is an operator command run against a deployed database with
+a `SYSTEM` actor and no session — which is why no permission names it.
+
+### Conversion
+
+Creating a family from a request is the **existing** registration workflow under
+the existing `family.create`, with its existing duplicate detection; the request
+is linked afterwards. There is no `website_request.convert`, because a second
+authority to create a family would be reachable from a screen where the duplicate
+check could be forgotten. Both end states of a request are final.
+
+### Permissions
+
+Manager-only: `therapist.publish_profile`, `clinic_profile.read`,
+`clinic_profile.update`, `article.publish`, `testimonial.approve`. Held by the
+receptionist as well: `article.read`, `article.draft`, `testimonial.read`,
+`testimonial.draft`, `website_request.read`, `website_request.process`. Linking a
+request additionally demands `family.read`, because it names a family and returns
+that family's name.
+
+Answering the clinic's contact form is front-desk work, exactly as the telephone
+is; a product where only the manager could return a parent's call would be one
+where nobody returns it.
+
+### Persian pages
+
+Public: `/`, `/services`, `/services/{slug}`, `/team`, `/team/{slug}`, `/about`,
+`/articles`, `/articles/{slug}`, `/testimonials`, `/contact`, `/privacy`,
+`/request` and `/request/received`, plus `/robots.txt` and `/sitemap.xml`. The
+public pages are Server Components; interactivity is limited to a small set of
+allow-listed, server-independent islands.
+
+Internal: `/website-requests` and `/website-requests/{id}`.
+
+### Database objects
+
+`clinic_public_profile` (one row, created empty), `public_article`,
+`public_testimonial`, `website_request`, the `testimonial_status`,
+`website_request_contact_time` and `website_request_status` enums, and public
+columns with their slug, length and publication-consistency checks on `service`
+and `therapist`.
+
+### What Milestone 9 did not deliver
+
+**The internal editorial forms.** The API owns the whole manager write side listed
+above, and the six `article.*` / `testimonial.*` permissions are defined,
+role-mapped and tested — but no screen in `apps/web` writes an article, a
+testimonial, a therapist public profile or the clinic profile. The only Milestone
+9 internal UI that exists is the website-request inbox.
+
+A manager therefore cannot publish a word of the public site from the product
+today; everything the public pages render reaches the database through the
+development seeder or a direct API call. Nothing is unsafe and nothing is broken —
+the authority model, the audit rows and the constraints are all in place and all
+exercised — but the promise is undelivered rather than deferred by design.
+
+**This gap transfers to Milestone 9.5**, the pre-pilot editorial and media
+extension, together with receptionist draft authority over routine public service
+and therapist copy, and API-owned media upload and serving. Milestone 9 is not
+reopened (DECISION_LOG, 2026-09-08).
+
+### Accepted risks and revisit triggers
+
+1. **All public photography is synthetic development material.** It lives under
+   `/public/dev/vala-synthetic` and every visible use is labelled as development
+   material rather than real people or spaces. Real owner-approved assets are a
+   launch prerequisite, not a code change.
+2. **The launch domain is an owner-supplied deployment value.**
+   `PUBLIC_SITE_ORIGIN` is required in production, must also appear in
+   `WEB_ALLOWED_ORIGINS`, and is deliberately not guessed in source control.
+3. **The public team lists therapists only.** Founder, manager and receptionist
+   public profiles are explicitly deferred, and no second public-person model
+   exists to hold them (DECISION_LOG, 2026-09-08).
+4. **Real public copy is owner-supplied.** Where approved wording has not arrived,
+   a page states a truthful boundary rather than filling the space.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the
