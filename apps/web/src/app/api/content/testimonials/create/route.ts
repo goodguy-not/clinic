@@ -2,7 +2,6 @@ import { type NextRequest, type NextResponse } from 'next/server';
 import { createTestimonialRequestSchema } from '@clinic/contracts';
 import { api } from '@/server/api-client';
 import { testimonialFormToRequest } from '@/server/content-forms';
-import { revalidateTestimonials } from '@/server/content-revalidation';
 import {
   failureRedirect,
   guardFailureResponse,
@@ -35,6 +34,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.createTestimonial(parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content/testimonials/new', result.code);
 
-  revalidateTestimonials();
   return secureRedirect(request, '/content?success=testimonial-created');
 }

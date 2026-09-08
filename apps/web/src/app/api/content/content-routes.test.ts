@@ -12,15 +12,9 @@ const mocks = vi.hoisted(() => ({
   updateTestimonial: vi.fn(),
   updateTestimonialApproval: vi.fn(),
   updateTestimonialPublication: vi.fn(),
-  revalidateArticle: vi.fn(),
-  revalidateTestimonials: vi.fn(),
 }));
 
 vi.mock('@/server/api-client', () => ({ api: mocks }));
-vi.mock('@/server/content-revalidation', () => ({
-  revalidateArticle: mocks.revalidateArticle,
-  revalidateTestimonials: mocks.revalidateTestimonials,
-}));
 
 import { POST as createArticle } from './articles/create/route';
 import { POST as publishArticle } from './articles/publication/route';
@@ -117,7 +111,6 @@ describe('content draft handlers', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(`${ORIGIN}/content?success=article-created`);
-    expect(mocks.revalidateArticle).toHaveBeenCalledWith(ARTICLE);
   });
 
   it('constructs testimonial drafts without accepting approval or publication flags', async () => {
@@ -134,7 +127,6 @@ describe('content draft handlers', () => {
       { authorLabel: null, body: 'نقل‌قول ساختگی' },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(mocks.revalidateTestimonials).toHaveBeenCalledOnce();
   });
 
   it('updates both draft kinds through their named endpoints', async () => {
@@ -200,7 +192,7 @@ describe('manager authority handlers', () => {
     );
   });
 
-  it('preserves the backend receptionist refusal and never invalidates public reads', async () => {
+  it('preserves the backend receptionist refusal', async () => {
     mocks.updateArticlePublication.mockResolvedValueOnce({ ok: false, code: 'AUTH_FORBIDDEN' });
     mocks.updateTestimonialApproval.mockResolvedValueOnce({ ok: false, code: 'AUTH_FORBIDDEN' });
 
@@ -213,8 +205,6 @@ describe('manager authority handlers', () => {
 
     expect(article.headers.get('location')).toBe(`${ORIGIN}/content?error=AUTH_FORBIDDEN`);
     expect(testimonial.headers.get('location')).toBe(`${ORIGIN}/content?error=AUTH_FORBIDDEN`);
-    expect(mocks.revalidateArticle).not.toHaveBeenCalled();
-    expect(mocks.revalidateTestimonials).not.toHaveBeenCalled();
   });
 
   it('rejects bad origin and malformed authority values before calling the API', async () => {

@@ -3,7 +3,6 @@ import { updateTestimonialApprovalRequestSchema } from '@clinic/contracts';
 import { z } from 'zod';
 import { api } from '@/server/api-client';
 import { explicitBoolean } from '@/server/content-forms';
-import { revalidateTestimonials } from '@/server/content-revalidation';
 import {
   failureRedirect,
   guardFailureResponse,
@@ -38,7 +37,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.updateTestimonialApproval(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content', result.code);
 
-  revalidateTestimonials();
   return secureRedirect(
     request,
     parsed.data.approved

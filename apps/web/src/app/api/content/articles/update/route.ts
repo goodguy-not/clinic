@@ -3,7 +3,6 @@ import { updateArticleRequestSchema } from '@clinic/contracts';
 import { z } from 'zod';
 import { api } from '@/server/api-client';
 import { articleFormToRequest } from '@/server/content-forms';
-import { revalidateArticle } from '@/server/content-revalidation';
 import {
   failureRedirect,
   guardFailureResponse,
@@ -36,6 +35,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.updateArticle(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content', result.code);
 
-  revalidateArticle(result.data.article);
   return secureRedirect(request, '/content?success=article-updated');
 }
