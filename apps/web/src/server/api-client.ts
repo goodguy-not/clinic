@@ -4,6 +4,8 @@ import {
   availabilityExceptionListResponseSchema,
   availabilityExceptionResponseSchema,
   availabilityWindowListResponseSchema,
+  articleListResponseSchema,
+  articleResponseSchema,
   dashboardResponseSchema,
   familyAccountReportResponseSchema,
   paymentReportResponseSchema,
@@ -40,6 +42,8 @@ import {
   tariffResponseSchema,
   therapistListResponseSchema,
   therapistResponseSchema,
+  testimonialListResponseSchema,
+  testimonialResponseSchema,
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
@@ -53,6 +57,8 @@ import {
   type AppointmentSeriesOperationResponse,
   type AppointmentSeriesResponse,
   type AppointmentViewResponse,
+  type ArticleListResponse,
+  type ArticleResponse,
   type CancelAppointmentRequest,
   type CancelAppointmentSeriesFromRequest,
   type ChildDetailResponse,
@@ -61,12 +67,14 @@ import {
   type CreateAvailabilityExceptionRequest,
   type CreateAppointmentRequest,
   type CreateAppointmentSeriesRequest,
+  type CreateArticleRequest,
   type CreateChildRequest,
   type CreateFamilyRequest,
   type CreateRoomRequest,
   type CreateServiceRequest,
   type CreateTariffRequest,
   type CreateTherapistRequest,
+  type CreateTestimonialRequest,
   type CreateUserRequest,
   type CreateUserResponse,
   type DashboardQuery,
@@ -131,12 +139,19 @@ import {
   type TariffResponse,
   type TherapistListResponse,
   type TherapistResponse,
+  type TestimonialListResponse,
+  type TestimonialResponse,
   type UpdateChildRequest,
   type UpdateFamilyRequest,
   type UpdateAppointmentSeriesFromRequest,
+  type UpdateArticlePublicationRequest,
+  type UpdateArticleRequest,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
   type UpdateTherapistRequest,
+  type UpdateTestimonialApprovalRequest,
+  type UpdateTestimonialPublicationRequest,
+  type UpdateTestimonialRequest,
   type UserListResponse,
   type UserResponse,
   type UserRole,
@@ -679,6 +694,106 @@ export const api = {
       'POST',
       revokeSessionsResponseSchema,
       context,
+    ),
+
+  // --- internal editorial workspace ---------------------------------------
+  //
+  // Draft and authority-changing calls stay as distinct named methods. The
+  // browser cannot smuggle `isPublic` or `approved` through a draft write, and
+  // there is no generic content proxy that could reach a route not listed here.
+
+  listArticles: (context: CallerContext): Promise<ApiResult<ArticleListResponse>> =>
+    call('/content/articles', 'GET', articleListResponseSchema, context),
+
+  getArticle: (id: string, context: CallerContext): Promise<ApiResult<ArticleResponse>> =>
+    call(`/content/articles/${encodeURIComponent(id)}`, 'GET', articleResponseSchema, context),
+
+  createArticle: (
+    body: CreateArticleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call('/content/articles', 'POST', articleResponseSchema, context, body),
+
+  updateArticle: (
+    id: string,
+    body: UpdateArticleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call(
+      `/content/articles/${encodeURIComponent(id)}`,
+      'PATCH',
+      articleResponseSchema,
+      context,
+      body,
+    ),
+
+  updateArticlePublication: (
+    id: string,
+    body: UpdateArticlePublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call(
+      `/content/articles/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      articleResponseSchema,
+      context,
+      body,
+    ),
+
+  listTestimonials: (context: CallerContext): Promise<ApiResult<TestimonialListResponse>> =>
+    call('/content/testimonials', 'GET', testimonialListResponseSchema, context),
+
+  getTestimonial: (id: string, context: CallerContext): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}`,
+      'GET',
+      testimonialResponseSchema,
+      context,
+    ),
+
+  createTestimonial: (
+    body: CreateTestimonialRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call('/content/testimonials', 'POST', testimonialResponseSchema, context, body),
+
+  updateTestimonial: (
+    id: string,
+    body: UpdateTestimonialRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTestimonialApproval: (
+    id: string,
+    body: UpdateTestimonialApprovalRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/approval`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTestimonialPublication: (
+    id: string,
+    body: UpdateTestimonialPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
     ),
 
   // --- clinic reference data -------------------------------------------------

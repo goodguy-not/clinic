@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(62);
-    expect(stateChangingHandlers.length).toBe(61);
+    expect(handlers.length).toBe(69);
+    expect(stateChangingHandlers.length).toBe(68);
   });
 
   it('exposes no catch-all route', () => {
@@ -113,6 +113,15 @@ describe('route handler inventory', () => {
       '/api/children/create',
       '/api/children/status',
       '/api/children/update',
+      // M9.5 B4 editorial writes. Draft writes cannot carry publication or
+      // approval fields; the three authority-changing acts have named routes.
+      '/api/content/articles/create',
+      '/api/content/articles/publication',
+      '/api/content/articles/update',
+      '/api/content/testimonials/approval',
+      '/api/content/testimonials/create',
+      '/api/content/testimonials/publication',
+      '/api/content/testimonials/update',
       '/api/families/confirm-registration',
       '/api/families/confirm-update',
       '/api/families/create',
