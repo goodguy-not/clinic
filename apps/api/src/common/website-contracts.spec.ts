@@ -49,7 +49,6 @@ describe('public website contracts', () => {
    */
   const emptyClinicProfile = (): Record<string, unknown> => ({
     ...Object.fromEntries(Object.keys(publicClinicProfileSchema.shape).map((key) => [key, null])),
-    spacePhotos: [],
   });
 
   describe('the projections are exactly these fields', () => {
@@ -117,11 +116,12 @@ describe('public website contracts', () => {
       expect(PUBLIC_SITEMAP_KINDS).toEqual(['service', 'therapist', 'article']);
     });
 
-    it('states thirteen owner-supplied facts about the clinic, and one gallery', () => {
-      // `spacePhotos` is the fourteenth key and the only one that is not
-      // owner-typed text: it is a projection of published media attachments,
-      // and it is an array rather than a nullable because an empty gallery is
-      // the normal state and is not an absence anybody has to render around.
+    it('states thirteen owner-supplied facts about the clinic, and nothing else', () => {
+      // NO GALLERY KEY. Milestone 9.5 can hold, attach, publish and serve a
+      // photograph of the clinic's own rooms, and deliberately does not decide
+      // where such photographs appear — that is public-space product design and
+      // belongs to the checkpoint that builds it. This assertion is what stops
+      // it being decided here by accident.
       expect(keysOf(publicClinicProfileSchema)).toEqual([
         'about',
         'addressLine',
@@ -133,7 +133,6 @@ describe('public website contracts', () => {
         'mapLongitude',
         'phonePrimary',
         'phoneSecondary',
-        'spacePhotos',
         'tagline',
         'telegramUrl',
         'workingHoursNote',
@@ -342,7 +341,7 @@ describe('public website contracts', () => {
   });
 
   describe('the clinic profile', () => {
-    it('reads as thirteen nulls and an empty gallery before the owner supplies anything', () => {
+    it('reads as thirteen nulls before the owner supplies anything', () => {
       expect(publicClinicProfileSchema.safeParse(emptyClinicProfile()).success).toBe(true);
     });
 

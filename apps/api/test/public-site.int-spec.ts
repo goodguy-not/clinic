@@ -388,13 +388,7 @@ describe('public website reads (real PostgreSQL)', () => {
       expect(response.status).toBe(200);
       const { clinic } = publicClinicProfileResponseSchema.parse(response.body);
 
-      // Milestone 9.5 adds one non-null key: the gallery is an empty ARRAY
-      // rather than a null, because an empty gallery is the normal state and is
-      // not an absence a page has to lay out around.
-      const { spacePhotos, ...ownerSupplied } = clinic;
-
-      expect(spacePhotos).toEqual([]);
-      expect(Object.values(ownerSupplied).every((value) => value === null)).toBe(true);
+      expect(Object.values(clinic).every((value) => value === null)).toBe(true);
     });
 
     it('returns exactly what the owner supplied, and nothing else', async () => {
@@ -427,9 +421,6 @@ describe('public website reads (real PostgreSQL)', () => {
         mapLongitude: 51.4,
         instagramUrl: 'https://example.invalid/instagram',
         telegramUrl: null,
-        // No clinic-space photograph has been published, so the gallery is
-        // empty. Nothing in this test touches the media subsystem.
-        spacePhotos: [],
       });
     });
   });

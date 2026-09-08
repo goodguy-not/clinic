@@ -153,27 +153,13 @@ export class ClinicProfileService {
 }
 
 /**
- * The profile as an audit payload: everything except the two telephone
- * numbers, and — since Milestone 9.5 — everything except the gallery.
+ * The profile as an audit payload: everything except the two telephone numbers.
  *
  * Written as an explicit destructure rather than a `delete`, so a column added
  * to the profile tomorrow arrives in the trail by default and a column that
  * must be withheld has to be withheld HERE, visibly, with a reason beside it.
- *
- * `spacePhotos` IS WITHHELD BECAUSE THIS WRITE PATH DOES NOT CHANGE IT. The
- * gallery is not a column on `clinic_public_profile` at all: it is a projection
- * of published `media_attachment` rows, changed by the media routes and audited
- * there as `media.published` and `media.unpublished`. Copying it into the
- * profile's trail would record a change that this act did not make, on every
- * unrelated edit of the address, and would do it in the one table that can
- * never be pruned.
  */
 function auditableProfile(profile: PublicClinicProfile): Record<string, string | number | null> {
-  const {
-    phonePrimary: _primary,
-    phoneSecondary: _secondary,
-    spacePhotos: _spacePhotos,
-    ...auditable
-  } = profile;
+  const { phonePrimary: _primary, phoneSecondary: _secondary, ...auditable } = profile;
   return auditable;
 }

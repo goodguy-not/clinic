@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { publicImageSchema } from '../media/common';
 
 /**
  * The clinic's own public profile: the narrow set of owner-supplied facts the
@@ -18,6 +17,17 @@ import { publicImageSchema } from '../media/common';
  * navigation, no SEO strings: those are content and design, they belong to the
  * checkpoints that build them, and inventing a column for each would freeze a
  * page layout in the database.
+ *
+ * AND NO PHOTOGRAPHS OF THE CLINIC'S ROOMS, DELIBERATELY, AFTER MILESTONE 9.5.
+ * The media subsystem can hold, attach, publish and serve a clinic-space
+ * photograph — `CLINIC_SPACE` is one of the four attachment targets, and the
+ * bytes are anonymously retrievable once a manager publishes the attachment.
+ * What is NOT decided is where those photographs appear, in what order, under
+ * what heading, and whether they belong to this profile at all rather than to a
+ * page of their own. That is public-space product design, it belongs to the
+ * checkpoint that builds it, and a `spacePhotos` array on this shape would have
+ * settled it here by accident — exactly the freezing this comment has warned
+ * about since Milestone 9 checkpoint A1.
  */
 export const publicClinicProfileSchema = z.strictObject({
   /** The name the clinic presents itself under, which need not be its legal name. */
@@ -47,31 +57,6 @@ export const publicClinicProfileSchema = z.strictObject({
   mapLongitude: z.number().min(-180).max(180).nullable(),
   instagramUrl: z.url().nullable(),
   telegramUrl: z.url().nullable(),
-  /**
-   * Photographs of the clinic's own rooms, in the clinic's own order.
-   *
-   * Milestone 9.5, checkpoint A5, and THE ONE FIELD ON THIS SHAPE THAT IS NOT
-   * OWNER-TYPED TEXT. It is here rather than on a separate read because these
-   * pictures are a fact about the clinic in exactly the way its address is, and
-   * a page that has to make two requests to lay out one section will eventually
-   * render half of it.
-   *
-   * ITS PUBLICATION RULE IS THE EXCEPTION IN THE MEDIA SUBSYSTEM, and the
-   * exception is honest. Every other public photograph hangs off a record that
-   * is itself either public or not; this one hangs off the clinic profile,
-   * which is a single row that is always live — editing it IS publishing
-   * (Milestone 9, checkpoint A2). So a clinic-space photograph is visible
-   * exactly while a manager has published its attachment, and manager authority
-   * over that attachment is the whole of the control. An empty array is the
-   * normal state and is not an error.
-   *
-   * NO PHOTOGRAPH OF A PERSON BELONGS HERE. This is rooms and equipment. A
-   * colleague's portrait is a decision about a named human being and lives on
-   * their own profile, behind their own permission; nothing in the schema can
-   * enforce the difference, which is why it is stated here and reviewed by the
-   * manager who publishes.
-   */
-  spacePhotos: z.array(publicImageSchema),
 });
 
 export type PublicClinicProfile = z.infer<typeof publicClinicProfileSchema>;

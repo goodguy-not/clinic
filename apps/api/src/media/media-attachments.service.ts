@@ -4,6 +4,7 @@ import type {
   CreateMediaAttachmentRequest,
   MediaAsset,
   MediaAttachmentOwner,
+  UpdateMediaFramingRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import { actorContext } from '../catalog/catalog-support';
@@ -20,6 +21,7 @@ import { MediaService } from './media.service';
  * boundary between them is the whole point of this file:
  *
  *   attach ......... `media.attach`  — receptionist. ALWAYS A DRAFT.
+ *   setFraming ..... `media.attach`  — receptionist, and REFUSED while published.
  *   detach ......... `media.attach`  — receptionist, and REFUSED while published.
  *   setPublished ... `media.publish` — manager. Both directions.
  *
@@ -49,6 +51,13 @@ import { MediaService } from './media.service';
  * saying "not this photograph, anywhere"; letting it be attached afterwards
  * would leave a page that silently becomes populated the moment somebody
  * restores it.
+ *
+ * `setFraming` IS THE NARROWEST WRITE IN THE SUBSYSTEM AND THE ONLY ONE THAT
+ * MOVES NO BYTE. Framing is a description of which part of an existing picture
+ * matters — it is never encoded into the pixels, no rendition is re-derived,
+ * and the master is not read, let alone rewritten. That is what makes
+ * "re-frame without re-uploading" true rather than merely convenient: there is
+ * no path from this method to the encoder at all.
  */
 @Injectable()
 export class MediaAttachmentsService {
@@ -158,6 +167,74 @@ export class MediaAttachmentsService {
           published: false,
         },
         after: { detached: true },
+      });
+
+      return attachment.media_asset_id;
+    });
+
+    return this.media.get(mediaId);
+  }
+
+  /**
+   * Re-frame this use of the photograph. Behind `media.attach`.
+   *
+   * NO BYTE MOVES. The stored renditions are the whole frame and stay the whole
+   * frame; these six numbers say which part of it matters, and the web tier
+   * applies them. Nothing here reads the master, nothing re-derives a rendition,
+   * and nothing can destroy the parts of the photograph outside the crop — which
+   * is the entire reason a crop is stored as a description rather than baked in.
+   * Re-framing is therefore reversible for ever, and re-framing a hundred times
+   * costs the same as re-framing once.
+   *
+   * REFUSED WHILE THE ATTACHMENT IS PUBLISHED, exactly as detaching is. A
+   * receptionist holding `media.attach` must not be able to change what is on a
+   * live page; a manager re-frames by unpublishing, re-framing and republishing,
+   * which is three audited acts instead of one silent one.
+   *
+   * THE CROP IS ALL-OR-NOTHING, and `media_attachment_crop_chk` says so in the
+   * database as well. Clearing it is `crop: null`, which is the normal state.
+   */
+  async setFraming(
+    attachmentId: string,
+    framing: UpdateMediaFramingRequest,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<MediaAsset> {
+    const mediaId = await this.prisma.$transaction(async (tx) => {
+      const attachment = await lockAttachment(tx, attachmentId);
+
+      if (attachment.published_at !== null) throw new AppError('MEDIA_ATTACHMENT_PUBLISHED');
+
+      const crop = framing.crop;
+
+      await tx.$executeRaw`
+        UPDATE media_attachment
+        SET focal_x = ${framing.focalX},
+            focal_y = ${framing.focalY},
+            crop_x = ${crop === null ? null : crop.x},
+            crop_y = ${crop === null ? null : crop.y},
+            crop_width = ${crop === null ? null : crop.width},
+            crop_height = ${crop === null ? null : crop.height}
+        WHERE id = ${attachmentId}::uuid
+      `;
+
+      // The framing itself is the audit payload, before and after. It is six
+      // small numbers describing a rectangle — no image content, nothing about
+      // a family, nothing that could not be read off the page — so unlike the
+      // other payloads in this module there is nothing here to reduce.
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'media.reframed',
+        entityType: 'media_attachment',
+        entityId: attachmentId,
+        before: framingAudit(attachment),
+        after: {
+          focalX: framing.focalX,
+          focalY: framing.focalY,
+          cropX: crop === null ? null : crop.x,
+          cropY: crop === null ? null : crop.y,
+          cropWidth: crop === null ? null : crop.width,
+          cropHeight: crop === null ? null : crop.height,
+        },
       });
 
       return attachment.media_asset_id;
@@ -333,7 +410,25 @@ type LockedAttachment = {
   owner_type: MediaAttachmentOwner;
   owner_id: string | null;
   published_at: Date | null;
+  focal_x: number;
+  focal_y: number;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_width: number | null;
+  crop_height: number | null;
 };
+
+/** The framing an audit row records as the state before a re-frame. */
+function framingAudit(row: LockedAttachment): Record<string, number | null> {
+  return {
+    focalX: row.focal_x,
+    focalY: row.focal_y,
+    cropX: row.crop_x,
+    cropY: row.crop_y,
+    cropWidth: row.crop_width,
+    cropHeight: row.crop_height,
+  };
+}
 
 /**
  * A detached attachment is `MEDIA_ATTACHMENT_NOT_FOUND`, the same as one that
@@ -345,7 +440,13 @@ async function lockAttachment(tx: Prisma.TransactionClient, id: string): Promise
     SELECT media_asset_id,
            owner_type::text AS owner_type,
            coalesce(therapist_id, article_id, testimonial_id) AS owner_id,
-           published_at
+           published_at,
+           focal_x,
+           focal_y,
+           crop_x,
+           crop_y,
+           crop_width,
+           crop_height
     FROM media_attachment
     WHERE id = ${id}::uuid AND detached_at IS NULL
     FOR UPDATE

@@ -338,6 +338,14 @@ export const AUDIT_ACTIONS = [
   'media.restored',
   'media.attached',
   'media.detached',
+  // Re-framing. A separate action from `media.attached` because it is a
+  // separate decision taken at a separate time — "this is the right photograph
+  // for this place" and "this is the part of it worth showing" — and because
+  // the payload is genuinely different: six numbers describing a rectangle.
+  //
+  // It records image COMPOSITION and never image CONTENT, so unlike most
+  // payloads in this application there is nothing to reduce before writing it.
+  'media.reframed',
   'media.published',
   'media.unpublished',
   'clinic_public_profile.updated',

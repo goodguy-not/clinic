@@ -3,6 +3,7 @@ import {
   MEDIA_ACCEPTED_CONTENT_TYPES,
   MEDIA_RENDITION_FORMATS,
   mediaAltTextSchema,
+  mediaFramingSchema,
 } from './common';
 import { publicMediaPathSchema } from '../website/common';
 
@@ -29,11 +30,21 @@ import { publicMediaPathSchema } from '../website/common';
  *
  * `CLINIC_SPACE` IS THE ONE WITH NO OWNER ROW, and the difference matters for
  * publication. The other three hang off a record that is itself either public
- * or not, so an image on them is visible only while that record is; the clinic
- * profile is a single row that is always live — editing it IS publishing
- * (Milestone 9, checkpoint A2) — so a clinic-space photograph is visible
+ * or not, so an image on them is visible only while that record is. A
+ * clinic-space photograph has no such record to hang off, so it is visible
  * exactly while its own attachment is published, and manager authority over
  * that attachment is the whole of the control.
+ *
+ * IT IS A SLOT, NOT A PRODUCT SURFACE, AND THE DIFFERENCE IS DELIBERATE. What
+ * Milestone 9.5 settles is that a photograph of the clinic's own rooms can be
+ * uploaded, attached, published by a manager and anonymously served — the same
+ * four gates as everything else, minus the owner gate that has no row to read.
+ * What it does NOT settle is where such photographs appear, in what order,
+ * under what heading, how many there may be, or whether they belong to a page
+ * of their own: NO PUBLIC PROJECTION IN THIS PRODUCT RETURNS THEM. That is
+ * public-space product design and belongs to the checkpoint that builds it,
+ * which is free to project these attachments however it decides without
+ * migrating anything here.
  */
 export const MEDIA_ATTACHMENT_OWNERS = [
   'THERAPIST_PROFILE',
@@ -100,6 +111,15 @@ export const mediaAttachmentSchema = z.strictObject({
   publishedAt: z.iso.datetime().nullable(),
   /** Whether the record this hangs off is itself public right now. Always true for `CLINIC_SPACE`. */
   ownerIsPublic: z.boolean(),
+  /**
+   * How this use of the photograph is framed. Always present; an unframed
+   * attachment carries `DEFAULT_MEDIA_FRAMING`.
+   *
+   * IT IS ON THE ATTACHMENT AND NOT ON THE ASSET, so the same master can be a
+   * wide banner in one place and a square tile in another. See
+   * `mediaFramingSchema` for why nothing here is ever encoded into the pixels.
+   */
+  framing: mediaFramingSchema,
 });
 
 export type MediaAttachment = z.infer<typeof mediaAttachmentSchema>;
@@ -135,6 +155,28 @@ export const mediaAssetSchema = z.strictObject({
   attachments: z.array(mediaAttachmentSchema),
   createdAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
+  /**
+   * When the stored bytes were physically erased, and NULL for as long as they
+   * are still held — which is every asset today.
+   *
+   * NOTHING IN THIS PRODUCT SETS IT YET, AND THAT IS THE POINT. The retention
+   * policy — how long the clinic keeps a photograph nobody publishes any more,
+   * and what starts the clock — is an owner decision nobody has taken, so there
+   * is no schedule, no duration, no route and no permission for erasure
+   * anywhere in this checkpoint.
+   *
+   * WHAT THIS FIELD BUYS IS THAT THE DECISION STAYS CHEAP. When it is taken, an
+   * erasure is an UPDATE that sets this and clears the storage keys, plus an
+   * unlink of the files — with no change to the media model, no new table and
+   * no rewriting of what is already stored. The alternative, discovered later,
+   * is a migration that makes a NOT NULL column nullable on a live table full
+   * of a clinic's photographs.
+   *
+   * IT IS THE `website_request.purgedAt` PATTERN, DELIBERATELY. The row that
+   * remains says a photograph existed and where it was used; the bytes it
+   * described are gone. `audit_log` keeps the acts and never held the content.
+   */
+  bytesPurgedAt: z.iso.datetime().nullable(),
 });
 
 export type MediaAsset = z.infer<typeof mediaAssetSchema>;
@@ -183,6 +225,24 @@ export const updateMediaPublicationRequestSchema = z.strictObject({
 });
 
 export type UpdateMediaPublicationRequest = z.infer<typeof updateMediaPublicationRequestSchema>;
+
+/**
+ * Re-framing. The narrowest write in the subsystem: no byte moves, no rendition
+ * is re-derived, and the master is untouched.
+ *
+ * BEHIND `media.attach` AND REFUSED WHILE THE ATTACHMENT IS PUBLISHED, which is
+ * exactly the rule detaching follows and for exactly the same reason: the
+ * weaker authority must not be able to change what is on a live page. A manager
+ * re-framing a published image unpublishes, re-frames and republishes — three
+ * audited acts rather than one silent one.
+ *
+ * REVISIT TRIGGER: if managers find that sequence painful in practice, the
+ * answer is a second route under `media.publish` that re-frames in place, not a
+ * relaxation of this one.
+ */
+export const updateMediaFramingRequestSchema = mediaFramingSchema;
+
+export type UpdateMediaFramingRequest = z.infer<typeof updateMediaFramingRequestSchema>;
 
 /** Archiving and restoring. Also the manager's, and also in both directions. */
 export const updateMediaArchiveRequestSchema = z.strictObject({

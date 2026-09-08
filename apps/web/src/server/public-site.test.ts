@@ -250,10 +250,6 @@ describe('public request write boundary', () => {
 
 function emptyClinic() {
   return {
-    // Milestone 9.5: the gallery is an empty ARRAY on a profile nobody has
-    // filled in, never a null. The strict projection refuses the fixture
-    // without it.
-    spacePhotos: [],
     displayName: null,
     tagline: null,
     about: null,

@@ -524,27 +524,48 @@ describe('anonymous media access (real PostgreSQL)', () => {
       expect(article.article.images.map((image) => image.mediaId)).toEqual([second.id, first.id]);
     }, 60_000);
 
-    it('puts published clinic-space photographs on the clinic profile', async () => {
+    /**
+     * `CLINIC_SPACE` IS A SLOT, AND THIS TEST IS DELIBERATELY ABOUT BYTES RATHER
+     * THAN ABOUT A PAGE.
+     *
+     * Milestone 9.5 settles that a photograph of the clinic's own rooms goes
+     * through the same gates as every other photograph, minus the owner gate
+     * that has no row to read: unpublished is refused, published is served, and
+     * unpublishing refuses again at once. It deliberately does NOT settle where
+     * such photographs appear, in what order, or under what heading — that is
+     * public-space product design and belongs to the checkpoint that builds it.
+     *
+     * NO PUBLIC PROJECTION RETURNS THEM, and the assertion below that the clinic
+     * profile is unchanged is what keeps that true: a later checkpoint is free
+     * to project these attachments however it decides, and until it does, this
+     * checkpoint has frozen nothing about the page.
+     */
+    it('serves a published clinic-space photograph, and projects it onto no page', async () => {
       const asset = await uploadPhoto(harness, receptionist);
 
       const attached = await attach(asset.id, { ownerType: 'CLINIC_SPACE', ownerId: null });
       const attachmentId = mediaAssetResponseSchema.parse(attached.body).media.attachments[0]!.id;
 
-      // Before publication: the gallery is empty and the bytes are refused,
-      // even though there is no owner row that could be unpublished.
-      let clinic = publicClinicProfileResponseSchema.parse(
-        (await request(server()).get('/public/clinic-profile').set(asVisitor())).body,
-      );
-      expect(clinic.clinic.spacePhotos).toEqual([]);
+      // Before publication: refused, even though there is no owner row that
+      // could have been unpublished. The manager's decision is the whole gate.
       expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(404);
 
       await setPublished(attachmentId, true);
+      expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(200);
 
-      clinic = publicClinicProfileResponseSchema.parse(
+      // Unpublishing is immediate at the origin, exactly as everywhere else.
+      await setPublished(attachmentId, false);
+      expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(404);
+
+      // AND THE CLINIC PROFILE IS UNTOUCHED BY ANY OF IT. Thirteen owner-typed
+      // facts, no gallery key, nothing about media at all.
+      await setPublished(attachmentId, true);
+      const clinic = publicClinicProfileResponseSchema.parse(
         (await request(server()).get('/public/clinic-profile').set(asVisitor())).body,
       );
-      expect(clinic.clinic.spacePhotos.map((image) => image.mediaId)).toEqual([asset.id]);
-      expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(200);
+
+      expect(Object.keys(clinic.clinic)).not.toContain('spacePhotos');
+      expect(Object.values(clinic.clinic).every((value) => value === null)).toBe(true);
     }, 60_000);
 
     it('puts a published photograph on an approved testimonial and nowhere else', async () => {

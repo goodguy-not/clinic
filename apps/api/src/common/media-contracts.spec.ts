@@ -1,4 +1,7 @@
 import {
+  DEFAULT_MEDIA_FRAMING,
+  mediaFramingSchema,
+  updateMediaFramingRequestSchema,
   MEDIA_ACCEPTED_CONTENT_TYPES,
   MEDIA_ASSET_STATUSES,
   MEDIA_ATTACHMENT_OWNERS,
@@ -44,6 +47,7 @@ describe('media contracts', () => {
     it('states five facts about a published photograph, and no internal one', () => {
       expect(keysOf(publicImageSchema)).toEqual([
         'alt',
+        'framing',
         'height',
         'mediaId',
         'renditions',
@@ -128,6 +132,7 @@ describe('media contracts', () => {
           'renditions',
           'sourceByteSize',
           'sourceContentType',
+          'bytesPurgedAt',
           'status',
           'width',
           'height',
@@ -141,6 +146,7 @@ describe('media contracts', () => {
       // library shows them apart so a colleague can tell WHICH gate is closed.
       expect(keysOf(mediaAttachmentSchema)).toEqual([
         'attachedAt',
+        'framing',
         'id',
         'ownerId',
         'ownerIsPublic',
@@ -184,6 +190,73 @@ describe('media contracts', () => {
 
     it('asks an upload for an alt text and nothing else', () => {
       expect(keysOf(mediaUploadFieldsSchema)).toEqual(['altText']);
+    });
+  });
+
+  /**
+   * FRAMING IS A DESCRIPTION, AND THESE ASSERTIONS ARE WHAT KEEP IT ONE.
+   *
+   * The product rule is that framing can change without re-uploading, cannot
+   * destroy the master, and can be previewed live by the web tier. All three
+   * follow from one property: the numbers are normalised fractions that no
+   * encoder ever reads. What is pinned here is the SHAPE — fractions, bounded,
+   * inside the frame, all-or-nothing; `media-framing.int-spec.ts` pins the
+   * behaviour against a real database and real files.
+   */
+  describe('framing', () => {
+    const frame = (overrides: Record<string, unknown> = {}) => ({
+      focalX: 0.5,
+      focalY: 0.5,
+      crop: null,
+      ...overrides,
+    });
+
+    it('defaults to the centre of the frame with no crop', () => {
+      // What an unframed image means, and it is exactly what a browser does to
+      // an image nobody has framed — so an attachment nobody touches behaves as
+      // it always did.
+      expect(DEFAULT_MEDIA_FRAMING).toEqual({ focalX: 0.5, focalY: 0.5, crop: null });
+      expect(mediaFramingSchema.safeParse(DEFAULT_MEDIA_FRAMING).success).toBe(true);
+    });
+
+    it('is fractions of the frame and refuses anything outside it', () => {
+      // Pixels would mean something different on each of the five rendition
+      // widths, so a crop chosen against one would be wrong on the rest.
+      expect(mediaFramingSchema.safeParse(frame({ focalX: 0, focalY: 1 })).success).toBe(true);
+      expect(mediaFramingSchema.safeParse(frame({ focalX: -0.01 })).success).toBe(false);
+      expect(mediaFramingSchema.safeParse(frame({ focalY: 1.01 })).success).toBe(false);
+      expect(mediaFramingSchema.safeParse(frame({ focalX: 640 })).success).toBe(false);
+    });
+
+    it('accepts a crop that lies inside the frame and refuses one that runs off it', () => {
+      expect(
+        mediaFramingSchema.safeParse(frame({ crop: { x: 0.25, y: 0, width: 0.5, height: 1 } }))
+          .success,
+      ).toBe(true);
+      expect(
+        mediaFramingSchema.safeParse(frame({ crop: { x: 0.6, y: 0, width: 0.5, height: 1 } }))
+          .success,
+      ).toBe(false);
+      // A zero-area crop is an invisible image, which is never what somebody
+      // dragging a handle meant.
+      expect(
+        mediaFramingSchema.safeParse(frame({ crop: { x: 0, y: 0, width: 0, height: 1 } })).success,
+      ).toBe(false);
+    });
+
+    it('treats a crop as one indivisible fact', () => {
+      // A rectangle with a width and no origin is not a partly specified crop,
+      // it is a bug that renders full-frame on one page and a sliver on another.
+      expect(
+        mediaFramingSchema.safeParse(frame({ crop: { x: 0, y: 0, width: 0.5 } })).success,
+      ).toBe(false);
+    });
+
+    it('is the whole of the re-framing request, so no other state can ride along', () => {
+      // Re-framing must not be able to publish, detach, reposition or re-point
+      // an attachment. The request carrying nothing but framing is that promise
+      // as a shape.
+      expect(keysOf(updateMediaFramingRequestSchema)).toEqual(['crop', 'focalX', 'focalY']);
     });
   });
 

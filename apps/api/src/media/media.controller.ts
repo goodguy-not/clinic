@@ -15,12 +15,14 @@ import {
   createMediaAttachmentRequestSchema,
   mediaUploadFieldsSchema,
   updateMediaArchiveRequestSchema,
+  updateMediaFramingRequestSchema,
   updateMediaPublicationRequestSchema,
   type CreateMediaAttachmentRequest,
   type MediaAssetListResponse,
   type MediaAssetResponse,
   type MediaUploadFields,
   type UpdateMediaArchiveRequest,
+  type UpdateMediaFramingRequest,
   type UpdateMediaPublicationRequest,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../auth/decorators/endpoint-access';
@@ -33,7 +35,7 @@ import { MediaUploadInterceptor, type UploadedImage } from './media-upload.inter
 import { MediaService } from './media.service';
 
 /**
- * The staff media library. SEVEN ROUTES, FOUR PERMISSIONS, AND NOTHING PUBLIC.
+ * The staff media library. EIGHT ROUTES, FOUR PERMISSIONS, AND NOTHING PUBLIC.
  *
  * Milestone 9.5, checkpoint A5.
  *
@@ -52,6 +54,7 @@ import { MediaService } from './media.service';
  *   GET    /media/:id                      media.read
  *   POST   /media                          media.upload
  *   POST   /media/:id/attachments          media.attach     (always a draft)
+ *   PATCH  /media/attachments/:id/framing  media.attach     (refused if published)
  *   DELETE /media/attachments/:id          media.attach     (refused if published)
  *   PATCH  /media/attachments/:id/publication   media.publish
  *   PATCH  /media/:id/archive                   media.publish
@@ -93,6 +96,30 @@ export class MediaController {
     @Ctx() context: RequestContext,
   ): Promise<MediaAssetResponse> {
     return { media: await this.attachments.detach(attachmentId, session, context) };
+  }
+
+  /**
+   * Re-frame this use of the photograph: move the subject, draw or clear a crop.
+   *
+   * THE ONLY WRITE IN THIS CONTROLLER THAT MOVES NO BYTE. Framing is stored as a
+   * description of which part of the existing frame matters, so this changes six
+   * numbers on one row: no re-upload, no re-derivation, and no possibility of
+   * destroying the parts of the photograph outside the crop. It is also why the
+   * web tier can preview a crop live — applying a normalised rectangle is CSS,
+   * not a request.
+   *
+   * `media.attach`, and refused while the attachment is published, exactly as
+   * detaching is: the weaker authority must not change a live page.
+   */
+  @Patch('attachments/:attachmentId/framing')
+  @RequirePermissions('media.attach')
+  async setFraming(
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @Body(new ZodBodyPipe(updateMediaFramingRequestSchema)) body: UpdateMediaFramingRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<MediaAssetResponse> {
+    return { media: await this.attachments.setFraming(attachmentId, body, session, context) };
   }
 
   /** The manager act: this photograph, in this place, may be seen. */

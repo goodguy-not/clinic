@@ -18,6 +18,7 @@ import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { deriveMedia } from './image-processing';
 import { assetIsPubliclyServed } from './media-visibility';
+import { toFraming } from './public-media.service';
 import { MediaStorageService } from './media-storage.service';
 
 /**
@@ -255,6 +256,12 @@ export class MediaService {
              ma.position,
              ma.attached_at,
              ma.published_at,
+             ma.focal_x,
+             ma.focal_y,
+             ma.crop_x,
+             ma.crop_y,
+             ma.crop_width,
+             ma.crop_height,
              (${OWNER_IS_PUBLIC}) AS owner_is_public
       FROM media_attachment ma
       WHERE ma.media_asset_id = ANY (${ids}::uuid[]) AND ma.detached_at IS NULL
@@ -279,6 +286,7 @@ export class MediaService {
         .map(toAttachment),
       createdAt: asset.created_at.toISOString(),
       archivedAt: asset.archived_at === null ? null : asset.archived_at.toISOString(),
+      bytesPurgedAt: asset.bytes_purged_at === null ? null : asset.bytes_purged_at.toISOString(),
     }));
   }
 }
@@ -319,6 +327,7 @@ const ASSET_COLUMNS = Prisma.sql`
   a.master_height,
   a.created_at,
   a.archived_at,
+  a.bytes_purged_at,
   (${assetIsPubliclyServed('a')}) AS is_publicly_served
 `;
 
@@ -333,6 +342,7 @@ type AssetRow = {
   master_height: number;
   created_at: Date;
   archived_at: Date | null;
+  bytes_purged_at: Date | null;
   is_publicly_served: boolean;
 };
 
@@ -354,6 +364,12 @@ type AttachmentRow = {
   position: number;
   attached_at: Date;
   published_at: Date | null;
+  focal_x: number;
+  focal_y: number;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_width: number | null;
+  crop_height: number | null;
   owner_is_public: boolean;
 };
 
@@ -378,5 +394,6 @@ function toAttachment(row: AttachmentRow): MediaAttachment {
     attachedAt: row.attached_at.toISOString(),
     publishedAt: row.published_at === null ? null : row.published_at.toISOString(),
     ownerIsPublic: row.owner_is_public,
+    framing: toFraming(row),
   };
 }

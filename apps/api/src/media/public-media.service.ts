@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   PUBLIC_MEDIA_PATH_PREFIX,
   type MediaAttachmentOwner,
+  type MediaFraming,
   type MediaRenditionFormat,
   type PublicImage,
 } from '@clinic/contracts';
@@ -67,6 +68,12 @@ export class PublicMediaService {
       JOIN media_asset a ON a.id = r.media_asset_id
       WHERE r.id = ${renditionId}::uuid
         AND a.status = 'ACTIVE'
+        -- Erased bytes are refused here rather than at the file read, so a
+        -- future retention policy takes effect through the SAME predicate
+        -- everything else does. Nothing writes these markers today.
+        AND a.bytes_purged_at IS NULL
+        AND r.bytes_purged_at IS NULL
+        AND r.storage_key IS NOT NULL
         AND EXISTS (
           SELECT 1
           FROM media_attachment ma
@@ -82,7 +89,9 @@ export class PublicMediaService {
       format: row.format,
       byteSize: row.byte_size,
       contentHash: row.content_hash,
-      bytes: await this.storage.read(row.storage_key),
+      // Non-null by the predicate above: a NULL key means erased, and an erased
+      // rendition never reaches this line.
+      bytes: await this.storage.read(row.storage_key as string),
     };
   }
 
@@ -130,6 +139,12 @@ export class PublicMediaService {
                ma.therapist_id, ma.article_id, ma.testimonial_id, ${CLINIC_SPACE_KEY}::uuid
              ) AS owner_key,
              ma.position,
+             ma.focal_x,
+             ma.focal_y,
+             ma.crop_x,
+             ma.crop_y,
+             ma.crop_width,
+             ma.crop_height,
              a.id AS media_id,
              a.alt_text,
              r.id AS rendition_id,
@@ -140,7 +155,9 @@ export class PublicMediaService {
       FROM media_attachment ma
       JOIN media_asset a ON a.id = ma.media_asset_id AND a.status = 'ACTIVE'
       JOIN media_rendition r ON r.media_asset_id = a.id
-      WHERE ma.owner_type = ${ownerType}::media_attachment_owner
+        AND r.bytes_purged_at IS NULL
+      WHERE a.bytes_purged_at IS NULL
+        AND ma.owner_type = ${ownerType}::media_attachment_owner
         AND ${ownerNarrowing}
         AND ${LIVE_ATTACHMENT_PREDICATE}
       ORDER BY ma.position, ma.id, r.width, r.format
@@ -168,6 +185,10 @@ export class PublicMediaService {
           width: row.width,
           height: row.height,
           renditions: [rendition],
+          // Framing travels with the image because it belongs to THIS use of
+          // it. The same master under a different attachment carries different
+          // numbers, and the renditions are identical in both.
+          framing: toFraming(row),
         });
         byOwner.set(row.owner_key, images);
         continue;
@@ -185,11 +206,6 @@ export class PublicMediaService {
     }
 
     return byOwner;
-  }
-
-  /** The clinic's own rooms. One owner with no id; see `imagesForOwners`. */
-  async clinicSpaceImages(tx?: Prisma.TransactionClient): Promise<PublicImage[]> {
-    return (await this.imagesForOwners('CLINIC_SPACE', [], tx)).get(CLINIC_SPACE_KEY) ?? [];
   }
 }
 
@@ -221,6 +237,12 @@ type ServableRenditionRow = {
 type OwnerImageRow = {
   owner_key: string;
   position: number;
+  focal_x: number;
+  focal_y: number;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_width: number | null;
+  crop_height: number | null;
   media_id: string;
   alt_text: string;
   rendition_id: string;
@@ -229,3 +251,38 @@ type OwnerImageRow = {
   height: number;
   byte_size: number;
 };
+
+/**
+ * The six framing columns as the one shape both tiers agree on.
+ *
+ * The crop is present only when all four of its columns are — which
+ * `media_attachment_crop_chk` already guarantees, so the check here is a
+ * narrowing for TypeScript rather than a second rule.
+ */
+export function toFraming(row: {
+  focal_x: number;
+  focal_y: number;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_width: number | null;
+  crop_height: number | null;
+}): MediaFraming {
+  const cropped =
+    row.crop_x !== null &&
+    row.crop_y !== null &&
+    row.crop_width !== null &&
+    row.crop_height !== null;
+
+  return {
+    focalX: row.focal_x,
+    focalY: row.focal_y,
+    crop: cropped
+      ? {
+          x: row.crop_x as number,
+          y: row.crop_y as number,
+          width: row.crop_width as number,
+          height: row.crop_height as number,
+        }
+      : null,
+  };
+}

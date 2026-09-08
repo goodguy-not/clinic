@@ -504,7 +504,7 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the public surface to TEN reads and one write. It is
       //                  filed there deliberately, so the file answering "what
       //                  can the world see?" goes on answering it completely.
-      expect(routes).toBe(145);
+      expect(routes).toBe(146);
     });
   });
 });

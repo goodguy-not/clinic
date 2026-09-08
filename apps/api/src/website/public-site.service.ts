@@ -145,7 +145,6 @@ const EMPTY_CLINIC_PROFILE: PublicClinicProfile = {
   mapLongitude: null,
   instagramUrl: null,
   telegramUrl: null,
-  spacePhotos: [],
 };
 
 @Injectable()
@@ -299,16 +298,10 @@ export class PublicSiteService {
       WHERE singleton_key = 1
     `;
 
-    // The gallery is read through `PublicMediaService`, on the same client, so
-    // the manager write path that calls this inside its own transaction sees
-    // its own uncommitted change rather than a gallery from before it.
-    const spacePhotos = await this.media.clinicSpaceImages(tx);
-
     const row = rows[0];
-    if (row === undefined) return { ...EMPTY_CLINIC_PROFILE, spacePhotos };
+    if (row === undefined) return EMPTY_CLINIC_PROFILE;
 
     return {
-      spacePhotos,
       displayName: row.display_name,
       tagline: row.tagline,
       about: row.about,

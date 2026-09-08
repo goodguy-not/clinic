@@ -2428,20 +2428,40 @@ model MediaAsset {
   sourceByteSize    Int    @map("source_byte_size")
 
   /// --- the master. THE ONLY COPY THE CLINIC KEEPS, AND NEVER SERVED. ---
-  masterStorageKey  String @unique @map("master_storage_key")
+  /// NULLABLE ONLY SO THAT ERASURE IS REPRESENTABLE, never because an asset may
+  /// legitimately lack one: `media_asset_purge_chk` ties it to `bytesPurgedAt`
+  /// in both directions, so the key is present exactly while the bytes are.
+  masterStorageKey  String? @unique @map("master_storage_key")
   /// SHA-256 of the master bytes. Content IDENTITY — what makes a replaced
   /// photograph unmistakably a different photograph — and NOT a revocation
   /// mechanism; see `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
-  masterContentHash String @map("master_content_hash")
-  masterByteSize    Int    @map("master_byte_size")
+  masterContentHash String  @map("master_content_hash")
+  masterByteSize    Int     @map("master_byte_size")
   /// POST-ORIENTATION dimensions, which are the dimensions a page will occupy.
-  masterWidth       Int    @map("master_width")
-  masterHeight      Int    @map("master_height")
+  masterWidth       Int     @map("master_width")
+  masterHeight      Int     @map("master_height")
 
   archivedAt       DateTime? @map("archived_at") @db.Timestamptz
   archivedByUserId String?   @map("archived_by_user_id") @db.Uuid
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId  String    @map("created_by_user_id") @db.Uuid
+
+  /// WHEN THE STORED BYTES WERE PHYSICALLY ERASED. NULL on every asset today.
+  ///
+  /// NOTHING IN THIS CHECKPOINT WRITES IT. There is no schedule, no duration,
+  /// no route and no permission for erasure anywhere in Milestone 9.5, because
+  /// the retention policy is an owner decision nobody has taken. What this
+  /// column does is keep that decision cheap: when it is taken, an erasure is
+  /// an UPDATE that sets this and clears the storage keys, plus an unlink of
+  /// the files — with no new table, no model change, and no migration that has
+  /// to make a NOT NULL column nullable on a live table full of a clinic's
+  /// photographs.
+  ///
+  /// IT IS THE `website_request.purgedAt` PATTERN. The row that remains says a
+  /// photograph existed and where it was used; the bytes it described are gone.
+  /// `audit_log` keeps the acts and never held the content.
+  bytesPurgedAt DateTime? @map("bytes_purged_at") @db.Timestamptz
+
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
 
   createdBy  AppUser  @relation("MediaAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   archivedBy AppUser? @relation("MediaAssetArchivedBy", fields: [archivedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2473,17 +2493,23 @@ model MediaAsset {
 /// rendition rather than per asset because two widths of one photograph are two
 /// different resources.
 model MediaRendition {
-  id           String               @id @default(uuid(7)) @db.Uuid
-  mediaAssetId String               @map("media_asset_id") @db.Uuid
-  format       MediaRenditionFormat
+  id            String               @id @default(uuid(7)) @db.Uuid
+  mediaAssetId  String               @map("media_asset_id") @db.Uuid
+  format        MediaRenditionFormat
   /// Intrinsic pixels, post-orientation. `width` is the `w` descriptor a
   /// `srcset` carries.
-  width        Int
-  height       Int
-  byteSize     Int                  @map("byte_size")
-  contentHash  String               @map("content_hash")
-  storageKey   String               @unique @map("storage_key")
-  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  width         Int
+  height        Int
+  byteSize      Int                  @map("byte_size")
+  contentHash   String               @map("content_hash")
+  /// Nullable for the reason `MediaAsset.masterStorageKey` is: erasure has to be
+  /// representable. `media_rendition_purge_chk` ties it to `bytesPurgedAt`.
+  storageKey    String?              @unique @map("storage_key")
+  /// Per rendition rather than only on the asset, so a future policy can erase
+  /// the large renditions of an unpublished photograph while keeping a small
+  /// one — or erase everything. Neither is decided here; both are expressible.
+  bytesPurgedAt DateTime?            @map("bytes_purged_at") @db.Timestamptz
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz
 
   asset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -2543,6 +2569,34 @@ model MediaAttachment {
   /// Ascending, so a gallery has one order rather than whatever PostgreSQL
   /// returns. Ties are broken by id, which is time-ordered.
   position Int @default(0) @db.SmallInt
+
+  /// --- FRAMING. HOW THIS USE OF THE PHOTOGRAPH IS COMPOSED. ---
+  ///
+  /// NONE OF IT EVER TOUCHES A PIXEL, and that is the whole design. The stored
+  /// renditions are always the WHOLE FRAME; these six numbers tell a renderer
+  /// which part of it matters. Three product requirements fall straight out:
+  /// framing changes without re-uploading the source, re-framing can never
+  /// destroy or rewrite the master, and the web tier can preview a crop live
+  /// because applying a normalised rectangle is CSS rather than a request.
+  ///
+  /// IT IS ON THE ATTACHMENT AND NOT ON THE ASSET. One photograph of the
+  /// therapy room may be a wide banner in one place and a square tile in
+  /// another; those are two attachments with two framings over one master.
+  /// Framing on the asset would make the second use silently re-frame the first.
+  ///
+  /// FRACTIONS OF THE FRAME, NEVER PIXELS. A pixel rectangle would mean
+  /// something different on each of the five rendition widths, so a crop chosen
+  /// against one would be wrong on the rest.
+  ///
+  /// The focal point defaults to the centre, which is exactly what a browser
+  /// does to an unframed image, so an attachment nobody has framed behaves as it
+  /// always did. The crop is NULL unless somebody drew one.
+  focalX     Float  @default(0.5) @map("focal_x")
+  focalY     Float  @default(0.5) @map("focal_y")
+  cropX      Float? @map("crop_x")
+  cropY      Float? @map("crop_y")
+  cropWidth  Float? @map("crop_width")
+  cropHeight Float? @map("crop_height")
 
   attachedAt        DateTime  @default(now()) @map("attached_at") @db.Timestamptz
   attachedByUserId  String    @map("attached_by_user_id") @db.Uuid

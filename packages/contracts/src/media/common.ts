@@ -197,6 +197,79 @@ export const mediaAltTextSchema = z
   .regex(/^[^<]*$/, 'must not contain markup');
 
 /**
+ * HOW A PHOTOGRAPH IS FRAMED WHERE IT IS USED — NOT HOW IT IS STORED.
+ *
+ * Milestone 9.5, checkpoint A5 (coordinator revision). Framing is the answer to
+ * "this portrait is fine, but her face is off to the left in the round avatar".
+ *
+ * IT NEVER TOUCHES A PIXEL. Nothing here is applied by the encoder, nothing
+ * here is baked into the master, and nothing here causes a rendition to be
+ * re-derived. The stored renditions are always the WHOLE FRAME; these numbers
+ * tell the renderer which part of that frame matters. Three consequences fall
+ * straight out, and all three are product requirements:
+ *
+ *  1. FRAMING CHANGES WITHOUT RE-UPLOADING. It is one field update on one row.
+ *  2. THE MASTER IS NEVER REWRITTEN OR DESTROYED BY RE-FRAMING. A crop is a
+ *     description, so it is reversible for ever; a crop encoded into the stored
+ *     bytes would throw away the parts of the photograph outside it, and the
+ *     only way back would be to ask a family for the picture again.
+ *  3. THE WEB TIER CAN PREVIEW IT LIVE. Applying a normalised rectangle and a
+ *     focal point is CSS, so a crop handle can move at sixty frames a second
+ *     with no request in the loop.
+ *
+ * IT BELONGS TO THE ATTACHMENT, NOT THE ASSET. One photograph of the therapy
+ * room may be a wide banner on one page and a square tile on another, and those
+ * are two attachments with two framings over one master. Framing on the asset
+ * would make the second use silently re-frame the first.
+ *
+ * EVERY NUMBER IS A FRACTION OF THE FRAME, 0 TO 1, NEVER A PIXEL. Pixels would
+ * be a coordinate system that means something different on each of the five
+ * rendition widths, so a crop chosen against one would be wrong on the rest.
+ */
+
+/**
+ * The rectangle worth showing, as fractions of the whole frame, or null for
+ * "the whole frame" — which is the normal state and the default.
+ */
+export const mediaCropSchema = z
+  .strictObject({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().gt(0).max(1),
+    height: z.number().gt(0).max(1),
+  })
+  .refine(
+    (crop) => crop.x + crop.width <= 1 + 1e-9 && crop.y + crop.height <= 1 + 1e-9,
+    'the crop rectangle must lie inside the frame',
+  );
+
+export type MediaCrop = z.infer<typeof mediaCropSchema>;
+
+/**
+ * The subject, and optionally the rectangle around it.
+ *
+ * `focalX`/`focalY` ARE THE POINT THAT MUST SURVIVE ANY CROP THE LAYOUT
+ * IMPOSES. A responsive page crops images itself — a wide photograph in a
+ * square tile, a portrait in a wide banner — and the browser's default is to
+ * take the middle, which is how a clinic ends up publishing a photograph of
+ * somebody's shoulder. The centre, 0.5/0.5, is the default and is exactly the
+ * behaviour of an image nobody has framed.
+ *
+ * `crop` IS THE STRONGER STATEMENT: not "keep this in view" but "show only
+ * this". Null unless somebody has drawn one.
+ */
+export const mediaFramingSchema = z.strictObject({
+  focalX: z.number().min(0).max(1),
+  focalY: z.number().min(0).max(1),
+  crop: mediaCropSchema.nullable(),
+});
+
+export type MediaFraming = z.infer<typeof mediaFramingSchema>;
+
+/** What an unframed photograph means, stated once so both tiers agree. */
+export const DEFAULT_MEDIA_FRAMING: MediaFraming = { focalX: 0.5, focalY: 0.5, crop: null };
+
+/**
  * One servable copy of one photograph.
  *
  * `path` is what goes in a `srcset`; `width` is the `w` descriptor beside it.
@@ -238,6 +311,18 @@ export const publicImageSchema = z.strictObject({
   width: z.int().positive(),
   height: z.int().positive(),
   renditions: z.array(publicImageRenditionSchema).min(1),
+  /**
+   * How this use of this photograph is framed. See `mediaFramingSchema`.
+   *
+   * IT IS ALWAYS PRESENT, never optional, and an unframed image carries
+   * `DEFAULT_MEDIA_FRAMING` rather than nothing — so the renderer has one code
+   * path instead of a branch it might get wrong on the image that matters.
+   *
+   * THE RENDITIONS ARE THE WHOLE FRAME AND THESE NUMBERS DESCRIBE PART OF IT.
+   * The web tier applies them; the API does not, and no rendition is re-derived
+   * when they change.
+   */
+  framing: mediaFramingSchema,
 });
 
 export type PublicImage = z.infer<typeof publicImageSchema>;

@@ -22,7 +22,11 @@ import { Prisma } from '@prisma/client';
  * FOUR CONDITIONS, ALL REQUIRED:
  *
  *  1. THE ASSET IS IN CIRCULATION. A manager can archive one photograph and
- *     take it off every page at once, whatever it is attached to.
+ *     take it off every page at once, whatever it is attached to. From the
+ *     coordinator revision this also covers ERASED bytes: a rendition whose
+ *     file a future retention policy has removed carries a purge marker and a
+ *     NULL storage key, and is refused here rather than reaching a read that
+ *     would fail on a missing file.
  *  2. THE ATTACHMENT STANDS. A detached attachment is history, not placement.
  *  3. A MANAGER PUBLISHED THE ATTACHMENT. This is the draft/publish split:
  *     attaching is drafting and cannot make anything visible.
@@ -78,6 +82,7 @@ export function assetIsPubliclyServed(assetAlias: string): Prisma.Sql {
 
   return Prisma.sql`
     ${Prisma.raw(assetAlias)}.status = 'ACTIVE'
+    AND ${Prisma.raw(assetAlias)}.bytes_purged_at IS NULL
     AND EXISTS (
       SELECT 1
       FROM media_attachment ma

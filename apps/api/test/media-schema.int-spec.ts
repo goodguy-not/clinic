@@ -91,6 +91,54 @@ describe('media schema objects', () => {
     return id;
   }
 
+  /**
+   * The two columns whose NULLABILITY is a feature rather than an oversight.
+   *
+   * Milestone 9.5 coordinator revision. A storage key is present exactly while
+   * the bytes are: nullable so that "erased" is a state the schema can express,
+   * and pinned to a purge marker in both directions so it can never mean
+   * anything else. `media-retention-readiness.int-spec.ts` exercises the
+   * erasure itself; this asserts the shape it depends on.
+   */
+  describe('erasure is representable', () => {
+    it('lets a storage key be absent, and only when the row says the bytes were erased', async () => {
+      const rows = await harness.prisma.$queryRaw<{ table_name: string; is_nullable: string }[]>`
+        SELECT table_name, is_nullable FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND (
+            (table_name = 'media_asset' AND column_name = 'master_storage_key')
+            OR (table_name = 'media_rendition' AND column_name = 'storage_key')
+          )
+        ORDER BY table_name
+      `;
+
+      expect(rows.map((row) => `${row.table_name}:${row.is_nullable}`)).toEqual([
+        'media_asset:YES',
+        'media_rendition:YES',
+      ]);
+    });
+
+    it('carries a purge marker on both tables and nothing that sets it', async () => {
+      const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'bytes_purged_at'
+          AND table_name IN ('media_asset', 'media_rendition')
+        ORDER BY table_name
+      `;
+
+      expect(rows.map((row) => row.table_name)).toEqual(['media_asset', 'media_rendition']);
+
+      // AND NOTHING IN THIS CHECKPOINT WRITES EITHER. The retention policy is an
+      // owner decision nobody has taken; the schema is ready for it and the
+      // application deliberately cannot carry it out.
+      const written = await harness.prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM media_asset WHERE bytes_purged_at IS NOT NULL
+      `;
+      expect(Number(written[0]!.n)).toBe(0);
+    });
+  });
+
   describe('the inventory', () => {
     it('keeps every hand-written CHECK', async () => {
       const names = await constraintNames();
@@ -108,6 +156,12 @@ describe('media schema objects', () => {
         'media_attachment_owner_chk',
         'media_attachment_lifecycle_chk',
         'media_attachment_position_chk',
+        // Coordinator revision. Framing, and the erasure the retention policy
+        // will one day perform.
+        'media_attachment_focal_chk',
+        'media_attachment_crop_chk',
+        'media_asset_purge_chk',
+        'media_rendition_purge_chk',
       ]) {
         expect(names).toContain(expected);
       }

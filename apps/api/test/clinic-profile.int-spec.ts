@@ -75,19 +75,6 @@ describe('clinic public profile (real PostgreSQL)', () => {
     instagramUrl: 'https://example.invalid/synthetic',
   };
 
-  /**
-   * The RESPONSE shape for one of the request fixtures above.
-   *
-   * Milestone 9.5, checkpoint A5. The profile a manager SENDS and the profile
-   * the API RETURNS are no longer the same object: the read carries
-   * `spacePhotos`, which is a projection of published media attachments rather
-   * than an owner-typed column, and the write request has no such field —
-   * publishing a clinic-space photograph is a media act with its own permission
-   * and its own audit row. Empty here, because nothing in this suite attaches
-   * one.
-   */
-  const asRead = (profile: Record<string, unknown>) => ({ ...profile, spacePhotos: [] });
-
   const save = (session: string, body: Record<string, unknown>) =>
     request(server()).put('/content/clinic-profile').set(as(session)).send(body);
 
@@ -108,9 +95,9 @@ describe('clinic public profile (real PostgreSQL)', () => {
       const before = await request(server()).get('/content/clinic-profile').set(as(manager));
       const saved = await save(manager, FILLED);
 
-      expect(publicClinicProfileResponseSchema.parse(before.body).clinic).toEqual(asRead(EMPTY));
+      expect(publicClinicProfileResponseSchema.parse(before.body).clinic).toEqual(EMPTY);
       expect(saved.status).toBe(200);
-      expect(publicClinicProfileResponseSchema.parse(saved.body).clinic).toEqual(asRead(FILLED));
+      expect(publicClinicProfileResponseSchema.parse(saved.body).clinic).toEqual(FILLED);
     });
   });
 
@@ -125,9 +112,7 @@ describe('clinic public profile (real PostgreSQL)', () => {
         .get('/public/clinic-profile')
         .set(internalHeaders());
 
-      expect(publicClinicProfileResponseSchema.parse(published.body).clinic).toEqual(
-        asRead(FILLED),
-      );
+      expect(publicClinicProfileResponseSchema.parse(published.body).clinic).toEqual(FILLED);
     });
 
     it('empties a field when the manager clears it', async () => {
