@@ -353,6 +353,48 @@ export const PERMISSIONS = [
   // user can perform.
   'website_request.read',
   'website_request.process',
+
+  // The media subsystem (Milestone 9.5, checkpoint A5). FOUR NAMES, AND THE
+  // BOUNDARY BETWEEN THE THIRD AND THE FOURTH IS THE WHOLE OF THE DESIGN.
+  //
+  // `media.read` AND `media.upload` ARE THE RECEPTIONIST'S, and this is the
+  // approved widening: the person at the front desk is the one holding a
+  // telephone with a photograph of the new therapy room on it, and a product in
+  // which only the manager can put a file into the system is a product in which
+  // the website never changes. Uploading is not publishing — nothing an upload
+  // produces is reachable by anybody outside the clinic until two further,
+  // separately audited acts have happened.
+  //
+  // `media.attach` IS ALSO THE RECEPTIONIST'S, AND IT IS DRAFTING. Attaching
+  // puts a photograph somewhere — this article, that colleague's profile — and
+  // it CANNOT make it visible: every attachment is created unpublished, there
+  // is no field on the attach request that could say otherwise, and the serving
+  // route refuses an unpublished attachment. It is exactly `article.draft`
+  // applied to a picture, and it is granted for the reason `article.draft` was:
+  // a receptionist prepares a change and the page does not move until a manager
+  // publishes it.
+  //
+  // `media.publish` IS THE MANAGER'S ALONE AND COVERS FOUR ACTS — publishing an
+  // attachment, unpublishing one, archiving an asset and restoring it. All four
+  // turn on one question, "may the world see this photograph?", and nothing in
+  // this product grants any of them without the others. It is the name behind
+  // the frozen rule that the manager controls unpublish and archive.
+  //
+  // NO OTHER AUTHORITY MOVES. None of these four grants anything operational,
+  // financial, scheduling or clinical, and none of them widens an existing name:
+  // a receptionist who could not publish an article yesterday still cannot, and
+  // a receptionist who holds `media.attach` still cannot put a photograph on a
+  // page. A test in `permissions.spec.ts` states the receptionist's list
+  // exactly, so a fifth name arriving here without a decision fails a build.
+  //
+  // NO `media.delete`. Nothing in this application removes a stored byte. A
+  // photograph is unpublished, detached or archived; how long the clinic then
+  // keeps it is a retention decision the owner has not taken, and a permission
+  // naming an act nobody has approved would be an invitation to build it.
+  'media.read',
+  'media.upload',
+  'media.attach',
+  'media.publish',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

@@ -1,0 +1,88 @@
+import { Prisma } from '@prisma/client';
+
+/**
+ * THE ONE PREDICATE THAT DECIDES WHAT A STRANGER MAY SEE.
+ *
+ * Milestone 9.5, checkpoint A5. It is a single SQL fragment in a single file
+ * because every read that depends on it has to agree with every other read that
+ * depends on it. The serving route uses it to decide whether to hand over
+ * bytes; the four public projections use it to decide whether to name an image;
+ * the staff library uses it to tell a manager whether something is currently
+ * visible. Three answers to that question would be three chances for the
+ * library to say "not public" about a photograph the origin is still serving.
+ *
+ * IT IS EVALUATED ON EVERY REQUEST, AGAINST LIVE ROWS, AND IS NEVER CACHED
+ * INSIDE THIS APPLICATION. That is what makes the frozen rule true at the
+ * origin: unpublishing, detaching, archiving, or unpublishing the article or
+ * profile the photograph hangs off makes the very next anonymous request a
+ * refusal, with no interval and no warm-up. What happens in caches BEYOND this
+ * origin is bounded separately and stated in
+ * `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
+ *
+ * FOUR CONDITIONS, ALL REQUIRED:
+ *
+ *  1. THE ASSET IS IN CIRCULATION. A manager can archive one photograph and
+ *     take it off every page at once, whatever it is attached to.
+ *  2. THE ATTACHMENT STANDS. A detached attachment is history, not placement.
+ *  3. A MANAGER PUBLISHED THE ATTACHMENT. This is the draft/publish split:
+ *     attaching is drafting and cannot make anything visible.
+ *  4. THE OWNER IS ITSELF PUBLIC. An image on an unpublished article is not
+ *     public, however published its own attachment is.
+ *
+ * `CLINIC_SPACE` SATISFIES (4) UNCONDITIONALLY, and the reason is stated rather
+ * than implied: there is no owner row to consult, because
+ * `clinic_public_profile` is a single row that is always live — editing it IS
+ * publishing (Milestone 9, checkpoint A2). Condition (3) therefore carries the
+ * whole of the control for clinic-space photographs, and (3) is manager-only.
+ *
+ * WHY `EXISTS` PER OWNER RATHER THAN THREE LEFT JOINS. A join whose predicate
+ * lives in the `ON` clause is a join somebody can later widen by moving one
+ * line into the `WHERE`; a correlated `EXISTS` states "there is a public owner"
+ * as one indivisible fact, and a reader checking whether the public site can
+ * leak an unpublished photograph has one expression to read.
+ */
+export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
+  ma.detached_at IS NULL
+  AND ma.published_at IS NOT NULL
+  AND CASE ma.owner_type
+        WHEN 'THERAPIST_PROFILE' THEN EXISTS (
+          SELECT 1 FROM therapist t WHERE t.id = ma.therapist_id AND t.is_public
+        )
+        WHEN 'PUBLIC_ARTICLE' THEN EXISTS (
+          SELECT 1 FROM public_article pa WHERE pa.id = ma.article_id AND pa.is_public
+        )
+        WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
+          SELECT 1 FROM public_testimonial pt WHERE pt.id = ma.testimonial_id AND pt.is_public
+        )
+        WHEN 'CLINIC_SPACE' THEN TRUE
+      END
+`;
+
+/**
+ * The same rule seen from the asset: it is in circulation AND at least one of
+ * its attachments is live.
+ *
+ * `assetAlias` is the alias the caller has given `media_asset` in its own
+ * statement. Stated as a function rather than a constant so a caller that
+ * aliases the table differently cannot silently correlate against the wrong
+ * row.
+ */
+export function assetIsPubliclyServed(assetAlias: string): Prisma.Sql {
+  // `Prisma.raw` interpolates without parameterising, so the one value that
+  // reaches it is checked rather than trusted. Every caller passes a literal
+  // from this repository today; the guard is here so that a future caller
+  // cannot turn a table alias into an injection point without noticing.
+  if (!/^[a-z_][a-z0-9_]*$/.test(assetAlias)) {
+    throw new Error(`Invalid SQL alias: ${assetAlias}`);
+  }
+
+  return Prisma.sql`
+    ${Prisma.raw(assetAlias)}.status = 'ACTIVE'
+    AND EXISTS (
+      SELECT 1
+      FROM media_attachment ma
+      WHERE ma.media_asset_id = ${Prisma.raw(assetAlias)}.id
+        AND ${LIVE_ATTACHMENT_PREDICATE}
+    )
+  `;
+}

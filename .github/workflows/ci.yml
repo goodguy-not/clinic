@@ -40,6 +40,10 @@ jobs:
       NODE_ENV: test
       API_PORT: 3001
       API_BASE_URL: http://localhost:3001
+      # Milestone 9.5: the API's media root. Required with no default, so a
+      # missing one fails the build rather than silently choosing a directory.
+      # A CI-only scratch path; nothing real is ever stored here.
+      MEDIA_STORAGE_DIR: ${{ runner.temp }}/clinic-media-ci
       # Web server-side configuration. Required with no defaults, so a missing
       # one fails the build rather than silently choosing.
       DEPLOYMENT_MODE: non-production

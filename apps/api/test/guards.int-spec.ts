@@ -172,6 +172,13 @@ describe('guard chain (real PostgreSQL)', () => {
         'family.read',
         'family.update',
         'family.update_status',
+        // Milestone 9.5, checkpoint A5: the media library, minus the name that
+        // makes a photograph visible. `media.publish` — publish, unpublish,
+        // archive, restore — is the manager's alone and is asserted absent
+        // below.
+        'media.attach',
+        'media.read',
+        'media.upload',
         // Milestone 6: recording money and the whole promise workflow.
         // `payment.void` stays with the manager.
         'payment.create',
@@ -480,7 +487,24 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the therapist and clinic routes carry the three names
       //                  A1 froze. Nothing here is `internal` and nothing here
       //                  is reachable without a session.
-      expect(routes).toBe(137);
+      //
+      // media:           Milestone 9.5 checkpoint A5 adds EIGHT routes. SEVEN
+      //                  are staff routes on `MediaController`, each naming one
+      //                  of three permissions — `media.read` for the library and
+      //                  one asset, `media.upload` for the upload, `media.attach`
+      //                  for attaching and detaching, and `media.publish`, the
+      //                  manager's alone, for publishing an attachment and for
+      //                  archiving an asset.
+      //
+      //                  THE EIGHTH IS THE ONLY ROUTE IN THIS PRODUCT THAT
+      //                  RETURNS SOMETHING OTHER THAN JSON, and it is declared
+      //                  on `PublicSiteController` rather than in the media
+      //                  module: `GET /public/media/:renditionId`, classified
+      //                  `internal` like every public read beside it, bringing
+      //                  the public surface to TEN reads and one write. It is
+      //                  filed there deliberately, so the file answering "what
+      //                  can the world see?" goes on answering it completely.
+      expect(routes).toBe(145);
     });
   });
 });

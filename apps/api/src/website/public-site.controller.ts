@@ -1,5 +1,20 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
+import {
+  MEDIA_RENDITION_CONTENT_TYPE,
+  PUBLIC_MEDIA_MAX_AGE_SECONDS,
   publicRequestSubmissionSchema,
   publicSlugSchema,
   type PublicArticleDetailResponse,
@@ -18,14 +33,17 @@ import { InternalOnly } from '../auth/decorators/endpoint-access';
 import { Ctx } from '../auth/decorators/request.decorators';
 import type { RequestContext } from '../common/request-context';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
+import { PublicMediaService } from '../media/public-media.service';
 import { PublicRequestsService } from './public-requests.service';
 import { PublicSiteService } from './public-site.service';
 
 /**
  * THE ENTIRE PUBLIC SURFACE OF THIS API, IN ONE FILE.
  *
- * Milestone 9, checkpoint A1, extended in A2 and A3. NINE reads, ONE write, and
- * no other controller anywhere serves the website. Keeping them together is a privacy decision
+ * Milestone 9, checkpoint A1, extended in A2, A3 and 9.5/A5. TEN reads, ONE
+ * write, and no other controller anywhere serves the website. Nine of the reads
+ * are JSON projections; the tenth, added in A5, is a photograph's bytes.
+ * Keeping them together is a privacy decision
  * rather than a filing preference: the question "what can the world see?" has
  * to be answerable by reading one screen, and it stops being answerable the
  * moment public routes are scattered through the domain modules that own the
@@ -91,7 +109,94 @@ export class PublicSiteController {
   constructor(
     private readonly site: PublicSiteService,
     private readonly requests: PublicRequestsService,
+    private readonly media: PublicMediaService,
   ) {}
+
+  /**
+   * ONE PHOTOGRAPH, IN ONE SIZE AND ONE FORMAT. THE ONLY ROUTE IN THIS
+   * APPLICATION THAT RETURNS SOMETHING OTHER THAN JSON.
+   *
+   * Milestone 9.5, checkpoint A5. It is HERE, among the JSON reads, for the
+   * reason `POST /public/requests` is here: this file has to go on being the
+   * one screen that answers "what can the world see?", and a byte-serving route
+   * filed with the module that owns its table is a route nobody reviewing the
+   * public surface would ever see.
+   *
+   * `@InternalOnly()` LIKE EVERYTHING ELSE HERE. The browser asks Next.js,
+   * Next.js asks NestJS across the private network with the internal key, and
+   * `/health` remains the only route in the product that bypasses it. "Public"
+   * describes the AUDIENCE, not the reachability.
+   *
+   * THE `:renditionId` IS A RENDITION AND NEVER AN ASSET, AND THAT IS THE
+   * REASON THE ORIGINAL IS UNREACHABLE. The master — the metadata-free copy the
+   * clinic keeps — is a column on `media_asset` and has no row in the table
+   * this route selects from, so there is no identifier a caller could send that
+   * would name it. The photograph the telephone produced was never written at
+   * all.
+   *
+   * EVERY REFUSAL IS `MEDIA_NOT_FOUND`, WITH THE SAME 404. Unknown id, archived
+   * asset, unattached asset, drafted or unpublished attachment, unpublished
+   * owner, detached attachment, missing file: one answer, because two would let
+   * a stranger walk the identifier space and learn which photographs the clinic
+   * is holding back.
+   *
+   * THIS IS THE ONE ROUTE WHOSE RESPONSE IS CACHEABLE, AND THE ONLY PLACE
+   * `NoStoreInterceptor`'S DEFAULT IS DELIBERATELY OVERRIDDEN. The interceptor
+   * sets `no-store` before the handler runs; the handler sets `public,
+   * max-age=..., s-maxage=...` afterwards, with exactly
+   * `PUBLIC_MEDIA_MAX_AGE_SECONDS`. That number is the STATED REVOCATION
+   * WINDOW: five minutes, for every cache Vala controls between this origin and
+   * the reader. The ORIGIN itself is immediate — the predicate is re-evaluated
+   * per request against live rows, with nothing cached inside this process — and
+   * a copy that has already reached a browser, a scraper or a search index is
+   * bounded by nothing at all. See `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`,
+   * which says all of that in one place and is where the reasoning belongs.
+   *
+   * THE REFUSAL PATH IS NOT CACHEABLE. `ErrorEnvelopeFilter` sets `no-store` on
+   * every error response, so the 404 that follows an unpublish is never itself
+   * stored — which matters, because a cached 404 would outlive a manager
+   * changing their mind.
+   *
+   * `ETag` AND `304`. The tag is the SHA-256 of exactly these bytes, so a cache
+   * revalidating after the window costs a round trip and not a re-download, and
+   * a replaced photograph is unmistakably a different resource. Revalidation is
+   * a REVOCATION CHECK as much as a freshness check: the 304 is only reached
+   * after the publication predicate has already said yes on this request.
+   *
+   * `nosniff` BECAUSE THE BODY IS UPLOADED CONTENT. The type is the one this
+   * product encoded, not the one the uploader claimed, and the browser is told
+   * not to guess. `Content-Disposition: inline` with no filename, because the
+   * filename the uploader chose is very often a family's surname and is
+   * recorded nowhere.
+   */
+  @Get('media/:renditionId')
+  @InternalOnly()
+  @Header('x-content-type-options', 'nosniff')
+  @Header('content-disposition', 'inline')
+  async getMedia(
+    @Param('renditionId', ParseUUIDPipe) renditionId: string,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile | undefined> {
+    const rendition = await this.media.findServableRendition(renditionId);
+    const etag = `"${rendition.contentHash}"`;
+
+    response.setHeader('etag', etag);
+    response.setHeader(
+      'cache-control',
+      `public, max-age=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, s-maxage=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, must-revalidate`,
+    );
+
+    if (matchesEtag(request.headers['if-none-match'], etag)) {
+      response.status(304);
+      return undefined;
+    }
+
+    return new StreamableFile(rendition.bytes, {
+      type: MEDIA_RENDITION_CONTENT_TYPE[rendition.format],
+      length: rendition.byteSize,
+    });
+  }
 
   @Get('services')
   @InternalOnly()
@@ -200,4 +305,25 @@ export class PublicSiteController {
     await this.requests.submit(body, context);
     return { received: true };
   }
+}
+
+/**
+ * Whether the caller already holds these exact bytes.
+ *
+ * `If-None-Match` may carry a list and may carry weak tags. The comparison is
+ * the WEAK one (RFC 9110 8.8.3.2), which is what a conditional GET is defined
+ * to use, and `*` matches anything — a client saying "any version will do", to
+ * which the honest answer for an immutable resource is 304.
+ *
+ * It is a plain function rather than a method because it decides nothing about
+ * access: the publication predicate has already said yes by the time it runs.
+ */
+function matchesEtag(header: string | string[] | undefined, etag: string): boolean {
+  if (header === undefined) return false;
+
+  const values = (Array.isArray(header) ? header.join(',') : header)
+    .split(',')
+    .map((value) => value.trim().replace(/^W\//, ''));
+
+  return values.includes('*') || values.includes(etag);
 }

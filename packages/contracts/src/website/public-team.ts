@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicMediaPathSchema, publicSlugSchema } from './common';
+import { publicImageSchema } from '../media/common';
 
 /**
  * A therapist as the website states them, and ONLY a therapist who asked to be
@@ -29,6 +30,22 @@ export const publicTherapistProfileSchema = z.strictObject({
   title: z.string().nullable(),
   bio: z.string().nullable(),
   photoPath: publicMediaPathSchema.nullable(),
+  /**
+   * The uploaded portrait, in every size the browser may choose between.
+   *
+   * Milestone 9.5, checkpoint A5. It is a SIXTH field rather than a replacement
+   * for `photoPath`, and the two answer different questions: `photoPath` is a
+   * path a manager typed to a file a developer placed, and `photo` is a
+   * photograph the clinic uploaded, stripped of its metadata and derived into a
+   * responsive set. Both are nullable and a profile may carry neither.
+   *
+   * IT IS PRESENT ONLY WHILE EVERY GATE IS OPEN. The asset is active, the
+   * attachment to this therapist is undetached and published, and this
+   * therapist is public — which they must be to appear in this projection at
+   * all. Any one of those changing makes this null on the next read and makes
+   * the bytes a refusal at the origin on the next request.
+   */
+  photo: publicImageSchema.nullable(),
 });
 
 export type PublicTherapistProfile = z.infer<typeof publicTherapistProfileSchema>;

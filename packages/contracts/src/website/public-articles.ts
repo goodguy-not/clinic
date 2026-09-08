@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicSlugSchema } from './common';
+import { publicImageSchema } from '../media/common';
 
 /**
  * An article as the website states it.
@@ -35,6 +36,21 @@ export const publicArticleSummarySchema = z.strictObject({
   title: z.string(),
   summary: z.string().nullable(),
   publishedAt: z.iso.datetime(),
+  /**
+   * The article's published photographs, in the clinic's own order.
+   *
+   * Milestone 9.5, checkpoint A5. AN ARRAY RATHER THAN A COVER IMAGE, and empty
+   * far more often than not. A listing renders the first; a detail page renders
+   * them all. Modelling one cover would have made the second article that needs
+   * two pictures a schema change.
+   *
+   * PUBLICATION IS PER IMAGE AND SEPARATE FROM THE ARTICLE'S OWN. An image
+   * appears here only when a manager has published its attachment AND the
+   * article is public, so a receptionist may prepare the illustrations for a
+   * live article without changing the live page — which is the same promise the
+   * published-copy columns make about its text.
+   */
+  images: z.array(publicImageSchema),
 });
 
 export type PublicArticleSummary = z.infer<typeof publicArticleSummarySchema>;

@@ -400,6 +400,56 @@ export const ERROR_CODES = [
   'WEBSITE_REQUEST_TRANSITION_INVALID',
   'WEBSITE_REQUEST_ALREADY_LINKED',
 
+  // The media subsystem (Milestone 9.5, checkpoint A5). NINE CODES, AND THE
+  // SPLIT BETWEEN THEM IS THE SPLIT BETWEEN "your file is wrong" AND "your
+  // screen is stale".
+  //
+  // THE FIRST FOUR ARE ABOUT BYTES, AND EVERY ONE OF THEM IS DECIDED FROM THE
+  // BYTES. A filename and a browser-supplied content type are things the caller
+  // chose; neither is consulted, so a `.jpg` that is really a PDF is
+  // `MEDIA_TYPE_UNSUPPORTED` and not a corrupt JPEG.
+  //
+  // `MEDIA_TYPE_UNSUPPORTED` covers SVG explicitly, and that is the case worth
+  // naming: this workflow is for photographs, and an SVG is a document with a
+  // script engine attached. `MEDIA_FILE_CORRUPT` is a file of an accepted type
+  // that no decoder can read — truncated in transit, or never an image at all.
+  // `MEDIA_FILE_TOO_LARGE` is raised WHILE the body is arriving, so the process
+  // never holds an oversized upload. `MEDIA_IMAGE_UNUSABLE` is a decodable
+  // photograph the clinic will not publish: smaller than the minimum on either
+  // side, or a decompression bomb whose pixel count exceeds the ceiling. One
+  // code for both, because the fix is the same — send a different photograph —
+  // and because telling a caller which internal ceiling they hit tells them how
+  // to sit exactly beneath it.
+  'MEDIA_NOT_FOUND',
+  'MEDIA_TYPE_UNSUPPORTED',
+  'MEDIA_FILE_TOO_LARGE',
+  'MEDIA_FILE_CORRUPT',
+  'MEDIA_IMAGE_UNUSABLE',
+  // The remaining four are about the LIFECYCLE, and all four are conflicts with
+  // a state somebody else already put the row in.
+  //
+  // `MEDIA_ARCHIVED` refuses attaching or publishing an asset a manager has
+  // taken out of circulation. `MEDIA_ATTACHMENT_NOT_FOUND` covers a missing
+  // attachment and one already detached alike — the fix is the same, attach it
+  // again. `MEDIA_ALREADY_ATTACHED` is the same photograph offered twice to one
+  // owner. `MEDIA_ATTACHMENT_PUBLISHED` refuses DETACHING something the public
+  // can currently see: unpublish first, which is a manager act, so that taking
+  // an image off a live page can never be done by the weaker authority that put
+  // it there.
+  //
+  // THERE IS DELIBERATELY NO `MEDIA_FORBIDDEN`, NO `MEDIA_NOT_PUBLISHED` AND NO
+  // `MEDIA_UNATTACHED`. An anonymous request for something that is not public
+  // receives `MEDIA_NOT_FOUND` and nothing else, whatever the reason —
+  // unattached, drafted, unpublished, archived, owner unpublished, or simply
+  // never existed. Distinguishing them would let a stranger enumerate the
+  // clinic's unpublished photographs one identifier at a time, which is exactly
+  // the disclosure the publication rule exists to prevent. It is the reasoning
+  // behind `DRAFT_NOT_FOUND` and `AUTH_INVALID_CREDENTIALS`, applied to bytes.
+  'MEDIA_ARCHIVED',
+  'MEDIA_ATTACHMENT_NOT_FOUND',
+  'MEDIA_ALREADY_ATTACHED',
+  'MEDIA_ATTACHMENT_PUBLISHED',
+
   'INTERNAL_ERROR',
 ] as const;
 

@@ -310,6 +310,36 @@ export const AUDIT_ACTIONS = [
   'therapist.public_profile_updated',
   'therapist.public_profile_published',
   'therapist.public_profile_unpublished',
+
+  // The media subsystem (Milestone 9.5, checkpoint A5). SIX ACTIONS OVER TWO
+  // ENTITY TYPES, AND SERVING A PHOTOGRAPH IS NOT ONE OF THEM.
+  //
+  // Reading a published image writes no audit row, and that absence is a
+  // decision rather than an omission: an entry per image request would make
+  // `audit_log` — the one table here that can never be deleted or pruned — into
+  // a permanent visitor log of who looked at which page and when, which is
+  // exactly the thing this product has deliberately never built. What is
+  // audited is every act that CHANGES what the world can see.
+  //
+  // `media.uploaded` RECORDS WHAT ARRIVED AND NOT WHAT IT WAS CALLED. The
+  // payload carries the sniffed content type, the byte size, the master's
+  // dimensions and how many renditions came out of it. It does NOT carry the
+  // original file name — a caller-chosen string that is very often a family's
+  // surname — and it carries no byte of image data.
+  //
+  // `media.archived` AND `media.restored` ARE THE ASSET-WIDE SWITCH;
+  // `media.published` AND `media.unpublished` ARE ONE PHOTOGRAPH IN ONE PLACE.
+  // Four names rather than two, because "not this picture, anywhere" and "not
+  // this picture, here" are different decisions with different blast radii, and
+  // somebody reading the trail afterwards has to be able to tell which one was
+  // taken.
+  'media.uploaded',
+  'media.archived',
+  'media.restored',
+  'media.attached',
+  'media.detached',
+  'media.published',
+  'media.unpublished',
   'clinic_public_profile.updated',
 
   // The public request form (Milestone 9, checkpoint A3). ONE ACTION, AND IT
@@ -494,6 +524,13 @@ export const AUDIT_ENTITY_TYPES = [
   // in place; the row, and therefore this audit row's subject, remains. See
   // `website_request.received`.
   'website_request',
+  // Milestone 9.5, checkpoint A5. Both ARE tables, so both satisfy the
+  // assertion above. `media_rendition` is deliberately NOT here: a rendition is
+  // derived output that nobody decides anything about, and every act worth
+  // recording is an act on the asset it came from or on the attachment that
+  // places it.
+  'media_asset',
+  'media_attachment',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

@@ -4568,3 +4568,158 @@ pilot-readiness work and absorbs none of this.
 - **Trade-off:** a fractional milestone number, and one more boundary to hold.
 - **Revisit when:** Milestone 9.5 grows past the editorial and media scope named
   here. Anything beyond it is Milestone 10's or a later milestone's.
+
+## 2026-09-08 — The uploaded photograph is never written to disk
+
+**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+
+The bytes a member of staff uploads exist in one process's memory for the length
+of one request. What is stored is a **master** — re-encoded, orientation
+applied, every metadata block discarded — and the responsive renditions derived
+from it. There is no originals directory, no quarantine and no column anywhere
+in the schema that could name the upload.
+
+Orientation is applied **before** metadata is discarded. Reversing the two
+produces a photograph lying on its side that no renderer can correct.
+
+- **Alternatives:** keep the original for future re-derivation; keep it briefly
+  and delete it on a schedule; strip metadata but store the original pixels
+  losslessly.
+- **Reason:** an unedited telephone photograph carries the GPS coordinate of
+  wherever it was taken — a family's home, a colleague's home, the clinic — and
+  the narrowest way to obey a rule about a category of data is not to hold the
+  data. Keeping originals would put that coordinate in every backup, every disk
+  image and every future feature's reach, in exchange for a re-derivation the
+  2560-pixel master already serves.
+- **Trade-off:** a rendition can never be produced at higher quality than the
+  master, and a future format change re-encodes from an already-encoded copy.
+- **Revisit when:** a rendition requirement genuinely needs more than the master
+  holds. The answer then is a larger master, not a retained original.
+
+## 2026-09-08 — Anonymous media reachability is a consequence of published content
+
+**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+
+A rendition is served to an anonymous caller only when **all four** hold: the
+asset is `ACTIVE`, its attachment is undetached, a manager has published that
+attachment, and the owner it hangs off is itself public. The predicate is
+re-evaluated from live rows on every request; nothing in the API caches it.
+
+Every failure is the same answer — `404 MEDIA_NOT_FOUND` — whatever the reason.
+
+`CLINIC_SPACE` is the one owner with no row to consult, because
+`clinic_public_profile` is always live; there the manager's publication of the
+attachment is the whole of the control.
+
+- **Alternatives:** a public flag on the asset itself; signed, expiring URLs;
+  distinguishing "exists but unpublished" from "does not exist".
+- **Reason:** a flag on the asset would let a photograph outlive the article it
+  illustrates. Signed URLs would make revocation a key-rotation problem and would
+  put a credential in every page's HTML. Distinguishing the refusals would let a
+  stranger enumerate the clinic's unpublished photographs one identifier at a
+  time — the reasoning behind `DRAFT_NOT_FOUND` and `AUTH_INVALID_CREDENTIALS`.
+- **Trade-off:** one extra correlated `EXISTS` per image request, and a manager
+  who unpublishes an article silently unpublishes its pictures.
+- **Revisit when:** a page needs a photograph that is deliberately public
+  independently of any owner. That is a fifth owner type, not a widened predicate.
+
+## 2026-09-08 — The media revocation window is five minutes, and it bounds only Vala's own caches
+
+**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+
+Published renditions are served with `Cache-Control: public, max-age=300,
+s-maxage=300, must-revalidate` and a strong `ETag` equal to the SHA-256 of the
+bytes. `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS` is the single constant behind
+both the header and the promise.
+
+- **At Vala's origin, revocation is immediate.** The next anonymous request
+  after an unpublish, detach, archive or owner unpublish is refused.
+- **In any cache Vala controls** — the Next.js tier, a reverse proxy, a CDN the
+  clinic later adds — it is bounded by five minutes. Tag invalidation normally
+  makes it one request; the window is what remains guaranteed when a layer has
+  not received the invalidation.
+- **A copy that has already left is bounded by nothing.** A browser cache, a
+  scraper, a search index, a proxy, a screenshot: none of these can be recalled,
+  and nobody may tell a family otherwise. Content identity solves REPLACEMENT —
+  new bytes get a new rendition id, so no cache can substitute the old ones — and
+  it does not solve REVOCATION.
+
+- **Alternatives:** `no-store` on image bytes; a long `max-age` with
+  `immutable`; content-addressed URLs.
+- **Reason:** `no-store` would re-serve every photograph on every page view of a
+  site whose visitors are largely on mobile networks, buying a guarantee that is
+  already unenforceable one hop out. A long `immutable` cache would make an
+  unpublish take effect in a browser only when the page changed, which is not a
+  bound at all.
+- **Trade-off:** up to five minutes during which an intermediary cache may still
+  hand out a photograph the clinic has taken down.
+- **Revisit when:** the clinic puts a CDN in front of the site whose purge API
+  the product can call. The window can then be stated as the purge latency.
+
+## 2026-09-08 — Media permissions are four names, and publishing is manager-only
+
+**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+
+`media.read`, `media.upload` and `media.attach` are the receptionist's;
+`media.publish` — which covers publishing an attachment, unpublishing one,
+archiving an asset and restoring it — is the manager's alone. Attaching creates
+an unpublished attachment and the request has no field that could say otherwise.
+Detaching a **published** attachment is refused (`MEDIA_ATTACHMENT_PUBLISHED`);
+it must be unpublished first, which is a manager act.
+
+No other authority moves. Nothing operational, financial, scheduling or clinical
+is widened, and no existing permission changes meaning.
+
+- **Alternatives:** one `media.manage`; reuse `article.draft`/`article.publish`
+  per owner type; make attaching manager-only.
+- **Reason:** it is the A2 split applied to a picture. Reusing the content
+  permissions would leave `CLINIC_SPACE` — which has no content owner — with no
+  authority to name, and would make the guard's answer depend on the request
+  body. Manager-only attaching would put the manager in the path of every draft.
+- **Trade-off:** four more names, and a receptionist can occupy a therapist's
+  single portrait slot with a draft.
+- **Revisit when:** the manager publish step is measurably why the site's
+  photographs go stale.
+
+## 2026-09-08 — This photographic uploader accepts three formats and never SVG
+
+**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+
+JPEG, PNG and WebP, decided from the file's magic number and confirmed by the
+decoder — never from the filename or the browser-supplied content type. The list
+is also a database CHECK, so it survives an import or a data fix. HEIC/HEIF is
+deliberately absent. The accepted Vala SVG brand and logo assets remain static in
+the web tier and are not part of this uploader.
+
+- **Alternatives:** accept anything the decoder can read; accept SVG with a
+  sanitiser; accept HEIC.
+- **Reason:** an SVG is a document with a script engine attached, and serving one
+  from the clinic's own origin would put uploader-authored markup on the clinic's
+  own domain. HEIC is what a current iPhone stores, but every route by which a
+  photograph reaches a receptionist in practice has already converted it to JPEG,
+  and accepting it carries a licensing question nobody has answered.
+- **Trade-off:** a colleague who somehow has an unconverted HEIC file must
+  convert it before uploading.
+- **Revisit when:** real pilot uploads are being refused as unsupported. The
+  answer is measured against what people actually send, not against a format list.
+
+## 2026-09-08 — Media retention is deliberately undecided, and nothing in the code assumes an answer
+
+**Status:** Open — Milestone 9.5 checkpoint A5 (owner decision required)
+
+Archiving a photograph stops it being served everywhere at once and is
+reversible. It does **not** remove bytes. There is no `deleted_at`, no purge
+column, no retention clock and no code path anywhere in the application that
+unlinks a stored file; all three media tables carry the `no_delete` and
+`no_truncate` triggers every historical table in this schema carries.
+
+- **Reason:** how long the clinic keeps a photograph nobody publishes any more is
+  the owner's decision. A schema or a routine that guessed either way — erasing
+  on archive, or promising to keep forever — would pre-empt it, and building the
+  deletion capability before the policy would add the risk before the reason.
+- **Blocked on:** an owner decision naming a retention period and the event it
+  runs from, and whether a family's request to withdraw a photograph erases the
+  bytes or only unpublishes them.
+- **When it arrives:** a reviewed migration and an operator command, in the shape
+  the website-request retention rule already established — no HTTP route in this
+  product destroys anything.

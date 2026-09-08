@@ -1593,8 +1593,14 @@ The database-backed suite, which is where the reporting invariants are proved �
 see [Integration tests](#integration-tests) for the disposable-database setup:
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> pnpm test:int
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory> pnpm test:int
 ```
+
+`INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are here because the operator CLI
+suites build a real NestJS context, which validates the whole API environment.
+The HTTP suites do not read either: the harness supplies its own synthetic key
+and its own per-process temporary media root, so nothing a test writes lands in
+the directory named above.
 
 Migration status and schema drift, exactly as
 [CI](.github/workflows/ci.yml) runs them — `migrate status` catches an unapplied
@@ -2047,6 +2053,60 @@ reopened (DECISION_LOG, 2026-09-08).
 4. **Real public copy is owner-supplied.** Where approved wording has not arrived,
    a page states a truthful boundary rather than filling the space.
 
+## Media (Milestone 9.5, checkpoint A5)
+
+Staff upload ordinary phone photographs; the API stores, sanitises and serves
+them. There is no developer file placement and no redeploy in the loop.
+
+**The API owns the bytes, on disk.** Not PostgreSQL — image data in a relational
+database bloats every dump, backup and replica for no query anybody makes — and
+not object storage, which is a dependency, a credential and a second failure
+domain a single-site clinic does not have yet. `MEDIA_STORAGE_DIR` is where they
+live, and `MediaStorageService` is the only class in `apps/api` that opens a
+file.
+
+**The uploaded photograph is never written.** It exists in memory for the length
+of one request. What is stored is a _master_ — re-encoded, orientation applied to
+the pixels, every metadata block discarded — and the responsive renditions
+derived from it. An unedited telephone photograph carries the GPS coordinate of
+wherever it was taken, so the narrowest way to obey a rule about a category of
+data is not to hold the data: no EXIF exists anywhere in this system to leak, and
+`image-processing.spec.ts` proves the absence at byte level.
+
+**Three formats, decided from the bytes.** JPEG, PNG and WebP, sniffed from the
+magic number and confirmed by the decoder — never from a filename or a
+browser-supplied content type. SVG is refused: it is a document with a script
+engine attached, and serving one from the clinic's own origin would put
+uploader-authored markup on the clinic's own domain. The accepted brand and logo
+SVGs stay static in the web tier.
+
+**Two renditions per width, and nothing is ever enlarged.** WebP and JPEG at
+every ladder width below the master, plus one at the master's own width, so the
+largest rendition is exactly as sharp as the photograph that was uploaded.
+
+**Four conditions decide what a stranger may fetch**, re-evaluated from live rows
+on every request: the asset is `ACTIVE`, its attachment is undetached, a manager
+published that attachment, and the owner it hangs off is itself public. Every
+failure is the same `404 MEDIA_NOT_FOUND`, so nobody can enumerate the clinic's
+unpublished photographs one identifier at a time.
+
+**Publishing is manager-only.** `media.read`, `media.upload` and `media.attach`
+are the receptionist's — attaching is drafting, and the request has no field that
+could ask for visibility — while `media.publish` covers publishing, unpublishing,
+archiving and restoring. Detaching a published attachment is refused; unpublish
+first.
+
+**Revocation.** At this origin it is immediate. In any cache the clinic controls
+it is bounded by five minutes (`PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`), which
+is what the `Cache-Control` header states. A copy that has already reached a
+browser, a scraper or a search index is bounded by nothing, and nobody may tell a
+family otherwise — content identity solves replacement, not revocation.
+
+**Nothing deletes a byte.** Archiving takes a photograph out of circulation
+everywhere at once and is reversible; the retention policy is an open owner
+decision, and all three media tables refuse `DELETE` and `TRUNCATE` until it
+arrives.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the
@@ -2058,9 +2118,19 @@ Never commit a real value for any of these. `.env` and `.env.local` are ignored;
 | ------------------------ | -------- | --------------------------------------------------------- |
 | `DATABASE_URL`           | yes      | PostgreSQL connection string. Never given to `apps/web`.  |
 | `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server. |
+| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.            |
 | `API_PORT`               | no       | Defaults to 3001.                                         |
 | `NODE_ENV`               | no       | Defaults to `development`.                                |
 | `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.  |
+
+`MEDIA_STORAGE_DIR` has no default, and the reason is not the reason
+`INTERNAL_API_KEY` has none. A default here would not be a published credential —
+it would be a plausible-looking relative path, and a misconfigured deployment
+would start successfully and quietly write families' and colleagues' photographs
+into whatever directory the process was launched from, most likely inside a git
+working tree. In a deployment it must be a **persistent volume outside the
+application directory**, so a redeploy does not take the clinic's photographs
+with it. Locally, `.env.example` points it at the gitignored `.media-dev/`.
 
 ### `apps/web` — `apps/web/.env.local`
 

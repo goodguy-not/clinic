@@ -65,6 +65,9 @@ const EMPTY_CLINIC_PROFILE: PublicClinicProfile = {
   mapLongitude: null,
   instagramUrl: null,
   telegramUrl: null,
+  // Milestone 9.5، بخش A5. یک گالریِ خالی، نه «نامشخص»: وقتی سرور در دسترس
+  // نیست، صفحه باید بخش عکس‌ها را کنار بگذارد، نه اینکه جای خالی نگه دارد.
+  spacePhotos: [],
 };
 
 /**

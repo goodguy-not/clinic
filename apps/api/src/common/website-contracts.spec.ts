@@ -39,6 +39,19 @@ import {
 describe('public website contracts', () => {
   const keysOf = (schema: { shape: Record<string, unknown> }) => Object.keys(schema.shape).sort();
 
+  /**
+   * The clinic profile as it reads before anybody has supplied anything: every
+   * owner-typed fact null, and the gallery an empty array rather than a null.
+   *
+   * Built from the schema's own keys rather than written out, so a column added
+   * to the profile is covered here automatically — with the one array key named
+   * explicitly, because "null" is not a valid empty gallery.
+   */
+  const emptyClinicProfile = (): Record<string, unknown> => ({
+    ...Object.fromEntries(Object.keys(publicClinicProfileSchema.shape).map((key) => [key, null])),
+    spacePhotos: [],
+  });
+
   describe('the projections are exactly these fields', () => {
     it('states three facts about a listed service', () => {
       expect(keysOf(publicServiceSummarySchema)).toEqual(['description', 'name', 'slug']);
@@ -53,21 +66,27 @@ describe('public website contracts', () => {
       ]);
     });
 
-    it('states five facts about a published therapist', () => {
+    it('states six facts about a published therapist', () => {
+      // `photo` is the sixth, added in Milestone 9.5 checkpoint A5. It sits
+      // BESIDE `photoPath` rather than replacing it because the two are
+      // different facts: a path a manager typed to a file a developer placed,
+      // and a photograph the clinic uploaded through the media subsystem.
       expect(keysOf(publicTherapistProfileSchema)).toEqual([
         'bio',
         'displayName',
+        'photo',
         'photoPath',
         'slug',
         'title',
       ]);
     });
 
-    it('states four facts about a listed article and one more on the detail', () => {
+    it('states five facts about a listed article and one more on the detail', () => {
       // `publishedAt` is the ONE timestamp this surface projects, and it is a
       // deliberate exception: the date an article was published is editorial
       // content a reader judges it by, unlike "when was this service entered".
       expect(keysOf(publicArticleSummarySchema)).toEqual([
+        'images',
         'publishedAt',
         'slug',
         'summary',
@@ -75,6 +94,7 @@ describe('public website contracts', () => {
       ]);
       expect(keysOf(publicArticleDetailSchema)).toEqual([
         'body',
+        'images',
         'publishedAt',
         'slug',
         'summary',
@@ -82,12 +102,12 @@ describe('public website contracts', () => {
       ]);
     });
 
-    it('states two facts about a testimonial, and neither identifies anybody', () => {
+    it('states three facts about a testimonial, and none identifies anybody', () => {
       // No slug, no id, no date, no status, no family, no child, no service, no
       // therapist and no outcome. PROJECT_SPEC.md 11 forbids publishing
       // identifying child or clinical data, and the narrowest way to obey a
       // rule about a category of data is not to hold it.
-      expect(keysOf(publicTestimonialSchema)).toEqual(['authorLabel', 'body']);
+      expect(keysOf(publicTestimonialSchema)).toEqual(['authorLabel', 'body', 'image']);
     });
 
     it('states three facts per sitemap entry, and no path or host', () => {
@@ -97,7 +117,11 @@ describe('public website contracts', () => {
       expect(PUBLIC_SITEMAP_KINDS).toEqual(['service', 'therapist', 'article']);
     });
 
-    it('states thirteen owner-supplied facts about the clinic', () => {
+    it('states thirteen owner-supplied facts about the clinic, and one gallery', () => {
+      // `spacePhotos` is the fourteenth key and the only one that is not
+      // owner-typed text: it is a projection of published media attachments,
+      // and it is an array rather than a nullable because an empty gallery is
+      // the normal state and is not an absence anybody has to render around.
       expect(keysOf(publicClinicProfileSchema)).toEqual([
         'about',
         'addressLine',
@@ -109,6 +133,7 @@ describe('public website contracts', () => {
         'mapLongitude',
         'phonePrimary',
         'phoneSecondary',
+        'spacePhotos',
         'tagline',
         'telegramUrl',
         'workingHoursNote',
@@ -152,6 +177,7 @@ describe('public website contracts', () => {
         title: null,
         bio: null,
         photoPath: null,
+        photo: null,
       };
 
       for (const leak of [
@@ -189,6 +215,7 @@ describe('public website contracts', () => {
             title: null,
             bio: null,
             photoPath: null,
+            photo: null,
             ...leak,
           }).success,
         ).toBe(false);
@@ -315,18 +342,12 @@ describe('public website contracts', () => {
   });
 
   describe('the clinic profile', () => {
-    it('reads as thirteen nulls before the owner supplies anything', () => {
-      const empty = Object.fromEntries(
-        Object.keys(publicClinicProfileSchema.shape).map((key) => [key, null]),
-      );
-
-      expect(publicClinicProfileSchema.safeParse(empty).success).toBe(true);
+    it('reads as thirteen nulls and an empty gallery before the owner supplies anything', () => {
+      expect(publicClinicProfileSchema.safeParse(emptyClinicProfile()).success).toBe(true);
     });
 
     it('refuses a coordinate outside the world and a link that is not one', () => {
-      const empty = Object.fromEntries(
-        Object.keys(publicClinicProfileSchema.shape).map((key) => [key, null]),
-      );
+      const empty = emptyClinicProfile();
 
       expect(publicClinicProfileSchema.safeParse({ ...empty, mapLatitude: 91 }).success).toBe(
         false,

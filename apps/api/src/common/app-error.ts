@@ -210,6 +210,40 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   WEBSITE_REQUEST_TRANSITION_INVALID: 409,
   WEBSITE_REQUEST_ALREADY_LINKED: 409,
 
+  // The media subsystem (Milestone 9.5, checkpoint A5). FIVE STATUSES OVER NINE
+  // CODES, and each one is the honest answer to a different question.
+  //
+  // 404 for `MEDIA_NOT_FOUND` on BOTH surfaces, and the sameness is deliberate.
+  // A colleague asking for an asset that does not exist gets it, and so does an
+  // anonymous request for a rendition that exists but is not public — see the
+  // note in `@clinic/contracts`. Two statuses would be an oracle.
+  //
+  // 413 rather than 400 for an oversized upload: the request is well formed and
+  // the caller may legitimately want it, the entity is simply larger than this
+  // endpoint accepts. It is raised while the body is still arriving.
+  //
+  // 415 for an unsupported type, which is the one status on this whole surface
+  // that says "I understood your request and cannot process this media type" —
+  // exactly what an SVG or a PDF renamed to `.jpg` is.
+  //
+  // 422 for the two that are properties of the file's CONTENT rather than of
+  // its envelope: a decoder could not read it, or it decoded to something the
+  // clinic will not publish. An identical retry always fails identically, which
+  // is what separates these from the 409s below.
+  //
+  // 409 for the four lifecycle refusals: the request is well formed and
+  // something else already happened to the row, which a refreshed screen
+  // explains. Exactly `CHARGE_ALREADY_VOIDED`'s reasoning.
+  MEDIA_NOT_FOUND: 404,
+  MEDIA_TYPE_UNSUPPORTED: 415,
+  MEDIA_FILE_TOO_LARGE: 413,
+  MEDIA_FILE_CORRUPT: 422,
+  MEDIA_IMAGE_UNUSABLE: 422,
+  MEDIA_ARCHIVED: 409,
+  MEDIA_ATTACHMENT_NOT_FOUND: 404,
+  MEDIA_ALREADY_ATTACHED: 409,
+  MEDIA_ATTACHMENT_PUBLISHED: 409,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -336,6 +370,16 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   WEBSITE_REQUEST_NOT_FOUND: 'Website request not found',
   WEBSITE_REQUEST_TRANSITION_INVALID: 'This website request cannot move to that status',
   WEBSITE_REQUEST_ALREADY_LINKED: 'This website request is already linked to a family',
+
+  MEDIA_NOT_FOUND: 'Media not found',
+  MEDIA_TYPE_UNSUPPORTED: 'The uploaded file is not a supported photograph format',
+  MEDIA_FILE_TOO_LARGE: 'The uploaded file is larger than this endpoint accepts',
+  MEDIA_FILE_CORRUPT: 'The uploaded file could not be decoded as an image',
+  MEDIA_IMAGE_UNUSABLE: 'The image dimensions are outside the range this product publishes',
+  MEDIA_ARCHIVED: 'This media has been archived and may not be attached or published',
+  MEDIA_ATTACHMENT_NOT_FOUND: 'Media attachment not found',
+  MEDIA_ALREADY_ATTACHED: 'This media is already attached to that owner',
+  MEDIA_ATTACHMENT_PUBLISHED: 'A published attachment must be unpublished before it is detached',
 
   INTERNAL_ERROR: 'Internal error',
 };

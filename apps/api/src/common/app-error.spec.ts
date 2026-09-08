@@ -24,9 +24,44 @@ describe('error vocabulary', () => {
     // 429 joined the list in Milestone 9, checkpoint A3, and it is deliberately
     // narrow: `PUBLIC_REQUEST_THROTTLED` is the only code that carries it, on
     // the only route in the product an anonymous stranger can write to.
+    //
+    // 413 and 415 joined in Milestone 9.5, checkpoint A5, and are just as
+    // narrow: both belong to the one route in the product that accepts a file,
+    // and each says something no existing status could. A 400 for an oversized
+    // upload would tell a receptionist their form was wrong when it was not,
+    // and a 400 for an SVG would say the same about a file the product simply
+    // does not accept.
     for (const code of ERROR_CODES) {
-      expect([400, 401, 403, 404, 409, 422, 429, 500]).toContain(ERROR_STATUS[code]);
+      expect([400, 401, 403, 404, 409, 413, 415, 422, 429, 500]).toContain(ERROR_STATUS[code]);
     }
+  });
+
+  it('gives 413 and 415 to exactly one media code each, and to nothing else', () => {
+    expect(ERROR_CODES.filter((code) => ERROR_STATUS[code] === 413)).toEqual([
+      'MEDIA_FILE_TOO_LARGE',
+    ]);
+    expect(ERROR_CODES.filter((code) => ERROR_STATUS[code] === 415)).toEqual([
+      'MEDIA_TYPE_UNSUPPORTED',
+    ]);
+  });
+
+  it('carries exactly the nine approved media codes', () => {
+    // Stated as an exact list for the reason the ledger's is: a tenth media
+    // code is a refusal invented outside the approved checkpoint, and it must
+    // fail here rather than appear in a response the web tier cannot translate.
+    expect([...ERROR_CODES.filter((code) => code.startsWith('MEDIA_'))].sort()).toEqual(
+      [
+        'MEDIA_ALREADY_ATTACHED',
+        'MEDIA_ARCHIVED',
+        'MEDIA_ATTACHMENT_NOT_FOUND',
+        'MEDIA_ATTACHMENT_PUBLISHED',
+        'MEDIA_FILE_CORRUPT',
+        'MEDIA_FILE_TOO_LARGE',
+        'MEDIA_IMAGE_UNUSABLE',
+        'MEDIA_NOT_FOUND',
+        'MEDIA_TYPE_UNSUPPORTED',
+      ].sort(),
+    );
   });
 
   it('gives 429 to exactly one code', () => {

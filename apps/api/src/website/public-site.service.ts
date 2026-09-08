@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
   PublicArticleDetail,
+  PublicImage,
   PublicArticleSummary,
   PublicClinicProfile,
   PublicServiceDetail,
@@ -11,6 +12,7 @@ import type {
   PublicTherapistProfile,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
+import { PublicMediaService } from '../media/public-media.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -47,6 +49,22 @@ import { PrismaService } from '../prisma/prisma.service';
  * reason; the sitemap is derived from the same predicates as the pages it
  * lists, in one statement, so it cannot advertise a URL that answers 404.
  *
+ * MILESTONE 9.5, CHECKPOINT A5 ADDS AN IMAGE FIELD TO FOUR OF THESE
+ * PROJECTIONS AND CHANGES NO PREDICATE ABOVE. The photographs come from
+ * `PublicMediaService`, which applies its own single published-only predicate;
+ * this file does not query the media tables and does not restate that rule,
+ * which is the one place the "repeat the predicate" discipline is deliberately
+ * NOT followed. The reason is that the media rule is not a variation per page —
+ * it is one four-condition rule about one subsystem, it is stated once in
+ * `media-visibility.ts`, and a copy of it here would be a second answer to
+ * "may a stranger see this photograph?" that could drift from the one the
+ * serving route actually applies.
+ *
+ * THE INTERNAL ID IS NOW SELECTED IN FOUR STATEMENTS AND PROJECTED IN NONE.
+ * It is the join key the media lookup needs and it is dropped by the mappers at
+ * the bottom of this file; the public contracts remain `strictObject`, so an id
+ * reaching a response would fail a test rather than reach a browser.
+ *
  * `publishedAt` ON AN ARTICLE IS THE ONE TIMESTAMP THIS SURFACE PROJECTS, and
  * it is a deliberate exception rather than a lapse: "when was this service
  * entered" is internal history a visitor is not owed, while the date an article
@@ -63,6 +81,8 @@ type PublicServiceRow = {
 type PublicServiceDetailRow = PublicServiceRow & { durations: number[] };
 
 type PublicTherapistRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
   public_slug: string;
   public_display_name: string;
   public_title: string | null;
@@ -71,6 +91,8 @@ type PublicTherapistRow = {
 };
 
 type PublicArticleRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
   public_slug: string;
   published_title: string;
   published_summary: string | null;
@@ -80,6 +102,8 @@ type PublicArticleRow = {
 type PublicArticleDetailRow = PublicArticleRow & { published_body: string };
 
 type PublicTestimonialRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
   author_label: string | null;
   body: string;
 };
@@ -121,11 +145,15 @@ const EMPTY_CLINIC_PROFILE: PublicClinicProfile = {
   mapLongitude: null,
   instagramUrl: null,
   telegramUrl: null,
+  spacePhotos: [],
 };
 
 @Injectable()
 export class PublicSiteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: PublicMediaService,
+  ) {}
 
   /**
    * The services the clinic publishes, in name order.
@@ -204,7 +232,8 @@ export class PublicSiteService {
    */
   async listTeam(): Promise<PublicTherapistProfile[]> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
-      SELECT t.public_slug, t.public_display_name, t.public_title, t.public_bio, t.public_photo_path
+      SELECT t.id AS internal_id, t.public_slug, t.public_display_name, t.public_title,
+             t.public_bio, t.public_photo_path
       FROM therapist t
       WHERE t.is_public IS TRUE
         AND t.status = 'ACTIVE'::catalog_status
@@ -213,7 +242,12 @@ export class PublicSiteService {
       ORDER BY t.public_display_order ASC, t.public_display_name ASC, t.id ASC
     `;
 
-    return rows.map(toPublicTherapistProfile);
+    const photos = await this.media.imagesForOwners(
+      'THERAPIST_PROFILE',
+      rows.map((row) => row.internal_id),
+    );
+
+    return rows.map((row) => toPublicTherapistProfile(row, firstImage(photos, row.internal_id)));
   }
 
   /**
@@ -223,7 +257,8 @@ export class PublicSiteService {
    */
   async getTherapist(slug: string): Promise<PublicTherapistProfile> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
-      SELECT t.public_slug, t.public_display_name, t.public_title, t.public_bio, t.public_photo_path
+      SELECT t.id AS internal_id, t.public_slug, t.public_display_name, t.public_title,
+             t.public_bio, t.public_photo_path
       FROM therapist t
       WHERE t.public_slug = ${slug}
         AND t.is_public IS TRUE
@@ -234,7 +269,9 @@ export class PublicSiteService {
     const row = rows[0];
     if (row === undefined) throw new AppError('THERAPIST_NOT_FOUND');
 
-    return toPublicTherapistProfile(row);
+    const photos = await this.media.imagesForOwners('THERAPIST_PROFILE', [row.internal_id]);
+
+    return toPublicTherapistProfile(row, firstImage(photos, row.internal_id));
   }
 
   /**
@@ -262,10 +299,16 @@ export class PublicSiteService {
       WHERE singleton_key = 1
     `;
 
+    // The gallery is read through `PublicMediaService`, on the same client, so
+    // the manager write path that calls this inside its own transaction sees
+    // its own uncommitted change rather than a gallery from before it.
+    const spacePhotos = await this.media.clinicSpaceImages(tx);
+
     const row = rows[0];
-    if (row === undefined) return EMPTY_CLINIC_PROFILE;
+    if (row === undefined) return { ...EMPTY_CLINIC_PROFILE, spacePhotos };
 
     return {
+      spacePhotos,
       displayName: row.display_name,
       tagline: row.tagline,
       about: row.about,
@@ -307,14 +350,20 @@ export class PublicSiteService {
    */
   async listArticles(): Promise<PublicArticleSummary[]> {
     const rows = await this.prisma.$queryRaw<PublicArticleRow[]>`
-      SELECT a.public_slug, a.published_title, a.published_summary, a.public_first_published_at
+      SELECT a.id AS internal_id, a.public_slug, a.published_title, a.published_summary,
+             a.public_first_published_at
       FROM public_article a
       WHERE a.is_public IS TRUE
         AND a.public_first_published_at IS NOT NULL
       ORDER BY a.public_first_published_at DESC, a.id DESC
     `;
 
-    return rows.map(toPublicArticleSummary);
+    const images = await this.media.imagesForOwners(
+      'PUBLIC_ARTICLE',
+      rows.map((row) => row.internal_id),
+    );
+
+    return rows.map((row) => toPublicArticleSummary(row, images.get(row.internal_id) ?? []));
   }
 
   /**
@@ -329,6 +378,7 @@ export class PublicSiteService {
   async getArticle(slug: string): Promise<PublicArticleDetail> {
     const rows = await this.prisma.$queryRaw<PublicArticleDetailRow[]>`
       SELECT
+        a.id AS internal_id,
         a.public_slug,
         a.published_title,
         a.published_summary,
@@ -343,7 +393,12 @@ export class PublicSiteService {
     const row = rows[0];
     if (row === undefined) throw new AppError('ARTICLE_NOT_FOUND');
 
-    return { ...toPublicArticleSummary(row), body: row.published_body };
+    const images = await this.media.imagesForOwners('PUBLIC_ARTICLE', [row.internal_id]);
+
+    return {
+      ...toPublicArticleSummary(row, images.get(row.internal_id) ?? []),
+      body: row.published_body,
+    };
   }
 
   /**
@@ -363,7 +418,7 @@ export class PublicSiteService {
    */
   async listTestimonials(): Promise<PublicTestimonial[]> {
     const rows = await this.prisma.$queryRaw<PublicTestimonialRow[]>`
-      SELECT t.author_label, t.body
+      SELECT t.id AS internal_id, t.author_label, t.body
       FROM public_testimonial t
       WHERE t.is_public IS TRUE
         AND t.status = 'APPROVED'::testimonial_status
@@ -371,7 +426,16 @@ export class PublicSiteService {
       ORDER BY t.public_first_published_at DESC, t.id DESC
     `;
 
-    return rows.map((row) => ({ authorLabel: row.author_label, body: row.body }));
+    const images = await this.media.imagesForOwners(
+      'PUBLIC_TESTIMONIAL',
+      rows.map((row) => row.internal_id),
+    );
+
+    return rows.map((row) => ({
+      authorLabel: row.author_label,
+      body: row.body,
+      image: firstImage(images, row.internal_id),
+    }));
   }
 
   /**
@@ -426,8 +490,12 @@ export class PublicSiteService {
   }
 }
 
-function toPublicArticleSummary(row: PublicArticleRow): PublicArticleSummary {
+function toPublicArticleSummary(
+  row: PublicArticleRow,
+  images: PublicImage[],
+): PublicArticleSummary {
   return {
+    images,
     slug: row.public_slug,
     title: row.published_title,
     summary: row.published_summary,
@@ -442,12 +510,29 @@ function toPublicServiceSummary(row: PublicServiceRow): PublicServiceSummary {
   return { slug: row.public_slug, name: row.name, description: row.public_description };
 }
 
-function toPublicTherapistProfile(row: PublicTherapistRow): PublicTherapistProfile {
+function toPublicTherapistProfile(
+  row: PublicTherapistRow,
+  photo: PublicImage | null,
+): PublicTherapistProfile {
   return {
     slug: row.public_slug,
     displayName: row.public_display_name,
     title: row.public_title,
     bio: row.public_bio,
     photoPath: row.public_photo_path,
+    photo,
   };
+}
+
+/**
+ * The one photograph on a single-image owner.
+ *
+ * A therapist has one portrait and a testimonial has one photographed note; the
+ * attachment table permits more, so this takes the FIRST in the clinic's own
+ * order rather than refusing to render anything. Silently showing one of two is
+ * better than a blank page, and the library shows a manager every attachment
+ * there is.
+ */
+function firstImage(images: Map<string, PublicImage[]>, ownerId: string): PublicImage | null {
+  return images.get(ownerId)?.[0] ?? null;
 }

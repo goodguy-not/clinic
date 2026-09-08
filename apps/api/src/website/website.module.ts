@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { MediaModule } from '../media/media.module';
 import { ArticlesController } from './articles.controller';
 import { ArticlesService } from './articles.service';
 import { ClinicProfileController } from './clinic-profile.controller';
@@ -59,6 +60,15 @@ import { WebsiteRequestsService } from './website-requests.service';
  * rather than in the CLI so that the erasure and the table it erases are read
  * side by side.
  *
+ * MILESTONE 9.5, CHECKPOINT A5 IMPORTS `MediaModule` AND ADDS NO SERVICE,
+ * NO TABLE AND NO CONTROLLER HERE. The media subsystem owns its three tables
+ * and its own staff controller; what this module takes from it is
+ * `PublicMediaService` — the published-only projection — for two reasons. The
+ * four public reads now carry the photographs the clinic has published, and the
+ * ONE ANONYMOUS BYTE ROUTE IN THE PRODUCT is declared on
+ * `PublicSiteController` rather than in the media module, so that the file
+ * answering "what can the world see?" goes on answering it completely.
+ *
  * `AuditModule` IS IMPORTED NOW, WHERE A1 DELIBERATELY DID NOT. Reading a
  * published page is still not an audited act and nothing in
  * `PublicSiteService` writes a row. What changed is that this module now
@@ -68,7 +78,7 @@ import { WebsiteRequestsService } from './website-requests.service';
  * application does.
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, MediaModule],
   controllers: [
     PublicSiteController,
     ArticlesController,

@@ -7,6 +7,7 @@ import { AvailabilityModule } from './availability/availability.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { FamiliesModule } from './families/families.module';
 import { LedgerModule } from './ledger/ledger.module';
+import { MediaModule } from './media/media.module';
 import { PaymentsModule } from './payments/payments.module';
 import { InternalKeyGuard } from './auth/guards/internal-key.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
@@ -31,7 +32,7 @@ import { WebsiteModule } from './website/website.module';
  * is denied by the first guard rather than silently exposed.
  *
  * Domain modules (users, catalog, family, appointment, ledger, payment, report,
- * settlement, website) are added one milestone at a time; each owns its own tables and is
+ * settlement, media, website) are added one milestone at a time; each owns its own tables and is
  * the only code that queries them.
  */
 @Module({
@@ -49,6 +50,7 @@ import { WebsiteModule } from './website/website.module';
     FamiliesModule,
     ReportsModule,
     SettlementModule,
+    MediaModule,
     WebsiteModule,
     HealthModule,
   ],

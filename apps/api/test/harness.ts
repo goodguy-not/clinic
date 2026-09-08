@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -23,6 +26,20 @@ export const TEST_INTERNAL_KEY = 'test_only_internal_key_0123456789abcdef';
 
 /** Satisfies the 15-code-point minimum and trips no blocklist rule. */
 export const TEST_PASSWORD = 'quiet harbour lantern drift';
+
+/**
+ * The media root every harness in this suite writes to.
+ *
+ * A FRESH TEMPORARY DIRECTORY PER PROCESS, outside the repository, holding only
+ * synthetically generated images. It is deliberately not cleaned up between
+ * tests: `resetDatabase` truncates the rows, which makes every file under it
+ * unreferenced and therefore unreachable by every route, and leaving the bytes
+ * where they are is what lets a failing test be inspected afterwards.
+ *
+ * It is created once, at module load, so that two harnesses in one file share a
+ * root and a test can hand a storage key from one to the other.
+ */
+export const TEST_MEDIA_ROOT = mkdtempSync(join(tmpdir(), 'clinic-media-test-'));
 
 /**
  * Database names these tests are allowed to touch.
@@ -105,6 +122,7 @@ export async function createHarness(): Promise<Harness> {
       DATABASE_URL: url,
       INTERNAL_API_KEY: TEST_INTERNAL_KEY,
       PASSWORD_BLOCKED_TERMS: undefined,
+      MEDIA_STORAGE_DIR: TEST_MEDIA_ROOT,
     })
     .compile();
 
@@ -173,6 +191,12 @@ const PROTECTED_TABLES = [
   // the ninety-day retention rule is an UPDATE that CLEARS the intake columns,
   // never a DELETE, so the row itself refuses both DELETE and TRUNCATE.
   'website_request',
+  // Milestone 9.5, checkpoint A5. All three refuse DELETE and TRUNCATE: a
+  // photograph is unpublished, detached or archived, never erased, and the
+  // retention decision that would change that has not been taken.
+  'media_asset',
+  'media_rendition',
+  'media_attachment',
 ];
 
 /**
@@ -184,6 +208,15 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 9.5, dependents first: an attachment names an asset, a therapist,
+  // an article and a testimonial, so it goes before all four; a rendition names
+  // its asset. Truncating the rows leaves the files under `TEST_MEDIA_ROOT`
+  // unreferenced, which is the same state a failed upload transaction leaves
+  // them in — and unreachable by every route, because the serving route selects
+  // a row.
+  'media_attachment',
+  'media_rendition',
+  'media_asset',
   // Milestone 9, checkpoint A3. It names a service, so it goes before `service`.
   'website_request',
   // Milestone 9. Neither names anything but the user who created it, so they go

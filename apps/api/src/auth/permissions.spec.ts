@@ -76,6 +76,14 @@ describe('role to permission map', () => {
         // linking one to a family this role can already register itself.
         'website_request.read',
         'website_request.process',
+        // Milestone 9.5, checkpoint A5: the media library, minus the name that
+        // makes a photograph visible. Uploading and attaching are front-desk
+        // work and neither can put anything in front of a visitor; publishing,
+        // unpublishing and archiving are `media.publish`, which is withheld and
+        // which the negative half below states.
+        'media.read',
+        'media.upload',
+        'media.attach',
       ].sort(),
     );
   });
@@ -124,9 +132,52 @@ describe('role to permission map', () => {
       'settlement.rate',
       'settlement.void_rating',
       'settlement.close',
+      // Milestone 9.5: the one media authority that changes what the world
+      // sees. It covers publishing an attachment, unpublishing one, archiving
+      // an asset and restoring it, and this role holds none of those.
+      'media.publish',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
+  });
+
+  describe('the media subsystem', () => {
+    // Milestone 9.5, checkpoint A5. The same draft-versus-publish boundary the
+    // A2 content permissions drew, stated here so that widening it later has to
+    // be a deliberate edit to a test rather than a quiet edit to a role map.
+    it('carries exactly the four approved media names', () => {
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('media.')).sort()).toEqual(
+        ['media.attach', 'media.publish', 'media.read', 'media.upload'].sort(),
+      );
+    });
+
+    it('lets a receptionist prepare a photograph and never publish one', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('media.read');
+      expect(granted).toContain('media.upload');
+      expect(granted).toContain('media.attach');
+      expect(granted).not.toContain('media.publish');
+    });
+
+    it('adds no media authority over anything that is not a photograph', () => {
+      // The frozen boundary for this checkpoint: a receptionist may upload
+      // media, and NO operational, financial, scheduling or clinical authority
+      // moves with it. Stated against the names that would represent such a
+      // widening, so that a future edit granting one fails here.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'article.publish',
+        'testimonial.approve',
+        'therapist.publish_profile',
+        'clinic_profile.update',
+        'charge.void',
+        'appointment.reopen',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
   });
 
   describe('the ledger', () => {

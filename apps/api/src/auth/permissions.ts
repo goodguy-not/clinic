@@ -173,6 +173,24 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     // link route additionally demands `family.read`, which it also holds.
     'website_request.read',
     'website_request.process',
+
+    // Milestone 9.5, checkpoint A5. Three of the four media names, and the one
+    // withheld is the one that makes a photograph visible. Photographing the new
+    // therapy room and putting it on the draft list of clinic spaces is
+    // front-desk work; deciding that the world may see it is not.
+    // `media.publish` — which covers publishing an attachment, unpublishing one,
+    // archiving an asset and restoring it — stays with the manager, exactly as
+    // `article.publish` and `testimonial.approve` do, and for the same reason:
+    // the permission that prepares a change is not the permission that moves the
+    // page.
+    //
+    // NOTHING THESE THREE GRANT IS REACHABLE BY A VISITOR. An upload produces no
+    // public byte, and an attachment is created unpublished with no field on the
+    // request that could say otherwise, so the strongest thing a receptionist can
+    // do here is present a manager with something ready to approve.
+    'media.read',
+    'media.upload',
+    'media.attach',
   ],
 };
 

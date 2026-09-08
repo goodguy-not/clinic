@@ -96,6 +96,21 @@ export const publicMediaPathSchema = z
  *   testimonial publish ........... `testimonials`
  *   clinic profile update ......... `clinicProfile`
  *
+ * MILESTONE 9.5, CHECKPOINT A5 ADDS THREE LINES TO THAT TABLE, and they are
+ * the media acts rather than new content acts:
+ *
+ *   media attachment published/unpublished ... the OWNER's tags, exactly as
+ *                                              editing that owner does
+ *   media asset archived/restored ............ the tags of every owner it is
+ *                                              attached to
+ *   media detached ........................... the OWNER's tags
+ *
+ * A media act therefore invalidates the same page data a content act does,
+ * because the projection listing the photograph is part of that page's data.
+ * The BYTES are tagged separately, under `PUBLIC_MEDIA_CACHE_TAG_PREFIX` plus
+ * the rendition id, because a page's data goes stale when its copy changes
+ * while a rendition's bytes go stale only when it stops being public.
+ *
  * EVERY ONE OF THOSE ALSO AFFECTS `sitemap`, except the testimonial and clinic
  * rows: a testimonial has no URL of its own and the clinic profile is not a
  * data-driven page. The sitemap read is derived from the same rows as the pages

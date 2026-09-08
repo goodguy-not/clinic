@@ -22,6 +22,12 @@
 //               here; the ninety-day retention rule is satisfied by an UPDATE
 //               that CLEARS the intake columns and leaves a minimal lifecycle
 //               row behind, never by removing the row.
+// Milestone 9.5, checkpoint A5 — the media subsystem: the photograph a member
+//               of staff uploads, the servable copies derived from it, and the
+//               single place it has been put. THREE TABLES AND THREE ENUMS.
+//               NO IMAGE BYTE IS STORED IN POSTGRESQL — the columns here are
+//               keys into a directory the API owns — and NO ROW HERE NAMES THE
+//               UPLOADED FILE, because the uploaded file is never written.
 // Milestone 8, checkpoint C2 — therapist settlement configuration: the
 //               effective-dated share percentage a therapist takes. ONE table,
 //               and it is configuration rather than a settlement fact — nothing
@@ -371,6 +377,44 @@ enum TestimonialStatus {
   @@map("testimonial_status")
 }
 
+/// Milestone 9.5, checkpoint A5.
+///
+/// `ARCHIVED` IS NOT DELETED AND IS NOT A SECOND UNPUBLISH. Archiving takes a
+/// photograph out of circulation everywhere at once, whatever it is attached
+/// to, and it is reversible. Unpublishing takes ONE attachment off ONE page.
+/// A manager holds both, and they are separate because "this picture was the
+/// wrong choice for this article" and "this picture should not be on the
+/// internet at all" are different sentences with different blast radii.
+enum MediaAssetStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("media_asset_status")
+}
+
+/// The four places the public website has a photograph.
+///
+/// A CLOSED LIST, because a fifth would be a new decision about what the clinic
+/// publishes rather than a new value in an enum. `CLINIC_SPACE` is the one with
+/// no owner row: see `MediaAttachment.ownerType`.
+enum MediaAttachmentOwner {
+  THERAPIST_PROFILE
+  PUBLIC_ARTICLE
+  PUBLIC_TESTIMONIAL
+  CLINIC_SPACE
+
+  @@map("media_attachment_owner")
+}
+
+/// WebP first, JPEG as the floor that cannot fail. See
+/// `MEDIA_RENDITION_FORMATS` in `@clinic/contracts` for why AVIF is not here.
+enum MediaRenditionFormat {
+  WEBP
+  JPEG
+
+  @@map("media_rendition_format")
+}
+
 enum SettlementLineType {
   PRIMARY
   CORRECTION
@@ -450,6 +494,18 @@ model AppUser {
   /// status is `audit_log`'s answer, and a link is different because it is a
   /// standing claim about whose message this was rather than a past act.
   linkedWebsiteRequests WebsiteRequest[]
+
+  /// Milestone 9.5, checkpoint A5. FIVE ACTOR COLUMNS ACROSS TWO MEDIA TABLES,
+  /// and every one of them is a STANDING CLAIM rather than a past act — who
+  /// currently stands behind this photograph being in the library, out of
+  /// circulation, on this article, or visible to the world. `audit_log` remains
+  /// the record of what happened and when; these are the columns a colleague
+  /// reading one row needs in order to know whom to ask.
+  uploadedMedia  MediaAsset[]      @relation("MediaAssetCreatedBy")
+  archivedMedia  MediaAsset[]      @relation("MediaAssetArchivedBy")
+  attachedMedia  MediaAttachment[] @relation("MediaAttachmentAttachedBy")
+  publishedMedia MediaAttachment[] @relation("MediaAttachmentPublishedBy")
+  detachedMedia  MediaAttachment[] @relation("MediaAttachmentDetachedBy")
 
   @@map("app_user")
 }
@@ -594,6 +650,10 @@ model Therapist {
   availabilityExceptions TherapistAvailabilityException[]
   shareRules             TherapistShareRule[]
   settlementPeriods      SettlementPeriod[]
+
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
 
   @@index([status])
   @@map("therapist")
@@ -2060,6 +2120,10 @@ model PublicArticle {
 
   createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
+
   /// NO `updatedAt` AND NO `updatedByUserId`: `audit_log` is the change
   /// history, and `publicRevisedAt` is a public fact rather than a second copy
   /// of one.
@@ -2106,6 +2170,10 @@ model PublicTestimonial {
   createdByUserId        String            @map("created_by_user_id") @db.Uuid
 
   createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
 
   @@map("public_testimonial")
 }
@@ -2303,4 +2371,203 @@ model WebsiteRequest {
   /// requests, both of which are this index with a narrower predicate.
   @@index([status, receivedAt])
   @@map("website_request")
+}
+
+/// A photograph the clinic uploaded, after the product got hold of it.
+///
+/// Milestone 9.5, checkpoint A5.
+///
+/// THE UPLOADED FILE IS NOT HERE, AND THERE IS NO COLUMN THROUGH WHICH IT COULD
+/// BE. `sourceContentType` and `sourceByteSize` describe what arrived, because
+/// a colleague asking "did that upload work?" needs them; the bytes themselves
+/// lived in one process's memory for the length of one request and were never
+/// written to disk. That is what makes "no original phone photograph is
+/// publicly reachable" a property of the storage rather than of a predicate
+/// somebody has to remember — and it is also why no EXIF, and therefore no GPS
+/// coordinate of a family's home or of the clinic itself, exists anywhere in
+/// this system to be leaked, backed up, or handed over.
+///
+/// WHAT IS STORED IS A MASTER AND ITS RENDITIONS. The master is a re-encoded,
+/// re-oriented, metadata-free copy bounded by `MEDIA_MASTER_MAX_DIMENSION`; it
+/// is the only thing a later rendition can be derived from, and it is NEVER
+/// SERVED. The serving route can name a `media_rendition` and nothing else, so
+/// the master's unreachability is structural rather than a missing branch.
+///
+/// ORIENTATION IS APPLIED BEFORE METADATA IS DISCARDED, and the order is the
+/// whole of it. A telephone photograph taken sideways is stored upright with
+/// nothing left to say it was ever rotated; discarding the metadata first would
+/// leave a picture on its side that no renderer could correct.
+///
+/// `masterStorageKey` AND `MediaRendition.storageKey` ARE RELATIVE PATHS UNDER
+/// ONE CONFIGURED ROOT. They are stored rather than derived so that a future
+/// layout change does not orphan what is already on disk, and they are resolved
+/// against the root with an explicit containment check at every read, so a
+/// value edited into the database by hand cannot address a file outside it.
+///
+/// NOTHING IN THIS CHECKPOINT DELETES A BYTE. There is no `deletedAt`, no purge
+/// column and no retention clock, and their absence is deliberate: how long the
+/// clinic keeps a photograph nobody publishes any more is a decision the owner
+/// has not taken, and a schema that guessed either way — erasing on archive, or
+/// promising to keep forever — would pre-empt it. The table carries the
+/// `no_delete` and `no_truncate` triggers every historical table here carries,
+/// so when that decision arrives it arrives as a reviewed migration.
+model MediaAsset {
+  id      String           @id @default(uuid(7)) @db.Uuid
+  /// The Persian text a screen reader says instead of the photograph. Required,
+  /// plain, and markup-free — see `mediaAltTextSchema`.
+  altText String           @map("alt_text")
+  status  MediaAssetStatus @default(ACTIVE)
+
+  /// --- what arrived. DESCRIBED, NEVER STORED. ---
+  ///
+  /// The content type is what the BYTES were, sniffed from their magic number
+  /// and confirmed by the decoder. The filename and the browser-supplied
+  /// content type reach no column here: both are chosen by the caller, and a
+  /// product that recorded either would be recording a claim as a fact.
+  sourceContentType String @map("source_content_type")
+  sourceByteSize    Int    @map("source_byte_size")
+
+  /// --- the master. THE ONLY COPY THE CLINIC KEEPS, AND NEVER SERVED. ---
+  masterStorageKey  String @unique @map("master_storage_key")
+  /// SHA-256 of the master bytes. Content IDENTITY — what makes a replaced
+  /// photograph unmistakably a different photograph — and NOT a revocation
+  /// mechanism; see `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
+  masterContentHash String @map("master_content_hash")
+  masterByteSize    Int    @map("master_byte_size")
+  /// POST-ORIENTATION dimensions, which are the dimensions a page will occupy.
+  masterWidth       Int    @map("master_width")
+  masterHeight      Int    @map("master_height")
+
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
+  archivedByUserId String?   @map("archived_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId  String    @map("created_by_user_id") @db.Uuid
+
+  createdBy  AppUser  @relation("MediaAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  archivedBy AppUser? @relation("MediaAssetArchivedBy", fields: [archivedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  renditions  MediaRendition[]
+  attachments MediaAttachment[]
+
+  /// The library read: newest first, optionally narrowed to what is still in
+  /// circulation.
+  @@index([status, id])
+  @@map("media_asset")
+}
+
+/// One servable copy of one photograph, at one width in one format.
+///
+/// Milestone 9.5, checkpoint A5. THIS IS THE ONLY TABLE IN THE SCHEMA WHOSE
+/// ROWS AN ANONYMOUS REQUEST CAN NAME, and the serving route selects from it
+/// alone. The master is deliberately not a row here: it is a column on the
+/// asset, so "the original-quality file is not servable" is enforced by there
+/// being nothing to select rather than by a predicate that could be widened.
+///
+/// A ROW HERE IS NOT A PERMISSION TO SERVE IT. Existence says the bytes were
+/// produced; whether a stranger may have them is re-derived on every request
+/// from the asset's status, the attachment's publication and the owner's own
+/// publication — see `MediaAttachment`.
+///
+/// `contentHash` IS SERVED AS THE `ETag`, so a cache that already holds these
+/// exact bytes revalidates with a 304 rather than a re-download. It is per
+/// rendition rather than per asset because two widths of one photograph are two
+/// different resources.
+model MediaRendition {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  mediaAssetId String               @map("media_asset_id") @db.Uuid
+  format       MediaRenditionFormat
+  /// Intrinsic pixels, post-orientation. `width` is the `w` descriptor a
+  /// `srcset` carries.
+  width        Int
+  height       Int
+  byteSize     Int                  @map("byte_size")
+  contentHash  String               @map("content_hash")
+  storageKey   String               @unique @map("storage_key")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  asset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// One rendition per photograph per format per width, so a re-derivation
+  /// cannot quietly produce a second row that some reads find and others do not.
+  @@unique([mediaAssetId, format, width])
+  @@map("media_rendition")
+}
+
+/// One place a photograph has been put, and how far along it is.
+///
+/// Milestone 9.5, checkpoint A5. THE TABLE THAT DECIDES WHAT THE WORLD SEES.
+///
+/// TWO SEPARATE FACTS HAVE TO BE TRUE, AND THEY BELONG TO TWO SEPARATE PEOPLE.
+/// `publishedAt` is a manager's decision about this photograph in this place;
+/// the OWNER's own publication — `therapist.is_public`,
+/// `public_article.is_public`, `public_testimonial.is_public` — is a decision
+/// about the page. An anonymous request is served only when both hold, so a
+/// receptionist may attach illustrations to a live article without moving the
+/// live page, and a manager unpublishing the article takes its pictures down
+/// with it.
+///
+/// `CLINIC_SPACE` IS THE EXCEPTION AND IT IS AN HONEST ONE. There is no owner
+/// row to consult: `clinic_public_profile` is a single row that is always live,
+/// because editing it IS publishing (Milestone 9, checkpoint A2). A
+/// clinic-space photograph is therefore visible exactly while `publishedAt` is
+/// set, and the manager-only authority over that column is the whole of the
+/// control.
+///
+/// THE OWNER IS A DISCRIMINATOR PLUS THREE REAL FOREIGN KEYS, NOT A LOOSE
+/// `owner_id`. `media_attachment_owner_chk` requires exactly the column
+/// matching `ownerType` to be present and the other two to be absent, so a
+/// polymorphic reference cannot dangle: an attachment naming an article that
+/// does not exist is refused by PostgreSQL rather than by a service that
+/// remembered to check. The alternative — one nullable UUID with no constraint
+/// — would make "which pictures does this article have?" a query whose
+/// correctness depends on nobody ever writing the wrong `ownerType`.
+///
+/// A ROW IS NEVER DELETED; IT IS DETACHED. `detachedAt` is what taking a
+/// photograph off a page means, and the row that remains is how anybody
+/// afterwards can say that this picture was on that article between these two
+/// instants. Detaching a PUBLISHED attachment is refused outright
+/// (`MEDIA_ATTACHMENT_PUBLISHED`): it must be unpublished first, which is a
+/// manager act, so removing something from a live page can never be done by the
+/// weaker authority that put it there.
+model MediaAttachment {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  mediaAssetId String               @map("media_asset_id") @db.Uuid
+  ownerType    MediaAttachmentOwner @map("owner_type")
+
+  /// Exactly one of these three is set, and none of them is set for
+  /// `CLINIC_SPACE`. Pinned by `media_attachment_owner_chk`.
+  therapistId   String? @map("therapist_id") @db.Uuid
+  articleId     String? @map("article_id") @db.Uuid
+  testimonialId String? @map("testimonial_id") @db.Uuid
+
+  /// Ascending, so a gallery has one order rather than whatever PostgreSQL
+  /// returns. Ties are broken by id, which is time-ordered.
+  position Int @default(0) @db.SmallInt
+
+  attachedAt        DateTime  @default(now()) @map("attached_at") @db.Timestamptz
+  attachedByUserId  String    @map("attached_by_user_id") @db.Uuid
+  /// The manager's decision, and the instant it took effect. NULL is a draft.
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz
+  publishedByUserId String?   @map("published_by_user_id") @db.Uuid
+  detachedAt        DateTime? @map("detached_at") @db.Timestamptz
+  detachedByUserId  String?   @map("detached_by_user_id") @db.Uuid
+
+  asset       MediaAsset         @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  therapist   Therapist?         @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  article     PublicArticle?     @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  testimonial PublicTestimonial? @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  attachedBy  AppUser  @relation("MediaAttachmentAttachedBy", fields: [attachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedBy AppUser? @relation("MediaAttachmentPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  detachedBy  AppUser? @relation("MediaAttachmentDetachedBy", fields: [detachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The three owner reads, each of which is "what does this owner currently
+  /// show?" narrowed by the partial predicate the serving rule applies.
+  @@index([therapistId, position])
+  @@index([articleId, position])
+  @@index([testimonialId, position])
+  /// The clinic-space gallery, and the library's "where is this used?" read.
+  @@index([ownerType, position])
+  @@index([mediaAssetId])
+  @@map("media_attachment")
 }

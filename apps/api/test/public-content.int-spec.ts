@@ -201,7 +201,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
   });
 
   describe('what a published page carries', () => {
-    it('states four facts about a listed article and five about the detail', async () => {
+    it('states five facts about a listed article and six about the detail', async () => {
       await publishArticle('a-published-article');
 
       const list = await request(server()).get('/public/articles').set(asVisitor());
@@ -212,14 +212,26 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       const summary = publicArticleListResponseSchema.parse(list.body).articles[0]!;
       const article = publicArticleDetailResponseSchema.parse(detail.body).article;
 
-      expect(Object.keys(summary).sort()).toEqual(['publishedAt', 'slug', 'summary', 'title']);
-      expect(Object.keys(article).sort()).toEqual([
-        'body',
+      // `images` is the fifth, added in Milestone 9.5 checkpoint A5, and it is
+      // an EMPTY ARRAY here: nothing in this test attaches or publishes a
+      // photograph, so the projection carries the shape without the content.
+      expect(Object.keys(summary).sort()).toEqual([
+        'images',
         'publishedAt',
         'slug',
         'summary',
         'title',
       ]);
+      expect(summary.images).toEqual([]);
+      expect(Object.keys(article).sort()).toEqual([
+        'body',
+        'images',
+        'publishedAt',
+        'slug',
+        'summary',
+        'title',
+      ]);
+      expect(article.images).toEqual([]);
     });
 
     it('carries no internal identifier, publication flag or actor', async () => {
@@ -247,13 +259,17 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       }
     });
 
-    it('states two facts about a testimonial and nothing that identifies anybody', async () => {
+    it('states three facts about a testimonial and nothing that identifies anybody', async () => {
       await approvedTestimonial(true);
 
       const list = await request(server()).get('/public/testimonials').set(asVisitor());
       const testimonial = publicTestimonialListResponseSchema.parse(list.body).testimonials[0]!;
 
-      expect(Object.keys(testimonial).sort()).toEqual(['authorLabel', 'body']);
+      // `image` is the third, added in Milestone 9.5 checkpoint A5. Null here,
+      // because no photograph has been attached — and null is what an
+      // unillustrated testimonial reports, never an omitted key.
+      expect(Object.keys(testimonial).sort()).toEqual(['authorLabel', 'body', 'image']);
+      expect(testimonial.image).toBeNull();
     });
   });
 

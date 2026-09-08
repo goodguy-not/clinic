@@ -266,6 +266,24 @@ describe('catalog schema objects', () => {
         // the ninety-day retention rule ERASES the intake columns in place, so
         // there is nowhere for a second copy of them to live.
         'website_request',
+        // Milestone 9.5, checkpoint A5. THREE tables and no more: the
+        // photograph, its servable copies, and the one place it has been put.
+        //
+        // NO IMAGE BYTE IS IN ANY OF THEM. The columns are keys into a
+        // directory the API owns, and there is deliberately no `bytea` column
+        // anywhere in this schema.
+        //
+        // AND NO TABLE FOR THE UPLOADED FILE. `media_asset` describes what
+        // arrived — a content type and a byte size — because a colleague asking
+        // "did that upload work?" needs it; the bytes themselves are never
+        // written, so there is nothing for a fourth table to hold.
+        //
+        // No folder, album, tag, collection, caption, crop, usage-count or
+        // analytics table exists either. This is photographs for a public
+        // website and nothing else.
+        'media_asset',
+        'media_rendition',
+        'media_attachment',
       ].sort(),
     );
   });

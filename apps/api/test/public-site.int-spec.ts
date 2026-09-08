@@ -321,6 +321,10 @@ describe('public website reads (real PostgreSQL)', () => {
         title: null,
         bio: null,
         photoPath: null,
+        // Milestone 9.5: no uploaded portrait, and null rather than absent. A
+        // therapist with no published photograph is a therapist the media
+        // subsystem has nothing to say about.
+        photo: null,
       });
 
       const serialised = JSON.stringify(response.body);
@@ -365,6 +369,7 @@ describe('public website reads (real PostgreSQL)', () => {
         title: 'Approved Public Title',
         bio: 'Approved synthetic biography.',
         photoPath: 'team/synthetic.jpg',
+        photo: null,
       });
 
       for (const slug of ['private-therapist', 'departed-therapist', 'never-existed']) {
@@ -383,7 +388,13 @@ describe('public website reads (real PostgreSQL)', () => {
       expect(response.status).toBe(200);
       const { clinic } = publicClinicProfileResponseSchema.parse(response.body);
 
-      expect(Object.values(clinic).every((value) => value === null)).toBe(true);
+      // Milestone 9.5 adds one non-null key: the gallery is an empty ARRAY
+      // rather than a null, because an empty gallery is the normal state and is
+      // not an absence a page has to lay out around.
+      const { spacePhotos, ...ownerSupplied } = clinic;
+
+      expect(spacePhotos).toEqual([]);
+      expect(Object.values(ownerSupplied).every((value) => value === null)).toBe(true);
     });
 
     it('returns exactly what the owner supplied, and nothing else', async () => {
@@ -416,6 +427,9 @@ describe('public website reads (real PostgreSQL)', () => {
         mapLongitude: 51.4,
         instagramUrl: 'https://example.invalid/instagram',
         telegramUrl: null,
+        // No clinic-space photograph has been published, so the gallery is
+        // empty. Nothing in this test touches the media subsystem.
+        spacePhotos: [],
       });
     });
   });

@@ -44,6 +44,25 @@ const envSchema = z.object({
    * an empty list, which is the correct state before the owner supplies them.
    */
   PASSWORD_BLOCKED_TERMS: z.string().optional(),
+  /**
+   * The directory the API owns and stores uploaded media under.
+   *
+   * Milestone 9.5, checkpoint A5. REQUIRED, WITH NO DEFAULT, and the reason is
+   * not the reason `INTERNAL_API_KEY` has none. A default here would not be a
+   * published credential — it would be a plausible-looking relative path, which
+   * is worse in a different way: a misconfigured deployment would start
+   * successfully and quietly write families' and colleagues' photographs into
+   * whatever directory the process happened to be launched from, most likely
+   * inside a git working tree, and nobody would find out until somebody
+   * committed them. An absent value must stop the process.
+   *
+   * It is a PERSISTENT DISK PATH, and this is the frozen owner decision for the
+   * pilot: NestJS owns the bytes. Not PostgreSQL — image data in a relational
+   * database bloats every backup and every replica for no query anybody makes —
+   * and not object storage, which is a dependency, a credential and a second
+   * failure domain the clinic does not have yet.
+   */
+  MEDIA_STORAGE_DIR: z.string().min(1, 'is required'),
 });
 
 export type ApiEnv = z.infer<typeof envSchema>;

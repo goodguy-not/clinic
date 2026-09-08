@@ -30,6 +30,8 @@ describe('public website reads', () => {
             title: null,
             bio: null,
             photoPath: null,
+            // Milestone 9.5: an uploaded portrait, or null. Never absent.
+            photo: null,
           },
         ],
       },
@@ -97,6 +99,7 @@ describe('public website reads', () => {
           title: null,
           bio: null,
           photoPath: null,
+          photo: null,
         },
       },
       '/public/articles': {
@@ -106,6 +109,7 @@ describe('public website reads', () => {
             title: 'جلسهٔ اول',
             summary: null,
             publishedAt: '2026-08-01T08:00:00.000Z',
+            images: [],
           },
         ],
       },
@@ -116,9 +120,12 @@ describe('public website reads', () => {
           summary: null,
           publishedAt: '2026-08-01T08:00:00.000Z',
           body: 'متن تأییدشده',
+          images: [],
         },
       },
-      '/public/testimonials': { testimonials: [{ authorLabel: null, body: 'روایت تأییدشده' }] },
+      '/public/testimonials': {
+        testimonials: [{ authorLabel: null, body: 'روایت تأییدشده', image: null }],
+      },
     };
     vi.stubGlobal(
       'fetch',
@@ -142,7 +149,7 @@ describe('public website reads', () => {
     expect(therapist.status === 'ready' && therapist.data.displayName).toBe('درمانگر عمومی');
     expect(articles.data).toHaveLength(1);
     expect(article.status === 'ready' && article.data.body).toBe('متن تأییدشده');
-    expect(testimonials.data).toEqual([{ authorLabel: null, body: 'روایت تأییدشده' }]);
+    expect(testimonials.data).toEqual([{ authorLabel: null, body: 'روایت تأییدشده', image: null }]);
   });
 
   it('distinguishes a private-or-missing detail from a transport failure without exposing why', async () => {
@@ -243,6 +250,10 @@ describe('public request write boundary', () => {
 
 function emptyClinic() {
   return {
+    // Milestone 9.5: the gallery is an empty ARRAY on a profile nobody has
+    // filled in, never a null. The strict projection refuses the fixture
+    // without it.
+    spacePhotos: [],
     displayName: null,
     tagline: null,
     about: null,
