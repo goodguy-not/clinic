@@ -67,6 +67,13 @@ PublicImage {
     height: number;
     byteSize: number;
   }[];
+  framing: MediaFraming; // always present; never absent, never optional
+}
+
+MediaFraming {
+  focalX: number; // 0..1, fraction of the frame. 0.5 = centre.
+  focalY: number; // 0..1
+  crop: { x: number; y: number; width: number; height: number } | null;
 }
 ```
 
@@ -80,10 +87,39 @@ PublicImage {
   the size it will occupy. Do not apply any rotation.
 - Renditions arrive ordered by width ascending, then format.
 
+### Framing
+
+`framing` says **which part of the frame matters**. It is the answer to "her face is off
+to the left in the round avatar", and it has one defining property:
+
+**The renditions are always the WHOLE FRAME. Framing is a description, never an edit.**
+Nothing on the API side ever crops a pixel. No rendition is re-derived when framing
+changes, the master is never read or rewritten, and no byte moves.
+
+Three consequences, and all three are contract:
+
+- **Framing changes without re-uploading.** It is one request carrying six numbers.
+- **Framing can never destroy the source.** A crop is reversible for ever, because the
+  parts of the photograph outside it were never thrown away.
+- **Web can preview a crop live.** Applying a normalised rectangle and a focal point to
+  an image the browser already holds is CSS, so a crop handle moves with no request in
+  the loop and the save at the end is one call.
+
+Every number is a **fraction of the frame, 0 to 1 — never a pixel**. Pixels would mean
+something different at each rendition width, so a crop chosen against one would be wrong
+on the rest. `crop` is all-or-nothing: four values or `null`. The unframed default is
+`DEFAULT_MEDIA_FRAMING` = `{ focalX: 0.5, focalY: 0.5, crop: null }`, which is exactly
+what a browser does to an image nobody has framed.
+
+**Framing belongs to the ATTACHMENT — to this use of the photograph — not to the asset
+and not to the master.** One master attached in two places carries two framings, and
+changing one does not move the other. That is why `framing` arrives inside each
+`PublicImage` rather than once per media id.
+
 ## 3. Where images appear in the public reads
 
-Four projections gained a media field. All four are **additive** — `photoPath` is
-untouched and still means what it meant.
+Three projections gained a media field, across five reads. All are **additive** —
+`photoPath` is untouched and still means what it meant.
 
 | Read                         | New field                         |
 | ---------------------------- | --------------------------------- |
@@ -92,17 +128,26 @@ untouched and still means what it meant.
 | `GET /public/articles`       | `articles[].images` — array       |
 | `GET /public/articles/:slug` | `article.images` — array          |
 | `GET /public/testimonials`   | `testimonials[].image` — nullable |
-| `GET /public/clinic-profile` | `clinic.spacePhotos` — array      |
 
 Arrays are ordered by the clinic's own `position`, then by attachment id. An empty
 array and a `null` are the normal, expected states — most rows will have neither a
 photograph nor an error.
 
-**Web-lane changes already made in this repository** (three fixture lines and one
-Persian map, no component work): `apps/web/src/server/public-site.ts` gives its
-fallback clinic profile `spacePhotos: []`, `errors-fa.ts` gains nine Persian media
-messages, and `public-site.test.ts` fixtures gain the new keys. Nothing in
-`apps/web/src/app` or `src/components` was touched — the rendering is Agent B's.
+**`PublicClinicProfile` has NO media field.** It carries thirteen owner-supplied facts
+and nothing else, and a test pins that list exactly. A5 can hold, attach, publish and
+serve a photograph of the clinic's own rooms — `CLINIC_SPACE` is one of the four
+attachment targets and the bytes are anonymously retrievable once a manager publishes
+the attachment — but **A5 deliberately does not decide where such photographs appear**,
+in what order, under what heading, how many there may be, or whether they belong to that
+profile at all. That is public-space presentation, it belongs to the checkpoint that
+builds it, and no public projection in this product returns them. Nothing here freezes
+it.
+
+**Web-lane changes already made in this repository** (one Persian map and some test
+fixtures, no component work): `errors-fa.ts` gains nine Persian media messages, and
+`public-site.test.ts` fixtures gain the new keys. Nothing in `apps/web/src/app`,
+`src/components` or `src/server/public-site.ts` was touched — the rendering is Agent
+B's.
 
 ## 4. Attachment and publication state (staff surface)
 
@@ -117,12 +162,14 @@ MediaAsset {
   renditions: MediaRendition[],       // id, path, format, width, height, byteSize, contentHash
   attachments: MediaAttachment[],
   createdAt, archivedAt,
+  bytesPurgedAt: string | null, // always null today — see section 9
 }
 
 MediaAttachment {
   id, ownerType, ownerId, position, attachedAt,
   publishedAt: string | null,   // <- the MANAGER's decision. null = draft.
   ownerIsPublic: boolean,       // <- the WORLD's state, independent of the above.
+  framing: MediaFraming,        // <- this USE's composition. See section 2.
 }
 ```
 
@@ -142,6 +189,7 @@ and required for the other three — sending the wrong shape is `VALIDATION_FAIL
 | `GET /media`, `GET /media/:id`             | `media.read`    | receptionist + mgr |
 | `POST /media` (multipart)                  | `media.upload`  | receptionist + mgr |
 | `POST /media/:id/attachments`              | `media.attach`  | receptionist + mgr |
+| `PATCH /media/attachments/:id/framing`     | `media.attach`  | receptionist + mgr |
 | `DELETE /media/attachments/:id`            | `media.attach`  | receptionist + mgr |
 | `PATCH /media/attachments/:id/publication` | `media.publish` | **manager only**   |
 | `PATCH /media/:id/archive`                 | `media.publish` | **manager only**   |
@@ -150,6 +198,18 @@ Attaching **always** creates an unpublished attachment; the request has no field
 could ask otherwise. Detaching a **published** attachment is refused — unpublish first,
 which is a manager act. Gate the publish and archive controls on `media.publish` exactly
 as the article publish control is gated on `article.publish`.
+
+**Re-framing a published attachment is refused for the same reason** —
+`MEDIA_ATTACHMENT_PUBLISHED` (409). The weaker authority must not change what is on a
+live page, so a manager re-frames a published image by unpublishing, re-framing and
+republishing: three audited acts rather than one silent one. A crop editor should
+therefore expect to operate on unpublished attachments, and should surface that refusal
+rather than retrying.
+
+**Framing request body** — exactly the `MediaFraming` shape from section 2 and nothing
+else. It is a strict object: an extra `isPublished`, `ownerId` or `position` is
+`VALIDATION_FAILED`, not an ignored field. Out-of-range values, a crop that runs off the
+frame, a zero-area crop and a partially stated crop are all `VALIDATION_FAILED` too.
 
 **Upload request** — `multipart/form-data`:
 
@@ -189,7 +249,7 @@ All nine are in `ERROR_CODES` and all nine already have Persian messages in
   identifier anybody could send.
 - **A storage key, an uploader, a publication instant, an attachment id or a filename**,
   in any public projection. `publicImageSchema` is a strict object and a test pins its
-  five keys.
+  six keys.
 
 ## 8. Caching and revocation — the numbers, and the honest limits
 
@@ -224,7 +284,16 @@ enumerate the clinic's unpublished photographs.
 
 ## 9. Not in scope for A5
 
-No upload UX, no library screen, no picker, no cropping, no drag-and-drop ordering, no
-Next.js route handler for media bytes. Those are Agent B's, on top of this contract.
-Physical deletion and retention timing remain an open owner decision — nothing in the
-API deletes a byte, and no UI should imply that it does.
+No upload UX, no library screen, no picker, **no crop or focal-point editor**, no
+drag-and-drop ordering, no Next.js route handler for media bytes. Those are Agent B's, on
+top of this contract — A5 provides the framing _state_ and the route that saves it, and
+prescribes nothing about the interface that produces it.
+
+No public-space presentation either: see section 3.
+
+**Physical deletion and retention timing remain an open owner decision.** Nothing in the
+API deletes a byte — there is no schedule, no duration, no route and no permission for
+erasure — and no UI should imply that it does. `bytesPurgedAt` exists so that the
+decision, when it is taken, is an ordinary piece of work rather than a redesign; it is
+`null` on every asset and nothing in this product writes it. Treat it as read-only
+information, and do not build a control that appears to trigger it.
