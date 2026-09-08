@@ -410,6 +410,9 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Booking needs private POST-based child search and an advisory preview whose
   // returned occurrences remain beside the receptionist's unpersisted intent.
   'src/app/(internal)/appointments/new/booking-workflow.tsx',
+  // Phone gallery/camera selection, immediate object-URL preview and focal-point
+  // controls are browser-only. Named BFF handlers still own all media writes.
+  'src/components/media-upload-framing.tsx',
 ];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];

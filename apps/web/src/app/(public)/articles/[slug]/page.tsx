@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  DevelopmentPhoto,
+  ArticlePhoto,
   EvaluationCallout,
   formatPersianDate,
   toPersianNumber,
@@ -62,8 +62,9 @@ export default async function ArticlePage({ params }: Props) {
             <span>زمان مطالعه هنوز منتشر نشده است</span>
           </div>
         </header>
-        <DevelopmentPhoto
-          src="/dev/vala-synthetic/01-reception.jpg"
+        <ArticlePhoto
+          image={article.images[0] ?? null}
+          fallback="/dev/vala-synthetic/01-reception.jpg"
           className="b2-reading__photo"
           sizes="(max-width: 47.99rem) 100vw, 960px"
           priority
@@ -73,6 +74,14 @@ export default async function ArticlePage({ params }: Props) {
             <p key={`${index}-${paragraph.slice(0, 20)}`}>{paragraph}</p>
           ))}
         </div>
+        {article.images.slice(1).map((image) => (
+          <ArticlePhoto
+            key={image.mediaId}
+            image={image}
+            className="b2-reading__photo"
+            sizes="(max-width: 47.99rem) 100vw, 960px"
+          />
+        ))}
         <aside className="b2-related-service">
           <p className="public-kicker">خدمت مرتبط</p>
           <h2>ارتباط تأییدشده با یک خدمت هنوز منتشر نشده است</h2>

@@ -1,6 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import type { PublicImage } from '@clinic/contracts';
 import type { ReactNode } from 'react';
+import { PublicMediaImage } from './public-media-image';
 
 export const SERVICE_IMAGES = [
   '/dev/vala-synthetic/12-therapist-child-interaction.jpg',
@@ -80,12 +82,14 @@ export function DevelopmentPhoto({
 }
 
 export function TherapistPhoto({
+  photo,
   photoPath,
   fallback,
   name,
   className,
   priority = false,
 }: {
+  photo: PublicImage | null;
   photoPath: string | null;
   fallback: string;
   name: string;
@@ -94,7 +98,13 @@ export function TherapistPhoto({
 }) {
   return (
     <figure className={className}>
-      {photoPath ? (
+      {photo !== null ? (
+        <PublicMediaImage
+          image={photo}
+          sizes="(max-width: 48rem) 100vw, 42vw"
+          priority={priority}
+        />
+      ) : photoPath ? (
         // Public media paths are already constrained to same-site relative paths by A1.
         // A plain image keeps the rendering independent of a storage provider.
         // eslint-disable-next-line @next/next/no-img-element
@@ -108,12 +118,37 @@ export function TherapistPhoto({
           priority={priority}
         />
       )}
-      {!photoPath ? (
+      {photo === null && !photoPath ? (
         <figcaption className="public-photo-note">
           تصویر نمونهٔ آزمایشی — این درمانگر نیست
         </figcaption>
       ) : null}
     </figure>
+  );
+}
+
+export function ArticlePhoto({
+  image,
+  fallback,
+  className,
+  sizes,
+  priority = false,
+}: {
+  image: PublicImage | null;
+  fallback?: string;
+  className: string;
+  sizes: string;
+  priority?: boolean;
+}) {
+  if (image !== null) {
+    return (
+      <figure className={className}>
+        <PublicMediaImage image={image} sizes={sizes} priority={priority} />
+      </figure>
+    );
+  }
+  return fallback === undefined ? null : (
+    <DevelopmentPhoto src={fallback} className={className} sizes={sizes} priority={priority} />
   );
 }
 

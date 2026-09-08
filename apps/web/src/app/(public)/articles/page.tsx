@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  DevelopmentPhoto,
+  ArticlePhoto,
   EvaluationCallout,
   PageHero,
   PublicPageEmpty,
@@ -38,8 +38,9 @@ export default async function ArticlesPage() {
       <section className="public-shell b2-articles" aria-label="مقاله‌های منتشرشده">
         {featured ? (
           <Link href={`/articles/${featured.slug}`} className="public-focus b2-featured-article">
-            <DevelopmentPhoto
-              src="/dev/vala-synthetic/01-reception.jpg"
+            <ArticlePhoto
+              image={featured.images[0] ?? null}
+              fallback="/dev/vala-synthetic/01-reception.jpg"
               className="b2-featured-article__photo"
               sizes="(max-width: 56rem) 100vw, 47vw"
               priority

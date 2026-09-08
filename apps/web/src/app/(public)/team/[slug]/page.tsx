@@ -60,6 +60,7 @@ export default async function TherapistPage({ params }: Props) {
     <main id="main-content">
       <article className="public-shell b2-profile">
         <TherapistPhoto
+          photo={person.photo}
           photoPath={person.photoPath}
           fallback={THERAPIST_IMAGES[position % THERAPIST_IMAGES.length]!}
           name={person.displayName}
@@ -115,6 +116,7 @@ export default async function TherapistPage({ params }: Props) {
           <div className="public-shell b2-profile-nav__inner">
             <Link href={`/team/${previous.slug}`} className="public-focus b2-profile-nav__item">
               <TherapistPhoto
+                photo={previous.photo}
                 photoPath={previous.photoPath}
                 fallback={
                   THERAPIST_IMAGES[
@@ -133,6 +135,7 @@ export default async function TherapistPage({ params }: Props) {
               className="public-focus b2-profile-nav__item b2-profile-nav__item--next"
             >
               <TherapistPhoto
+                photo={next.photo}
                 photoPath={next.photoPath}
                 fallback={THERAPIST_IMAGES[(position + 1) % THERAPIST_IMAGES.length]!}
                 name={next.displayName}

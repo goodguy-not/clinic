@@ -49,6 +49,7 @@ export default async function TeamPage() {
               className="public-focus b2-team-row"
             >
               <TherapistPhoto
+                photo={person.photo}
                 photoPath={person.photoPath}
                 fallback={THERAPIST_IMAGES[index % THERAPIST_IMAGES.length]!}
                 name={person.displayName}

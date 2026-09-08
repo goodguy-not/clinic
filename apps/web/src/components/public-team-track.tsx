@@ -4,6 +4,7 @@ import type { PublicTherapistProfile } from '@clinic/contracts';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PublicMediaImage } from './public-media-image';
 
 const SYNTHETIC_PORTRAITS = [
   '/dev/vala-synthetic/08-therapist-portrait-b.jpg',
@@ -169,9 +170,11 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
       >
         <div className="public-team-track__rail">
           {therapists.map((person, index) => {
-            const hasRealPhoto = person.photoPath !== null;
+            const hasRealPhoto = person.photo !== null || person.photoPath !== null;
             const photo = hasRealPhoto
-              ? `/${person.photoPath}`
+              ? person.photoPath === null
+                ? ''
+                : `/${person.photoPath}`
               : SYNTHETIC_PORTRAITS[index % SYNTHETIC_PORTRAITS.length]!;
             const isActive = spotlightIndex === index;
             const isReceded = spotlightIndex !== null && !isActive;
@@ -192,13 +195,20 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                 onFocusCapture={() => setSpotlightIndex(index)}
               >
                 <div className="public-person-card__media">
-                  <Image
-                    src={photo}
-                    width="620"
-                    height="780"
-                    alt={hasRealPhoto ? person.displayName : ''}
-                    sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
-                  />
+                  {person.photo !== null ? (
+                    <PublicMediaImage
+                      image={person.photo}
+                      sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
+                    />
+                  ) : (
+                    <Image
+                      src={photo}
+                      width="620"
+                      height="780"
+                      alt={hasRealPhoto ? person.displayName : ''}
+                      sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
+                    />
+                  )}
                   {!hasRealPhoto ? (
                     <span className="public-photo-note">تصویر آزمایشی — این درمانگر نیست</span>
                   ) : null}

@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(69);
-    expect(stateChangingHandlers.length).toBe(68);
+    expect(handlers.length).toBe(72);
+    expect(stateChangingHandlers.length).toBe(71);
   });
 
   it('exposes no catch-all route', () => {
@@ -134,6 +134,11 @@ describe('route handler inventory', () => {
       '/api/ledger/adjustments/void',
       '/api/ledger/session-charges/post',
       '/api/ledger/session-charges/void',
+      // M9.5 B5: three narrow stages so retrying attachment or framing never
+      // repeats the photograph upload.
+      '/api/media/draft-attachment',
+      '/api/media/framing',
+      '/api/media/upload',
       // Milestone 6 family money writes: B1 payments and B2 promise workflow.
       '/api/payments/create',
       '/api/payments/void',

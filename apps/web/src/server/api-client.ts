@@ -11,6 +11,8 @@ import {
   paymentReportResponseSchema,
   sessionReportResponseSchema,
   promiseReportResponseSchema,
+  mediaAssetListResponseSchema,
+  mediaAssetResponseSchema,
   therapistActivityResponseSchema,
   websiteRequestDetailSchema,
   websiteRequestInboxResponseSchema,
@@ -110,6 +112,10 @@ import {
   type LoginRequest,
   type LoginResponse,
   type MoveAppointmentRequest,
+  type CreateMediaAttachmentRequest,
+  type MediaAssetListResponse,
+  type MediaAssetResponse,
+  type UpdateMediaFramingRequest,
   type PostSessionChargeResponse,
   type PaymentListQuery,
   type PaymentListResponse,
@@ -362,6 +368,47 @@ async function call<T>(
   return { ok: true, data: schema.parse(payload), requestId };
 }
 
+/**
+ * The one non-JSON staff write. `fetch` owns the multipart boundary; setting a
+ * content type here would omit it and make an otherwise valid photograph look
+ * malformed to NestJS.
+ */
+async function callMultipart<T>(
+  path: string,
+  schema: { parse: (value: unknown) => T },
+  context: CallerContext,
+  form: FormData,
+): Promise<ApiResult<T>> {
+  const { API_BASE_URL } = loadServerEnv();
+  const requestId = randomUUID();
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: buildHeaders(context, requestId, false),
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+      cache: 'no-store',
+    });
+  } catch {
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const envelope = errorEnvelopeSchema.safeParse(payload);
+    return {
+      ok: false,
+      code: envelope.success ? envelope.data.error.code : 'API_UNREACHABLE',
+      status: response.status,
+      requestId: envelope.success ? envelope.data.error.requestId : requestId,
+    };
+  }
+
+  return { ok: true, data: schema.parse(payload), requestId };
+}
+
 /** Frozen report filters only: dates, closed enums, opaque ids, and paging. */
 function reportSearch(query: object): URLSearchParams {
   const search = new URLSearchParams();
@@ -426,6 +473,51 @@ async function exportReportCsv(
 
 export const api = {
   exportReportCsv,
+
+  // --- reusable media workspace -------------------------------------------
+
+  listMedia: (context: CallerContext): Promise<ApiResult<MediaAssetListResponse>> =>
+    call('/media', 'GET', mediaAssetListResponseSchema, context),
+
+  getMedia: (id: string, context: CallerContext): Promise<ApiResult<MediaAssetResponse>> =>
+    call(`/media/${encodeURIComponent(id)}`, 'GET', mediaAssetResponseSchema, context),
+
+  uploadMedia: (
+    file: Blob,
+    altText: string,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> => {
+    const form = new FormData();
+    form.set('file', file, 'photograph');
+    form.set('altText', altText);
+    return callMultipart('/media', mediaAssetResponseSchema, context, form);
+  },
+
+  createMediaAttachment: (
+    mediaId: string,
+    body: CreateMediaAttachmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/${encodeURIComponent(mediaId)}/attachments`,
+      'POST',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaFraming: (
+    attachmentId: string,
+    body: UpdateMediaFramingRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/attachments/${encodeURIComponent(attachmentId)}/framing`,
+      'PATCH',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
 
   paymentReport: (
     query: PaymentReportQuery,
