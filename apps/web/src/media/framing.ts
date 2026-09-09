@@ -1,7 +1,28 @@
 import type { MediaFraming } from '@clinic/contracts';
 import type { CSSProperties } from 'react';
 
-export const MEDIA_PREVIEW_ASPECT = 16 / 9;
+export type MediaTargetShape = {
+  id: string;
+  label: string;
+  aspectRatio: number;
+};
+
+/**
+ * Generic examples for the standalone B5 workspace. Editorial callers can
+ * supply the exact slot shape without teaching this reusable layer anything
+ * about therapists, articles, services, or future content domains.
+ */
+export const MEDIA_TARGET_SHAPE_PRESETS = {
+  portrait: { id: 'portrait', label: 'قاب عمودی', aspectRatio: 4 / 5 },
+  landscape: { id: 'landscape', label: 'قاب افقی', aspectRatio: 3 / 2 },
+  wide: { id: 'wide', label: 'قاب پهن', aspectRatio: 16 / 9 },
+} as const satisfies Record<string, MediaTargetShape>;
+
+export const DEFAULT_MEDIA_TARGET_SHAPES: readonly [MediaTargetShape, ...MediaTargetShape[]] = [
+  MEDIA_TARGET_SHAPE_PRESETS.portrait,
+  MEDIA_TARGET_SHAPE_PRESETS.landscape,
+  MEDIA_TARGET_SHAPE_PRESETS.wide,
+];
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));

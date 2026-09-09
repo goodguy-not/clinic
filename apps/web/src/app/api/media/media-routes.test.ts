@@ -87,6 +87,32 @@ describe('media upload route', () => {
     expect(mocks.uploadMedia).toHaveBeenCalledTimes(1);
   });
 
+  it('does not create a second asset when attachment fails after upload and the user retries', async () => {
+    const attempt = crypto.randomUUID();
+    const uploaded = await uploadMedia(uploadRequest(attempt));
+    expect(uploaded.status).toBe(201);
+
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: false,
+      code: 'API_UNREACHABLE',
+      status: 503,
+    });
+    const failedAttachment = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', { mediaId: MEDIA_ID }),
+    );
+    expect(failedAttachment.status).toBe(503);
+
+    const retriedUpload = await uploadMedia(uploadRequest(attempt));
+    const retriedAttachment = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', { mediaId: MEDIA_ID }),
+    );
+
+    expect(retriedUpload.status).toBe(201);
+    expect(retriedAttachment.status).toBe(201);
+    expect(mocks.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledTimes(2);
+  });
+
   it('returns a photograph-oriented Persian refusal from A5', async () => {
     mocks.uploadMedia.mockResolvedValueOnce({
       ok: false,

@@ -2,7 +2,13 @@
 
 import type { MediaFraming } from '@clinic/contracts';
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react';
-import { cropImageStyle, framingForSlot, hasPoorCrop, MEDIA_PREVIEW_ASPECT } from '@/media/framing';
+import {
+  cropImageStyle,
+  DEFAULT_MEDIA_TARGET_SHAPES,
+  framingForSlot,
+  hasPoorCrop,
+  type MediaTargetShape,
+} from '@/media/framing';
 import { nextMediaWorkflowStep, type MediaWorkflowStep } from '@/media/workflow';
 import { CONTROL_CLASS, FOCUS_RING } from './styles';
 
@@ -26,9 +32,11 @@ async function answerFrom(response: Response): Promise<ApiAnswer> {
 export function FramingResultPreview({
   previewUrl,
   framing,
+  targetShape,
 }: {
   previewUrl: string;
   framing: MediaFraming;
+  targetShape: MediaTargetShape;
 }) {
   const poorCrop = hasPoorCrop(framing);
 
@@ -44,8 +52,8 @@ export function FramingResultPreview({
       </div>
       <div
         className="relative overflow-hidden rounded-xl bg-slate-200 shadow-inner"
-        style={{ aspectRatio: String(MEDIA_PREVIEW_ASPECT) }}
-        aria-label="پیش‌نمایش قاب نهایی"
+        style={{ aspectRatio: String(targetShape.aspectRatio) }}
+        aria-label={`پیش‌نمایش ${targetShape.label}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={previewUrl} alt="" style={cropImageStyle(framing)} />
@@ -67,7 +75,13 @@ export function FramingResultPreview({
   );
 }
 
-export function MediaUploadFraming({ csrfToken }: { csrfToken: string }) {
+export function MediaUploadFraming({
+  csrfToken,
+  targetShapes = DEFAULT_MEDIA_TARGET_SHAPES,
+}: {
+  csrfToken: string;
+  targetShapes?: readonly [MediaTargetShape, ...MediaTargetShape[]];
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
@@ -81,7 +95,10 @@ export function MediaUploadFraming({ csrfToken }: { csrfToken: string }) {
   const [busyStep, setBusyStep] = useState<Exclude<MediaWorkflowStep, 'complete'> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
+  const [targetShapeId, setTargetShapeId] = useState(targetShapes[0].id);
   const urlRef = useRef<string | null>(null);
+  const targetShape =
+    targetShapes.find((candidate) => candidate.id === targetShapeId) ?? targetShapes[0];
 
   useEffect(
     () => () => {
@@ -117,8 +134,25 @@ export function MediaUploadFraming({ csrfToken }: { csrfToken: string }) {
       return;
     }
     setFraming(
-      framingForSlot(sourceSize.width, sourceSize.height, MEDIA_PREVIEW_ASPECT, focalX, focalY),
+      framingForSlot(sourceSize.width, sourceSize.height, targetShape.aspectRatio, focalX, focalY),
     );
+  }
+
+  function chooseTargetShape(nextShape: MediaTargetShape) {
+    setTargetShapeId(nextShape.id);
+    setFramingSaved(false);
+    setComplete(false);
+    if (sourceSize !== null) {
+      setFraming(
+        framingForSlot(
+          sourceSize.width,
+          sourceSize.height,
+          nextShape.aspectRatio,
+          framing.focalX,
+          framing.focalY,
+        ),
+      );
+    }
   }
 
   function pointAt(event: PointerEvent<HTMLDivElement>) {
@@ -316,7 +350,7 @@ export function MediaUploadFraming({ csrfToken }: { csrfToken: string }) {
                       framingForSlot(
                         size.width,
                         size.height,
-                        MEDIA_PREVIEW_ASPECT,
+                        targetShape.aspectRatio,
                         framing.focalX,
                         framing.focalY,
                       ),
@@ -372,7 +406,35 @@ export function MediaUploadFraming({ csrfToken }: { csrfToken: string }) {
             </div>
           </section>
 
-          <FramingResultPreview previewUrl={previewUrl} framing={framing} />
+          <div className="flex flex-col gap-4">
+            <fieldset className="flex flex-col gap-2 border-0 p-0">
+              <legend className="text-sm font-semibold text-slate-900">
+                عکس در کدام شکل دیده می‌شود؟
+              </legend>
+              <div className="flex flex-wrap gap-2">
+                {targetShapes.map((shape) => (
+                  <button
+                    key={shape.id}
+                    type="button"
+                    aria-pressed={shape.id === targetShape.id}
+                    onClick={() => chooseTargetShape(shape)}
+                    className={`min-h-11 rounded-lg border px-4 py-2 text-sm font-semibold ${FOCUS_RING} ${
+                      shape.id === targetShape.id
+                        ? 'border-brand-700 bg-brand-50 text-brand-900'
+                        : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+                    }`}
+                  >
+                    {shape.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <FramingResultPreview
+              previewUrl={previewUrl}
+              framing={framing}
+              targetShape={targetShape}
+            />
+          </div>
         </div>
       ) : null}
 
