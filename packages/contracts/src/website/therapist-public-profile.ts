@@ -20,12 +20,35 @@ import { publicHeadingSchema } from './common';
  * internal surface: the manager screen addresses the person by the id it
  * already holds. The website addresses them by slug and never learns the id.
  */
+/**
+ * MILESTONE 9.5, CHECKPOINT A6 SPLITS THE COPY IN TWO. `displayName`, `title`
+ * and `bio` are now the WORKING DRAFT, which a manager writes here and a
+ * receptionist may write two of through the editorial surface; the
+ * `published*` fields beside them are WHAT THE WEBSITE SAYS, and the only act
+ * that writes those is the opt-in below. Preparing a change therefore no
+ * longer moves a live page, whoever prepares it, and `hasUnpublishedChanges`
+ * is how a manager is told there is something to decide.
+ *
+ * `photoPath` HAS NO PUBLISHED COUNTERPART AND KEEPS ITS OLD BEHAVIOUR. It is
+ * the pre-media legacy path, still read by the public projection while the
+ * accepted public site depends on it, and the checkpoint that removes that
+ * dependency removes the column rather than splitting it. It is manager-only
+ * and no drafting authority reaches it, so no editorial act can move it.
+ *
+ * `publicSlug` HAS NO PUBLISHED COUNTERPART EITHER, for the reason an
+ * article's has none: it is immutable from the first publication, so the two
+ * copies could never differ on a published row.
+ */
 export const therapistPublicProfileSchema = z.strictObject({
   therapistId: z.uuid(),
   publicSlug: publicSlugSchema.nullable(),
   displayName: z.string().nullable(),
   title: z.string().nullable(),
   bio: z.string().nullable(),
+  publishedDisplayName: z.string().nullable(),
+  publishedTitle: z.string().nullable(),
+  publishedBio: z.string().nullable(),
+  hasUnpublishedChanges: z.boolean(),
   photoPath: publicMediaPathSchema.nullable(),
   displayOrder: z.number().int(),
   isPublic: z.boolean(),
@@ -64,7 +87,22 @@ export type UpdateTherapistPublicProfileRequest = z.infer<
   typeof updateTherapistPublicProfileRequestSchema
 >;
 
-/** The opt-in itself. One decision about one person. */
+/**
+ * The opt-in itself. One decision about one person — AND, FROM CHECKPOINT A6,
+ * THE ACT THAT PUBLISHES THE PREPARED COPY.
+ *
+ * `isPublic: true` copies the prepared display name, title and biography onto
+ * the published fields in the same statement that sets the flag, exactly as
+ * publishing an article does: "publish" means "what is prepared is what the
+ * website says", whether the page was empty before or was showing an earlier
+ * version. Sending it again on somebody already public is therefore how a
+ * manager promotes a change the front desk prepared, and is a real publication
+ * recorded as one; sending it when nothing has changed writes nothing.
+ *
+ * `isPublic: false` leaves the published copy where it is. Nothing reads it
+ * while the person is not public, and keeping it means a withdrawn profile
+ * still records what the clinic last said.
+ */
 export const updateTherapistPublicVisibilityRequestSchema = z.strictObject({
   isPublic: z.boolean(),
 });

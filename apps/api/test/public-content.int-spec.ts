@@ -110,10 +110,13 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
     await harness.prisma.$executeRaw`
       INSERT INTO therapist (
         id, full_name, specialty, is_public, public_slug, public_display_name,
+        -- Checkpoint A6: the sitemap and the team page read the PUBLISHED name.
+        published_public_display_name,
         status, created_by_user_id
       ) VALUES (
         ${uuidv7()}::uuid, 'Synthetic Colleague', 'Synthetic Specialty', TRUE, ${slug},
-        'Synthetic Display Name', 'ACTIVE'::catalog_status, ${actorId}::uuid
+        'Synthetic Display Name', 'Synthetic Display Name',
+        'ACTIVE'::catalog_status, ${actorId}::uuid
       )
     `;
   }

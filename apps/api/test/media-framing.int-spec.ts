@@ -72,11 +72,15 @@ describe('media framing (real PostgreSQL)', () => {
       await harness.prisma.$executeRaw`
         INSERT INTO therapist (
           id, full_name, specialty, status, created_at, created_by_user_id,
-          is_public, public_slug, public_display_name, public_display_order
+          is_public, public_slug, public_display_name,
+          -- Checkpoint A6: what the website says is the PUBLISHED name, and it
+          -- is what the profile CHECK constraint reads. A published fixture
+          -- carries both, exactly as the manager opt-in leaves the row.
+          published_public_display_name, public_display_order
         ) VALUES (
           ${id}::uuid, ${name}, 'گفتاردرمانی', 'ACTIVE'::catalog_status,
           transaction_timestamp(), ${actorId}::uuid,
-          TRUE, ${slug}, ${name}, 0
+          TRUE, ${slug}, ${name}, ${name}, 0
         )
       `;
     }

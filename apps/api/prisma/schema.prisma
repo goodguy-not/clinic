@@ -618,28 +618,46 @@ model Therapist {
   /// therapist with no approved display name is not published at all, because
   /// substituting the personnel record would be a publication decision nobody
   /// made.
-  isPublic               Boolean   @default(false) @map("is_public")
-  publicSlug             String?   @unique @map("public_slug")
+  isPublic                   Boolean   @default(false) @map("is_public")
+  publicSlug                 String?   @unique @map("public_slug")
   /// When this therapist FIRST became publicly reachable — public and carrying
   /// a slug. Stamped once by `enforce_public_slug_stability()` and never
   /// rewritten; while it is set, `publicSlug` is immutable, so a URL that has
   /// been real cannot silently become a different one. Internal: no public read
   /// projects it.
-  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  publicFirstPublishedAt     DateTime? @map("public_first_published_at") @db.Timestamptz
   /// Milestone 9, checkpoint A2 — when the PUBLISHED content of this row last
   /// changed, and the only thing the sitemap's last-modified is built from.
   /// Written by the manager write paths of that checkpoint; NOT a second change
   /// history, which `audit_log` remains. Null while the row has never been
   /// published, and null on a row the A1 synthetic seeder published, which
   /// correctly reports no last-modified until a manager next edits it.
-  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
-  publicDisplayName      String?   @map("public_display_name")
-  publicTitle            String?   @map("public_title")
-  publicBio              String?   @map("public_bio")
-  publicPhotoPath        String?   @map("public_photo_path")
+  publicRevisedAt            DateTime? @map("public_revised_at") @db.Timestamptz
+  /// Milestone 9.5, checkpoint A6 — the WORKING DRAFT of the public copy.
+  /// A manager writes all three here; a receptionist may write the title and
+  /// the biography through the editorial surface. NO PUBLIC READ SELECTS ANY
+  /// OF THEM, which is what lets a draft be prepared on a colleague whose page
+  /// is already live without that page moving.
+  publicDisplayName          String?   @map("public_display_name")
+  publicTitle                String?   @map("public_title")
+  publicBio                  String?   @map("public_bio")
+  /// What the website actually says. Written by exactly one act — the opt-in,
+  /// which copies the draft across in the same statement that sets `isPublic`
+  /// — and selected by every public read. `therapist_public_profile_chk` reads
+  /// the display name here rather than in the draft, so publication is refused
+  /// when there would be no name on the live page.
+  publishedPublicDisplayName String?   @map("published_public_display_name")
+  publishedPublicTitle       String?   @map("published_public_title")
+  publishedPublicBio         String?   @map("published_public_bio")
+  /// The pre-media legacy path, deliberately NOT split into a draft and a
+  /// published copy: the accepted public site still reads it, the Web
+  /// checkpoint that finishes the A5 migration removes it, and splitting a
+  /// column in order to delete it would leave a backfill behind for nothing.
+  /// Manager-only; no editorial authority reaches it.
+  publicPhotoPath            String?   @map("public_photo_path")
   /// Ascending, ties broken by display name and then id, so the team page has
   /// one order rather than whatever PostgreSQL returns.
-  publicDisplayOrder     Int       @default(0) @map("public_display_order")
+  publicDisplayOrder         Int       @default(0) @map("public_display_order")
 
   createdBy              AppUser                          @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supportedServices      TherapistService[]
@@ -665,10 +683,19 @@ model Therapist {
 /// this milestone; the public website is a later one. They live on the service
 /// because that is where the fact belongs.
 model Service {
-  id                     String        @id @default(uuid(7)) @db.Uuid
-  name                   String        @unique
-  publicDescription      String?       @map("public_description")
-  isPublic               Boolean       @default(false) @map("is_public")
+  id                         String        @id @default(uuid(7)) @db.Uuid
+  name                       String        @unique
+  /// Milestone 9.5, checkpoint A6 — the WORKING DRAFT of the public
+  /// description, which is what this column has meant since the split. It may
+  /// be rewritten at any time, by a manager on the service form or by a
+  /// receptionist on the editorial surface, and NO PUBLIC READ SELECTS IT.
+  publicDescription          String?       @map("public_description")
+  /// What the website actually says. Written by exactly one statement in the
+  /// application — the manager publication act — and selected by every public
+  /// read. A service published before A6 carries the copy it was published
+  /// with, backfilled by that checkpoint's migration.
+  publishedPublicDescription String?       @map("published_public_description")
+  isPublic                   Boolean       @default(false) @map("is_public")
   /// Milestone 9, checkpoint A1 — the service's public identity, and the only
   /// name the website ever uses for it.
   ///
@@ -677,18 +704,18 @@ model Service {
   /// the other is simply not reachable from the site. Unique across every
   /// service, including private and inactive ones, so a slug that ever
   /// addressed one page can never quietly address another.
-  publicSlug             String?       @unique @map("public_slug")
+  publicSlug                 String?       @unique @map("public_slug")
   /// When this service FIRST became publicly reachable. Same rule, same
   /// trigger, same reason as the therapist's: a published URL is a promise to
   /// everybody who has already followed it.
-  publicFirstPublishedAt DateTime?     @map("public_first_published_at") @db.Timestamptz
+  publicFirstPublishedAt     DateTime?     @map("public_first_published_at") @db.Timestamptz
   /// Milestone 9, checkpoint A2. Same column, same meaning and same nullability
   /// as the therapist's: the sitemap's last-modified, and nothing else.
-  publicRevisedAt        DateTime?     @map("public_revised_at") @db.Timestamptz
-  status                 CatalogStatus @default(ACTIVE)
-  deactivatedAt          DateTime?     @map("deactivated_at") @db.Timestamptz
-  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId        String        @map("created_by_user_id") @db.Uuid
+  publicRevisedAt            DateTime?     @map("public_revised_at") @db.Timestamptz
+  status                     CatalogStatus @default(ACTIVE)
+  deactivatedAt              DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId            String        @map("created_by_user_id") @db.Uuid
 
   createdBy        AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   durations        ServiceDuration[]

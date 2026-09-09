@@ -75,7 +75,7 @@ import { PrismaService } from '../prisma/prisma.service';
 type PublicServiceRow = {
   public_slug: string;
   name: string;
-  public_description: string | null;
+  published_public_description: string | null;
 };
 
 type PublicServiceDetailRow = PublicServiceRow & { durations: number[] };
@@ -84,9 +84,9 @@ type PublicTherapistRow = {
   /** The join key for the media lookup. Never projected — see the class note. */
   internal_id: string;
   public_slug: string;
-  public_display_name: string;
-  public_title: string | null;
-  public_bio: string | null;
+  published_public_display_name: string;
+  published_public_title: string | null;
+  published_public_bio: string | null;
   public_photo_path: string | null;
 };
 
@@ -162,10 +162,17 @@ export class PublicSiteService {
    * retired service is not advertised, whatever flag it still carries — and a
    * non-null slug is the address without which no page could link to it
    * anyway.
+   *
+   * THE DESCRIPTION IS THE PUBLISHED ONE (Milestone 9.5, checkpoint A6).
+   * `public_description` beside it is a working draft that a receptionist may
+   * rewrite at any time, and selecting it here would be the whole of that
+   * checkpoint's defect: unreviewed copy on the live page the instant it was
+   * saved. The name is not split and is deliberately still the catalog name —
+   * a service's name IS its public name (DECISION_LOG, 2026-08-21).
    */
   async listServices(): Promise<PublicServiceSummary[]> {
     const rows = await this.prisma.$queryRaw<PublicServiceRow[]>`
-      SELECT s.public_slug, s.name, s.public_description
+      SELECT s.public_slug, s.name, s.published_public_description
       FROM service s
       WHERE s.is_public IS TRUE
         AND s.status = 'ACTIVE'::catalog_status
@@ -190,7 +197,7 @@ export class PublicSiteService {
       SELECT
         s.public_slug,
         s.name,
-        s.public_description,
+        s.published_public_description,
         COALESCE(
           (
             SELECT array_agg(d.duration_minutes ORDER BY d.duration_minutes)
@@ -215,30 +222,38 @@ export class PublicSiteService {
    * The team, in the clinic's own public ordering.
    *
    * FOUR CONDITIONS, AND THE LAST TWO ARE THE OPT-IN. `is_public` is the
-   * recorded decision to publish this person; the slug and the approved display
-   * name are the content that decision was taken about. `therapist_public_
-   * profile_chk` already refuses a row that has the first without the other
-   * two, so the predicate is belt and braces — deliberately, because the cost
-   * of the database and the query disagreeing here is publishing somebody who
-   * did not agree to be published.
+   * recorded decision to publish this person; the slug and the PUBLISHED
+   * display name are the content that decision was taken about.
+   * `therapist_public_profile_chk` already refuses a row that has the first
+   * without the other two, so the predicate is belt and braces — deliberately,
+   * because the cost of the database and the query disagreeing here is
+   * publishing somebody who did not agree to be published.
+   *
+   * EVERY PROSE COLUMN SELECTED HERE IS THE PUBLISHED ONE (Milestone 9.5,
+   * checkpoint A6). The drafts beside them are what a manager, or a
+   * receptionist holding the narrow editorial authority, is currently working
+   * on, and this query cannot return one. `public_photo_path` is the exception
+   * and is not split: it is the pre-media legacy path, manager-only, and the
+   * Web checkpoint that finishes the A5 migration removes it.
    *
    * `status = 'ACTIVE'` is separate from all of that: a colleague who has left
    * stops appearing on the website without anybody having to remember to clear
    * their public flag.
    *
-   * The ordering is total — the clinic's chosen order, then the display name,
-   * then the id — so the team page does not quietly reshuffle between requests.
+   * The ordering is total — the clinic's chosen order, then the published
+   * display name, then the id — so the team page does not quietly reshuffle
+   * between requests.
    */
   async listTeam(): Promise<PublicTherapistProfile[]> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
-      SELECT t.id AS internal_id, t.public_slug, t.public_display_name, t.public_title,
-             t.public_bio, t.public_photo_path
+      SELECT t.id AS internal_id, t.public_slug, t.published_public_display_name,
+             t.published_public_title, t.published_public_bio, t.public_photo_path
       FROM therapist t
       WHERE t.is_public IS TRUE
         AND t.status = 'ACTIVE'::catalog_status
         AND t.public_slug IS NOT NULL
-        AND t.public_display_name IS NOT NULL
-      ORDER BY t.public_display_order ASC, t.public_display_name ASC, t.id ASC
+        AND t.published_public_display_name IS NOT NULL
+      ORDER BY t.public_display_order ASC, t.published_public_display_name ASC, t.id ASC
     `;
 
     const photos = await this.media.imagesForOwners(
@@ -256,13 +271,13 @@ export class PublicSiteService {
    */
   async getTherapist(slug: string): Promise<PublicTherapistProfile> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
-      SELECT t.id AS internal_id, t.public_slug, t.public_display_name, t.public_title,
-             t.public_bio, t.public_photo_path
+      SELECT t.id AS internal_id, t.public_slug, t.published_public_display_name,
+             t.published_public_title, t.published_public_bio, t.public_photo_path
       FROM therapist t
       WHERE t.public_slug = ${slug}
         AND t.is_public IS TRUE
         AND t.status = 'ACTIVE'::catalog_status
-        AND t.public_display_name IS NOT NULL
+        AND t.published_public_display_name IS NOT NULL
     `;
 
     const row = rows[0];
@@ -458,12 +473,13 @@ export class PublicSiteService {
 
       UNION ALL
 
-      SELECT 'therapist' AS kind, t.public_slug, t.public_revised_at, t.public_display_name
+      SELECT 'therapist' AS kind, t.public_slug, t.public_revised_at,
+             t.published_public_display_name
       FROM therapist t
       WHERE t.is_public IS TRUE
         AND t.status = 'ACTIVE'::catalog_status
         AND t.public_slug IS NOT NULL
-        AND t.public_display_name IS NOT NULL
+        AND t.published_public_display_name IS NOT NULL
 
       UNION ALL
 
@@ -500,7 +516,11 @@ function toPublicArticleSummary(
 }
 
 function toPublicServiceSummary(row: PublicServiceRow): PublicServiceSummary {
-  return { slug: row.public_slug, name: row.name, description: row.public_description };
+  return {
+    slug: row.public_slug,
+    name: row.name,
+    description: row.published_public_description,
+  };
 }
 
 function toPublicTherapistProfile(
@@ -509,9 +529,9 @@ function toPublicTherapistProfile(
 ): PublicTherapistProfile {
   return {
     slug: row.public_slug,
-    displayName: row.public_display_name,
-    title: row.public_title,
-    bio: row.public_bio,
+    displayName: row.published_public_display_name,
+    title: row.published_public_title,
+    bio: row.published_public_bio,
     photoPath: row.public_photo_path,
     photo,
   };

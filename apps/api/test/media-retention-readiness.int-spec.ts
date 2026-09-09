@@ -71,11 +71,13 @@ describe('media retention readiness (real PostgreSQL)', () => {
     await harness.prisma.$executeRaw`
       INSERT INTO therapist (
         id, full_name, specialty, status, created_at, created_by_user_id,
-        is_public, public_slug, public_display_name, public_display_order
+        is_public, public_slug, public_display_name,
+        -- Checkpoint A6: a published fixture carries the published name too.
+        published_public_display_name, public_display_order
       ) VALUES (
         ${therapistId}::uuid, 'همکار نمونه', 'گفتاردرمانی', 'ACTIVE'::catalog_status,
         transaction_timestamp(), ${actorId}::uuid,
-        TRUE, 'retention-colleague', 'همکار نمونه', 0
+        TRUE, 'retention-colleague', 'همکار نمونه', 'همکار نمونه', 0
       )
     `;
   });

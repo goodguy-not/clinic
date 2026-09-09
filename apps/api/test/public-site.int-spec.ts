@@ -73,11 +73,19 @@ describe('public website reads (real PostgreSQL)', () => {
 
     await harness.prisma.$executeRaw`
       INSERT INTO service (
-        id, name, public_description, is_public, public_slug, status, deactivated_at,
+        id, name, public_description,
+        -- Checkpoint A6 split the copy in two. These fixtures describe a row
+        -- whose description has been PUBLISHED — the state the manager form
+        -- leaves behind when it takes a service onto the website — so both
+        -- columns carry it and the public reads, which select the second, see
+        -- what they saw before the split.
+        published_public_description,
+        is_public, public_slug, status, deactivated_at,
         created_by_user_id
       ) VALUES (
         ${id}::uuid,
         ${options.name ?? `Synthetic Service ${id.slice(-6)}`},
+        ${options.description ?? null},
         ${options.description ?? null},
         ${options.isPublic ?? true},
         ${options.slug === undefined ? `service-${id.slice(-6).toLowerCase()}` : options.slug},
@@ -121,8 +129,12 @@ describe('public website reads (real PostgreSQL)', () => {
     await harness.prisma.$executeRaw`
       INSERT INTO therapist (
         id, full_name, specialty, status, deactivated_at, is_public, public_slug,
-        public_display_name, public_title, public_bio, public_photo_path,
-        public_display_order, created_by_user_id
+        public_display_name, public_title, public_bio,
+        -- Checkpoint A6: the same copy on the published side, because these
+        -- fixtures describe a profile the clinic has published. The public
+        -- reads select these three and never the drafts above.
+        published_public_display_name, published_public_title, published_public_bio,
+        public_photo_path, public_display_order, created_by_user_id
       ) VALUES (
         ${id}::uuid,
         ${options.fullName ?? 'Synthetic Personnel Name'},
@@ -131,6 +143,9 @@ describe('public website reads (real PostgreSQL)', () => {
         ${status === 'INACTIVE' ? new Date() : null},
         ${isPublic},
         ${options.slug === undefined ? `therapist-${id.slice(-6).toLowerCase()}` : options.slug},
+        ${options.displayName === undefined ? 'Synthetic Public Name' : options.displayName},
+        ${options.title ?? null},
+        ${options.bio ?? null},
         ${options.displayName === undefined ? 'Synthetic Public Name' : options.displayName},
         ${options.title ?? null},
         ${options.bio ?? null},

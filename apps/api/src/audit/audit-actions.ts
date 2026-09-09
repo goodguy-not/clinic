@@ -311,6 +311,42 @@ export const AUDIT_ACTIONS = [
   'therapist.public_profile_published',
   'therapist.public_profile_unpublished',
 
+  // The editorial split (Milestone 9.5, checkpoint A6). THREE ACTIONS, AND TWO
+  // OF THEM ARE THE FIRST PUBLIC-CONTENT WRITES IN THIS PRODUCT THAT A
+  // RECEPTIONIST CAN CAUSE ON A CATALOG ROW.
+  //
+  // `service.public_copy_drafted` AND `therapist.public_profile_drafted` ARE
+  // DRAFTING, AND THE NAMES SAY SO. They are separate from `service.updated`
+  // and `therapist.public_profile_updated` rather than folded into them
+  // because a different authority performs them and they reach a different
+  // column: a reader asking "who has been writing the public copy, and did any
+  // of it go live?" gets an answer from the action name alone, without joining
+  // to a role. That is the `appointment.availability_override` reasoning — two
+  // genuinely different acts — rather than the one that kept a service's
+  // publication inside `service.updated`.
+  //
+  // `service.public_copy_published` IS THE ONE THAT MOVES A PAGE, and it is the
+  // exception to A2's "there is deliberately no `service.published`". That
+  // sentence was true while a service's public description, slug and
+  // visibility were one manager act on one form; A6 makes promoting the
+  // description a SEPARATE act under a separate route, taken at a different
+  // time from the edit that prepared it, so it is now a second fact rather
+  // than a second name for one. The slug and the visibility flag are unchanged
+  // and are still recorded by `service.updated`.
+  //
+  // THERE IS NO `therapist.public_copy_published`. Publishing a colleague's
+  // prepared copy IS the opt-in — `therapist.public_profile_published` copies
+  // the draft across in the same statement that sets the flag — and a second
+  // name would describe one act twice.
+  //
+  // NO WITHDRAWAL NAME FOR A SERVICE'S COPY EITHER. Withdrawing a published
+  // description is the same decision as publishing one, taken the other way,
+  // and `service.public_copy_published` carries the before and after of the
+  // published column in its payload; a reader can see which direction it went.
+  'service.public_copy_drafted',
+  'service.public_copy_published',
+  'therapist.public_profile_drafted',
+
   // The media subsystem (Milestone 9.5, checkpoint A5). SIX ACTIONS OVER TWO
   // ENTITY TYPES, AND SERVING A PHOTOGRAPH IS NOT ONE OF THEM.
   //

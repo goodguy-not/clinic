@@ -187,10 +187,12 @@ describe('guard chain (real PostgreSQL)', () => {
         'promise.read',
         'promise.resolve',
         'room.read',
+        'service.draft_public_copy',
         'service.read',
         'tariff.read',
         'testimonial.draft',
         'testimonial.read',
+        'therapist.draft_public_profile',
         'therapist.read',
         // Milestone 9, checkpoint A4: answering the clinic's contact form.
         // Reading the inbox and moving a request along the accepted lifecycle,
@@ -224,6 +226,12 @@ describe('guard chain (real PostgreSQL)', () => {
         'therapist.publish_profile',
         'clinic_profile.read',
         'clinic_profile.update',
+        // Milestone 9.5, checkpoint A6: the two names that promote a prepared
+        // change onto a live page. Drafting a service description and a
+        // colleague's biography is now this role's; publishing either is
+        // `service.update` and `therapist.publish_profile`, and it still holds
+        // neither.
+        'service.update',
       ]) {
         expect(asReceptionist.user.permissions).not.toContain(forbidden);
       }
@@ -504,7 +512,25 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  the public surface to TEN reads and one write. It is
       //                  filed there deliberately, so the file answering "what
       //                  can the world see?" goes on answering it completely.
-      expect(routes).toBe(146);
+      //
+      // editorial copy:  Milestone 9.5 checkpoint A6 adds SEVEN routes, all of
+      //                  them under `/content` beside the article and
+      //                  testimonial ones, and every one names a permission.
+      //                  Four for a service's public copy (list, get, draft,
+      //                  publish) and three for a colleague's public copy
+      //                  (list, get, draft).
+      //
+      //                  THE SPLIT INSIDE THEM IS THE POINT, AGAIN. Six name
+      //                  `service.draft_public_copy` or
+      //                  `therapist.draft_public_profile`, which a
+      //                  RECEPTIONIST holds; the seventh names `service.update`,
+      //                  which only a MANAGER holds, and it is the only one of
+      //                  the seven that can change a word a visitor reads. The
+      //                  therapist half has no publication route at all: putting
+      //                  a named colleague on the website is the A2 opt-in,
+      //                  under `therapist.publish_profile`, and a second route
+      //                  would be two names for one decision.
+      expect(routes).toBe(153);
     });
   });
 });

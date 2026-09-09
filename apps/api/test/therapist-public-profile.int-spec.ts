@@ -127,16 +127,35 @@ describe('therapist public profile (real PostgreSQL)', () => {
       expect(attempt.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
     });
 
-    it('refuses removing the approved name from somebody already published', async () => {
-      // The same rule from the other side, and the same code: a published
-      // colleague cannot be left public with nothing to publish them under.
+    it('accepts clearing the DRAFT name of somebody already published, and leaves their page alone', async () => {
+      // CHECKPOINT A6 MOVED THIS REFUSAL RATHER THAN REMOVING IT. Before the
+      // draft and published copy were separated, this write would have left a
+      // live page with no name on it and had to be refused. It no longer can:
+      // the page goes on saying what was published, so the preparation is
+      // accepted and the PUBLICATION that would make it real is what fails.
       await writeProfile(manager);
       await setVisibility(manager, true);
 
       const cleared = await writeProfile(manager, { displayName: null });
+      const team = await request(server()).get('/public/team').set(internalHeaders());
 
-      expect(cleared.status).toBe(422);
-      expect(cleared.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
+      expect(cleared.status).toBe(200);
+      expect(publicTeamResponseSchema.parse(team.body).therapists).toEqual([
+        expect.objectContaining({ displayName: 'Synthetic Display Name' }),
+      ]);
+    });
+
+    it('refuses PUBLISHING a profile whose draft name has been cleared', async () => {
+      // The other half of the move above: the rule is the same rule, checked
+      // against the column that is actually published.
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+      await writeProfile(manager, { displayName: null });
+
+      const republished = await setVisibility(manager, true);
+
+      expect(republished.status).toBe(422);
+      expect(republished.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
     });
 
     it('takes the colleague off the site again on request', async () => {

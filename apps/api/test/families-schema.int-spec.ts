@@ -240,14 +240,24 @@ describe('families schema objects', () => {
       expect(AUDIT_ENTITY_TYPES).toContain('child');
     });
 
-    it('introduces no draft entity type and no draft action', () => {
-      // A draft is transient workflow state, not a historical fact. Auditing one
-      // would create a permanent record of a submission that was never made.
+    it('introduces no draft entity type and no registration-draft action', () => {
+      // A REGISTRATION draft is transient workflow state, not a historical fact.
+      // Auditing one would create a permanent record of a submission that was
+      // never made.
       expect(AUDIT_ENTITY_TYPES).not.toContain('registration_draft');
       expect(AUDIT_ENTITY_TYPES).not.toContain('guardian');
 
+      // NARROWED IN MILESTONE 9.5, CHECKPOINT A6, AND THE NARROWING IS THE
+      // POINT RATHER THAN AN EXEMPTION. This assertion used to refuse the word
+      // "draft" anywhere in the vocabulary, which worked while the product had
+      // exactly one kind of draft. It now has two, and they are opposites: a
+      // registration draft is a form somebody has not submitted, and an
+      // EDITORIAL draft is public copy somebody has written and a manager has
+      // not yet published. The second is a historical fact about who wrote what
+      // the clinic says, and refusing to audit it would be the reverse of this
+      // rule. What stays refused is an action naming the transient one.
       for (const action of AUDIT_ACTIONS) {
-        expect(action).not.toMatch(/draft/i);
+        expect(action).not.toMatch(/registration_draft|^draft\./i);
       }
     });
 

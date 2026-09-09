@@ -63,6 +63,7 @@ export * from './website/website-requests';
 export * from './website/articles';
 export * from './website/testimonials';
 export * from './website/therapist-public-profile';
+export * from './website/public-copy';
 export * from './website/clinic-profile';
 export * from './media/common';
 export * from './media/media';

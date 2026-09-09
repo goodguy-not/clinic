@@ -80,6 +80,18 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * `internal`, reachable only across the internal-key boundary from the Next.js
  * server, and they can return nothing that is not already published.
  *
+ * MILESTONE 9.5, CHECKPOINT A6 GROWS THE RECEPTIONIST'S LIST BY TWO, AND THE
+ * FROZEN HALF IS THE HALF THAT DID NOT MOVE. `service.draft_public_copy` and
+ * `therapist.draft_public_profile` let the front desk prepare public copy;
+ * `service.update`, `service.update_status`, `therapist.update`,
+ * `therapist.update_status`, `therapist.publish_profile`, `tariff.create`,
+ * `tariff.void` and `availability.manage` are all exactly as withheld as they
+ * were the day before. Durations, operational status, restrictions,
+ * availability, tariffs, settlement configuration, personnel data and the
+ * decision that a named colleague appears on a public website are untouched by
+ * this checkpoint, and the test that states the receptionist's list exactly is
+ * what proves a third name cannot arrive here without a decision.
+ *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
  * report, the promise report — are the diary, the ledger read and the promise
@@ -191,6 +203,29 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'media.read',
     'media.upload',
     'media.attach',
+
+    // Milestone 9.5, checkpoint A6. Two names, and they are the A2 drafting
+    // authority extended to the two records that also have a public face: the
+    // service description a family reads before ringing, and a colleague's
+    // public title and biography. The front desk hears what families actually
+    // ask and is the right author of a first draft (DECISION_LOG, 2026-09-08 —
+    // Editorial authority and operational authority are split).
+    //
+    // NEITHER NAME WIDENS ANYTHING OPERATIONAL, AND THAT IS WHY THEY ARE NEW
+    // NAMES RATHER THAN A GRANT OF `service.update` OR `therapist.update`.
+    // Those two carry the durations, the active status, the room and service
+    // restrictions and the specialty — configuration PROJECT_SPEC.md 4 keeps
+    // with the manager — and this role still holds neither of them, which the
+    // negative half of `permissions.spec.ts` states.
+    //
+    // NEITHER NAME PUBLISHES. Both write draft columns; every public read
+    // selects the published ones; and the statements that copy one onto the
+    // other are reachable only under `service.update` and
+    // `therapist.publish_profile`, which stay with the manager. A receptionist
+    // holding both of these still cannot change one word a visitor sees, and
+    // still cannot put a named colleague on the website.
+    'service.draft_public_copy',
+    'therapist.draft_public_profile',
   ],
 };
 

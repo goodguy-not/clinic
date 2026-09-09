@@ -22,8 +22,12 @@ import {
   publicSlugSchema,
   publicTestimonialSchema,
   publicTherapistProfileSchema,
+  servicePublicCopySchema,
   serviceSchema,
+  therapistProfileCopySchema,
   therapistSchema,
+  updateServicePublicCopyRequestSchema,
+  updateTherapistProfileCopyRequestSchema,
 } from '@clinic/contracts';
 
 /**
@@ -540,6 +544,117 @@ describe('public website contracts', () => {
       expect(publicRequestSubmissionSchema.safeParse({ ...valid, familyId: 'x' }).success).toBe(
         false,
       );
+    });
+  });
+
+  describe('the editorial shapes (checkpoint A6)', () => {
+    /**
+     * The frozen boundary of this checkpoint, pinned in the CONTRACT rather
+     * than only in the guard: a drafting request that could carry an
+     * operational field would be one route decorator away from being able to
+     * write one.
+     */
+    it('lets a drafting request carry the service description and nothing else', () => {
+      expect(keysOf(updateServicePublicCopyRequestSchema)).toEqual(['description']);
+
+      for (const operational of [
+        { name: 'A new name' },
+        { isPublic: false },
+        { publicSlug: 'stolen-slug' },
+        { allowedDurationsMinutes: [60] },
+        { status: 'INACTIVE' },
+        { publishedDescription: 'straight to the website' },
+      ]) {
+        expect(
+          updateServicePublicCopyRequestSchema.safeParse({ description: 'x', ...operational })
+            .success,
+        ).toBe(false);
+      }
+    });
+
+    it('lets a drafting request carry a title and a biography and nothing else', () => {
+      expect(keysOf(updateTherapistProfileCopyRequestSchema)).toEqual(['bio', 'title']);
+
+      for (const withheld of [
+        { displayName: 'A name to publish under' },
+        { publicSlug: 'stolen-slug' },
+        { photoPath: 'team/stolen.jpg' },
+        { displayOrder: 1 },
+        { isPublic: true },
+        { fullName: 'Personnel name' },
+        { specialty: 'Personnel specialty' },
+        { publishedBio: 'straight to the website' },
+      ]) {
+        expect(
+          updateTherapistProfileCopyRequestSchema.safeParse({
+            title: 'x',
+            bio: 'y',
+            ...withheld,
+          }).success,
+        ).toBe(false);
+      }
+    });
+
+    it('shows an editor both sides and the signal between them', () => {
+      // A surface that showed only one could not tell an author whether their
+      // change had gone live.
+      expect(keysOf(servicePublicCopySchema)).toEqual([
+        'description',
+        'hasUnpublishedChanges',
+        'isPublic',
+        'name',
+        'publicFirstPublishedAt',
+        'publicRevisedAt',
+        'publicSlug',
+        'publishedDescription',
+        'serviceId',
+      ]);
+
+      expect(keysOf(therapistProfileCopySchema)).toEqual([
+        'bio',
+        'displayName',
+        'hasUnpublishedChanges',
+        'isPublic',
+        'publishedBio',
+        'publishedDisplayName',
+        'publishedTitle',
+        'therapistId',
+        'title',
+      ]);
+    });
+
+    it('keeps the personnel record and the publication surface out of the editorial read', () => {
+      // The editorial projection is narrower than the manager's on purpose: it
+      // is read under a drafting authority, and none of these is copy.
+      for (const absent of [
+        'fullName',
+        'specialty',
+        'status',
+        'publicSlug',
+        'photoPath',
+        'displayOrder',
+      ]) {
+        expect(keysOf(therapistProfileCopySchema)).not.toContain(absent);
+      }
+    });
+
+    it('refuses markup in editorial prose, as every public prose field does', () => {
+      expect(
+        updateServicePublicCopyRequestSchema.safeParse({ description: '<script>x</script>' })
+          .success,
+      ).toBe(false);
+      expect(
+        updateTherapistProfileCopyRequestSchema.safeParse({ title: 'x', bio: '<b>y</b>' }).success,
+      ).toBe(false);
+    });
+
+    it('lets an editor clear either field, which is a real editorial act', () => {
+      expect(updateServicePublicCopyRequestSchema.safeParse({ description: null }).success).toBe(
+        true,
+      );
+      expect(
+        updateTherapistProfileCopyRequestSchema.safeParse({ title: null, bio: null }).success,
+      ).toBe(true);
     });
   });
 });

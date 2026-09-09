@@ -42,15 +42,35 @@ import { actorContext, canonicalOptionalText } from '../catalog-support';
  * NOTHING FALLS BACK. `full_name` and `specialty` are not read here and are not
  * written here. A therapist with no approved display name is refused
  * publication rather than published under their personnel record.
+ *
+ * MILESTONE 9.5, CHECKPOINT A6 SPLIT THE COPY IN TWO AND MOVED NO AUTHORITY.
+ * `public_display_name`, `public_title` and `public_bio` are now the WORKING
+ * DRAFT; `published_public_*` beside them are what the website says, and
+ * `setVisibility` is the ONLY statement in this application that writes them.
+ * Every public read selects the second set.
+ *
+ * The consequence is the one the checkpoint exists for: preparing a change to a
+ * colleague whose page is already live moves nothing, whoever prepares it — a
+ * manager here, or a receptionist on the narrower editorial surface — and the
+ * page changes when, and only when, a manager publishes.
+ *
+ * IT ALSO MOVED ONE REFUSAL. `therapist_public_profile_chk` now reads the
+ * PUBLISHED name, so clearing the DRAFT name of a published colleague is
+ * accepted (it changes no live page) and the publication that would leave that
+ * page nameless is what gets refused. Same rule, checked where it matters.
  */
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string;
   is_public: boolean;
   public_slug: string | null;
   public_display_name: string | null;
   public_title: string | null;
   public_bio: string | null;
+  published_public_display_name: string | null;
+  published_public_title: string | null;
+  published_public_bio: string | null;
+  has_unpublished_changes: boolean;
   public_photo_path: string | null;
   public_display_order: number;
   public_first_published_at: Date | null;
@@ -61,13 +81,25 @@ type ProfileRow = {
  * Exactly the public-facing columns, and not one column of the personnel
  * record. This projection is why a query here cannot return a specialty.
  */
-const PROFILE_COLUMNS = Prisma.sql`
+export const PROFILE_COLUMNS = Prisma.sql`
   t.id,
   t.is_public,
   t.public_slug,
   t.public_display_name,
   t.public_title,
   t.public_bio,
+  t.published_public_display_name,
+  t.published_public_title,
+  t.published_public_bio,
+  (
+    t.is_public
+    AND (t.public_display_name, t.public_title, t.public_bio)
+        IS DISTINCT FROM (
+          t.published_public_display_name,
+          t.published_public_title,
+          t.published_public_bio
+        )
+  ) AS has_unpublished_changes,
   t.public_photo_path,
   t.public_display_order,
   t.public_first_published_at,
@@ -92,13 +124,21 @@ export class TherapistPublicProfileService {
   }
 
   /**
-   * The approved content. Publishes nobody.
+   * The approved content, as a DRAFT. Publishes nobody, and moves no live page.
    *
-   * A therapist who is ALREADY public keeps every constraint that made them
-   * publishable: clearing the display name of a published person is refused by
-   * `therapist_public_profile_chk`, and reported as the same
-   * `THERAPIST_PUBLIC_PROFILE_INCOMPLETE` the publication attempt would give,
-   * because it is the same rule seen from the other side.
+   * From A6 this writes the draft columns only, so a manager may rewrite the
+   * biography of a colleague who is already on the website and the website goes
+   * on saying what was last published until they publish again. Clearing the
+   * draft display name is therefore accepted here; the publication that would
+   * leave a live page nameless is what `therapist_public_profile_chk` refuses,
+   * as `THERAPIST_PUBLIC_PROFILE_INCOMPLETE`.
+   *
+   * `public_photo_path` IS THE EXCEPTION AND IS STILL LIVE. It is the pre-media
+   * legacy path the accepted public site still reads, deliberately not split
+   * because the Web checkpoint that finishes the A5 migration removes it; a
+   * manager changing it changes the page at once, exactly as before. It is the
+   * only thing this method can still do that a visitor sees, which is why it is
+   * the only thing that stamps `public_revised_at`.
    */
   async update(
     therapistId: string,
@@ -119,6 +159,12 @@ export class TherapistPublicProfileService {
         input.publicSlug,
       );
 
+      // The sitemap's last-modified is a statement about the PUBLISHED page, so
+      // from A6 it moves only when this write actually changes one. Every prose
+      // column here is a draft now; the legacy photograph path is not, and is
+      // the one thing left on this form that a visitor sees change.
+      const revisesPublishedPage = before.is_public && before.public_photo_path !== photoPath;
+
       try {
         await tx.$executeRaw`
           UPDATE therapist
@@ -128,9 +174,8 @@ export class TherapistPublicProfileService {
               public_bio = ${bio},
               public_photo_path = ${photoPath},
               public_display_order = ${input.displayOrder},
-              -- Only a published profile has published content to have revised.
               public_revised_at = CASE
-                WHEN is_public THEN transaction_timestamp()
+                WHEN ${revisesPublishedPage} THEN transaction_timestamp()
                 ELSE public_revised_at
               END
           WHERE id = ${therapistId}::uuid
@@ -156,12 +201,28 @@ export class TherapistPublicProfileService {
   }
 
   /**
-   * The opt-in. One decision about one person.
+   * The opt-in. One decision about one person — AND, FROM A6, THE ONLY
+   * STATEMENT IN THIS APPLICATION THAT PUTS A COLLEAGUE'S WORDS ON THE WEBSITE.
    *
-   * Idempotent in both directions: asking for the state the row is already in
-   * returns it unchanged and writes no audit row, for the reason
-   * `changeStatus` does — a trail full of entries whose before and after agree
-   * is a trail nobody can read.
+   * PUBLISHING COPIES THE DRAFT ONTO THE PUBLISHED COLUMNS in the same
+   * statement that sets the flag, exactly as publishing an article does. That
+   * is what makes this one act rather than two: "publish" means "what is
+   * prepared is what the website says", whether the page did not exist before
+   * or was showing an earlier version. A separate approval route beside this
+   * one would be two names for one decision a manager would then have to choose
+   * between.
+   *
+   * WITHDRAWING LEAVES THE PUBLISHED COPY WHERE IT IS. Nothing reads it while
+   * the person is not public, and keeping it means a withdrawn profile still
+   * records what the clinic last said — which republishing then deliberately
+   * replaces rather than silently restores.
+   *
+   * IDEMPOTENT ON THE WHOLE ACT, NOT ON THE FLAG. Publishing somebody already
+   * public who carries a prepared change is a real publication and is recorded
+   * as one — it is how a manager promotes what the front desk wrote — while
+   * publishing somebody already public whose draft matches their page changes
+   * nothing and writes nothing, so a double-clicked button does not fill the
+   * trail with entries whose before and after agree.
    */
   async setVisibility(
     therapistId: string,
@@ -172,18 +233,28 @@ export class TherapistPublicProfileService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, therapistId);
 
-      if (before.is_public === isPublic) return before;
+      const alreadySettled = isPublic
+        ? before.is_public && !before.has_unpublished_changes
+        : !before.is_public;
+
+      if (alreadySettled) return before;
 
       try {
-        await tx.$executeRaw`
-          UPDATE therapist
-          SET is_public = ${isPublic},
-              public_revised_at = CASE
-                WHEN ${isPublic} THEN transaction_timestamp()
-                ELSE public_revised_at
-              END
-          WHERE id = ${therapistId}::uuid
-        `;
+        if (isPublic) {
+          await tx.$executeRaw`
+            UPDATE therapist
+            SET is_public = TRUE,
+                published_public_display_name = public_display_name,
+                published_public_title = public_title,
+                published_public_bio = public_bio,
+                public_revised_at = transaction_timestamp()
+            WHERE id = ${therapistId}::uuid
+          `;
+        } else {
+          await tx.$executeRaw`
+            UPDATE therapist SET is_public = FALSE WHERE id = ${therapistId}::uuid
+          `;
+        }
       } catch (error) {
         throw translateProfileError(error);
       }
@@ -201,7 +272,17 @@ export class TherapistPublicProfileService {
         // URL that came into existence, and the audit trail should say which
         // one without a reader having to join to the therapist row as it stands
         // today.
-        after: { isPublic: after.is_public, publicSlug: after.public_slug },
+        // The published display name says WHO the website now names, so a second
+        // publication of a revised profile is distinguishable from the first
+        // without a reader comparing timestamps. The biography crosses as its
+        // LENGTH, for the reason the draft actions do not copy it.
+        after: {
+          isPublic: after.is_public,
+          publicSlug: after.public_slug,
+          publishedDisplayName: after.published_public_display_name,
+          publishedBioLength:
+            after.published_public_bio === null ? 0 : after.published_public_bio.length,
+        },
       });
 
       return after;
@@ -220,7 +301,7 @@ export class TherapistPublicProfileService {
     return this.lockedRead(tx, therapistId);
   }
 
-  private async lockedRead(tx: Prisma.TransactionClient, therapistId: string): Promise<ProfileRow> {
+  async lockedRead(tx: Prisma.TransactionClient, therapistId: string): Promise<ProfileRow> {
     const rows = await tx.$queryRaw<ProfileRow[]>`
       SELECT ${PROFILE_COLUMNS} FROM therapist t WHERE t.id = ${therapistId}::uuid
     `;
@@ -272,13 +353,17 @@ function profileAudit(row: ProfileRow): Record<string, string | number | boolean
   };
 }
 
-function toProfile(row: ProfileRow): TherapistPublicProfile {
+export function toProfile(row: ProfileRow): TherapistPublicProfile {
   return {
     therapistId: row.id,
     publicSlug: row.public_slug,
     displayName: row.public_display_name,
     title: row.public_title,
     bio: row.public_bio,
+    publishedDisplayName: row.published_public_display_name,
+    publishedTitle: row.published_public_title,
+    publishedBio: row.published_public_bio,
+    hasUnpublishedChanges: row.has_unpublished_changes,
     photoPath: row.public_photo_path,
     displayOrder: row.public_display_order,
     isPublic: row.is_public,

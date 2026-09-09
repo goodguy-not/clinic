@@ -235,7 +235,7 @@ describe('audit vocabulary', () => {
       ),
     );
 
-    it('adds exactly the fourteen approved checkpoint A2 actions', () => {
+    it('adds exactly the fourteen approved checkpoint A2 actions, plus A6 drafting', () => {
       expect([...websiteActions].sort()).toEqual(
         [
           'public_article.created',
@@ -252,8 +252,35 @@ describe('audit vocabulary', () => {
           'therapist.public_profile_published',
           'therapist.public_profile_unpublished',
           'clinic_public_profile.updated',
+          // Milestone 9.5, checkpoint A6. Preparing a colleague's public copy
+          // under the drafting authority, which is a different act by a
+          // different role from the manager's `.updated`, and publishes nobody.
+          'therapist.public_profile_drafted',
         ].sort(),
       );
+    });
+
+    it('names the A6 service editorial acts, and only those two', () => {
+      // The service side of the same split. `service.updated` is unchanged and
+      // still records the operational form including the slug and the
+      // visibility flag; these two are the copy being prepared and the copy
+      // being promoted onto the live page, which A2 could not have separated
+      // because there was nothing to promote.
+      expect(AUDIT_ACTIONS.filter((action) => action.startsWith('service.'))).toEqual([
+        'service.created',
+        'service.updated',
+        'service.status_changed',
+        'service.public_copy_drafted',
+        'service.public_copy_published',
+      ]);
+    });
+
+    it('does not name a separate publication for a therapist copy', () => {
+      // Publishing a colleague's prepared words IS the opt-in: the same
+      // statement copies the draft across and sets the flag, so a second name
+      // would describe one act twice.
+      expect(AUDIT_ACTIONS).not.toContain('therapist.public_copy_published' as never);
+      expect(AUDIT_ACTIONS).not.toContain('service.public_copy_withdrawn' as never);
     });
 
     it('keeps publishing separate from editing, in both directions', () => {

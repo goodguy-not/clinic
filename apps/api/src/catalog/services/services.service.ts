@@ -21,9 +21,19 @@ import type { RequestContext, ResolvedSession } from '../../common/request-conte
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext, canonicalOptionalText, canonicalText } from '../catalog-support';
+import { promoteServicePublicCopy } from './service-public-copy';
 
 /**
  * Clinic services and the session lengths each may be booked for.
+ *
+ * MILESTONE 9.5, CHECKPOINT A6 NARROWED WHAT `publicDescription` MEANS HERE
+ * WITHOUT CHANGING WHAT THIS METHOD WRITES. The column this form writes is now
+ * the WORKING DRAFT of the public description; `published_public_description`
+ * beside it is what the website says, and `service-public-copy.ts` holds the
+ * only two statements that write it. A manager correcting a description on this
+ * form therefore no longer moves a live page on its own — the promotion is a
+ * separate, separately audited act — EXCEPT on the write that first makes the
+ * service reachable, which IS that decision being taken. See `update` below.
  *
  * Two invariants shape every method:
  *
@@ -37,6 +47,7 @@ type ServiceRow = {
   id: string;
   name: string;
   public_description: string | null;
+  published_public_description: string | null;
   is_public: boolean;
   public_slug: string | null;
   public_first_published_at: Date | null;
@@ -57,6 +68,7 @@ const SERVICE_COLUMNS = Prisma.sql`
   s.id,
   s.name,
   s.public_description,
+  s.published_public_description,
   s.is_public,
   s.public_slug,
   s.public_first_published_at,
@@ -142,6 +154,13 @@ export class ServicesService {
 
       await this.insertDurations(tx, id, durations);
 
+      // A service CREATED public and addressable is published by this
+      // statement, so its prepared description is published with it. The
+      // ordinary case creates a private service and promotes nothing.
+      if (input.isPublic && publicSlug !== null) {
+        await promoteServicePublicCopy(tx, id);
+      }
+
       const row = await this.readForUpdate(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
@@ -151,6 +170,7 @@ export class ServicesService {
         after: {
           name: row.name,
           publicDescription: row.public_description,
+          publishedPublicDescription: row.published_public_description,
           isPublic: row.is_public,
           publicSlug: row.public_slug,
           status: row.status,
@@ -203,6 +223,22 @@ export class ServicesService {
       const slugAfter = input.publicSlug === undefined ? before.public_slug : input.publicSlug;
       const reachableAfter = input.isPublic && slugAfter !== null;
 
+      // THE ONE WRITE ON THIS FORM THAT PUBLISHES COPY, AND IT PUBLISHES IT
+      // BECAUSE IT IS THE PUBLICATION. A service crossing from unreachable to
+      // reachable is the manager deciding that what is prepared should be seen,
+      // which is the same act `article.setPublication(true)` performs — so the
+      // draft description crosses with it, and a service does not go onto the
+      // website with a blank space where its description was prepared.
+      //
+      // A LATER EDIT TO A SERVICE THAT IS ALREADY LIVE PROMOTES NOTHING, and
+      // that asymmetry is the whole protection. Otherwise a manager changing a
+      // duration would publish whatever unreviewed sentence happened to be in
+      // the draft, which is exactly the defect the A2 article model was built to
+      // prevent. Promoting a prepared change is an explicit act on its own
+      // route (`ServicePublicCopyService.setPublication`).
+      const reachableBefore = before.is_public && before.public_slug !== null;
+      const publishesCopy = !reachableBefore && reachableAfter;
+
       try {
         await tx.$executeRaw`
           UPDATE service
@@ -231,6 +267,8 @@ export class ServicesService {
         throw error;
       }
 
+      if (publishesCopy) await promoteServicePublicCopy(tx, id);
+
       await this.replaceDurations(tx, id, before.durations, durations);
 
       const after = await this.readForUpdate(tx, id);
@@ -248,6 +286,11 @@ export class ServicesService {
         before: {
           name: before.name,
           publicDescription: before.public_description,
+          // The PUBLISHED description is on both sides from A6, because this
+          // write can move it — on the one transition that publishes — and a
+          // reader must be able to see whether it did without inferring it from
+          // the flag.
+          publishedPublicDescription: before.published_public_description,
           isPublic: before.is_public,
           publicSlug: before.public_slug,
           allowedDurationsMinutes: before.durations,
@@ -255,6 +298,7 @@ export class ServicesService {
         after: {
           name: after.name,
           publicDescription: after.public_description,
+          publishedPublicDescription: after.published_public_description,
           isPublic: after.is_public,
           publicSlug: after.public_slug,
           allowedDurationsMinutes: after.durations,

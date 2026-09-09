@@ -4723,3 +4723,173 @@ unlinks a stored file; all three media tables carry the `no_delete` and
 - **When it arrives:** a reviewed migration and an operator command, in the shape
   the website-request retention rule already established — no HTTP route in this
   product destroys anything.
+
+## 2026-09-09 — Public service and therapist copy is split into a draft and a published copy, on the same row
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+`service.public_description` and a therapist's `public_display_name`,
+`public_title` and `public_bio` become **working drafts**.
+`published_public_description` and `published_public_display_name`,
+`published_public_title`, `published_public_bio` beside them are **what the
+website says**, and every public read selects the second set. This is the shape
+checkpoint A2 accepted for an article, applied unchanged to the two catalog
+records that also have a public face.
+
+- **Alternatives:** one set of columns with the receptionist's edit going live
+  immediately; one set with published rows refused any edit; a separate
+  `service_copy_draft` table holding only pending changes; a published-copy
+  table per record.
+- **Reason:** with one set of columns the product has to choose between two
+  broken rules — an unreviewed sentence on the live page the instant it is
+  saved, or a published description nobody can correct without a manager doing
+  the typing — and the accepted rule (2026-09-08 — Editorial authority and
+  operational authority are split) is neither. A pending-change table would be a
+  second editorial model beside the article one, and its null would have to mean
+  both "no pending change" and "prepared to be cleared". Two column sets on one
+  row is the smallest thing that states the rule: no revision history, no
+  version list, no scheduling, and exactly one previous state — the one
+  currently on the website.
+- **Trade-off:** four columns, a backfill, and one more thing every public read
+  has to select correctly. The `IS DISTINCT FROM` comparison that derives
+  `hasUnpublishedChanges` is computed per read rather than stored, so it cannot
+  disagree with the columns it describes.
+- **Revisit when:** a record needs more than one pending version, or a
+  publication has to be scheduled. Both are a different feature, not a wider
+  version of this one.
+
+## 2026-09-09 — The service name is not draftable, and gets no published copy
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+Only the public **description** is split. A service's `name` keeps its A1
+behaviour: it is what the website calls the service, a manager renaming one
+changes the public page at once under `service.update`, and no drafting
+authority reaches it.
+
+- **Alternatives:** split the name too; give a service a separate public display
+  name that is draftable.
+- **Reason:** A1 refused a published copy of a service precisely because its
+  name IS its public name — a second stored version could let the site advertise
+  something the clinic had stopped offering. A draftable public name would
+  reintroduce exactly that gap, and it is configuration rather than copy.
+- **Trade-off:** a receptionist who spots a misspelt service name must ask a
+  manager. That is the intended boundary rather than a gap in it.
+- **Revisit when:** the clinic wants a public name that genuinely differs from
+  the operational one. That is a new column and a new decision, not a wider
+  editorial permission.
+
+## 2026-09-09 — A service is published with its prepared copy; a later edit to a live service is not
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+The write that takes a service from unreachable to reachable — `service.update`
+setting `isPublic` with an address — promotes the prepared description in the
+same transaction. A later edit to a service that is **already** live promotes
+nothing; promoting a prepared change there is an explicit act on
+`PATCH /content/service-copy/:id/publication`, under `service.update`.
+
+- **Alternatives:** never promote from the service form, so every publication is
+  two acts; always promote whenever the row is public after the write.
+- **Reason:** ticking the public box IS the decision that what is prepared
+  should be seen — it is the same act `article.setPublication(true)` performs —
+  so a clinic publishing something new should not get a blank description while
+  it waits for a second act. Always promoting is the opposite error and is the
+  defect the A2 article model exists to prevent: a manager changing a duration
+  would publish whatever unreviewed sentence happened to be in the draft.
+- **Trade-off:** the rule is conditional rather than uniform, and it is stated in
+  one place — `promoteServicePublicCopy`, which has exactly two callers and is
+  the only function that writes the column.
+- **Revisit when:** managers report publishing copy they had not read. The answer
+  would be to drop the transition promotion and make the first publication two
+  acts as well, not to widen it.
+
+## 2026-09-09 — Publishing a colleague's prepared copy IS the opt-in, and gets no route of its own
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+`PATCH /catalog/therapists/:id/public-profile/visibility` with `isPublic: true`
+sets the flag and copies the prepared display name, title and biography onto the
+published columns in one statement. Sending it again on somebody already public
+is how a manager promotes a prepared change, and is recorded as a real
+publication; sending it when nothing has changed writes nothing. There is no
+`therapist.public_copy_published` action and no second route.
+
+- **Alternatives:** a separate publication route for a therapist's copy, mirroring
+  the service one.
+- **Reason:** for a person, "publish" is one decision — this colleague, with these
+  words, appears on the website — and A1 already gave it a permission of its own.
+  A second route would be two names for one decision a manager would then have to
+  choose between. The service needs one because its visibility flag lives on the
+  operational form, which must not publish copy as a side effect.
+- **Trade-off:** the two records are not symmetrical, and a reader has to know
+  why. The asymmetry follows the authority: a service's publication is a catalog
+  fact, a person's is a decision about that person.
+- **Revisit when:** a therapist's visibility and their copy need to be decided by
+  different people. Nothing in the approved model asks for that.
+
+## 2026-09-09 — A receptionist may draft a colleague's public title and biography, and not their display name
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+`therapist.draft_public_profile` reaches `public_title` and `public_bio`. It does
+not reach the display name, the slug, the display order, the photograph path,
+the personnel record or `is_public`, and the manager profile surface — its read
+included — still refuses this role exactly as checkpoint A2 decided.
+
+- **Alternatives:** include the display name in the drafting authority; withhold
+  the biography as well and let a receptionist draft nothing about a person.
+- **Reason:** the title and the biography describe the work a colleague does, and
+  the front desk hears what families ask about it. The display name is the name a
+  person is published **under**, which is part of the decision to publish them —
+  a decision about that person, taken with their agreement, which A1 gave its own
+  permission. Withholding the biography too would leave the checkpoint with
+  nothing to draft on a profile at all.
+- **Trade-off:** a receptionist preparing a new colleague's page cannot supply the
+  name it will appear under, so a manager is in the path of every first
+  publication. That queue is the control.
+- **Revisit when:** the display name is measurably the reason profiles go
+  unprepared. The answer would be a manager-set name at the moment the profile is
+  created, not a wider draft permission.
+
+## 2026-09-09 — The legacy therapist photograph path is not split, and not yet removed
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+`therapist.public_photo_path` keeps its pre-media behaviour: manager-only under
+`therapist.publish_profile`, read by the public projection, and changing it
+changes the live page at once. It gains no published counterpart, and no
+editorial authority can write it.
+
+- **Alternatives:** split it like the prose; remove it in this checkpoint and
+  serve therapist portraits only through the A5 media subsystem.
+- **Reason:** the currently accepted public site still depends on it, so removing
+  it here would break a live surface in a checkpoint that has no Web lane. And
+  splitting a column that the Web checkpoint finishing the A5 migration is going
+  to delete would leave a backfill, a CHECK and a projection behind for nothing.
+  It is manager-only, so no receptionist authority leaks through it.
+- **Trade-off:** for the length of this checkpoint one public field on a therapist
+  moves without a publication act, which is stated in the schema comment beside
+  it and in the profile contract.
+- **Revisit when:** the Web checkpoint removes the dependency. The column goes
+  then, with the migration that drops it.
+
+## 2026-09-09 — Editorial routes are mounted under `/content`, and the operational ones stay under `/catalog`
+
+**Status:** Accepted — Milestone 9.5 checkpoint A6
+
+`/content/service-copy` and `/content/therapist-profiles` carry the drafting
+routes, beside `/content/articles` and `/content/testimonials`. `/catalog/*`
+stays the operational and publication surface and stays manager-only, apart from
+the reads a receptionist has always held. The code stays in `CatalogModule`,
+which remains the only thing that writes `service` and `therapist`.
+
+- **Alternatives:** hang the editorial routes off `/catalog/services/:id/...`;
+  move the services into the website module.
+- **Reason:** the path is the authority boundary restated where a reader will see
+  it first — "what can the front desk write?" is answerable by one prefix. Moving
+  the code would give the website module a second writer of two tables it
+  deliberately only reads.
+- **Trade-off:** a controller whose route prefix does not match its directory, and
+  a class comment on each saying why.
+- **Revisit when:** an editorial surface needs a table no catalog module owns.

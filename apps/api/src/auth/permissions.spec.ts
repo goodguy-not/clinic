@@ -84,6 +84,12 @@ describe('role to permission map', () => {
         'media.read',
         'media.upload',
         'media.attach',
+        // Milestone 9.5, checkpoint A6: preparing public copy for a service and
+        // for a colleague's profile. Publishing either is withheld, and the
+        // negative half below states that alongside every operational name this
+        // checkpoint deliberately did not move.
+        'service.draft_public_copy',
+        'therapist.draft_public_profile',
       ].sort(),
     );
   });
@@ -136,6 +142,10 @@ describe('role to permission map', () => {
       // sees. It covers publishing an attachment, unpublishing one, archiving
       // an asset and restoring it, and this role holds none of those.
       'media.publish',
+      // Milestone 9.5, checkpoint A6: the authority that decides a named
+      // colleague appears on a public website. Drafting their title and
+      // biography is now this role's; deciding they are published is not.
+      'therapist.publish_profile',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
@@ -177,6 +187,66 @@ describe('role to permission map', () => {
       ] as const) {
         expect(granted).not.toContain(unchanged);
       }
+    });
+  });
+
+  describe('the editorial split (checkpoint A6)', () => {
+    // The frozen boundary of this checkpoint, stated in both directions so that
+    // widening it later has to be a deliberate edit to a test rather than a
+    // quiet edit to a role map.
+    it('carries exactly the two approved drafting names', () => {
+      expect(
+        PERMISSIONS.filter((permission) => permission.endsWith('draft_public_copy')).concat(
+          PERMISSIONS.filter((permission) => permission.endsWith('draft_public_profile')),
+        ),
+      ).toEqual(['service.draft_public_copy', 'therapist.draft_public_profile']);
+    });
+
+    it('lets a receptionist prepare public copy and never publish it', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('service.draft_public_copy');
+      expect(granted).toContain('therapist.draft_public_profile');
+      // The two names that promote a draft onto a live page. Neither moves.
+      expect(granted).not.toContain('service.update');
+      expect(granted).not.toContain('therapist.publish_profile');
+    });
+
+    it('moves no operational, financial, scheduling or personnel authority', () => {
+      // The half of the frozen boundary that is about what did NOT change.
+      // Durations, active status, restrictions, availability, tariffs,
+      // settlement configuration and the personnel record are all reached by
+      // names this role still does not hold.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'service.create',
+        'service.update',
+        'service.update_status',
+        'therapist.create',
+        'therapist.update',
+        'therapist.update_status',
+        'therapist.publish_profile',
+        'tariff.create',
+        'tariff.void',
+        'availability.manage',
+        'clinic_profile.read',
+        'clinic_profile.update',
+        'media.publish',
+        'article.publish',
+        'testimonial.approve',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
+
+    it('gives a manager both drafting names as well', () => {
+      // Drafting is not a lesser role's consolation prize: a manager writes
+      // copy too, and the publication act is what is exclusive.
+      const granted = permissionsForRole('MANAGER');
+
+      expect(granted).toContain('service.draft_public_copy');
+      expect(granted).toContain('therapist.draft_public_profile');
     });
   });
 

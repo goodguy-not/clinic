@@ -189,7 +189,12 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
 
   describe('slug stability after publication', () => {
     async function publish(table: 'service' | 'therapist', id: string, slug: string) {
-      const extra = table === 'therapist' ? ", public_display_name = 'Synthetic Public Name'" : '';
+      // The PUBLISHED display name, because that is the column
+      // `therapist_public_profile_chk` reads from Milestone 9.5, checkpoint A6.
+      // The draft beside it is not what a visitor sees and is not what the
+      // opt-in is checked against.
+      const extra =
+        table === 'therapist' ? ", published_public_display_name = 'Synthetic Public Name'" : '';
 
       await harness.prisma.$executeRawUnsafe(
         `UPDATE ${table} SET is_public = TRUE, public_slug = $1${extra} WHERE id = $2::uuid`,

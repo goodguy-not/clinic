@@ -395,6 +395,45 @@ export const PERMISSIONS = [
   'media.upload',
   'media.attach',
   'media.publish',
+
+  // Editorial authority over the catalog's PUBLIC COPY (Milestone 9.5,
+  // checkpoint A6). TWO NAMES, BOTH THE RECEPTIONIST'S, AND NEITHER OF THEM
+  // PUBLISHES ANYTHING.
+  //
+  // A1 said no name would be added for publishing a service, and none is: the
+  // decision that a service is on the website, under which address, is still
+  // `service.update`, and the decision that a named colleague appears on it is
+  // still `therapist.publish_profile`. What these two names add is the OTHER
+  // half of the A2 split, applied to the two records that never had it — the
+  // authority to WRITE public copy without the authority to publish it.
+  //
+  // `service.draft_public_copy` REACHES EXACTLY ONE COLUMN. It writes the
+  // service's public description and nothing else: not the name, not the
+  // durations, not the status, not the slug, not the visibility flag, and
+  // nothing priced or booked. That is why it is a new name rather than a
+  // widening of `service.update`, which carries every one of those
+  // (DECISION_LOG, 2026-09-08 — Editorial authority and operational authority
+  // are split).
+  //
+  // `therapist.draft_public_profile` REACHES THE PUBLIC TITLE AND THE
+  // BIOGRAPHY, AND STOPS THERE. Not the display name, not the slug, not the
+  // display order, not the photograph path, not the personnel record, and
+  // above all NOT `is_public`: whether a named human being appears on a public
+  // website is a decision about that person, `therapist.publish_profile` is
+  // the name for it, and A1 separated it precisely so it could not be reached
+  // by anybody who may merely correct prose. The display name is on the
+  // publishing side of that line rather than the drafting side because it is
+  // the name a person is published UNDER, which is part of the decision, not a
+  // description of the work they do.
+  //
+  // NEITHER NAME CAN MOVE A LIVE PAGE, AND THAT IS ENFORCED BY THE SCHEMA
+  // RATHER THAN BY THIS LIST. Both write draft columns; every public read
+  // selects the published ones; and the only statements that copy the first
+  // onto the second are reachable under `service.update` and
+  // `therapist.publish_profile`. A receptionist who holds both of these names
+  // still cannot change one word a visitor sees.
+  'service.draft_public_copy',
+  'therapist.draft_public_profile',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
