@@ -23,22 +23,24 @@ import { PROFILE_COLUMNS, type ProfileRow } from './therapist-public-profile.ser
  * front desk holds. Folding it into either of the others would have handed a
  * drafting role the whole of that other authority.
  *
- * WHAT IT CAN WRITE IS TWO COLUMNS, AND THE STATEMENT IS THE ENFORCEMENT. The
- * UPDATE below names `public_title` and `public_bio`. There is no display name
- * here, no slug, no display order, no photograph path, no `is_public`, no
- * specialty, no status and no availability — not filtered out, ABSENT.
+ * WHAT IT CAN WRITE IS THREE COLUMNS, AND THE STATEMENT IS THE ENFORCEMENT. The
+ * UPDATE below names `public_display_name`, `public_title` and `public_bio` —
+ * the whole of the routine public copy about a colleague. There is no slug
+ * here, no display order, no photograph path, no `is_public`, no specialty, no
+ * status and no availability — not filtered out, ABSENT.
  *
- * THE DISPLAY NAME IS READABLE AND NOT WRITABLE, and that line is the frozen
- * boundary rather than a convenience. The name a person is published UNDER is
- * part of the decision to publish them, which is `therapist.publish_profile`.
- * An author needs to see it to know whose page they are writing — and already
- * sees that colleague's real name on the diary every day under
- * `therapist.read` — so withholding the read would protect nothing while making
- * the surface unusable.
+ * THE DISPLAY NAME IS DRAFTABLE, AND DRAFTING ONE PUBLISHES NOBODY. The name a
+ * visitor reads is `published_public_display_name`, a different column that
+ * only the manager opt-in writes; preparing a name here changes no live page,
+ * and clearing one is not a way to take a colleague off the website — the
+ * published name stays where it is, and a publication that would leave that
+ * page nameless is refused by `therapist_public_profile_chk`. What stays with
+ * `therapist.publish_profile` is the DECISION that a named human being appears
+ * on a public website, and at what address.
  *
- * NOTHING HERE PUBLISHES. Both columns are drafts, every public read selects
- * the published copies, and the only statement that promotes one to the other
- * is the manager opt-in in `TherapistPublicProfileService`.
+ * NOTHING HERE PUBLISHES. All three columns are drafts, every public read
+ * selects the published copies, and the only statement that promotes one to the
+ * other is the manager opt-in in `TherapistPublicProfileService`.
  */
 @Injectable()
 export class TherapistProfileCopyService {
@@ -94,6 +96,7 @@ export class TherapistProfileCopyService {
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<TherapistProfileCopy> {
+    const displayName = canonicalOptionalText(input.displayName);
     const title = canonicalOptionalText(input.title);
     const bio = canonicalOptionalText(input.bio);
 
@@ -102,7 +105,8 @@ export class TherapistProfileCopyService {
 
       await tx.$executeRaw`
         UPDATE therapist
-        SET public_title = ${title},
+        SET public_display_name = ${displayName},
+            public_title = ${title},
             public_bio = ${bio}
         WHERE id = ${therapistId}::uuid
       `;
@@ -160,6 +164,7 @@ export class TherapistProfileCopyService {
  */
 function copyAudit(row: ProfileRow): Record<string, string | number | boolean | null> {
   return {
+    displayName: row.public_display_name,
     title: row.public_title,
     bioLength: row.public_bio === null ? 0 : row.public_bio.length,
     isPublic: row.is_public,

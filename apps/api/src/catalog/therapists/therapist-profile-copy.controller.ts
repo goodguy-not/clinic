@@ -12,8 +12,8 @@ import { ZodBodyPipe } from '../../common/zod-validation.pipe';
 import { TherapistProfileCopyService } from './therapist-profile-copy.service';
 
 /**
- * A colleague's public title and biography. ONE AUTHORITY, AND IT PUBLISHES
- * NOBODY.
+ * A colleague's public display name, title and biography. ONE AUTHORITY, AND IT
+ * PUBLISHES NOBODY.
  *
  * Milestone 9.5, checkpoint A6. All three routes name
  * `therapist.draft_public_profile`, which a RECEPTIONIST holds. There is no
@@ -25,10 +25,10 @@ import { TherapistProfileCopyService } from './therapist-profile-copy.service';
  * A2 WITHHELD THE PROFILE READ FROM THIS ROLE, AND THIS FILE DOES NOT REOPEN
  * IT. That refusal was about the publication surface — a colleague's slug,
  * photograph, display order and opt-in, none of which is diary information and
- * none of which appears here. What this returns is the copy a drafting role
- * writes, the copy the website already shows, and the display name they see on
- * the diary every day; the manager's fuller read at
- * `/catalog/therapists/:id/public-profile` is unchanged and still refuses them.
+ * none of which appears here. What this returns is the routine public copy a
+ * drafting role writes and the copy the website already shows; the manager's
+ * fuller read at `/catalog/therapists/:id/public-profile` is unchanged and
+ * still refuses them.
  *
  * IT IS MOUNTED UNDER `/content` RATHER THAN UNDER `/catalog`, AND THE PATH IS
  * THE AUTHORITY BOUNDARY RESTATED: `/catalog/therapists` is the personnel and
@@ -53,7 +53,10 @@ export class TherapistProfileCopyController {
     return { copy: await this.copy.get(therapistId) };
   }
 
-  /** Preparing the words. Publishes nobody; see the service. */
+  /**
+   * Preparing the words — the display name included. Publishes nobody, and
+   * moves no live page; see the service.
+   */
   @Patch(':therapistId')
   @RequirePermissions('therapist.draft_public_profile')
   async update(

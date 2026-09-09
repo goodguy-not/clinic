@@ -4828,29 +4828,42 @@ publication; sending it when nothing has changed writes nothing. There is no
 - **Revisit when:** a therapist's visibility and their copy need to be decided by
   different people. Nothing in the approved model asks for that.
 
-## 2026-09-09 — A receptionist may draft a colleague's public title and biography, and not their display name
+## 2026-09-09 — A receptionist may draft a colleague's public display name, title and biography
 
-**Status:** Accepted — Milestone 9.5 checkpoint A6
+**Status:** Accepted — Milestone 9.5 checkpoint A6 (owner decision, coordinator
+review; supersedes the narrower reading first implemented in this checkpoint)
 
-`therapist.draft_public_profile` reaches `public_title` and `public_bio`. It does
-not reach the display name, the slug, the display order, the photograph path,
-the personnel record or `is_public`, and the manager profile surface — its read
-included — still refuses this role exactly as checkpoint A2 decided.
+`therapist.draft_public_profile` reaches `public_display_name`, `public_title`
+and `public_bio` — the whole of the routine public copy about a colleague. It
+does not reach the slug, the display order, the photograph path, the personnel
+record or `is_public`, and the manager profile surface — its read included —
+still refuses this role exactly as checkpoint A2 decided.
 
-- **Alternatives:** include the display name in the drafting authority; withhold
-  the biography as well and let a receptionist draft nothing about a person.
-- **Reason:** the title and the biography describe the work a colleague does, and
-  the front desk hears what families ask about it. The display name is the name a
-  person is published **under**, which is part of the decision to publish them —
-  a decision about that person, taken with their agreement, which A1 gave its own
-  permission. Withholding the biography too would leave the checkpoint with
-  nothing to draft on a profile at all.
-- **Trade-off:** a receptionist preparing a new colleague's page cannot supply the
-  name it will appear under, so a manager is in the path of every first
-  publication. That queue is the control.
-- **Revisit when:** the display name is measurably the reason profiles go
-  unprepared. The answer would be a manager-set name at the moment the profile is
-  created, not a wider draft permission.
+The first implementation of A6 withheld the display name on the reasoning that
+it is the name a person is published _under_ and therefore part of the
+publication decision. **That restriction was an implementer's assumption, not an
+owner decision, and the owner boundary is the opposite:** the receptionist may
+draft routine public therapist profile content, and the manager alone controls
+publication and the visibility opt-in.
+
+- **Alternatives:** withhold the display name from the drafting authority (the
+  first implementation); withhold the biography as well.
+- **Reason:** drafting a public display name does not publish anybody. The name a
+  visitor reads is `published_public_display_name`, a different column that only
+  the manager opt-in writes, so preparing a name changes no live page and
+  clearing one takes nobody off the website. What is genuinely a decision about a
+  person — that they appear at all, and at what address — remains
+  `therapist.publish_profile`. Splitting the copy from the decision is exactly
+  what the two column sets exist to express, and withholding one of the three
+  prose fields would have made the surface unable to prepare a new colleague's
+  page at all.
+- **Trade-off:** the front desk can prepare the name a colleague would appear
+  under. A manager still reads it and publishes it, and
+  `therapist_public_profile_chk` refuses a publication that would leave a live
+  page nameless.
+- **Revisit when:** a clinic wants the published name fixed at the moment a
+  profile is created rather than drafted. That is a manager-set field, not a
+  narrower draft permission.
 
 ## 2026-09-09 — The legacy therapist photograph path is not split, and not yet removed
 

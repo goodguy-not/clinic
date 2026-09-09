@@ -572,21 +572,29 @@ describe('public website contracts', () => {
       }
     });
 
-    it('lets a drafting request carry a title and a biography and nothing else', () => {
-      expect(keysOf(updateTherapistProfileCopyRequestSchema)).toEqual(['bio', 'title']);
+    it('lets a drafting request carry the three prose fields and nothing else', () => {
+      // The display name is COPY and is draftable; what stays out is the
+      // publication decision and everything operational.
+      expect(keysOf(updateTherapistProfileCopyRequestSchema)).toEqual([
+        'bio',
+        'displayName',
+        'title',
+      ]);
 
       for (const withheld of [
-        { displayName: 'A name to publish under' },
         { publicSlug: 'stolen-slug' },
         { photoPath: 'team/stolen.jpg' },
         { displayOrder: 1 },
         { isPublic: true },
         { fullName: 'Personnel name' },
         { specialty: 'Personnel specialty' },
+        { status: 'INACTIVE' },
+        { publishedDisplayName: 'straight to the website' },
         { publishedBio: 'straight to the website' },
       ]) {
         expect(
           updateTherapistProfileCopyRequestSchema.safeParse({
+            displayName: 'n',
             title: 'x',
             bio: 'y',
             ...withheld,
@@ -643,17 +651,27 @@ describe('public website contracts', () => {
         updateServicePublicCopyRequestSchema.safeParse({ description: '<script>x</script>' })
           .success,
       ).toBe(false);
-      expect(
-        updateTherapistProfileCopyRequestSchema.safeParse({ title: 'x', bio: '<b>y</b>' }).success,
-      ).toBe(false);
+      for (const markup of [
+        { displayName: '<b>n</b>', title: 'x', bio: 'y' },
+        { displayName: 'n', title: 'x', bio: '<b>y</b>' },
+      ]) {
+        expect(updateTherapistProfileCopyRequestSchema.safeParse(markup).success).toBe(false);
+      }
     });
 
-    it('lets an editor clear either field, which is a real editorial act', () => {
+    it('lets an editor clear any of the fields, which is a real editorial act', () => {
       expect(updateServicePublicCopyRequestSchema.safeParse({ description: null }).success).toBe(
         true,
       );
+      // Clearing the DRAFT name is allowed and takes nobody off the website:
+      // the published name is a different column, and the publication that
+      // would leave a live page nameless is what the database refuses.
       expect(
-        updateTherapistProfileCopyRequestSchema.safeParse({ title: null, bio: null }).success,
+        updateTherapistProfileCopyRequestSchema.safeParse({
+          displayName: null,
+          title: null,
+          bio: null,
+        }).success,
       ).toBe(true);
     });
   });

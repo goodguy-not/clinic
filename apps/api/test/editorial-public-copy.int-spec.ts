@@ -103,11 +103,21 @@ describe('editorial public copy (real PostgreSQL)', () => {
       .set(as(session))
       .send({ isPublished });
 
+  /**
+   * The editorial request states the whole of the copy it replaces, so the
+   * helper fills in the two fields a caller is not exercising rather than
+   * letting a half-sent form silently clear a paragraph.
+   */
   const draftProfileCopy = (session: string, body: Record<string, unknown>) =>
     request(server())
       .patch(`/content/therapist-profiles/${therapistId}`)
       .set(as(session))
-      .send(body);
+      .send({
+        displayName: 'نام عمومی نمونه',
+        title: 'عنوان عمومی نمونه',
+        bio: 'زندگی‌نامهٔ نمونهٔ منتشرشده.',
+        ...body,
+      });
 
   const writeProfile = (session: string, overrides: Record<string, unknown> = {}) =>
     request(server())
@@ -320,9 +330,10 @@ describe('editorial public copy (real PostgreSQL)', () => {
   // --- a colleague ----------------------------------------------------------
 
   describe('a colleague, drafted by the front desk', () => {
-    it('lets a receptionist read and rewrite the public title and biography', async () => {
+    it('lets a receptionist read and rewrite the public display name, title and biography', async () => {
       const list = await request(server()).get('/content/therapist-profiles').set(as(receptionist));
       const drafted = await draftProfileCopy(receptionist, {
+        displayName: 'نام عمومی تازه',
         title: 'عنوان تازه',
         bio: 'زندگی‌نامهٔ تازه که هنوز تأیید نشده است.',
       });
@@ -332,6 +343,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
       expect(drafted.status).toBe(200);
 
       const copy = therapistProfileCopyResponseSchema.parse(drafted.body).copy;
+      expect(copy.displayName).toBe('نام عمومی تازه');
       expect(copy.title).toBe('عنوان تازه');
       expect(copy.bio).toBe('زندگی‌نامهٔ تازه که هنوز تأیید نشده است.');
     });
@@ -341,6 +353,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
       const before = await publicTeam();
 
       await draftProfileCopy(receptionist, {
+        displayName: 'نام عمومی تازه',
         title: 'عنوان تازه',
         bio: 'زندگی‌نامهٔ تازه که هنوز تأیید نشده است.',
       });
@@ -355,17 +368,63 @@ describe('editorial public copy (real PostgreSQL)', () => {
 
     it('changes the live profile when, and only when, a manager publishes', async () => {
       await publishColleague();
-      await draftProfileCopy(receptionist, { title: 'عنوان تازه', bio: 'زندگی‌نامهٔ تازه.' });
-
-      expect((await publicTeam())[0]).toMatchObject({ title: 'عنوان عمومی نمونه' });
-
-      const promoted = await setVisibility(manager, true);
-
-      expect(promoted.status).toBe(200);
-      expect((await publicTeam())[0]).toMatchObject({
+      await draftProfileCopy(receptionist, {
+        displayName: 'نام عمومی تازه',
         title: 'عنوان تازه',
         bio: 'زندگی‌نامهٔ تازه.',
       });
+
+      expect((await publicTeam())[0]).toMatchObject({
+        displayName: 'نام عمومی نمونه',
+        title: 'عنوان عمومی نمونه',
+      });
+
+      const promoted = await setVisibility(manager, true);
+
+      // ALL THREE PREPARED FIELDS CROSS IN ONE ACT, the display name included.
+      expect(promoted.status).toBe(200);
+      expect((await publicTeam())[0]).toMatchObject({
+        displayName: 'نام عمومی تازه',
+        title: 'عنوان تازه',
+        bio: 'زندگی‌نامهٔ تازه.',
+      });
+    });
+
+    it('LEAVES A LIVE NAME ALONE WHILE THE FRONT DESK RENAMES THE DRAFT', async () => {
+      // The field the coordinator review opened, asserted where it matters: a
+      // receptionist may prepare the name a colleague would appear under, and
+      // the website goes on printing the name a manager last approved.
+      await publishColleague();
+
+      const drafted = await draftProfileCopy(receptionist, { displayName: 'نام عمومی تازه' });
+
+      expect(drafted.status).toBe(200);
+      expect(therapistProfileCopyResponseSchema.parse(drafted.body).copy).toMatchObject({
+        displayName: 'نام عمومی تازه',
+        publishedDisplayName: 'نام عمومی نمونه',
+        hasUnpublishedChanges: true,
+      });
+      expect((await publicTeam())[0]).toMatchObject({ displayName: 'نام عمومی نمونه' });
+    });
+
+    it('does not take a colleague off the website by clearing the draft name', async () => {
+      // Clearing a draft is an editorial act, not an unpublication. The
+      // published name is a different column and nobody disappears.
+      await publishColleague();
+
+      const cleared = await draftProfileCopy(receptionist, { displayName: null });
+      const team = await publicTeam();
+
+      expect(cleared.status).toBe(200);
+      expect(team).toHaveLength(1);
+      expect(team[0]).toMatchObject({ displayName: 'نام عمومی نمونه' });
+
+      // And the publication that WOULD leave that page nameless is refused —
+      // the same rule, checked where it becomes real.
+      const republished = await setVisibility(manager, true);
+      expect(republished.status).toBe(422);
+      expect(republished.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
+      expect((await publicTeam())[0]).toMatchObject({ displayName: 'نام عمومی نمونه' });
     });
 
     it('publishes nobody when the front desk drafts for an unpublished colleague', async () => {
@@ -406,13 +465,13 @@ describe('editorial public copy (real PostgreSQL)', () => {
       }
     });
 
-    it('cannot reach the display name, slug, photograph or opt-in through the editorial route', async () => {
+    it('cannot reach the slug, photograph, display order or opt-in through the editorial route', async () => {
+      // The display name is COPY and is draftable; these four are the
+      // publication decision and its presentation, and the request schema is
+      // strict, so a body carrying one is refused whole.
       await publishColleague();
 
       const attempt = await draftProfileCopy(receptionist, {
-        title: 'عنوان تازه',
-        bio: 'زندگی‌نامهٔ تازه.',
-        displayName: 'نام دزدیده‌شده',
         publicSlug: 'stolen-slug',
         photoPath: 'team/stolen.jpg',
         isPublic: false,
@@ -430,11 +489,12 @@ describe('editorial public copy (real PostgreSQL)', () => {
         ).body,
       ).profile;
 
-      expect(profile.displayName).toBe('نام عمومی نمونه');
       expect(profile.publicSlug).toBe('synthetic-colleague');
       expect(profile.photoPath).toBeNull();
       expect(profile.displayOrder).toBe(1);
       expect(profile.isPublic).toBe(true);
+      // The refusal wrote nothing at all, the name included.
+      expect(profile.displayName).toBe('نام عمومی نمونه');
     });
 
     it('refuses a receptionist the personnel record and the schedule behind it', async () => {
@@ -476,7 +536,11 @@ describe('editorial public copy (real PostgreSQL)', () => {
 
     it('separates drafting a colleague copy from publishing the person', async () => {
       await publishColleague();
-      await draftProfileCopy(receptionist, { title: 'عنوان تازه', bio: 'زندگی‌نامهٔ تازه.' });
+      await draftProfileCopy(receptionist, {
+        displayName: 'نام عمومی تازه',
+        title: 'عنوان تازه',
+        bio: 'زندگی‌نامهٔ تازه.',
+      });
       await setVisibility(manager, true);
 
       expect(await auditActionsFor(harness, 'therapist', therapistId)).toEqual([
@@ -490,6 +554,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
     it('records copy as a length rather than as a copy of it', async () => {
       await draftServiceCopy(receptionist, 'یک متن نمونهٔ کاملاً یکتا برای این آزمون.');
       await draftProfileCopy(receptionist, {
+        displayName: 'نام عمومی تازه',
         title: 'عنوان تازه',
         bio: 'یک زندگی‌نامهٔ کاملاً یکتا برای این آزمون.',
       });

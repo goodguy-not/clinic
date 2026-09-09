@@ -108,18 +108,21 @@ export type ServicePublicCopyListResponse = z.infer<typeof servicePublicCopyList
  * A therapist's public copy, as a drafting role sees it — WHICH IS LESS THAN A
  * MANAGER SEES.
  *
- * There is no slug here, no photograph path, no display order, no personnel
- * field and no writable visibility. `displayName` and `publishedDisplayName`
- * are present and read-only: an author has to know whose page they are writing,
- * and the display name is already the least surprising thing for them to know —
- * they hold `therapist.read` to run the diary and see that colleague's real
- * name on it every day. What they may not do is CHANGE the name a person is
- * published under, which is part of the publication decision
- * `therapist.publish_profile` owns.
+ * THE THREE PROSE FIELDS ARE DRAFTABLE: the public display name, the public
+ * title and the biography. That is the whole of the routine public copy about a
+ * colleague, and preparing any of it publishes nobody — the drafts are not what
+ * a visitor reads, and only the manager opt-in copies them across.
+ *
+ * WHAT IS ABSENT IS THE PUBLICATION DECISION AND EVERYTHING OPERATIONAL. There
+ * is no slug here, no photograph path, no display order, no personnel field and
+ * no visibility flag — not filtered out, ABSENT. Deciding that a named human
+ * being appears on a public website, and at what address, remains
+ * `therapist.publish_profile`, which A1 separated so it could be granted and
+ * revoked on its own.
  */
 export const therapistProfileCopySchema = z.strictObject({
   therapistId: z.uuid(),
-  /** The prepared display name. Read-only on this surface. */
+  /** The working draft. Writable under `therapist.draft_public_profile`. */
   displayName: z.string().nullable(),
   publishedDisplayName: z.string().nullable(),
   /** The working draft. Writable under `therapist.draft_public_profile`. */
@@ -135,13 +138,21 @@ export const therapistProfileCopySchema = z.strictObject({
 export type TherapistProfileCopy = z.infer<typeof therapistProfileCopySchema>;
 
 /**
- * The two fields a drafting role may write on a colleague's profile.
+ * The three fields a drafting role may write on a colleague's profile.
  *
- * Both are required and nullable rather than optional, so a request states the
- * whole of the copy it is replacing and a half-sent form cannot leave a
+ * All three are required and nullable rather than optional, so a request states
+ * the whole of the copy it is replacing and a half-sent form cannot leave a
  * paragraph nobody meant to keep.
+ *
+ * `displayName` IS DRAFTABLE, AND CLEARING IT IS NOT A WAY TO TAKE ANYBODY OFF
+ * THE WEBSITE. The published name is a different column; the live page keeps
+ * saying it until a manager publishes, and a publication that would leave that
+ * page nameless is refused by `therapist_public_profile_chk` as
+ * `THERAPIST_PUBLIC_PROFILE_INCOMPLETE`. Drafting a name is preparing copy;
+ * deciding somebody appears under it is the opt-in, and stays the manager's.
  */
 export const updateTherapistProfileCopyRequestSchema = z.strictObject({
+  displayName: publicHeadingSchema.max(120).nullable(),
   title: publicHeadingSchema.max(120).nullable(),
   bio: publicProseSchema.max(4000).nullable(),
 });

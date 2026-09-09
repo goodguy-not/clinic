@@ -207,9 +207,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     // Milestone 9.5, checkpoint A6. Two names, and they are the A2 drafting
     // authority extended to the two records that also have a public face: the
     // service description a family reads before ringing, and a colleague's
-    // public title and biography. The front desk hears what families actually
-    // ask and is the right author of a first draft (DECISION_LOG, 2026-09-08 —
-    // Editorial authority and operational authority are split).
+    // public display name, title and biography. The front desk hears what
+    // families actually ask and is the right author of a first draft
+    // (DECISION_LOG, 2026-09-08 — Editorial authority and operational authority
+    // are split).
     //
     // NEITHER NAME WIDENS ANYTHING OPERATIONAL, AND THAT IS WHY THEY ARE NEW
     // NAMES RATHER THAN A GRANT OF `service.update` OR `therapist.update`.

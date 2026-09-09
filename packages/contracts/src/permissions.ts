@@ -415,16 +415,22 @@ export const PERMISSIONS = [
   // (DECISION_LOG, 2026-09-08 — Editorial authority and operational authority
   // are split).
   //
-  // `therapist.draft_public_profile` REACHES THE PUBLIC TITLE AND THE
-  // BIOGRAPHY, AND STOPS THERE. Not the display name, not the slug, not the
-  // display order, not the photograph path, not the personnel record, and
-  // above all NOT `is_public`: whether a named human being appears on a public
-  // website is a decision about that person, `therapist.publish_profile` is
-  // the name for it, and A1 separated it precisely so it could not be reached
-  // by anybody who may merely correct prose. The display name is on the
-  // publishing side of that line rather than the drafting side because it is
-  // the name a person is published UNDER, which is part of the decision, not a
-  // description of the work they do.
+  // `therapist.draft_public_profile` REACHES THE PUBLIC DISPLAY NAME, THE
+  // PUBLIC TITLE AND THE BIOGRAPHY, AND STOPS THERE. That is the whole of the
+  // routine public copy about a colleague. Not the slug, not the display
+  // order, not the photograph path, not the personnel record, and above all
+  // NOT `is_public`: whether a named human being appears on a public website
+  // is a decision about that person, `therapist.publish_profile` is the name
+  // for it, and A1 separated it precisely so it could not be reached by
+  // anybody who may merely write copy.
+  //
+  // THE DISPLAY NAME IS COPY, NOT THE DECISION. Preparing the name a page
+  // would carry is drafting; deciding that a colleague appears under it is
+  // publishing, and the two are different columns as well as different
+  // permissions. A draft name reaches no visitor, and clearing one is not a
+  // way to take somebody off the website — the published name stays put, and a
+  // publication that would leave a live page nameless is refused by the
+  // database.
   //
   // NEITHER NAME CAN MOVE A LIVE PAGE, AND THAT IS ENFORCED BY THE SCHEMA
   // RATHER THAN BY THIS LIST. Both write draft columns; every public read
