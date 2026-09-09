@@ -131,7 +131,7 @@ describe('public space schema objects', () => {
       expect(rows.map((row) => row.label)).toEqual([...TESTIMONIAL_KINDS]);
     });
 
-    it('states all five attachment owners in PostgreSQL', async () => {
+    it('states every attachment owner in PostgreSQL, A7 fifth and A8 last', async () => {
       const rows = await harness.prisma.$queryRaw<{ label: string }[]>`
         SELECT enumlabel AS label FROM pg_enum e
         JOIN pg_type t ON t.oid = e.enumtypid
@@ -139,12 +139,20 @@ describe('public space schema objects', () => {
         ORDER BY e.enumsortorder
       `;
 
+      // The last two arrived in checkpoint A8 and are asserted HERE, in the A7
+      // suite, deliberately: this list is the one place the whole owner
+      // vocabulary is written out, and a checkpoint that adds a label without
+      // reading it would be a checkpoint that could quietly widen what a
+      // photograph may hang off. `CLINIC_CONTENT_ENTRY` names an editorial
+      // block; `CLINIC_OPEN_GRAPH` is ownerless like `CLINIC_SPACE`.
       expect(rows.map((row) => row.label)).toEqual([
         'THERAPIST_PROFILE',
         'PUBLIC_ARTICLE',
         'PUBLIC_TESTIMONIAL',
         'CLINIC_SPACE',
         'PUBLIC_SPACE',
+        'CLINIC_CONTENT_ENTRY',
+        'CLINIC_OPEN_GRAPH',
       ]);
     });
   });

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   PUBLIC_MEDIA_PATH_PREFIX,
+  isOwnerlessMediaAttachment,
   type MediaAttachmentOwner,
   type MediaFraming,
   type MediaRenditionFormat,
@@ -103,12 +104,14 @@ export class PublicMediaService {
    * round trip per row, which is how a listing page becomes slow enough that
    * somebody caches the wrong thing to fix it.
    *
-   * `ownerIds` IS EMPTY FOR `CLINIC_SPACE`, whose attachments name no owner.
-   * That case narrows on the four owner columns being null rather than on
-   * membership, and it is one branch inside this statement rather than a second
-   * method, so it reads through the same predicate as everything else. NOTHING
-   * IN THIS PRODUCT CALLS IT WITH `CLINIC_SPACE`: no public projection lists an
-   * ownerless attachment, before checkpoint A7 or after it.
+   * `ownerIds` IS EMPTY FOR THE OWNERLESS TYPES, whose attachments name no
+   * owner. That case narrows on the five owner columns being null rather than
+   * on membership, and it is one branch inside this statement rather than a
+   * second method, so it reads through the same predicate as everything else.
+   * NOTHING IN THIS PRODUCT CALLS IT WITH `CLINIC_SPACE`: no public projection
+   * lists one, before checkpoint A7 or A8 or after either. The clinic-content
+   * read DOES call it with `CLINIC_OPEN_GRAPH` (checkpoint A8), which is the
+   * first ownerless attachment any page has named.
    *
    * `PUBLIC_SPACE` TAKES THE ORDINARY BRANCH, because a space is a real owner
    * row (Milestone 9.5, checkpoint A7). The space gallery is therefore one
@@ -121,7 +124,9 @@ export class PublicMediaService {
     ownerIds: readonly string[],
     tx?: Prisma.TransactionClient,
   ): Promise<Map<string, PublicImage[]>> {
-    if (ownerType !== 'CLINIC_SPACE' && ownerIds.length === 0) return new Map();
+    const ownerless = isOwnerlessMediaAttachment(ownerType);
+
+    if (!ownerless && ownerIds.length === 0) return new Map();
 
     // The optional transaction client is what lets the clinic-profile write
     // path read its own gallery inside its own transaction — the same reason
@@ -130,22 +135,22 @@ export class PublicMediaService {
     // its own uncommitted change.
     const client = tx ?? this.prisma;
 
-    // `CLINIC_SPACE` rows carry no owner id at all, so the narrowing is "all
-    // four owner columns are null" rather than a membership test. Stated as
-    // one branch here rather than as a second method, so that both shapes go
+    // An ownerless attachment carries no owner id at all, so the narrowing is
+    // "all five owner columns are null" rather than a membership test. Stated
+    // as one branch here rather than as a second method, so that both shapes go
     // through the same statement and therefore the same predicate.
-    const ownerNarrowing =
-      ownerType === 'CLINIC_SPACE'
-        ? Prisma.sql`ma.therapist_id IS NULL AND ma.article_id IS NULL
-                     AND ma.testimonial_id IS NULL AND ma.space_id IS NULL`
-        : Prisma.sql`coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id) = ANY (${[
-            ...ownerIds,
-          ]}::uuid[])`;
+    const ownerNarrowing = ownerless
+      ? Prisma.sql`ma.therapist_id IS NULL AND ma.article_id IS NULL
+                   AND ma.testimonial_id IS NULL AND ma.space_id IS NULL
+                   AND ma.content_entry_id IS NULL`
+      : Prisma.sql`coalesce(
+            ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id, ma.content_entry_id
+          ) = ANY (${[...ownerIds]}::uuid[])`;
 
     const rows = await client.$queryRaw<OwnerImageRow[]>`
       SELECT coalesce(
                ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id,
-               ${CLINIC_SPACE_KEY}::uuid
+               ma.content_entry_id, ${OWNERLESS_ATTACHMENT_KEY}::uuid
              ) AS owner_key,
              ma.position,
              ma.focal_x,
@@ -219,14 +224,23 @@ export class PublicMediaService {
 }
 
 /**
- * The map key standing in for "the clinic itself".
+ * The map key standing in for "the clinic itself" — the key every ownerless
+ * attachment lands under.
  *
  * A fixed all-zero UUID rather than a string like `clinic`, so the `coalesce`
  * above stays UUID-typed and PostgreSQL does not have to be told to cast a
  * column of one type into a column of another. It never leaves this file and
  * appears in no response.
+ *
+ * ONE KEY IS ENOUGH FOR BOTH OWNERLESS TYPES because a caller asks for one
+ * `ownerType` at a time and the statement narrows on it: a `CLINIC_SPACE` read
+ * and a `CLINIC_OPEN_GRAPH` read never share a result map.
+ *
+ * EXPORTED SO THE ONE PROJECTION THAT READS AN OWNERLESS GALLERY DOES NOT WRITE
+ * OUT A SECOND RUN OF ZEROS (Milestone 9.5, checkpoint A8). Two copies of a
+ * sentinel are two places to change it.
  */
-const CLINIC_SPACE_KEY = '00000000-0000-0000-0000-000000000000';
+export const OWNERLESS_ATTACHMENT_KEY = '00000000-0000-0000-0000-000000000000';
 
 export type ServableRendition = {
   readonly format: MediaRenditionFormat;

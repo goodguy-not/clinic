@@ -105,6 +105,21 @@ export const publicMediaPathSchema = z
  *                                              attached to
  *   media detached ........................... the OWNER's tags
  *
+ * MILESTONE 9.5, CHECKPOINT A8 ADDS NO TAG AND TWO LINES TO THAT TABLE. The
+ * clinic's editorial blocks and its Open Graph photograph are part of the
+ * clinic-profile surface, so they drop the tag that surface already has:
+ *
+ *   clinic content entry update .............. `clinicProfile`
+ *   media attachment published/unpublished/
+ *     detached on `CLINIC_CONTENT_ENTRY` or
+ *     `CLINIC_OPEN_GRAPH` ..................... `clinicProfile`
+ *
+ * ONE NAME FOR ONE SURFACE, DELIBERATELY. `GET /public/clinic-profile` and
+ * `GET /public/clinic-content` are two reads of one thing a manager maintains
+ * on one screen, and a second tag would be a second thing to remember to drop
+ * when the same manager act changes both. Neither affects `sitemap`: the clinic
+ * profile is not a data-driven page and an editorial block has no URL.
+ *
  * A media act therefore invalidates the same page data a content act does,
  * because the projection listing the photograph is part of that page's data.
  * The BYTES are tagged separately, under `PUBLIC_MEDIA_CACHE_TAG_PREFIX` plus

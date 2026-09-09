@@ -4993,3 +4993,136 @@ machine-read text, and nothing in the API reads a photograph.
   ordinary draft route — which is indistinguishable, here, from typing. H0, the
   clinic's consent policy, remains an owner and legal decision and is encoded
   nowhere.
+
+## 2026-09-10 — The clinic's routine public copy is fixed slots in one table, not columns on the profile
+
+**Status:** Accepted — Milestone 9.5 checkpoint A8
+
+`clinic_content_entry` holds the editorial blocks of the home and about pages:
+nine named slots, twenty-one rows, inserted **empty** by the migration and
+capped at the accepted design's own counts by
+`clinic_content_entry_slot_size_chk` plus a `UNIQUE (slot, position)` index. The
+profile table gains no column.
+
+- **Alternatives:** a column per block on `clinic_public_profile`; a general
+  block/section tree with a page model behind it; free-form entries a manager
+  creates and deletes at will.
+- **Reason:** checkpoint A1 said of copy blocks that "inventing a column for
+  each would freeze a page layout in the database", and thirty nullable columns
+  would have done exactly that. A general block tree is a content-management
+  system nobody has asked for and would let a manager restructure pages the
+  design has already settled. Fixed slots keep the accepted design's shape — the
+  five concern prompts, the three first-session moments — as a property of the
+  database rather than a convention a screen has to remember, while making every
+  word inside them a manager's to change without a deployment.
+- **Trade-off:** the clinic cannot add a sixth concern prompt without a
+  migration. That is deliberate: filling a block in is routine content
+  maintenance, and adding one is a design change.
+- **Assumptions:** the accepted public design's counts are stable. Nothing in
+  this repository holds the clinic's real copy; all twenty-one blocks ship empty
+  and every fixture is synthetic.
+- **Revisit when:** a design change genuinely needs a different count, or a
+  block the current nine slots cannot express. Either is one migration — a
+  widened CHECK, an INSERT, a contract constant — taken by somebody who has
+  decided it.
+
+## 2026-09-10 — Editing the clinic's public copy IS publishing it, so it holds its copy once
+
+**Status:** Accepted — Milestone 9.5 checkpoint A8
+
+`clinic_content_entry` has no draft columns, no `is_public` flag and no
+publication route. `clinic_profile.read` and `clinic_profile.update` govern the
+whole surface, the receptionist holds neither, and what a manager saves is what
+the website says. A block leaves the site by having its `heading` cleared.
+
+- **Alternatives:** the A2 draft/published column pair every other public content
+  table carries, with a separate manager publication act; a receptionist drafting
+  authority mirroring `article.draft` and `public_space.draft`.
+- **Reason:** the split exists to protect a live page from a **lower** authority
+  that may prepare copy. There is no lower authority here — checkpoint A2 froze
+  the same answer for the profile row itself — so a draft pair would be two
+  columns nobody could ever write differently and a publication act with one
+  possible actor. Adding one would also have implied a receptionist may draft the
+  clinic's public identity, which the checkpoint explicitly refuses.
+- **Trade-off:** a manager mid-sentence is a manager editing the live site, with
+  no preview state to hide behind. Accepted: these are short blocks on one
+  screen, every save is audited with its before and after, and clearing a heading
+  is an immediate, reversible way off the page.
+- **Revisit when:** a role below manager is given authority over this copy. The
+  draft pair arrives with it, not before.
+
+## 2026-09-10 — An unwritten block says nothing, and the same column revokes its photograph
+
+**Status:** Accepted — Milestone 9.5 checkpoint A8
+
+`heading IS NULL` is the whole publication rule of the clinic-content surface.
+The public projection omits such a row, and `LIVE_ATTACHMENT_PREDICATE` refuses
+any `CLINIC_CONTENT_ENTRY` photograph attached to it.
+
+- **Alternatives:** an `is_public` flag per block; returning every slot with
+  nulls and letting the web tier decide; gating the photograph on the
+  attachment's own publication alone, as `CLINIC_SPACE` does.
+- **Reason:** the fourth condition of the serving predicate asks "is the owner
+  public?", and for a table with no publication flag the honest answer is "has
+  anybody written this block at all?". One column read by both the projection and
+  the predicate cannot drift; two rules could. It also produces the behaviour a
+  manager expects without being told: clearing a heading takes the words and the
+  picture off the site together, at the origin, immediately.
+- **Trade-off:** a photograph published on a block whose heading is later cleared
+  becomes unreachable without anybody touching the media library. That is the
+  intended reading — the block is off the site, so is its picture — and the
+  manager screen shows the same answer the origin gives.
+- **Revisit when:** a block is wanted that is a photograph and no words. It would
+  need its own rule, stated then.
+
+## 2026-09-10 — `CLINIC_OPEN_GRAPH` is a seventh attachment owner, and the brand marks stay static
+
+**Status:** Accepted — Milestone 9.5 checkpoint A8
+
+`MEDIA_ATTACHMENT_OWNERS` gains `CLINIC_CONTENT_ENTRY`, which names a block and
+requires an owner id, and `CLINIC_OPEN_GRAPH`, which is ownerless like
+`CLINIC_SPACE` because it hangs off the always-live clinic profile.
+`MEDIA_OWNERLESS_ATTACHMENT_OWNERS` names the ownerless pair once, for the
+callers that previously tested against `CLINIC_SPACE` by hand.
+
+- **Alternatives:** reusing `CLINIC_SPACE` for the Open Graph photograph; an
+  `open_graph_media_id` column on the profile; making the Open Graph image a
+  content block with a reserved slot.
+- **Reason:** reusing `CLINIC_SPACE` would have given a public projection to the
+  slot the 2026-09-09 decision deliberately keeps as the web tier's
+  unplaced-photograph sandbox. A direct column on the profile would be a second
+  media path beside `media_attachment`. A reserved content slot would have made a
+  site-wide fact an entry in a page's list, gated by a heading that has no
+  meaning for it.
+- **Trade-off:** seven owner labels, two of them ownerless and none of them
+  self-evident from the name alone. The enum comment, `normalizeOwner`, a
+  seven-branch `media_attachment_owner_chk` and two schema tests state the
+  difference; a wrong shape is refused rather than silently reinterpreted.
+- **Assumptions:** the Open Graph image is photographic. **The accepted Vala SVG
+  logos remain static web-tier assets reviewed by a human**; SVG is still refused
+  by this uploader, and nothing in this checkpoint makes a logo staff-manageable.
+- **Revisit when:** the clinic wants a different social-preview picture per page.
+  That is a per-page media placement and a different decision.
+
+## 2026-09-10 — The clinic's public name has one source, and the web tier's `SITE_NAME` must go
+
+**Status:** Accepted — Milestone 9.5 checkpoint A8
+
+`PublicClinicProfile.displayName` is the authoritative public name. No backend
+projection, shared contract or fixture holds a second production copy.
+`apps/web/src/server/public-seo.ts` still defines a hard-coded `SITE_NAME`
+constant; removing it in favour of the profile read is a **required** Agent B
+follow-up, not an optional tidy-up.
+
+- **Alternatives:** leaving the web constant as an offline fallback; duplicating
+  the name into the clinic-content response so a page needs one fetch.
+- **Reason:** two independently maintained copies of a clinic's own name is
+  exactly the failure this checkpoint exists to end — a manager renames the
+  clinic, the pages update, and the Open Graph `siteName` and the page titles go
+  on saying the old one until somebody deploys.
+- **Trade-off:** `displayName` is nullable, so the web tier must render a missing
+  name deliberately rather than falling back to a constant. That is the same
+  discipline every other profile field already imposes.
+- **Revisit when:** never for the duplication itself. If a build-time default is
+  ever genuinely needed it must be owner-supplied configuration, not a literal in
+  the repository.

@@ -68,9 +68,56 @@ export const MEDIA_ATTACHMENT_OWNERS = [
   'CLINIC_SPACE',
   /** Milestone 9.5, checkpoint A7. A `public_space` row; an owner id is required. */
   'PUBLIC_SPACE',
+  /**
+   * Milestone 9.5, checkpoint A8. A `clinic_content_entry` row — one of the
+   * fixed editorial slots the home and about pages are written into; an owner
+   * id is required.
+   *
+   * IT BEHAVES LIKE `PUBLIC_SPACE` AND NOT LIKE `CLINIC_SPACE`, even though the
+   * clinic profile has no publication act of its own. The gate is the ENTRY
+   * ITSELF HAVING BEEN WRITTEN: an entry with no heading appears on no page, so
+   * its photograph is unreachable too. That keeps one rule — "an empty slot
+   * says nothing" — rather than a projection rule and a separate media rule
+   * that could drift.
+   */
+  'CLINIC_CONTENT_ENTRY',
+  /**
+   * Milestone 9.5, checkpoint A8. The clinic's own Open Graph photograph: the
+   * picture a link to any page of this site unfurls into on a messaging
+   * application.
+   *
+   * OWNERLESS, LIKE `CLINIC_SPACE`, AND FOR THE SAME REASON: it hangs off
+   * `clinic_public_profile`, which is a single row that is always live —
+   * editing it IS publishing (Milestone 9, checkpoint A2). Manager publication
+   * of the attachment is therefore the whole of the control.
+   *
+   * IT IS A PHOTOGRAPH AND NEVER THE BRAND MARK. The accepted Vala SVG logos
+   * are static web-tier assets that a human reviewed, SVG is refused by this
+   * uploader by design, and nothing here makes a logo staff-manageable.
+   */
+  'CLINIC_OPEN_GRAPH',
 ] as const;
 
 export type MediaAttachmentOwner = (typeof MEDIA_ATTACHMENT_OWNERS)[number];
+
+/**
+ * THE OWNER TYPES THAT NAME NO ROW, STATED ONCE SO BOTH TIERS AGREE.
+ *
+ * Milestone 9.5, checkpoint A8. Until A8 there was exactly one of these and
+ * every caller wrote `!== 'CLINIC_SPACE'`; a second one turned that idiom into
+ * a rule with two places to forget it. An attachment of one of these types
+ * carries no owner id, and one of any other type must.
+ */
+export const MEDIA_OWNERLESS_ATTACHMENT_OWNERS = ['CLINIC_SPACE', 'CLINIC_OPEN_GRAPH'] as const;
+
+export type MediaOwnerlessAttachmentOwner = (typeof MEDIA_OWNERLESS_ATTACHMENT_OWNERS)[number];
+
+/** Whether an attachment of this owner type names a row, or nothing. */
+export function isOwnerlessMediaAttachment(
+  ownerType: MediaAttachmentOwner,
+): ownerType is MediaOwnerlessAttachmentOwner {
+  return (MEDIA_OWNERLESS_ATTACHMENT_OWNERS as readonly string[]).includes(ownerType);
+}
 
 /**
  * `ACTIVE` and `ARCHIVED`, and archiving is NOT deletion.
@@ -120,7 +167,11 @@ export type MediaRendition = z.infer<typeof mediaRenditionSchema>;
 export const mediaAttachmentSchema = z.strictObject({
   id: z.uuid(),
   ownerType: z.enum(MEDIA_ATTACHMENT_OWNERS),
-  /** The article, therapist, testimonial or public space. Null exactly for `CLINIC_SPACE`. */
+  /**
+   * The article, therapist, testimonial, public space or clinic content entry.
+   * Null exactly for the ownerless types — see
+   * `MEDIA_OWNERLESS_ATTACHMENT_OWNERS`.
+   */
   ownerId: z.uuid().nullable(),
   /** Ascending, so a gallery has one order rather than whatever PostgreSQL returns. */
   position: z.int().min(0),
@@ -128,8 +179,9 @@ export const mediaAttachmentSchema = z.strictObject({
   publishedAt: z.iso.datetime().nullable(),
   /**
    * Whether the record this hangs off is itself public right now. Always true for
-   * `CLINIC_SPACE`, which has no record to read; for `PUBLIC_SPACE` it is that
-   * space's own publication.
+   * the ownerless types, which have no record to read; for `PUBLIC_SPACE` it is
+   * that space's own publication, and for `CLINIC_CONTENT_ENTRY` it is whether
+   * that editorial slot has been written at all (Milestone 9.5, checkpoint A8).
    */
   ownerIsPublic: z.boolean(),
   /**

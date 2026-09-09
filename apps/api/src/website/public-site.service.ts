@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
+  ClinicContentSlot,
   PublicArticleDetail,
   PublicImage,
   PublicArticleSummary,
+  PublicClinicContentEntry,
+  PublicClinicContentResponse,
   PublicClinicProfile,
   PublicServiceDetail,
   PublicServiceSummary,
@@ -14,7 +17,7 @@ import type {
   TestimonialKind,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
-import { PublicMediaService } from '../media/public-media.service';
+import { OWNERLESS_ATTACHMENT_KEY, PublicMediaService } from '../media/public-media.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -67,6 +70,14 @@ import { PrismaService } from '../prisma/prisma.service';
  * the bottom of this file; the public contracts remain `strictObject`, so an id
  * reaching a response would fail a test rather than reach a browser.
  *
+ * MILESTONE 9.5, CHECKPOINT A8 ADDS ONE READ AND CHANGES NO PREDICATE ABOVE.
+ * `getClinicContent` is the clinic's own routine copy — the home and about
+ * blocks a manager writes — and its predicate is `heading IS NOT NULL`, which
+ * is this surface's whole publication rule because the surface has no
+ * publication act: it is manager-only and editing it IS publishing. The same
+ * column gates the photographs, in `LIVE_ATTACHMENT_PREDICATE`, so the words
+ * and the pictures of an unwritten block disappear together.
+ *
  * `publishedAt` ON AN ARTICLE IS THE ONE TIMESTAMP THIS SURFACE PROJECTS, and
  * it is a deliberate exception rather than a lapse: "when was this service
  * entered" is internal history a visitor is not owed, while the date an article
@@ -116,6 +127,16 @@ type PublicSpaceRow = {
   internal_id: string;
   published_name: string;
   published_description: string | null;
+};
+
+type ClinicContentRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
+  slot: ClinicContentSlot;
+  label: string | null;
+  eyebrow: string | null;
+  heading: string;
+  body: string | null;
 };
 
 type SitemapRow = {
@@ -340,6 +361,72 @@ export class PublicSiteService {
       mapLongitude: row.map_longitude,
       instagramUrl: row.instagram_url,
       telegramUrl: row.telegram_url,
+    };
+  }
+
+  /**
+   * The clinic's own editorial copy, and the photograph a link to this site
+   * unfurls into. ALWAYS SUCCEEDS.
+   *
+   * Milestone 9.5, checkpoint A8.
+   *
+   * ONE CONDITION, AND IT IS THE WHOLE PUBLICATION RULE OF THIS SURFACE.
+   * `heading IS NOT NULL` means somebody has written the block; a slot the
+   * clinic has not filled in is simply absent, and the page lays out around
+   * what it received. There is no `is_public` column to consult and no
+   * publication act to wait for, because this surface is manager-only and
+   * editing it IS publishing (Milestone 9, checkpoint A2, extended in A8) —
+   * which is why the condition is about CONTENT rather than about a flag.
+   *
+   * THE SAME COLUMN GATES THE PHOTOGRAPHS, in `LIVE_ATTACHMENT_PREDICATE`
+   * rather than here. Clearing a heading therefore takes the block off the page
+   * AND makes its picture unreachable at the origin on the very next request;
+   * two rules could have disagreed, and one cannot.
+   *
+   * THE ORDER IS THE ENUM'S, THEN THE POSITION. `clinic_content_slot` is
+   * declared home-first and each page top to bottom, so a page can render this
+   * array in order without knowing anything the API did not tell it. Neither
+   * the slot's ordinal nor the position is projected: a visitor reads a page,
+   * not the clinic's arrangement of it.
+   *
+   * NO ID, NO FLAG AND NO TIMESTAMP, for the reason `listSpaces` projects none.
+   *
+   * NOT ONE OPERATIONAL COLUMN IS NAMED HERE AND NONE COULD BE. This statement
+   * touches `clinic_content_entry` alone, that table holds no reference to a
+   * therapist, a room, a service, an appointment, a family or a child, and it
+   * joins nothing.
+   */
+  async getClinicContent(): Promise<PublicClinicContentResponse> {
+    const rows = await this.prisma.$queryRaw<ClinicContentRow[]>`
+      SELECT e.id AS internal_id, e.slot::text AS slot, e.label, e.eyebrow, e.heading, e.body
+      FROM clinic_content_entry e
+      WHERE e.heading IS NOT NULL
+      ORDER BY e.slot ASC, e.position ASC
+    `;
+
+    // Two lookups rather than one, because they answer different questions: the
+    // first is "what illustrates each block?", the second is "what does a link
+    // to this site unfurl into?". The second is an OWNERLESS attachment — the
+    // first ownerless attachment any public projection in this product names —
+    // and it hangs off the always-live clinic profile rather than off any block.
+    const [images, openGraph] = await Promise.all([
+      this.media.imagesForOwners(
+        'CLINIC_CONTENT_ENTRY',
+        rows.map((row) => row.internal_id),
+      ),
+      this.media.imagesForOwners('CLINIC_OPEN_GRAPH', []),
+    ]);
+
+    return {
+      openGraphImage: firstImage(openGraph, OWNERLESS_ATTACHMENT_KEY),
+      entries: rows.map((row): PublicClinicContentEntry => ({
+        slot: row.slot,
+        label: row.label,
+        eyebrow: row.eyebrow,
+        heading: row.heading,
+        body: row.body,
+        image: firstImage(images, row.internal_id),
+      })),
     };
   }
 

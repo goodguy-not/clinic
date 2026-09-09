@@ -557,7 +557,25 @@ describe('guard chain (real PostgreSQL)', () => {
       //                 is editorial content, an operational room is scheduling
       //                 configuration under `room.*` in the catalog, and the
       //                 two share no table and no permission.
-      expect(routes).toBe(159);
+      //
+      // clinic content: Milestone 9.5 checkpoint A8 adds THREE routes and NO
+      //                 PERMISSION. Two hang off `ClinicProfileController` —
+      //                 `GET /content/clinic-profile/entries` under
+      //                 `clinic_profile.read` and
+      //                 `PUT /content/clinic-profile/entries/:entryId` under
+      //                 `clinic_profile.update` — because the clinic's routine
+      //                 public copy is governed by exactly the authority its
+      //                 address is: MANAGER-ONLY, with no draft state and no
+      //                 publication act, so a receptionist holds neither name.
+      //
+      //                 THE THIRD IS THE PUBLIC READ —
+      //                 `GET /public/clinic-content`, classified `internal`
+      //                 like every public read beside it, bringing the public
+      //                 surface to TWELVE reads and one write. There is no
+      //                 `POST` and no `DELETE` among the three: the editorial
+      //                 blocks are the accepted page design, they arrive with a
+      //                 migration, and the database refuses to delete one.
+      expect(routes).toBe(162);
     });
   });
 });

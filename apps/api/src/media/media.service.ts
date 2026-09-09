@@ -252,7 +252,9 @@ export class MediaService {
       SELECT ma.id,
              ma.media_asset_id,
              ma.owner_type::text AS owner_type,
-             coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id) AS owner_id,
+             coalesce(
+               ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id, ma.content_entry_id
+             ) AS owner_id,
              ma.position,
              ma.attached_at,
              ma.published_at,
@@ -300,6 +302,13 @@ export class MediaService {
  * a different question: that file answers "may a stranger have these bytes?",
  * and this answers "is the page live?". Sharing one expression between the two
  * would make a change intended for the library able to widen the serving rule.
+ *
+ * Milestone 9.5, checkpoint A8 adds the two clinic-profile owners. The
+ * ownerless `CLINIC_OPEN_GRAPH` is unconditionally live, like `CLINIC_SPACE`;
+ * `CLINIC_CONTENT_ENTRY` asks whether the editorial block has been WRITTEN,
+ * because that table carries no publication flag and an unwritten block is on
+ * no page. A manager looking at the library therefore sees "the page is not
+ * live" for a photograph attached to a slot nobody has filled in.
  */
 const OWNER_IS_PUBLIC = Prisma.sql`
   CASE ma.owner_type
@@ -315,7 +324,12 @@ const OWNER_IS_PUBLIC = Prisma.sql`
     WHEN 'PUBLIC_SPACE' THEN EXISTS (
       SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
     )
+    WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
+      SELECT 1 FROM clinic_content_entry ce
+      WHERE ce.id = ma.content_entry_id AND ce.heading IS NOT NULL
+    )
     WHEN 'CLINIC_SPACE' THEN TRUE
+    WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
   END
 `;
 

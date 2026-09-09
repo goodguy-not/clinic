@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { MediaModule } from '../media/media.module';
 import { ArticlesController } from './articles.controller';
 import { ArticlesService } from './articles.service';
+import { ClinicContentService } from './clinic-content.service';
 import { ClinicProfileController } from './clinic-profile.controller';
 import { ClinicProfileService } from './clinic-profile.service';
 import { PublicRequestsService } from './public-requests.service';
@@ -92,6 +93,22 @@ import { WebsiteRequestsService } from './website-requests.service';
  *
  * The space's photographs are the A5 subsystem used unchanged, through the
  * `MediaModule` this module already imports.
+ *
+ * MILESTONE 9.5, CHECKPOINT A8 ADDS ONE TABLE, ONE SERVICE, ONE PUBLIC READ AND
+ * NO NEW CONTROLLER, NO NEW PERMISSION AND NO NEW AUTHORITY.
+ *
+ * `clinic_content_entry` is the clinic's routine public copy — the home hero,
+ * the concern prompts, the first-session moments and the about-page blocks —
+ * and it belongs to the clinic-profile surface rather than beside articles and
+ * spaces, because it is governed by the same rule the profile is: manager-only,
+ * no draft, no publication act, editing IS publishing. `ClinicContentService`
+ * is therefore provided here and its routes hang off `ClinicProfileController`
+ * under `clinic_profile.read` and `clinic_profile.update`.
+ *
+ * Its photographs, and the site's Open Graph photograph, are again the A5
+ * subsystem used unchanged through the `MediaModule` already imported above.
+ * No second storage path, no bytes in PostgreSQL, and no staff-manageable
+ * logo: the accepted Vala SVG marks stay static in the web tier.
  */
 @Module({
   imports: [AuditModule, MediaModule],
@@ -110,6 +127,7 @@ import { WebsiteRequestsService } from './website-requests.service';
     TestimonialsService,
     SpacesService,
     ClinicProfileService,
+    ClinicContentService,
     WebsiteRequestsService,
     WebsiteRequestRetentionService,
   ],

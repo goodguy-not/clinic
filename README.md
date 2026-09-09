@@ -2107,6 +2107,67 @@ everywhere at once and is reversible; the retention policy is an open owner
 decision, and all three media tables refuse `DELETE` and `TRUNCATE` until it
 arrives.
 
+## The clinic's own public copy (Milestone 9.5, checkpoint A8)
+
+The clinic's public identity, contact facts and routine home/about copy are data
+the manager owns. Changing a heading, a concern prompt, a paragraph or the
+picture a shared link unfurls into is a form submission — not a code edit, a
+seed or a deployment.
+
+**Two tables, and the split between them is facts against words.**
+`clinic_public_profile` is the single always-live row checkpoint A1 created: the
+display name, tagline, description, address, city, two telephone numbers,
+e-mail, opening-hours line, map pin and two social links.
+`clinic_content_entry` is checkpoint A8's addition: twenty-one editorial blocks
+of the home and about pages.
+
+**The blocks are fixed slots, not rows anybody creates.** Nine named slots, with
+the accepted design's own counts — five concern prompts, three first-session
+moments, three about highlights, three about points, three journey steps, and one
+block each for the home hero, the first-visit intro, the about intro and the
+space note. The migration inserts all twenty-one **empty**, exactly as A1
+inserted the profile row empty; `clinic_content_entry_slot_size_chk` and a
+`UNIQUE (slot, position)` index cap each slot permanently, and the table refuses
+`DELETE` and `TRUNCATE`. Filling a block in is routine content maintenance;
+adding one is a design decision and therefore a reviewed migration.
+
+**Editing is publishing.** This surface holds its copy once, unlike an article,
+a service description or a public space, each of which holds it twice because a
+receptionist may prepare it. There is no draft column, no `is_public` flag and no
+publication act here — the whole surface is manager-only under
+`clinic_profile.read` and `clinic_profile.update`, and what a manager saves is
+what the site says.
+
+**An unwritten block says nothing, and that is one rule with two readers.**
+`heading IS NULL` means the block is not on the site: the public projection omits
+it, and `LIVE_ATTACHMENT_PREDICATE` refuses any photograph attached to it. A
+manager clearing a heading takes the words and the picture down together, at the
+origin, on the very next request.
+
+**Photographs are the A5 system used unchanged.** Two new attachment owners:
+`CLINIC_CONTENT_ENTRY` names a block and behaves like `PUBLIC_SPACE`, and
+`CLINIC_OPEN_GRAPH` is ownerless like `CLINIC_SPACE` because it hangs off the
+always-live profile. No second storage path, no bytes in PostgreSQL, and every
+A5 invariant intact. **The Open Graph image is photographic, which is why it can
+go through this pipeline at all** — SVG is still refused, and the accepted Vala
+logo marks stay static in the web tier where a human reviewed them. There is no
+staff-manageable logo upload.
+
+**The clinic's public name has one source.** It is
+`PublicClinicProfile.displayName`, and nothing else in the API or the shared
+contracts holds a second production copy of it.
+
+**Two public reads, one surface, one cache tag.**
+`GET /public/clinic-profile` returns the facts and
+`GET /public/clinic-content` returns the blocks and the Open Graph photograph;
+both are dropped by `PUBLIC_CACHE_TAGS.clinicProfile`, because one manager act
+changes both.
+
+**Nothing operational can reach any of it.** `clinic_content_entry` holds no
+foreign key at all — no therapist, room, service, appointment, family or child —
+so a leak would need a new column and a reviewed migration rather than a widened
+`SELECT`.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the

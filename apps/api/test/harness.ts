@@ -312,6 +312,25 @@ export async function resetDatabase(prisma: PrismaClient | PrismaService): Promi
         instagram_url = NULL, telegram_url = NULL
     WHERE singleton_key = 1
   `);
+
+  // AND THE TWENTY-ONE EDITORIAL BLOCKS BESIDE IT, FOR THE SAME REASON.
+  //
+  // Milestone 9.5, checkpoint A8. `clinic_content_entry` is the second table
+  // whose rows are STRUCTURE created by a migration rather than records
+  // anybody made: they are the accepted page design, they carry the same delete
+  // and truncate triggers the profile does, and they survive the truncate
+  // above with whatever copy the last suite wrote into them. Clearing the four
+  // copy columns in place restores exactly the state the migration created —
+  // twenty-one empty slots, publishing nothing — and removes the same latent
+  // file-ordering dependency the profile had.
+  //
+  // `slot` AND `position` ARE NOT TOUCHED. They are the identity of each block,
+  // and a reset that rewrote them would be a reset that could change what the
+  // next suite is testing.
+  await prisma.$executeRawUnsafe(`
+    UPDATE clinic_content_entry
+    SET label = NULL, eyebrow = NULL, heading = NULL, body = NULL
+  `);
 }
 
 export type SeedUserOptions = {

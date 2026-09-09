@@ -19,6 +19,7 @@ import {
   publicSlugSchema,
   type PublicArticleDetailResponse,
   type PublicArticleListResponse,
+  type PublicClinicContentResponse,
   type PublicClinicProfileResponse,
   type PublicRequestSubmission,
   type PublicRequestSubmissionResponse,
@@ -41,10 +42,10 @@ import { PublicSiteService } from './public-site.service';
 /**
  * THE ENTIRE PUBLIC SURFACE OF THIS API, IN ONE FILE.
  *
- * Milestone 9, checkpoint A1, extended in A2, A3 and 9.5/A5. TEN reads, ONE
- * write, and no other controller anywhere serves the website. Nine of the reads
- * are JSON projections; the tenth, added in A5, is a photograph's bytes.
- * Keeping them together is a privacy decision
+ * Milestone 9, checkpoint A1, extended in A2, A3, 9.5/A5, 9.5/A7 and 9.5/A8.
+ * TWELVE reads, ONE write, and no other controller anywhere serves the website.
+ * Eleven of the reads are JSON projections; the remaining one, added in A5, is
+ * a photograph's bytes. Keeping them together is a privacy decision
  * rather than a filing preference: the question "what can the world see?" has
  * to be answerable by reading one screen, and it stops being answerable the
  * moment public routes are scattered through the domain modules that own the
@@ -236,6 +237,37 @@ export class PublicSiteController {
   @InternalOnly()
   async getClinicProfile(): Promise<PublicClinicProfileResponse> {
     return { clinic: await this.site.getClinicProfile() };
+  }
+
+  /**
+   * The clinic's own routine copy, and the picture a link to this site unfurls
+   * into. Milestone 9.5, checkpoint A8.
+   *
+   * A SECOND READ OF ONE SURFACE, DELIBERATELY, AND NOT A SECOND SURFACE. It is
+   * the same thing one manager maintains on one screen as
+   * `GET /public/clinic-profile`, and it carries the same cache tag
+   * (`PUBLIC_CACHE_TAGS.clinicProfile`) so one manager act drops both. It is a
+   * separate ROUTE because the two shapes are different — a single row of facts
+   * against an ordered list of blocks with photographs — and because adding
+   * fields to the profile response would have broken a contract the web tier
+   * already ships against for no gain a visitor could see.
+   *
+   * THE CLINIC'S PUBLIC NAME IS NOT HERE. It is `displayName` on the profile
+   * read, it is there once, and nothing in this response repeats it.
+   *
+   * AN UNWRITTEN BLOCK IS SIMPLY ABSENT, and so is its photograph: the media
+   * predicate re-derives "has this block been written?" per request, so a
+   * manager clearing a heading takes the words and the picture down together at
+   * the origin, immediately.
+   *
+   * NO OPERATIONAL FACT CAN REACH THIS RESPONSE. `clinic_content_entry` holds
+   * no reference to a therapist, a room, a service, an appointment, a family or
+   * a child, and the statement behind this route joins nothing.
+   */
+  @Get('clinic-content')
+  @InternalOnly()
+  async getClinicContent(): Promise<PublicClinicContentResponse> {
+    return this.site.getClinicContent();
   }
 
   @Get('articles')

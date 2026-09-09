@@ -67,5 +67,6 @@ export * from './website/spaces';
 export * from './website/therapist-public-profile';
 export * from './website/public-copy';
 export * from './website/clinic-profile';
+export * from './website/clinic-content';
 export * from './media/common';
 export * from './media/media';

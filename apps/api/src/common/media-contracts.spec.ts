@@ -5,6 +5,8 @@ import {
   MEDIA_ACCEPTED_CONTENT_TYPES,
   MEDIA_ASSET_STATUSES,
   MEDIA_ATTACHMENT_OWNERS,
+  MEDIA_OWNERLESS_ATTACHMENT_OWNERS,
+  isOwnerlessMediaAttachment,
   MEDIA_MASTER_MAX_DIMENSION,
   MEDIA_RENDITION_CONTENT_TYPE,
   MEDIA_RENDITION_FORMATS,
@@ -282,21 +284,44 @@ describe('media contracts', () => {
       expect([...MEDIA_ACCEPTED_CONTENT_TYPES]).not.toContain('image/svg+xml');
     });
 
-    it('names five owners and two asset states', () => {
+    it('names seven owners and two asset states', () => {
       // `PUBLIC_SPACE` is Milestone 9.5 checkpoint A7's addition, and it is
-      // LAST rather than replacing `CLINIC_SPACE`. The two are opposites
+      // APPENDED rather than replacing `CLINIC_SPACE`. The two are opposites
       // despite the names: `CLINIC_SPACE` stays A5's ownerless slot that no
       // public projection reads, and `PUBLIC_SPACE` names a real
       // `public_space` row whose own publication gates the photograph. A future
       // edit that collapses them has to change this list deliberately.
+      //
+      // The last two are checkpoint A8's and are appended for the same reason.
+      // `CLINIC_CONTENT_ENTRY` names an editorial block of the home or about
+      // page; `CLINIC_OPEN_GRAPH` is the site's social-preview photograph and
+      // is OWNERLESS, so it joins `CLINIC_SPACE` rather than the four types
+      // with rows.
       expect([...MEDIA_ATTACHMENT_OWNERS]).toEqual([
         'THERAPIST_PROFILE',
         'PUBLIC_ARTICLE',
         'PUBLIC_TESTIMONIAL',
         'CLINIC_SPACE',
         'PUBLIC_SPACE',
+        'CLINIC_CONTENT_ENTRY',
+        'CLINIC_OPEN_GRAPH',
       ]);
       expect([...MEDIA_ASSET_STATUSES]).toEqual(['ACTIVE', 'ARCHIVED']);
+    });
+
+    it('names exactly the two owner types that carry no owner id', () => {
+      // Milestone 9.5, checkpoint A8. Until A8 there was one ownerless type and
+      // every caller wrote `!== 'CLINIC_SPACE'`; the list exists so that a
+      // third would be one edit rather than a search. Every other owner type
+      // MUST carry an id, which `media_attachment_owner_chk` enforces in the
+      // database over all seven branches.
+      expect([...MEDIA_OWNERLESS_ATTACHMENT_OWNERS]).toEqual(['CLINIC_SPACE', 'CLINIC_OPEN_GRAPH']);
+
+      for (const owner of MEDIA_ATTACHMENT_OWNERS) {
+        expect(isOwnerlessMediaAttachment(owner)).toBe(
+          (MEDIA_OWNERLESS_ATTACHMENT_OWNERS as readonly string[]).includes(owner),
+        );
+      }
     });
 
     it('emits two formats, each with a content type', () => {

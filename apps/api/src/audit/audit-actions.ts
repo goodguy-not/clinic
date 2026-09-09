@@ -400,6 +400,18 @@ export const AUDIT_ACTIONS = [
   'media.published',
   'media.unpublished',
   'clinic_public_profile.updated',
+  // Milestone 9.5, checkpoint A8. ONE ACTION FOR ONE BLOCK, and no publication
+  // act to separate from it for the reason `clinic_public_profile.updated` has
+  // none: the clinic-content surface is manager-only and editing it IS
+  // publishing. The payload carries the whole block, including the slot and
+  // position that name it, so a reader of the trail knows WHICH block changed
+  // without resolving a UUID against a table.
+  //
+  // NO `.created` OR `.deleted` BESIDE IT, and that is a fact about the table
+  // rather than a gap: the blocks are the accepted page design, they arrive
+  // with a migration, and the database refuses to delete one. A block leaves
+  // the website by having its heading cleared, which this action records.
+  'clinic_content_entry.updated',
 
   // The public request form (Milestone 9, checkpoint A3). ONE ACTION, AND IT
   // RECORDS AN ACT WITH NO CONTENT WHATSOEVER.
@@ -594,6 +606,10 @@ export const AUDIT_ENTITY_TYPES = [
   // above. `room` is a separate entity type with separate actions, and nothing
   // in this checkpoint writes one from the other.
   'public_space',
+  // Milestone 9.5, checkpoint A8. It IS a table, so it satisfies the assertion
+  // above — and unlike `clinic_public_profile` beside it, its rows have UUID
+  // primary keys, so an audit row for one NAMES it in `entity_id`.
+  'clinic_content_entry',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

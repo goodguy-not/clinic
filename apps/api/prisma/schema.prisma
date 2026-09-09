@@ -427,8 +427,37 @@ enum MediaAttachmentOwner {
   PUBLIC_TESTIMONIAL
   CLINIC_SPACE
   PUBLIC_SPACE
+  /// Milestone 9.5, checkpoint A8. A `clinic_content_entry` row; an owner id is
+  /// required, and the photograph is reachable only while that block has been
+  /// written.
+  CLINIC_CONTENT_ENTRY
+  /// Milestone 9.5, checkpoint A8. The site's Open Graph photograph. Ownerless
+  /// like `CLINIC_SPACE`: it hangs off the always-live clinic profile, so
+  /// manager publication of the attachment is the whole of the control.
+  CLINIC_OPEN_GRAPH
 
   @@map("media_attachment_owner")
+}
+
+/// WHICH EDITORIAL BLOCK OF THE PUBLIC SITE A `clinic_content_entry` ROW IS.
+///
+/// Milestone 9.5, checkpoint A8. Nine names, one per block the accepted home
+/// and about pages render, and the declaration order below IS the order the
+/// public read returns them in — home first, about second, each page top to
+/// bottom. A tenth is a design decision and arrives as a reviewed migration
+/// with its slot size beside it.
+enum ClinicContentSlot {
+  HOME_HERO
+  HOME_CONCERN
+  HOME_FIRST_VISIT
+  HOME_FIRST_VISIT_STEP
+  ABOUT_INTRO
+  ABOUT_HIGHLIGHT
+  ABOUT_SPACE_NOTE
+  ABOUT_SPACE_POINT
+  ABOUT_JOURNEY_STEP
+
+  @@map("clinic_content_slot")
 }
 
 /// WebP first, JPEG as the floor that cannot fail. See
@@ -2111,6 +2140,60 @@ model ClinicPublicProfile {
   @@map("clinic_public_profile")
 }
 
+/// One editorial block of the public home or about page.
+///
+/// Milestone 9.5, checkpoint A8. Checkpoint A1 froze the clinic's FACTS and
+/// said copy blocks were not among them because "inventing a column for each
+/// would freeze a page layout in the database". This is the checkpoint that
+/// builds them, and it answers that objection with ONE TABLE OF NAMED SLOTS
+/// rather than thirty columns on the profile.
+///
+/// THE ROWS ARE STRUCTURE, NOT RECORDS SOMEBODY MADE. The migration inserts
+/// exactly the accepted design's blocks — five concern prompts, three first
+/// session moments, three about highlights and the six single blocks around
+/// them — with every copy column NULL, precisely as A1 inserted the profile row
+/// empty. Nothing in the application inserts or deletes one; `slot` and
+/// `position` are identity and are never written. That is why there is no
+/// `createdAt` and no `createdByUserId` here, and no `id` a manager ever types.
+///
+/// EDITING IS PUBLISHING. There is no draft column pair and no `isPublic` flag:
+/// this surface belongs to `clinic_profile.update`, which is manager-only, and
+/// what a manager saves is what the site says. That is deliberately unlike
+/// `PublicArticle` and `PublicSpace`, both of which hold their copy twice
+/// because a receptionist may prepare it.
+///
+/// AN UNWRITTEN BLOCK SAYS NOTHING. `heading IS NULL` is the whole of that
+/// rule: the public projection omits the row, and `LIVE_ATTACHMENT_PREDICATE`
+/// refuses any photograph attached to it. One rule, two readers.
+///
+/// NO OPERATIONAL COLUMN EXISTS HERE AND NONE COULD ARRIVE BY WIDENING A QUERY.
+/// This table names no therapist, room, service, appointment, family or child,
+/// and has no foreign key to any of them.
+///
+/// NOTHING IN THE MIGRATION BEHIND IT CONTAINS A WORD OF CLINIC COPY.
+model ClinicContentEntry {
+  id       String            @id @default(uuid(7)) @db.Uuid
+  slot     ClinicContentSlot
+  /// Ascending from zero within the slot, capped per slot by
+  /// `clinic_content_entry_slot_size_chk` so the accepted design's counts are a
+  /// property of the database.
+  position Int               @db.SmallInt
+
+  /// The prompt or short label, where the block has one.
+  label   String?
+  /// The kicker above the heading, where the block has one.
+  eyebrow String?
+  /// What the block is called — AND WHETHER IT IS ON THE SITE AT ALL.
+  heading String?
+  /// The paragraph, where the block has one.
+  body    String?
+
+  attachments MediaAttachment[]
+
+  @@unique([slot, position])
+  @@map("clinic_content_entry")
+}
+
 /// An article the clinic publishes.
 ///
 /// Milestone 9, checkpoint A2. THE NARROWEST MODEL THAT SUPPORTS A
@@ -2712,14 +2795,16 @@ model MediaAttachment {
 
   /// Exactly one of these four is set, and none of them is set for
   /// `CLINIC_SPACE`. Pinned by `media_attachment_owner_chk`.
-  therapistId   String? @map("therapist_id") @db.Uuid
-  articleId     String? @map("article_id") @db.Uuid
-  testimonialId String? @map("testimonial_id") @db.Uuid
+  therapistId    String? @map("therapist_id") @db.Uuid
+  articleId      String? @map("article_id") @db.Uuid
+  testimonialId  String? @map("testimonial_id") @db.Uuid
   /// Milestone 9.5, checkpoint A7. The fourth real foreign key, and it makes
   /// `PUBLIC_SPACE` behave like the first three rather than like `CLINIC_SPACE`:
   /// a photograph of the waiting area is visible only while the space it
   /// describes is itself published.
-  spaceId       String? @map("space_id") @db.Uuid
+  spaceId        String? @map("space_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A8. The editorial block this illustrates.
+  contentEntryId String? @map("content_entry_id") @db.Uuid
 
   /// Ascending, so a gallery has one order rather than whatever PostgreSQL
   /// returns. Ties are broken by id, which is time-ordered.
@@ -2761,11 +2846,12 @@ model MediaAttachment {
   detachedAt        DateTime? @map("detached_at") @db.Timestamptz
   detachedByUserId  String?   @map("detached_by_user_id") @db.Uuid
 
-  asset       MediaAsset         @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  therapist   Therapist?         @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  article     PublicArticle?     @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  testimonial PublicTestimonial? @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  space       PublicSpace?       @relation(fields: [spaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  asset        MediaAsset          @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  therapist    Therapist?          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  article      PublicArticle?      @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  testimonial  PublicTestimonial?  @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  space        PublicSpace?        @relation(fields: [spaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  contentEntry ClinicContentEntry? @relation(fields: [contentEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   attachedBy  AppUser  @relation("MediaAttachmentAttachedBy", fields: [attachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   publishedBy AppUser? @relation("MediaAttachmentPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2778,6 +2864,8 @@ model MediaAttachment {
   @@index([testimonialId, position])
   /// The space gallery read: "what does this space currently show?"
   @@index([spaceId, position])
+  /// The editorial block read: "what does this block currently show?"
+  @@index([contentEntryId, position])
   /// The clinic-space gallery, and the library's "where is this used?" read.
   @@index([ownerType, position])
   @@index([mediaAssetId])

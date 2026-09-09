@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
  * Milestone 9.5, checkpoint A5. It is a single SQL fragment in a single file
  * because every read that depends on it has to agree with every other read that
  * depends on it. The serving route uses it to decide whether to hand over
- * bytes; the four public projections use it to decide whether to name an image;
+ * bytes; the public projections use it to decide whether to name an image;
  * the staff library uses it to tell a manager whether something is currently
  * visible. Three answers to that question would be three chances for the
  * library to say "not public" about a photograph the origin is still serving.
@@ -38,13 +38,31 @@ import { Prisma } from '@prisma/client';
  * `clinic_public_profile` is a single row that is always live — editing it IS
  * publishing (Milestone 9, checkpoint A2). Condition (3) therefore carries the
  * whole of the control for clinic-space photographs, and (3) is manager-only.
- * NO PUBLIC PROJECTION IN THIS PRODUCT LISTS ONE, before checkpoint A7 or
- * after it: the bytes are reachable to somebody holding the rendition id once a
- * manager publishes the attachment, and no page names it.
+ * NO PUBLIC PROJECTION IN THIS PRODUCT LISTS ONE, before checkpoint A7 or A8 or
+ * after either: the bytes are reachable to somebody holding the rendition id
+ * once a manager publishes the attachment, and no page names it.
  *
- * `PUBLIC_SPACE` IS THE OPPOSITE CASE AND IS THE ONE A7 ADDS. It has a real
- * owner row — `public_space`, which a receptionist drafts and a manager
- * publishes — so it satisfies (4) exactly as an article does, and NOT
+ * `CLINIC_OPEN_GRAPH` IS THE SECOND OWNERLESS TYPE AND IS THE ONE A8 ADDS ON
+ * THAT SIDE (Milestone 9.5, checkpoint A8). It is the site's own social-preview
+ * photograph, it hangs off the same always-live `clinic_public_profile`, and it
+ * satisfies (4) for the same reason `CLINIC_SPACE` does. UNLIKE `CLINIC_SPACE`,
+ * A PUBLIC PROJECTION DOES READ IT: `GET /public/clinic-content` returns it, so
+ * a manager publishing the attachment is a manager putting a picture on every
+ * link to this site — which is precisely what (3) being manager-only is for.
+ *
+ * `CLINIC_CONTENT_ENTRY` IS THE OTHER A8 TYPE AND IT HAS A REAL OWNER ROW, so
+ * it satisfies (4) conditionally like `PUBLIC_SPACE` — but the condition is not
+ * a publication flag, because that table has none. The clinic-content surface
+ * is manager-only and editing it IS publishing, so what stands in for "the
+ * owner is public" is "the block has been written at all": an entry with no
+ * heading appears on no page, and its photograph is refused here. One rule,
+ * `heading IS NULL`, read by this predicate and by the public projection, so a
+ * manager clearing a heading takes the block AND its picture off the site on
+ * the very next request.
+ *
+ * `PUBLIC_SPACE` IS THE OPPOSITE CASE TO `CLINIC_SPACE`, AND IS THE ONE A7
+ * ADDS. It has a real owner row — `public_space`, which a receptionist drafts
+ * and a manager publishes — so it satisfies (4) exactly as an article does, and NOT
  * unconditionally. A photograph of the waiting area on an unpublished or
  * withdrawn space is refused here however published its own attachment is, and
  * unpublishing the space revokes every photograph on it at the origin on the
@@ -73,7 +91,12 @@ export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
         WHEN 'PUBLIC_SPACE' THEN EXISTS (
           SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
         )
+        WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
+          SELECT 1 FROM clinic_content_entry ce
+          WHERE ce.id = ma.content_entry_id AND ce.heading IS NOT NULL
+        )
         WHEN 'CLINIC_SPACE' THEN TRUE
+        WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
       END
 `;
 

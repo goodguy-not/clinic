@@ -254,6 +254,21 @@ describe('catalog schema objects', () => {
         // them, and no article, testimonial, page or website-request table
         // exists — those are later checkpoints.
         'clinic_public_profile',
+        // Milestone 9.5, checkpoint A8. ONE table and no more: the twenty-one
+        // fixed editorial blocks of the home and about pages, beside the
+        // profile row whose surface they belong to.
+        //
+        // NO PAGE, SECTION, BLOCK-TREE, TEMPLATE, REVISION, TRANSLATION OR
+        // DRAFT TABLE EXISTS. The slots are the accepted design, they arrive
+        // with a migration and are neither created nor deleted at runtime; the
+        // copy is held ONCE because this surface is manager-only and editing it
+        // IS publishing; and a block's photograph is a `media_attachment` row
+        // under the A5 owner discriminator, as every other photograph is.
+        //
+        // IT HOLDS NO FOREIGN KEY IN EITHER DIRECTION, which is the privacy
+        // guarantee rather than a projection's discipline: no therapist, room,
+        // service, appointment, family or child can be reached from it.
+        'clinic_content_entry',
         // Milestone 9, checkpoint A2. TWO tables and no more: an article and a
         // testimonial. No page, block, template, media, tag, revision or
         // scheduling table exists.

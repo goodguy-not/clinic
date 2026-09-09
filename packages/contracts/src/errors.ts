@@ -356,6 +356,15 @@ export const ERROR_CODES = [
   // legitimate half-written state that this product will hold, and there is
   // not: the picture is never the meaning.
   'PUBLIC_SPACE_NOT_FOUND',
+  // An editorial slot on the clinic profile that is not there (Milestone 9.5,
+  // checkpoint A8). It can only be reached by addressing an id that does not
+  // exist, because the slots themselves are created by a migration and neither
+  // created nor deleted at runtime.
+  //
+  // THERE IS DELIBERATELY NO CODE FOR AN EMPTY SLOT. An entry with no heading
+  // is not an error state: it is a block the clinic has not written yet, the
+  // public read omits it, and the manager read shows it as the empty box it is.
+  'CLINIC_CONTENT_ENTRY_NOT_FOUND',
   // There is deliberately NO `ARTICLE_SLUG_REQUIRED` or `ARTICLE_INCOMPLETE`:
   // an article's slug, title and body are NOT NULL from creation, so a draft is
   // always publishable and there is no half-written state to refuse.

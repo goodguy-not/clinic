@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type {
-  CreateMediaAttachmentRequest,
-  MediaAsset,
-  MediaAttachmentOwner,
-  UpdateMediaFramingRequest,
+import {
+  isOwnerlessMediaAttachment,
+  type CreateMediaAttachmentRequest,
+  type MediaAsset,
+  type MediaAttachmentOwner,
+  type UpdateMediaFramingRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import { actorContext } from '../catalog/catalog-support';
@@ -40,11 +41,12 @@ import { MediaService } from './media.service';
  * must be unpublished first, which only a manager can do, and only then
  * detached. `MEDIA_ATTACHMENT_PUBLISHED` is that refusal.
  *
- * THE OWNER MUST EXIST AND THE DATABASE ENFORCES IT. Four real foreign keys
- * under one discriminator — the fourth is `space_id`, added in checkpoint A7 —
- * with `media_attachment_owner_chk` requiring exactly the matching column and
- * refusing the other three, so an attachment cannot name an article that is not
- * there and cannot quietly name two owners at once. This service checks first anyway, in order to return
+ * THE OWNER MUST EXIST AND THE DATABASE ENFORCES IT. Five real foreign keys
+ * under one discriminator — `space_id` was added in checkpoint A7 and
+ * `content_entry_id` in A8 — with `media_attachment_owner_chk` requiring
+ * exactly the matching column and refusing the other four, so an attachment
+ * cannot name an article that is not there and cannot quietly name two owners
+ * at once. This service checks first anyway, in order to return
  * `ARTICLE_NOT_FOUND` rather than a constraint violation — the check is for the
  * message, the constraint is for the guarantee.
  *
@@ -98,6 +100,7 @@ export class MediaAttachmentsService {
           AND article_id IS NOT DISTINCT FROM ${owner.articleId}::uuid
           AND testimonial_id IS NOT DISTINCT FROM ${owner.testimonialId}::uuid
           AND space_id IS NOT DISTINCT FROM ${owner.spaceId}::uuid
+          AND content_entry_id IS NOT DISTINCT FROM ${owner.contentEntryId}::uuid
           AND detached_at IS NULL
       `;
 
@@ -108,11 +111,11 @@ export class MediaAttachmentsService {
       await tx.$executeRaw`
         INSERT INTO media_attachment (
           id, media_asset_id, owner_type, therapist_id, article_id, testimonial_id, space_id,
-          position, attached_at, attached_by_user_id
+          content_entry_id, position, attached_at, attached_by_user_id
         ) VALUES (
           ${id}::uuid, ${mediaId}::uuid, ${owner.ownerType}::media_attachment_owner,
           ${owner.therapistId}::uuid, ${owner.articleId}::uuid, ${owner.testimonialId}::uuid,
-          ${owner.spaceId}::uuid,
+          ${owner.spaceId}::uuid, ${owner.contentEntryId}::uuid,
           ${input.position}, transaction_timestamp(), ${actor.userId}::uuid
         )
       `;
@@ -311,17 +314,23 @@ export class MediaAttachmentsService {
 }
 
 /**
- * The discriminator turned into the four columns the table actually holds.
+ * The discriminator turned into the five owner columns the table actually holds.
  *
- * `CLINIC_SPACE` IS THE ONLY OWNERLESS TYPE, AND `PUBLIC_SPACE` IS NOT IT. The
- * two are easy to confuse by name and are opposites here: a `CLINIC_SPACE`
- * attachment names nothing and the request must not supply an owner id, while a
- * `PUBLIC_SPACE` attachment names one `public_space` row and must, exactly as a
- * therapist, article or testimonial attachment does (Milestone 9.5, checkpoint
- * A7). Refused as `VALIDATION_FAILED` rather than silently ignored, because "I
- * sent an owner id and it was dropped" is how a photograph ends up on the wrong
- * page — and here it is also how a photograph ends up in the ownerless slot no
- * space publication can ever withdraw.
+ * TWO OWNER TYPES NAME NOTHING AND FIVE NAME EXACTLY ONE ROW.
+ * `MEDIA_OWNERLESS_ATTACHMENT_OWNERS` is the list, stated once in the shared
+ * contract rather than as a `!== 'CLINIC_SPACE'` in each place that needs it.
+ *
+ * `CLINIC_SPACE` AND `PUBLIC_SPACE` ARE EASY TO CONFUSE BY NAME AND ARE
+ * OPPOSITES HERE: a `CLINIC_SPACE` attachment names nothing and the request must
+ * not supply an owner id, while a `PUBLIC_SPACE` attachment names one
+ * `public_space` row and must, exactly as a therapist, article or testimonial
+ * attachment does (Milestone 9.5, checkpoint A7). `CLINIC_OPEN_GRAPH` joins the
+ * first group and `CLINIC_CONTENT_ENTRY` the second (checkpoint A8).
+ *
+ * Refused as `VALIDATION_FAILED` rather than silently ignored, because "I sent
+ * an owner id and it was dropped" is how a photograph ends up on the wrong page
+ * — and here it is also how a photograph ends up in an ownerless slot no
+ * publication can ever withdraw.
  */
 function normalizeOwner(
   ownerType: MediaAttachmentOwner,
@@ -333,16 +342,15 @@ function normalizeOwner(
   articleId: string | null;
   testimonialId: string | null;
   spaceId: string | null;
+  contentEntryId: string | null;
 } {
-  const wantsOwner = ownerType !== 'CLINIC_SPACE';
+  const wantsOwner = !isOwnerlessMediaAttachment(ownerType);
 
   if (wantsOwner !== (ownerId !== null)) {
     throw new AppError(
       'VALIDATION_FAILED',
       undefined,
-      wantsOwner
-        ? 'This owner type requires an owner id'
-        : 'A clinic-space attachment names no owner id',
+      wantsOwner ? 'This owner type requires an owner id' : 'This attachment names no owner id',
     );
   }
 
@@ -353,6 +361,7 @@ function normalizeOwner(
     articleId: ownerType === 'PUBLIC_ARTICLE' ? ownerId : null,
     testimonialId: ownerType === 'PUBLIC_TESTIMONIAL' ? ownerId : null,
     spaceId: ownerType === 'PUBLIC_SPACE' ? ownerId : null,
+    contentEntryId: ownerType === 'CLINIC_CONTENT_ENTRY' ? ownerId : null,
   };
 }
 
@@ -387,7 +396,12 @@ async function assertOwnerExists(
         return tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM public_space WHERE id = ${owner.ownerId}::uuid
         `;
+      case 'CLINIC_CONTENT_ENTRY':
+        return tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM clinic_content_entry WHERE id = ${owner.ownerId}::uuid
+        `;
       case 'CLINIC_SPACE':
+      case 'CLINIC_OPEN_GRAPH':
         return [];
     }
   })();
@@ -403,7 +417,10 @@ async function assertOwnerExists(
       throw new AppError('TESTIMONIAL_NOT_FOUND');
     case 'PUBLIC_SPACE':
       throw new AppError('PUBLIC_SPACE_NOT_FOUND');
+    case 'CLINIC_CONTENT_ENTRY':
+      throw new AppError('CLINIC_CONTENT_ENTRY_NOT_FOUND');
     case 'CLINIC_SPACE':
+    case 'CLINIC_OPEN_GRAPH':
       return;
   }
 }
@@ -455,7 +472,7 @@ async function lockAttachment(tx: Prisma.TransactionClient, id: string): Promise
   const rows = await tx.$queryRaw<LockedAttachment[]>`
     SELECT media_asset_id,
            owner_type::text AS owner_type,
-           coalesce(therapist_id, article_id, testimonial_id, space_id) AS owner_id,
+           coalesce(therapist_id, article_id, testimonial_id, space_id, content_entry_id) AS owner_id,
            published_at,
            focal_x,
            focal_y,
