@@ -124,7 +124,7 @@ describe('public website reads', () => {
         },
       },
       '/public/testimonials': {
-        testimonials: [{ authorLabel: null, body: 'روایت تأییدشده', image: null }],
+        testimonials: [{ authorLabel: null, body: 'روایت تأییدشده', kind: 'TYPED', image: null }],
       },
     };
     vi.stubGlobal(
@@ -149,7 +149,9 @@ describe('public website reads', () => {
     expect(therapist.status === 'ready' && therapist.data.displayName).toBe('درمانگر عمومی');
     expect(articles.data).toHaveLength(1);
     expect(article.status === 'ready' && article.data.body).toBe('متن تأییدشده');
-    expect(testimonials.data).toEqual([{ authorLabel: null, body: 'روایت تأییدشده', image: null }]);
+    expect(testimonials.data).toEqual([
+      { authorLabel: null, body: 'روایت تأییدشده', kind: 'TYPED', image: null },
+    ]);
   });
 
   it('distinguishes a private-or-missing detail from a transport failure without exposing why', async () => {

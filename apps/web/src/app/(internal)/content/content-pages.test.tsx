@@ -26,6 +26,7 @@ const TESTIMONIAL_DRAFT: Testimonial = {
   id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d82',
   authorLabel: 'گویندهٔ آزمایشی',
   body: 'نقل‌قول ساختگی برای آزمون.',
+  kind: 'TYPED',
   status: 'DRAFT',
   approvedAt: null,
   isPublic: false,

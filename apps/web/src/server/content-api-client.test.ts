@@ -22,6 +22,7 @@ const TESTIMONIAL = {
   id: TESTIMONIAL_ID,
   authorLabel: null,
   body: 'نقل‌قول ساختگی',
+  kind: 'TYPED',
   status: 'DRAFT',
   approvedAt: null,
   isPublic: false,
@@ -91,12 +92,12 @@ describe('named internal content API client', () => {
     answer({ testimonial: TESTIMONIAL });
     await api.getTestimonial(TESTIMONIAL_ID, { sessionToken: 'synthetic-token' });
     await api.createTestimonial(
-      { authorLabel: null, body: 'نقل‌قول ساختگی' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
       { sessionToken: 'synthetic-token' },
     );
     await api.updateTestimonial(
       TESTIMONIAL_ID,
-      { authorLabel: null, body: 'نقل‌قول ساختگی' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
       { sessionToken: 'synthetic-token' },
     );
     await api.updateTestimonialApproval(
@@ -121,6 +122,7 @@ describe('named internal content API client', () => {
     expect(JSON.parse(String(captured[2]?.init.body))).toEqual({
       authorLabel: null,
       body: 'نقل‌قول ساختگی',
+      kind: 'TYPED',
     });
     expect(JSON.parse(String(captured[4]?.init.body))).toEqual({ approved: true });
     expect(JSON.parse(String(captured[5]?.init.body))).toEqual({ isPublic: true });

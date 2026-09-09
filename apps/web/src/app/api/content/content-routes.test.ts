@@ -48,6 +48,7 @@ const TESTIMONIAL = {
   id: TESTIMONIAL_ID,
   authorLabel: null,
   body: 'نقل‌قول ساختگی',
+  kind: 'TYPED',
   status: 'DRAFT',
   approvedAt: null,
   isPublic: false,
@@ -124,7 +125,7 @@ describe('content draft handlers', () => {
     );
 
     expect(mocks.createTestimonial).toHaveBeenCalledWith(
-      { authorLabel: null, body: 'نقل‌قول ساختگی' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
       { sessionToken: SESSION_TOKEN },
     );
   });
@@ -154,7 +155,7 @@ describe('content draft handlers', () => {
     );
     expect(mocks.updateTestimonial).toHaveBeenCalledWith(
       TESTIMONIAL_ID,
-      { authorLabel: null, body: 'نقل‌قول ساختگی' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
       { sessionToken: SESSION_TOKEN },
     );
   });
