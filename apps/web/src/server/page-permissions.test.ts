@@ -181,3 +181,35 @@ describe('clinic-wide financial reports are manager-only at the page boundary', 
     expect(accounts).toContain('requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS');
   });
 });
+
+describe('B6 editorial page authority follows the accepted draft/publish split', () => {
+  it('admits the receptionist drafting authorities but refuses manager publication controls', async () => {
+    await expect(
+      requireWith(
+        ['service.draft_public_copy', 'therapist.draft_public_profile'],
+        'service.draft_public_copy',
+      ),
+    ).resolves.toEqual(expect.objectContaining({ role: 'RECEPTIONIST' }));
+    await expect(
+      requireWith(['therapist.draft_public_profile'], 'therapist.publish_profile'),
+    ).rejects.toThrow('REDIRECT:/dashboard');
+    await expect(requireWith(['service.draft_public_copy'], 'service.update')).rejects.toThrow(
+      'REDIRECT:/dashboard',
+    );
+    await expect(
+      requireWith(['media.read', 'media.upload', 'media.attach'], 'media.publish'),
+    ).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('pins the detail pages and clinic form to their narrow page gates', () => {
+    const service = readFileSync(join(APP_ROOT, 'content', 'services', '[id]', 'page.tsx'), 'utf8');
+    const therapist = readFileSync(
+      join(APP_ROOT, 'content', 'therapists', '[id]', 'page.tsx'),
+      'utf8',
+    );
+    const clinic = readFileSync(join(APP_ROOT, 'content', 'clinic-profile', 'page.tsx'), 'utf8');
+    expect(service).toContain("requirePermission: 'service.draft_public_copy'");
+    expect(therapist).toContain("requirePermission: 'therapist.draft_public_profile'");
+    expect(clinic).toContain("requirePermission: ['clinic_profile.read', 'clinic_profile.update']");
+  });
+});

@@ -13,6 +13,12 @@ import {
   promiseReportResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetResponseSchema,
+  publicClinicProfileResponseSchema,
+  servicePublicCopyListResponseSchema,
+  servicePublicCopyResponseSchema,
+  therapistProfileCopyListResponseSchema,
+  therapistProfileCopyResponseSchema,
+  therapistPublicProfileResponseSchema,
   therapistActivityResponseSchema,
   websiteRequestDetailSchema,
   websiteRequestInboxResponseSchema,
@@ -116,6 +122,19 @@ import {
   type MediaAssetListResponse,
   type MediaAssetResponse,
   type UpdateMediaFramingRequest,
+  type UpdateMediaPublicationRequest,
+  type PublicClinicProfileResponse,
+  type ServicePublicCopyListResponse,
+  type ServicePublicCopyResponse,
+  type TherapistProfileCopyListResponse,
+  type TherapistProfileCopyResponse,
+  type TherapistPublicProfileResponse,
+  type UpdateClinicProfileRequest,
+  type UpdateServicePublicCopyRequest,
+  type UpdateServicePublicCopyPublicationRequest,
+  type UpdateTherapistProfileCopyRequest,
+  type UpdateTherapistPublicProfileRequest,
+  type UpdateTherapistPublicVisibilityRequest,
   type PostSessionChargeResponse,
   type PaymentListQuery,
   type PaymentListResponse,
@@ -519,6 +538,19 @@ export const api = {
       body,
     ),
 
+  updateMediaPublication: (
+    attachmentId: string,
+    body: UpdateMediaPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/attachments/${encodeURIComponent(attachmentId)}/publication`,
+      'PATCH',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
+
   paymentReport: (
     query: PaymentReportQuery,
     context: CallerContext,
@@ -818,6 +850,123 @@ export const api = {
       context,
       body,
     ),
+
+  listServicePublicCopies: (
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyListResponse>> =>
+    call('/content/service-copy', 'GET', servicePublicCopyListResponseSchema, context),
+
+  getServicePublicCopy: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}`,
+      'GET',
+      servicePublicCopyResponseSchema,
+      context,
+    ),
+
+  updateServicePublicCopy: (
+    id: string,
+    body: UpdateServicePublicCopyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}`,
+      'PATCH',
+      servicePublicCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  updateServicePublicCopyPublication: (
+    id: string,
+    body: UpdateServicePublicCopyPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      servicePublicCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  listTherapistProfileCopies: (
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyListResponse>> =>
+    call('/content/therapist-profiles', 'GET', therapistProfileCopyListResponseSchema, context),
+
+  getTherapistProfileCopy: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyResponse>> =>
+    call(
+      `/content/therapist-profiles/${encodeURIComponent(id)}`,
+      'GET',
+      therapistProfileCopyResponseSchema,
+      context,
+    ),
+
+  updateTherapistProfileCopy: (
+    id: string,
+    body: UpdateTherapistProfileCopyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyResponse>> =>
+    call(
+      `/content/therapist-profiles/${encodeURIComponent(id)}`,
+      'PATCH',
+      therapistProfileCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  getTherapistPublicProfile: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile`,
+      'GET',
+      therapistPublicProfileResponseSchema,
+      context,
+    ),
+
+  updateTherapistPublicProfile: (
+    id: string,
+    body: UpdateTherapistPublicProfileRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile`,
+      'PATCH',
+      therapistPublicProfileResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTherapistPublicVisibility: (
+    id: string,
+    body: UpdateTherapistPublicVisibilityRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile/visibility`,
+      'PATCH',
+      therapistPublicProfileResponseSchema,
+      context,
+      body,
+    ),
+
+  getClinicProfile: (context: CallerContext): Promise<ApiResult<PublicClinicProfileResponse>> =>
+    call('/content/clinic-profile', 'GET', publicClinicProfileResponseSchema, context),
+
+  updateClinicProfile: (
+    body: UpdateClinicProfileRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PublicClinicProfileResponse>> =>
+    call('/content/clinic-profile', 'PUT', publicClinicProfileResponseSchema, context, body),
 
   updateArticlePublication: (
     id: string,

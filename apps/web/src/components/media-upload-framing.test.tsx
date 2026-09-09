@@ -44,6 +44,23 @@ describe('Persian-first photograph controls', () => {
     expect(portraitFraming.crop).not.toEqual(landscapeFraming.crop);
   });
 
+  it('can be narrowed to the therapist portrait target without a second uploader', () => {
+    const html = renderToStaticMarkup(
+      <MediaUploadFraming
+        csrfToken="synthetic"
+        targetShapes={[PORTRAIT]}
+        attachmentTarget={{
+          ownerType: 'THERAPIST_PROFILE',
+          ownerId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60',
+          position: 0,
+        }}
+      />,
+    );
+    expect(html).toContain('قاب عمودی');
+    expect(html).not.toContain('قاب افقی');
+    expect(html).not.toContain('قاب پهن');
+  });
+
   it('evaluates the poor-crop warning against the selected target shape', () => {
     const portraitFraming = framingForSlot(4032, 3024, PORTRAIT.aspectRatio, 0.1, 0.5);
     const landscapeFraming = framingForSlot(4032, 3024, LANDSCAPE.aspectRatio, 0.1, 0.5);

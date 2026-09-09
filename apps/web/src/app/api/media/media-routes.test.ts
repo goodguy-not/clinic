@@ -29,6 +29,7 @@ const MEDIA = {
       id: ATTACHMENT_ID,
       ownerType: 'CLINIC_SPACE',
       ownerId: null,
+      position: 0,
       framing: { focalX: 0.5, focalY: 0.5, crop: null },
     },
   ],
@@ -130,6 +131,40 @@ describe('media upload route', () => {
 });
 
 describe('attachment and framing routes', () => {
+  it('passes a therapist portrait owner through the reusable draft attachment route', async () => {
+    const therapistId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        media: {
+          ...MEDIA,
+          attachments: [
+            {
+              ...MEDIA.attachments[0],
+              ownerType: 'THERAPIST_PROFILE',
+              ownerId: therapistId,
+            },
+          ],
+        },
+      },
+    });
+    const response = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', {
+        mediaId: MEDIA_ID,
+        ownerType: 'THERAPIST_PROFILE',
+        ownerId: therapistId,
+        position: 0,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { ownerType: 'THERAPIST_PROFILE', ownerId: therapistId, position: 0 },
+      { sessionToken: SESSION_TOKEN },
+    );
+  });
+
   it('recovers an already-created draft attachment instead of re-uploading', async () => {
     mocks.createMediaAttachment.mockResolvedValueOnce({
       ok: false,

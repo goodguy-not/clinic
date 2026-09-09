@@ -109,6 +109,48 @@ export function ServiceForm({
             />
           </ChoiceGroup>
 
+          {service?.publicFirstPublishedAt !== null &&
+          service?.publicFirstPublishedAt !== undefined ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-semibold text-slate-900">نشانی صفحهٔ عمومی</span>
+              <span
+                dir="ltr"
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-start text-sm text-slate-700"
+              >
+                /services/{service.publicSlug}
+              </span>
+              <input type="hidden" name="publicSlug" value={service.publicSlug ?? ''} />
+              <p className="text-xs text-slate-600">
+                این نشانی پس از نخستین انتشار ثابت مانده است.
+              </p>
+            </div>
+          ) : (
+            <>
+              <Field
+                id="publicSlug"
+                label="نشانی صفحهٔ عمومی"
+                help="فقط حروف انگلیسی کوچک، عدد و خط تیره؛ نمونه: goftar-darmani"
+              >
+                {({ id, className, describedBy }) => (
+                  <input
+                    id={id}
+                    name="publicSlug"
+                    type="text"
+                    dir="ltr"
+                    maxLength={80}
+                    defaultValue={service?.publicSlug ?? ''}
+                    aria-describedby={describedBy}
+                    className={`${className} text-start`}
+                  />
+                )}
+              </Field>
+              <Alert tone="info">
+                پیش از نخستین انتشار: نشانی عمومی این صفحه پس از انتشار دائمی می‌شود و دیگر قابل
+                تغییر نیست.
+              </Alert>
+            </>
+          )}
+
           <Field
             id="durations"
             label={COPY.serviceDurationsLabel}

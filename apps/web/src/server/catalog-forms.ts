@@ -19,12 +19,14 @@ import { parseNumberList, toWesternDigits } from '@/server/numerals-fa';
 
 export function serviceFormToRequest(body: SubmittedBody): Record<string, unknown> {
   const description = (body['publicDescription'] ?? '').trim();
+  const slug = (body['publicSlug'] ?? '').trim();
 
   return {
     name: body['name'] ?? '',
     // An empty textarea is an absent description, not an empty one: the column
     // is nullable and the CHECK rejects a blank string.
     publicDescription: description === '' ? null : description,
+    ...(body['publicSlug'] === undefined ? {} : { publicSlug: slug === '' ? null : slug }),
     isPublic: body['isPublic'] === 'true',
     // `null` when unparseable, which fails the array schema and produces
     // VALIDATION_FAILED rather than an empty duration set.

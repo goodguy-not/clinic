@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(72);
-    expect(stateChangingHandlers.length).toBe(71);
+    expect(handlers.length).toBe(79);
+    expect(stateChangingHandlers.length).toBe(78);
   });
 
   it('exposes no catch-all route', () => {
@@ -118,10 +118,16 @@ describe('route handler inventory', () => {
       '/api/content/articles/create',
       '/api/content/articles/publication',
       '/api/content/articles/update',
+      '/api/content/clinic-profile/update',
+      '/api/content/service-copy/publication',
+      '/api/content/service-copy/update',
       '/api/content/testimonials/approval',
       '/api/content/testimonials/create',
       '/api/content/testimonials/publication',
       '/api/content/testimonials/update',
+      '/api/content/therapist-profiles/settings',
+      '/api/content/therapist-profiles/update',
+      '/api/content/therapist-profiles/visibility',
       '/api/families/confirm-registration',
       '/api/families/confirm-update',
       '/api/families/create',
@@ -138,6 +144,7 @@ describe('route handler inventory', () => {
       // repeats the photograph upload.
       '/api/media/draft-attachment',
       '/api/media/framing',
+      '/api/media/publication',
       '/api/media/upload',
       // Milestone 6 family money writes: B1 payments and B2 promise workflow.
       '/api/payments/create',

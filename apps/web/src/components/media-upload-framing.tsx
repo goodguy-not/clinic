@@ -1,6 +1,6 @@
 'use client';
 
-import type { MediaFraming } from '@clinic/contracts';
+import type { CreateMediaAttachmentRequest, MediaFraming } from '@clinic/contracts';
 import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react';
 import {
   cropImageStyle,
@@ -78,9 +78,11 @@ export function FramingResultPreview({
 export function MediaUploadFraming({
   csrfToken,
   targetShapes = DEFAULT_MEDIA_TARGET_SHAPES,
+  attachmentTarget = { ownerType: 'CLINIC_SPACE', ownerId: null, position: 0 },
 }: {
   csrfToken: string;
   targetShapes?: readonly [MediaTargetShape, ...MediaTargetShape[]];
+  attachmentTarget?: CreateMediaAttachmentRequest;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -196,7 +198,7 @@ export function MediaUploadFraming({
         const response = await fetch('/api/media/draft-attachment', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ csrfToken, mediaId: currentMediaId }),
+          body: JSON.stringify({ csrfToken, mediaId: currentMediaId, ...attachmentTarget }),
         });
         const answer = await answerFrom(response);
         if (!response.ok || answer.attachmentId === undefined) {
@@ -274,6 +276,9 @@ export function MediaUploadFraming({
         <p className="text-sm text-slate-600">
           می‌توانید از عکس‌های گوشی انتخاب کنید یا، اگر دستگاه اجازه می‌دهد، همان‌جا عکس بگیرید.
         </p>
+        {targetShapes.length === 1 ? (
+          <p className="text-sm font-medium text-slate-700">قاب هدف: {targetShape.label}</p>
+        ) : null}
         <div className="flex flex-col gap-2 sm:flex-row">
           <label
             className={`inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 ${FOCUS_RING}`}

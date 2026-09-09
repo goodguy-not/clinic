@@ -11,6 +11,7 @@ import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { EditorialWorkspace } from './editorial-workspace';
 import { CONTENT_SUCCESS_MESSAGES } from './presentation';
+import { CatalogEditorialWorkspace } from './catalog-editorial-workspace';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -25,9 +26,19 @@ export default async function ContentPage({
   });
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
-  const [articleResult, testimonialResult, query] = await Promise.all([
+  const [
+    articleResult,
+    testimonialResult,
+    serviceCopyResult,
+    therapistCopyResult,
+    therapists,
+    query,
+  ] = await Promise.all([
     api.listArticles(context),
     api.listTestimonials(context),
+    api.listServicePublicCopies(context),
+    api.listTherapistProfileCopies(context),
+    api.listTherapists(context),
     searchParams,
   ]);
 
@@ -38,7 +49,11 @@ export default async function ContentPage({
     ? persianMessage(articleResult.code)
     : !testimonialResult.ok
       ? persianMessage(testimonialResult.code)
-      : null;
+      : !serviceCopyResult.ok
+        ? persianMessage(serviceCopyResult.code)
+        : !therapistCopyResult.ok
+          ? persianMessage(therapistCopyResult.code)
+          : null;
 
   return (
     <>
@@ -56,6 +71,16 @@ export default async function ContentPage({
         canDraftTestimonials={user.permissions.includes('testimonial.draft')}
         canApproveTestimonials={user.permissions.includes('testimonial.approve')}
       />
+      <div className="mx-auto w-full max-w-6xl px-4 pb-10 sm:px-6">
+        <CatalogEditorialWorkspace
+          services={serviceCopyResult.ok ? serviceCopyResult.data.copies : []}
+          therapistCopies={therapistCopyResult.ok ? therapistCopyResult.data.copies : []}
+          therapists={therapists.ok ? therapists.data.therapists : []}
+          canManageServices={user.permissions.includes('service.update')}
+          canPublishTherapists={user.permissions.includes('therapist.publish_profile')}
+          canManageClinic={user.permissions.includes('clinic_profile.update')}
+        />
+      </div>
     </>
   );
 }

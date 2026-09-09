@@ -26,19 +26,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const mediaId = z.uuid().safeParse(body['mediaId']);
-  const target = createMediaAttachmentRequestSchema.parse({
-    ownerType: 'CLINIC_SPACE',
-    ownerId: null,
-    position: 0,
+  const target = createMediaAttachmentRequestSchema.safeParse({
+    ownerType: body['ownerType'] ?? 'CLINIC_SPACE',
+    ownerId: body['ownerId'] === undefined || body['ownerId'] === '' ? null : body['ownerId'],
+    position: body['position'] === undefined ? 0 : Number(body['position']),
   });
-  if (!mediaId.success) {
+  if (!mediaId.success || !target.success) {
     return secureJson(
       { error: { code: 'VALIDATION_FAILED', message: persianMessage('VALIDATION_FAILED') } },
       400,
     );
   }
 
-  let result = await api.createMediaAttachment(mediaId.data, target, { sessionToken });
+  let result = await api.createMediaAttachment(mediaId.data, target.data, { sessionToken });
   if (!result.ok && result.code === 'MEDIA_ALREADY_ATTACHED') {
     result = await api.getMedia(mediaId.data, { sessionToken });
   }
@@ -50,7 +50,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const attachment = result.data.media.attachments.find(
-    (item) => item.ownerType === 'CLINIC_SPACE' && item.ownerId === null,
+    (item) =>
+      item.ownerType === target.data.ownerType &&
+      item.ownerId === target.data.ownerId &&
+      item.position === target.data.position,
   );
   if (attachment === undefined) {
     return secureJson(
