@@ -8,8 +8,10 @@ import type {
   PublicServiceDetail,
   PublicServiceSummary,
   PublicSitemapEntry,
+  PublicSpace,
   PublicTestimonial,
   PublicTherapistProfile,
+  TestimonialKind,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
 import { PublicMediaService } from '../media/public-media.service';
@@ -106,6 +108,14 @@ type PublicTestimonialRow = {
   internal_id: string;
   author_label: string | null;
   body: string;
+  kind: TestimonialKind;
+};
+
+type PublicSpaceRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
+  published_name: string;
+  published_description: string | null;
 };
 
 type SitemapRow = {
@@ -426,7 +436,7 @@ export class PublicSiteService {
    */
   async listTestimonials(): Promise<PublicTestimonial[]> {
     const rows = await this.prisma.$queryRaw<PublicTestimonialRow[]>`
-      SELECT t.id AS internal_id, t.author_label, t.body
+      SELECT t.id AS internal_id, t.author_label, t.body, t.kind::text AS kind
       FROM public_testimonial t
       WHERE t.is_public IS TRUE
         AND t.status = 'APPROVED'::testimonial_status
@@ -441,8 +451,70 @@ export class PublicSiteService {
 
     return rows.map((row) => ({
       authorLabel: row.author_label,
+      // THE TRANSCRIPTION, FOR BOTH KINDS, AND NEVER THE PICTURE. A handwritten
+      // testimonial reaches a visitor as the words a human read off the note
+      // and a manager approved; `image` is an illustration of a meaning that is
+      // already in this column. Nothing in this application reads a photograph.
       body: row.body,
+      kind: row.kind,
       image: firstImage(images, row.internal_id),
+    }));
+  }
+
+  /**
+   * The published clinic spaces, in the clinic's own published order.
+   *
+   * Milestone 9.5, checkpoint A7.
+   *
+   * IT READS THE PUBLISHED COLUMNS AND NEVER THE DRAFT ONES, which is the
+   * publication authority rather than a naming preference — the
+   * `listArticles` rule, applied to the record that gained the same split.
+   * A space holds its copy twice; selecting `name` or `description` here would
+   * be a receptionist's unreviewed prose on the live gallery the instant they
+   * saved it.
+   *
+   * THREE CONDITIONS, AND THE THIRD IS NOT REDUNDANT. `is_public` is the
+   * recorded decision; `published_name IS NOT NULL` is the copy that decision
+   * was taken about, which `public_space_published_copy_chk` already
+   * guarantees — restated for the reason every other predicate in this file
+   * restates its constraint, because the cost of the query and the database
+   * disagreeing is publishing an entry the clinic never approved. The
+   * `public_first_published_at` condition is the database's own record that
+   * the decision took effect.
+   *
+   * NOT ONE COLUMN OF `room` IS NAMED HERE, AND NONE COULD BE. `public_space`
+   * holds no reference to `room`, the two tables share no foreign key, and this
+   * statement joins nothing. A room id, a room status, a service restriction or
+   * an availability window cannot arrive on the website through a space by any
+   * widening of this query — only by a new column and a reviewed migration.
+   *
+   * NO ID, NO SLUG, NO FLAG, NO ORDER VALUE AND NO TIMESTAMP IS PROJECTED. The
+   * ordering is applied here and the position itself is internal: a visitor
+   * reads a gallery, not the clinic's arrangement of it.
+   *
+   * A DRAFT SPACE IS UNREACHABLE THROUGH THIS READ, and this is the only
+   * statement in the application that selects from `public_space` on behalf of
+   * a visitor.
+   */
+  async listSpaces(): Promise<PublicSpace[]> {
+    const rows = await this.prisma.$queryRaw<PublicSpaceRow[]>`
+      SELECT s.id AS internal_id, s.published_name, s.published_description
+      FROM public_space s
+      WHERE s.is_public IS TRUE
+        AND s.published_name IS NOT NULL
+        AND s.public_first_published_at IS NOT NULL
+      ORDER BY s.published_display_order ASC, s.public_first_published_at ASC, s.id ASC
+    `;
+
+    const images = await this.media.imagesForOwners(
+      'PUBLIC_SPACE',
+      rows.map((row) => row.internal_id),
+    );
+
+    return rows.map((row) => ({
+      name: row.published_name,
+      description: row.published_description,
+      images: images.get(row.internal_id) ?? [],
     }));
   }
 

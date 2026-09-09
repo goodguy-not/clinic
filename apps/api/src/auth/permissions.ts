@@ -92,6 +92,15 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * this checkpoint, and the test that states the receptionist's list exactly is
  * what proves a third name cannot arrive here without a decision.
  *
+ * MILESTONE 9.5, CHECKPOINT A7 GROWS THE RECEPTIONIST'S LIST BY TWO MORE, AND
+ * THE OPERATIONAL HALF IS AGAIN THE HALF THAT DID NOT MOVE.
+ * `public_space.read` and `public_space.draft` let the front desk describe the
+ * building; `public_space.publish` stays with the manager, exactly as
+ * `article.publish` does. `room.create`, `room.update` and `room.update_status`
+ * are as withheld as they were the day before — a public space is editorial
+ * content, an operational room is scheduling configuration, and the checkpoint
+ * that let this role write the first cannot be a back door to the second.
+ *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
  * report, the promise report — are the diary, the ledger read and the promise
@@ -227,6 +236,20 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     // still cannot put a named colleague on the website.
     'service.draft_public_copy',
     'therapist.draft_public_profile',
+
+    // Milestone 9.5, checkpoint A7. Two of the three public-space names, and
+    // the one withheld is the one that puts words on the website. Describing
+    // the waiting area for a family who has never been to the clinic is front
+    // desk work; deciding that the description is what the clinic says is not.
+    //
+    // NEITHER NAME IS `room.*`, AND THAT IS THE POINT OF THE CHECKPOINT. A
+    // public space is editorial content and an operational room is scheduling
+    // configuration; this role holds `room.read` and has never held
+    // `room.create`, `room.update` or `room.update_status`, and none of that
+    // moves. Drafting a space grants nothing operational, and the two tables
+    // share no reference, so writing one cannot alter the other.
+    'public_space.read',
+    'public_space.draft',
   ],
 };
 

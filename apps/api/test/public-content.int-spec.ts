@@ -262,7 +262,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       }
     });
 
-    it('states three facts about a testimonial and nothing that identifies anybody', async () => {
+    it('states four facts about a testimonial and nothing that identifies anybody', async () => {
       await approvedTestimonial(true);
 
       const list = await request(server()).get('/public/testimonials').set(asVisitor());
@@ -271,8 +271,15 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       // `image` is the third, added in Milestone 9.5 checkpoint A5. Null here,
       // because no photograph has been attached — and null is what an
       // unillustrated testimonial reports, never an omitted key.
-      expect(Object.keys(testimonial).sort()).toEqual(['authorLabel', 'body', 'image']);
+      //
+      // `kind` is the fourth, added in checkpoint A7. It says HOW the words
+      // arrived — typed, or transcribed from a note the family wrote — so the
+      // web tier can present a photographed note as one. It names nobody, it
+      // says nothing clinical, and the exact-list assertion is what stops a
+      // fifth field arriving here without a decision.
+      expect(Object.keys(testimonial).sort()).toEqual(['authorLabel', 'body', 'image', 'kind']);
       expect(testimonial.image).toBeNull();
+      expect(testimonial.kind).toBe('TYPED');
     });
   });
 

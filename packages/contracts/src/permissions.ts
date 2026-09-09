@@ -440,6 +440,35 @@ export const PERMISSIONS = [
   // still cannot change one word a visitor sees.
   'service.draft_public_copy',
   'therapist.draft_public_profile',
+
+  // PUBLIC SPACES (Milestone 9.5, checkpoint A7). THREE NAMES, AND THE SPLIT
+  // BETWEEN THE SECOND AND THE THIRD IS THE A2 AUTHORITY RULE APPLIED TO A NEW
+  // KIND OF CONTENT.
+  //
+  // A PUBLIC SPACE IS NOT AN OPERATIONAL ROOM, AND THESE NAMES ARE THE PROOF
+  // THAT THE PRODUCT MEANS IT. `room.read`, `room.create`, `room.update` and
+  // `room.update_status` go on describing scheduling configuration and are
+  // untouched by this checkpoint; none of the three names below reaches a room,
+  // and none of the four room names reaches a space. A receptionist who may
+  // write a paragraph about the waiting area still cannot create a bookable
+  // room, and a manager creating a room still publishes nothing.
+  //
+  // `public_space.read` AND `public_space.draft` ARE THE RECEPTIONIST'S, for
+  // the reason `article.draft` is: the person at the front desk is the one who
+  // hears what families ask about the building, and a draft they write reaches
+  // no visitor. `public_space.read` exists separately because a draft is
+  // unreadable any other way — the public gallery returns published spaces
+  // only.
+  //
+  // `public_space.publish` IS THE MANAGER'S ALONE and covers both directions,
+  // exactly as `article.publish` does. It is the only authority in the product
+  // that can write a space's published columns.
+  //
+  // NO `public_space.delete`. A space is unpublished, not erased, and the table
+  // refuses a DELETE outright.
+  'public_space.read',
+  'public_space.draft',
+  'public_space.publish',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

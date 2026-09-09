@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicImageSchema } from '../media/common';
+import { testimonialKindSchema } from './testimonials';
 
 /**
  * A testimonial as the website states it.
@@ -31,7 +32,24 @@ import { publicImageSchema } from '../media/common';
  */
 export const publicTestimonialSchema = z.strictObject({
   authorLabel: z.string().nullable(),
+  /**
+   * THE AUTHORITATIVE PUBLIC TEXT, FOR BOTH KINDS.
+   *
+   * For a `HANDWRITTEN` testimonial this is the transcription a human read off
+   * the note and typed, and a manager approved. It is never derived from the
+   * photograph, and a handwritten testimonial with no words cannot exist.
+   */
   body: z.string(),
+  /**
+   * How the family gave the clinic these words, so the web tier can present a
+   * photographed note as a photographed note rather than as decoration.
+   *
+   * Milestone 9.5, checkpoint A7. It is presentation information and nothing
+   * more: it says nothing about who wrote the words, which child they concern,
+   * or anything clinical, and it changes no privacy gate — an unapproved
+   * testimonial of either kind is absent from this read entirely.
+   */
+  kind: testimonialKindSchema,
   /**
    * A photograph of the note the family actually wrote, or nothing.
    *

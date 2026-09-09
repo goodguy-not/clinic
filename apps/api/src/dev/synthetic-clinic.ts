@@ -903,6 +903,10 @@ async function publishSyntheticPublicSite(
       {
         authorLabel: `همراه نمونه ${index + 1}`,
         body: `رضایت‌نامه نمونه ${index + 1}؛ متنی ساختگی که هیچ فرد، کودک یا وضعیت درمانی واقعی را توصیف نمی‌کند.`,
+        // Both seeded rows are `TYPED`. A HANDWRITTEN one would imply a
+        // photograph of somebody's handwriting, and no fixture in this
+        // repository invents one.
+        kind: 'TYPED',
       },
       manager,
       requestContext(),

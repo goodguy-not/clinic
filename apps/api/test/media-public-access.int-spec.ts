@@ -584,11 +584,14 @@ describe('anonymous media access (real PostgreSQL)', () => {
       );
 
       expect(testimonials.testimonials[0]?.image?.mediaId).toBe(asset.id);
-      // The projection is still three fields: no id, no date, no status.
+      // The projection is still four fields: no id, no date, no status.
+      // `kind` is Milestone 9.5 checkpoint A7's only addition, and it says how
+      // the words arrived rather than anything about who wrote them.
       expect(Object.keys(testimonials.testimonials[0]!).sort()).toEqual([
         'authorLabel',
         'body',
         'image',
+        'kind',
       ]);
     }, 60_000);
 

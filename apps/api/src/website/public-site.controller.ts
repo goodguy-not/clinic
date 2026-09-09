@@ -25,6 +25,7 @@ import {
   type PublicServiceDetailResponse,
   type PublicServiceListResponse,
   type PublicSitemapResponse,
+  type PublicSpaceListResponse,
   type PublicTeamResponse,
   type PublicTestimonialListResponse,
   type PublicTherapistProfileResponse,
@@ -255,6 +256,28 @@ export class PublicSiteController {
   @InternalOnly()
   async listTestimonials(): Promise<PublicTestimonialListResponse> {
     return { testimonials: await this.site.listTestimonials() };
+  }
+
+  /**
+   * The clinic's own published spaces. Milestone 9.5, checkpoint A7.
+   *
+   * IT IS AN EDITORIAL READ AND NOT AN OPERATIONAL ONE. What it returns is what
+   * the clinic has decided to say about parts of its building: a heading, a
+   * paragraph and the photographs a manager published. There is NO ROOM READ
+   * ANYWHERE ON THIS CONTROLLER, and there cannot be one here by accident —
+   * `public_space` holds no reference to `room`, so no widening of the
+   * statement behind this route could return a room id, a room status, a
+   * service restriction or an availability window.
+   *
+   * A DRAFT OR WITHDRAWN SPACE IS SIMPLY ABSENT, and so are its photographs:
+   * the media predicate re-derives the space's own publication per request, so
+   * a manager withdrawing a space takes its pictures down with it at the origin
+   * immediately.
+   */
+  @Get('spaces')
+  @InternalOnly()
+  async listSpaces(): Promise<PublicSpaceListResponse> {
+    return { spaces: await this.site.listSpaces() };
   }
 
   /**

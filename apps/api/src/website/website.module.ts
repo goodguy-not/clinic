@@ -8,6 +8,8 @@ import { ClinicProfileService } from './clinic-profile.service';
 import { PublicRequestsService } from './public-requests.service';
 import { PublicSiteController } from './public-site.controller';
 import { PublicSiteService } from './public-site.service';
+import { SpacesController } from './spaces.controller';
+import { SpacesService } from './spaces.service';
 import { TestimonialsController } from './testimonials.controller';
 import { TestimonialsService } from './testimonials.service';
 import { WebsiteRequestRetentionService } from './website-request-retention.service';
@@ -76,6 +78,20 @@ import { WebsiteRequestsService } from './website-requests.service';
  * the clinic's own address changing — and every one of those writes its audit
  * row in the same transaction as the change, as every write in this
  * application does.
+ *
+ * MILESTONE 9.5, CHECKPOINT A7 ADDS ONE TABLE, ONE SERVICE, ONE STAFF
+ * CONTROLLER AND ONE PUBLIC READ — AND NO LINK TO THE CATALOG.
+ *
+ * `public_space` is editorial content about the building, owned here beside
+ * articles and testimonials because it is the same kind of thing: a receptionist
+ * drafts it, a manager publishes it, and the public read returns the published
+ * copy only. `room` remains scheduling configuration owned by `CatalogModule`,
+ * and this module STILL does not import that one — the two concepts share no
+ * table, no foreign key and no service, so an operational change cannot publish
+ * editorial content and editorial content cannot carry an operational fact.
+ *
+ * The space's photographs are the A5 subsystem used unchanged, through the
+ * `MediaModule` this module already imports.
  */
 @Module({
   imports: [AuditModule, MediaModule],
@@ -83,6 +99,7 @@ import { WebsiteRequestsService } from './website-requests.service';
     PublicSiteController,
     ArticlesController,
     TestimonialsController,
+    SpacesController,
     ClinicProfileController,
     WebsiteRequestsController,
   ],
@@ -91,6 +108,7 @@ import { WebsiteRequestsService } from './website-requests.service';
     PublicRequestsService,
     ArticlesService,
     TestimonialsService,
+    SpacesService,
     ClinicProfileService,
     WebsiteRequestsService,
     WebsiteRequestRetentionService,

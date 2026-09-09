@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type {
   CreateTestimonialRequest,
   Testimonial,
+  TestimonialKind,
   TestimonialStatus,
   UpdateTestimonialRequest,
 } from '@clinic/contracts';
@@ -32,6 +33,34 @@ import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/c
  *     rule lets approved text be rewritten into something nobody reviewed,
  *     which is exactly what the approval exists to prevent.
  *
+ * MILESTONE 9.5, CHECKPOINT A7 ADDS `kind` AND CHANGES NONE OF THE THREE.
+ * A `HANDWRITTEN` testimonial is a note a family wrote and the clinic
+ * photographed, and the ONE rule it adds is that THE PHOTOGRAPH IS NEVER THE
+ * MEANING: `body` — a transcription a human read and typed — is required for
+ * both kinds by `createTestimonialRequestSchema`, by the NOT NULL column, by
+ * `public_testimonial_body_chk` and again by
+ * `public_testimonial_handwritten_body_chk`, so a handwritten testimonial with
+ * nothing written down cannot be created, let alone approved or published.
+ *
+ * NOTHING IN THIS FILE READS A PHOTOGRAPH, AND NO COLUMN IT WRITES COULD HOLD
+ * MACHINE-READ TEXT. There is no OCR anywhere in this application and no field
+ * for its output. A transcription reaches `body` through `create` and `update`
+ * like any other prose — which is to say, because a person typed it and takes
+ * responsibility for it.
+ *
+ * THE IMAGE IS NOT WRITTEN HERE EITHER. A testimonial's photograph is a
+ * `media_attachment` row, attached under `media.attach` and published under
+ * `media.publish`, and the media serving predicate additionally refuses it
+ * while the testimonial is not public. So the family's handwriting reaches a
+ * visitor only after a manager has approved the words, published the
+ * testimonial AND published the attachment: three manager acts, and withdrawing
+ * the approval revokes all three consequences in one transaction.
+ *
+ * THE CLINIC'S CONSENT POLICY IS NOT MODELLED HERE, IN ANY FORM. Manager
+ * approval is the privacy gate this product enforces; how consent to publish a
+ * family's words is obtained, recorded, versioned or withdrawn is an owner and
+ * legal decision (PROJECT_SPEC.md 17), and nothing in this file guesses at it.
+ *
  * WITHDRAWING APPROVAL WRITES TWO AUDIT ROWS WHEN IT UNPUBLISHES. Two things
  * genuinely happened — the review was withdrawn and the page changed — and they
  * share a request id, so a reader sees one act with two consequences rather
@@ -42,6 +71,7 @@ type TestimonialRow = {
   id: string;
   author_label: string | null;
   body: string;
+  kind: TestimonialKind;
   status: TestimonialStatus;
   approved_at: Date | null;
   is_public: boolean;
@@ -54,6 +84,7 @@ const TESTIMONIAL_COLUMNS = Prisma.sql`
   t.id,
   t.author_label,
   t.body,
+  t.kind::text AS kind,
   t.status::text AS status,
   t.approved_at,
   t.is_public,
@@ -96,14 +127,19 @@ export class TestimonialsService {
   ): Promise<Testimonial> {
     const id = uuidv7();
     const authorLabel = canonicalOptionalText(input.authorLabel);
+    // `canonicalText` trims, and `publicProseSchema` has already refused an
+    // empty or whitespace-only body. Together they are why a HANDWRITTEN
+    // testimonial cannot be created from a photograph alone: there is no path
+    // through this method that stores one without words.
     const body = canonicalText(input.body);
 
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         INSERT INTO public_testimonial (
-          id, author_label, body, status, is_public, created_at, created_by_user_id
+          id, author_label, body, kind, status, is_public, created_at, created_by_user_id
         ) VALUES (
-          ${id}::uuid, ${authorLabel}, ${body}, 'DRAFT'::testimonial_status,
+          ${id}::uuid, ${authorLabel}, ${body}, ${input.kind}::testimonial_kind,
+          'DRAFT'::testimonial_status,
           FALSE, transaction_timestamp(), ${actor.userId}::uuid
         )
       `;
@@ -140,7 +176,9 @@ export class TestimonialsService {
 
       await tx.$executeRaw`
         UPDATE public_testimonial
-        SET author_label = ${authorLabel}, body = ${body}
+        SET author_label = ${authorLabel},
+            body = ${body},
+            kind = ${input.kind}::testimonial_kind
         WHERE id = ${id}::uuid
       `;
 
@@ -308,6 +346,10 @@ function testimonialAudit(row: TestimonialRow): Record<string, string | number |
   return {
     authorLabel: row.author_label,
     bodyLength: row.body.length,
+    // Recorded in full: it is one of two words, it is not identifying, and it
+    // is the fact a reviewer needs in order to tell whether the words they are
+    // approving are a transcription of somebody's handwriting.
+    kind: row.kind,
     status: row.status,
     isPublic: row.is_public,
   };
@@ -318,6 +360,7 @@ function toTestimonial(row: TestimonialRow): Testimonial {
     id: row.id,
     authorLabel: row.author_label,
     body: row.body,
+    kind: row.kind,
     status: row.status,
     approvedAt: row.approved_at === null ? null : row.approved_at.toISOString(),
     isPublic: row.is_public,

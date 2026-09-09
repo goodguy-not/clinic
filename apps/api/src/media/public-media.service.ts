@@ -104,10 +104,17 @@ export class PublicMediaService {
    * somebody caches the wrong thing to fix it.
    *
    * `ownerIds` IS EMPTY FOR `CLINIC_SPACE`, whose attachments name no owner.
-   * That case narrows on the three owner columns being null rather than on
+   * That case narrows on the four owner columns being null rather than on
    * membership, and it is one branch inside this statement rather than a second
-   * method, so the clinic gallery reads through the same predicate as
-   * everything else.
+   * method, so it reads through the same predicate as everything else. NOTHING
+   * IN THIS PRODUCT CALLS IT WITH `CLINIC_SPACE`: no public projection lists an
+   * ownerless attachment, before checkpoint A7 or after it.
+   *
+   * `PUBLIC_SPACE` TAKES THE ORDINARY BRANCH, because a space is a real owner
+   * row (Milestone 9.5, checkpoint A7). The space gallery is therefore one
+   * statement over the same predicate as the team page and the article list,
+   * and a photograph on an unpublished space is excluded by
+   * `LIVE_ATTACHMENT_PREDICATE` rather than by anything written here.
    */
   async imagesForOwners(
     ownerType: MediaAttachmentOwner,
@@ -124,19 +131,21 @@ export class PublicMediaService {
     const client = tx ?? this.prisma;
 
     // `CLINIC_SPACE` rows carry no owner id at all, so the narrowing is "all
-    // three owner columns are null" rather than a membership test. Stated as
+    // four owner columns are null" rather than a membership test. Stated as
     // one branch here rather than as a second method, so that both shapes go
     // through the same statement and therefore the same predicate.
     const ownerNarrowing =
       ownerType === 'CLINIC_SPACE'
-        ? Prisma.sql`ma.therapist_id IS NULL AND ma.article_id IS NULL AND ma.testimonial_id IS NULL`
-        : Prisma.sql`coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id) = ANY (${[
+        ? Prisma.sql`ma.therapist_id IS NULL AND ma.article_id IS NULL
+                     AND ma.testimonial_id IS NULL AND ma.space_id IS NULL`
+        : Prisma.sql`coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id) = ANY (${[
             ...ownerIds,
           ]}::uuid[])`;
 
     const rows = await client.$queryRaw<OwnerImageRow[]>`
       SELECT coalesce(
-               ma.therapist_id, ma.article_id, ma.testimonial_id, ${CLINIC_SPACE_KEY}::uuid
+               ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id,
+               ${CLINIC_SPACE_KEY}::uuid
              ) AS owner_key,
              ma.position,
              ma.focal_x,

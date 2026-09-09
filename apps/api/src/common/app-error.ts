@@ -191,6 +191,7 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // refreshed screen explains why. Exactly `CHARGE_ALREADY_VOIDED`'s reasoning.
   TESTIMONIAL_APPROVED: 409,
   TESTIMONIAL_NOT_APPROVED: 409,
+  PUBLIC_SPACE_NOT_FOUND: 404,
 
   // Milestone 9, checkpoint A3. 429 is the only one of its kind on this
   // surface, and it is the honest status: the request is well formed, permitted
@@ -363,6 +364,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   TESTIMONIAL_NOT_FOUND: 'Testimonial not found',
   TESTIMONIAL_APPROVED: 'An approved testimonial cannot be edited',
   TESTIMONIAL_NOT_APPROVED: 'A testimonial cannot be published before it is approved',
+  PUBLIC_SPACE_NOT_FOUND: 'Public space not found',
   RATING_REPLACEMENT_REQUIRED:
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',

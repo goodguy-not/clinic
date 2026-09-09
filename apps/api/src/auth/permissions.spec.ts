@@ -90,6 +90,12 @@ describe('role to permission map', () => {
         // checkpoint deliberately did not move.
         'service.draft_public_copy',
         'therapist.draft_public_profile',
+        // Milestone 9.5, checkpoint A7: reading and drafting the clinic's
+        // public spaces. `public_space.publish` is withheld and the negative
+        // half below states it, beside the operational room names this
+        // checkpoint deliberately did not move.
+        'public_space.read',
+        'public_space.draft',
       ].sort(),
     );
   });
@@ -146,9 +152,79 @@ describe('role to permission map', () => {
       // colleague appears on a public website. Drafting their title and
       // biography is now this role's; deciding they are published is not.
       'therapist.publish_profile',
+      // Milestone 9.5, checkpoint A7: the authority that puts a description of
+      // the clinic's building on the website. Drafting one is now this role's;
+      // publishing it is not.
+      'public_space.publish',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
+  });
+
+  describe('public spaces are not operational rooms', () => {
+    // Milestone 9.5, checkpoint A7. THE WHOLE POINT OF THE CHECKPOINT, STATED
+    // AS AUTHORITY. A public space is editorial content about the building; a
+    // room is scheduling configuration. The permission model has to say so, or
+    // "they are different concepts" is a claim with nothing enforcing it.
+    it('carries exactly the three approved public-space names', () => {
+      expect(
+        PERMISSIONS.filter((permission) => permission.startsWith('public_space.')).sort(),
+      ).toEqual(['public_space.draft', 'public_space.publish', 'public_space.read'].sort());
+    });
+
+    it('leaves the four room names exactly where they were', () => {
+      // Not "a room permission was not added": the EXISTING four are unchanged,
+      // and the receptionist still holds the read alone. A checkpoint that let
+      // the front desk describe the waiting area must not have let them
+      // configure the room it is next to.
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('room.')).sort()).toEqual(
+        ['room.create', 'room.read', 'room.update', 'room.update_status'].sort(),
+      );
+
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('room.read');
+      expect(granted).not.toContain('room.create');
+      expect(granted).not.toContain('room.update');
+      expect(granted).not.toContain('room.update_status');
+    });
+
+    it('splits drafting from publishing, as every other content permission does', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('public_space.read');
+      expect(granted).toContain('public_space.draft');
+      expect(granted).not.toContain('public_space.publish');
+      expect(permissionsForRole('MANAGER')).toContain('public_space.publish');
+    });
+
+    it('grants nothing operational, financial or scheduling', () => {
+      // A7 widens no existing authority. Stated as an exact list of the names a
+      // reader might fear a "spaces" checkpoint had quietly touched.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'room.create',
+        'room.update',
+        'room.update_status',
+        'service.update',
+        'service.update_status',
+        'therapist.update',
+        'therapist.publish_profile',
+        'availability.manage',
+        'tariff.create',
+        'tariff.void',
+        'appointment.reopen',
+        'charge.void',
+        'charge.adjust',
+        'payment.void',
+        'media.publish',
+        'article.publish',
+        'testimonial.approve',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
   });
 
   describe('the media subsystem', () => {

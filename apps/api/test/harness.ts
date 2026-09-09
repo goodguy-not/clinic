@@ -197,6 +197,10 @@ const PROTECTED_TABLES = [
   'media_asset',
   'media_rendition',
   'media_attachment',
+  // Milestone 9.5, checkpoint A7. A published space is withdrawn, never erased,
+  // so it carries the same two triggers and has to be named here for the reset
+  // to be able to clear it.
+  'public_space',
 ];
 
 /**
@@ -209,7 +213,8 @@ const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
   // Milestone 9.5, dependents first: an attachment names an asset, a therapist,
-  // an article and a testimonial, so it goes before all four; a rendition names
+  // an article, a testimonial and a public space, so it goes before all five; a
+  // rendition names
   // its asset. Truncating the rows leaves the files under `TEST_MEDIA_ROOT`
   // unreferenced, which is the same state a failed upload transaction leaves
   // them in — and unreachable by every route, because the serving route selects
@@ -223,6 +228,10 @@ const TRUNCATED_TABLES = [
   // before `app_user` and nowhere in particular otherwise.
   'public_article',
   'public_testimonial',
+  // Milestone 9.5, checkpoint A7. It names only the user who created it, and
+  // `media_attachment` above already names it, so it goes after the attachments
+  // and before `app_user`.
+  'public_space',
   // Milestone 8, dependents first: a closed line names its period, a charge and
   // the rating it was materialised from, so it goes before all three.
   'settlement_line',
@@ -281,6 +290,28 @@ export async function resetDatabase(prisma: PrismaClient | PrismaService): Promi
       await prisma.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE TRIGGER USER`);
     }
   }
+
+  // THE ONE TABLE A TRUNCATE CANNOT RESET, CLEARED IN PLACE INSTEAD.
+  //
+  // `clinic_public_profile` is a SINGLETON created by its migration and
+  // deliberately undeletable: the public contact page must never 404 over a
+  // missing configuration row. So it survives the truncate above, and every
+  // value a suite writes into it survives with it — which makes any test
+  // asserting "the clinic profile is unconfigured" pass or fail depending on
+  // which file jest happened to run first. That is a latent order dependency
+  // rather than a real defect, and it surfaces whenever the file ordering
+  // changes; clearing the columns here removes it at the source.
+  //
+  // An UPDATE rather than a DELETE, because the row is the point: this restores
+  // exactly the state the migration created.
+  await prisma.$executeRawUnsafe(`
+    UPDATE clinic_public_profile
+    SET display_name = NULL, tagline = NULL, about = NULL, address_line = NULL,
+        city_label = NULL, phone_primary = NULL, phone_secondary = NULL, email = NULL,
+        working_hours_note = NULL, map_latitude = NULL, map_longitude = NULL,
+        instagram_url = NULL, telegram_url = NULL
+    WHERE singleton_key = 1
+  `);
 }
 
 export type SeedUserOptions = {

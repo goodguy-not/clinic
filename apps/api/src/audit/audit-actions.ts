@@ -307,6 +307,21 @@ export const AUDIT_ACTIONS = [
   'public_testimonial.approval_revoked',
   'public_testimonial.published',
   'public_testimonial.unpublished',
+
+  // Public spaces (Milestone 9.5, checkpoint A7). FOUR ACTIONS, AND THE SPLIT
+  // BETWEEN THE SECOND AND THE THIRD IS THE AUTHORITY BOUNDARY: `updated` is a
+  // draft edit that no visitor can see, `published` is the manager act that
+  // makes the words real. Publishing a space that already carried a prepared
+  // change writes `published` again, which is how a reader tells a revision
+  // from a first appearance without comparing timestamps.
+  //
+  // NO ACTION HERE NAMES A ROOM, and no room action names a space: the two
+  // concepts share no table, so no operational change can produce one of these
+  // rows and none of these can produce an operational one.
+  'public_space.created',
+  'public_space.updated',
+  'public_space.published',
+  'public_space.unpublished',
   'therapist.public_profile_updated',
   'therapist.public_profile_published',
   'therapist.public_profile_unpublished',
@@ -575,6 +590,10 @@ export const AUDIT_ENTITY_TYPES = [
   // places it.
   'media_asset',
   'media_attachment',
+  // Milestone 9.5, checkpoint A7. It IS a table, so it satisfies the assertion
+  // above. `room` is a separate entity type with separate actions, and nothing
+  // in this checkpoint writes one from the other.
+  'public_space',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

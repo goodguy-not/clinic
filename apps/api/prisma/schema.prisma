@@ -377,6 +377,29 @@ enum TestimonialStatus {
   @@map("testimonial_status")
 }
 
+/// How the family gave the clinic the words.
+///
+/// Milestone 9.5, checkpoint A7. TWO VALUES, AND THE SECOND EXISTS TO MAKE ONE
+/// RULE STATEABLE IN THE DATABASE: a handwritten testimonial may not be
+/// published from pixels alone.
+///
+/// `TYPED` is the A2 case, unchanged, and the default for every row.
+/// `HANDWRITTEN` is a note the family wrote and the clinic photographed — and
+/// `public_testimonial_handwritten_body_chk` demands a transcription in `body`
+/// regardless, so the photograph is an illustration of a meaning that is
+/// already stored rather than the meaning itself.
+///
+/// NO COLUMN ANYWHERE HOLDS MACHINE-READ TEXT. There is no OCR in this product,
+/// no field for its output and no flag saying a machine was consulted. A
+/// transcription is what a human read, corrected and saved through the ordinary
+/// draft route.
+enum TestimonialKind {
+  TYPED
+  HANDWRITTEN
+
+  @@map("testimonial_kind")
+}
+
 /// Milestone 9.5, checkpoint A5.
 ///
 /// `ARCHIVED` IS NOT DELETED AND IS NOT A SECOND UNPUBLISH. Archiving takes a
@@ -392,16 +415,18 @@ enum MediaAssetStatus {
   @@map("media_asset_status")
 }
 
-/// The four places the public website has a photograph.
+/// The places the public website has a photograph.
 ///
-/// A CLOSED LIST, because a fifth would be a new decision about what the clinic
-/// publishes rather than a new value in an enum. `CLINIC_SPACE` is the one with
-/// no owner row: see `MediaAttachment.ownerType`.
+/// `CLINIC_SPACE` is the one with no owner row: see `MediaAttachment.ownerType`.
+/// `PUBLIC_SPACE` — Milestone 9.5, checkpoint A7 — is the fifth value A5 said a
+/// new published surface would have to be, and it names a real `public_space`
+/// row like the first three.
 enum MediaAttachmentOwner {
   THERAPIST_PROFILE
   PUBLIC_ARTICLE
   PUBLIC_TESTIMONIAL
   CLINIC_SPACE
+  PUBLIC_SPACE
 
   @@map("media_attachment_owner")
 }
@@ -488,6 +513,7 @@ model AppUser {
 
   createdArticles     PublicArticle[]
   createdTestimonials PublicTestimonial[]
+  createdSpaces       PublicSpace[]
 
   /// Milestone 9, checkpoint A4. The colleague who tied a stranger's message to
   /// a family. It is the ONLY actor column on `website_request`: who moved a
@@ -2184,7 +2210,15 @@ model PublicTestimonial {
   /// An anonymised description of who is speaking — never a name — or nothing
   /// at all. Reviewed by the manager who approves the row.
   authorLabel            String?           @map("author_label")
+  /// THE AUTHORITATIVE WORDS, FOR BOTH KINDS. For a `HANDWRITTEN` testimonial
+  /// this is the transcription a human read off the note and typed; the
+  /// photograph beside it is an illustration of a meaning already stored here.
   body                   String
+  /// Milestone 9.5, checkpoint A7. How the words arrived — NOT who wrote them,
+  /// not which child they concern, and nothing clinical. See `TestimonialKind`
+  /// for why a handwritten note still requires the transcription above, and for
+  /// why no column in this schema holds machine-read text.
+  kind                   TestimonialKind   @default(TYPED)
   status                 TestimonialStatus @default(DRAFT)
   /// Set exactly when `status` is `APPROVED`; a CHECK pins the two together.
   approvedAt             DateTime?         @map("approved_at") @db.Timestamptz
@@ -2203,6 +2237,95 @@ model PublicTestimonial {
   mediaAttachments MediaAttachment[]
 
   @@map("public_testimonial")
+}
+
+/// Part of the building, as the clinic describes it to a visitor.
+///
+/// Milestone 9.5, checkpoint A7.
+///
+/// A PUBLIC SPACE IS EDITORIAL CONTENT AND AN OPERATIONAL ROOM IS SCHEDULING
+/// CONFIGURATION. THEY ARE TWO CONCEPTS, AND THIS TABLE HOLDS NO REFERENCE TO
+/// THE OTHER ONE.
+///
+/// There is no `room_id` here and no `space_id` on `room`; the two tables share
+/// no foreign key and cannot be joined. That single absence is what makes every
+/// frozen A7 outcome a property of the SCHEMA rather than a discipline somebody
+/// has to keep:
+///
+///   - creating, renaming, restricting or DEACTIVATING a room cannot create,
+///     alter, publish or unpublish a space, because there is no path from one
+///     row to the other;
+///   - no room id, room status, service restriction, availability window or
+///     other operational metadata can reach a visitor through a space, because
+///     no such column exists here and no join can produce one;
+///   - the clinic may publish a corridor, a garden or a description covering
+///     three rooms at once, and may run six rooms while publishing none.
+///
+/// A nullable manager-set link was CONSIDERED AND REJECTED for this checkpoint:
+/// nothing in the accepted product asks a space which room it is, and a column
+/// that answers an unasked question is the first half of the coupling this
+/// checkpoint exists to prevent. REVISIT IF a decision arrives that genuinely
+/// needs the join, at which point it is one nullable column, a migration, and
+/// an explicit statement that it publishes nothing.
+///
+/// THE COPY IS HELD TWICE, AND THAT IS THE PUBLICATION AUTHORITY — the same
+/// shape `public_article` has carried since Milestone 9 checkpoint A2, and for
+/// the same reason. `name`, `description` and `display_order` are the
+/// receptionist's working draft; the `published_*` columns are what the website
+/// reads, and only the manager-only publication act writes them. One set of
+/// columns could hold the live version or the pending one, never both.
+///
+/// `display_order` IS SPLIT TOO, AND DELIBERATELY. Reordering a published
+/// gallery is a change a visitor sees, so it has to wait for the same manager
+/// act the words wait for. Publication copies all three at once, which is what
+/// keeps "publish" one decision rather than three.
+///
+/// NO SLUG AND NO URL, for the reason `public_testimonial` has none: a space is
+/// an entry in a gallery, not a page. Nothing here appears in the sitemap.
+///
+/// WHAT IS DELIBERATELY ABSENT: no capacity, no equipment list, no floor, no
+/// area, no opening hours, no accessibility claim, no service link and no
+/// statement about what treatment happens here. Each is either operational
+/// configuration that belongs to `room`, or a claim the clinic's owner has to
+/// make rather than a schema.
+///
+/// THE ROW IS NEVER DELETED. `no_delete` and `no_truncate`, like every other
+/// content table here; a space is unpublished, which is immediate.
+model PublicSpace {
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  /// THE WORKING DRAFT. Anybody holding `public_space.draft` may edit these
+  /// three at any time, including while the space is live, and nothing they
+  /// write here is visible to anybody outside the clinic.
+  name                   String
+  description            String?
+  displayOrder           Int       @default(0) @map("display_order") @db.SmallInt
+  /// WHAT THE WEBSITE SAYS. Written by the manager-only publication act and by
+  /// nothing else, and read by the public projection instead of the three
+  /// above.
+  publishedName          String?   @map("published_name")
+  publishedDescription   String?   @map("published_description")
+  publishedDisplayOrder  Int?      @map("published_display_order") @db.SmallInt
+  /// The intent to publish. `public_space_published_copy_chk` refuses it on a
+  /// row whose published copy nobody has written, so this flag alone can never
+  /// put a draft on the website.
+  isPublic               Boolean   @default(false) @map("is_public")
+  /// Stamped once by `stamp_first_publication()`. Internal: no public read
+  /// projects it, and it exists so the gallery has a stable tie-break.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Milestone 9.5, checkpoint A5's system, used unchanged. A row here is not a
+  /// published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
+
+  /// The gallery read, in published order.
+  @@index([isPublic, publishedDisplayOrder])
+  /// NO `updatedAt` AND NO `updatedByUserId`: `audit_log` is the change history.
+  @@map("public_space")
 }
 
 /// An unsolicited request from a stranger on the public website.
@@ -2587,11 +2710,16 @@ model MediaAttachment {
   mediaAssetId String               @map("media_asset_id") @db.Uuid
   ownerType    MediaAttachmentOwner @map("owner_type")
 
-  /// Exactly one of these three is set, and none of them is set for
+  /// Exactly one of these four is set, and none of them is set for
   /// `CLINIC_SPACE`. Pinned by `media_attachment_owner_chk`.
   therapistId   String? @map("therapist_id") @db.Uuid
   articleId     String? @map("article_id") @db.Uuid
   testimonialId String? @map("testimonial_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A7. The fourth real foreign key, and it makes
+  /// `PUBLIC_SPACE` behave like the first three rather than like `CLINIC_SPACE`:
+  /// a photograph of the waiting area is visible only while the space it
+  /// describes is itself published.
+  spaceId       String? @map("space_id") @db.Uuid
 
   /// Ascending, so a gallery has one order rather than whatever PostgreSQL
   /// returns. Ties are broken by id, which is time-ordered.
@@ -2637,6 +2765,7 @@ model MediaAttachment {
   therapist   Therapist?         @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   article     PublicArticle?     @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   testimonial PublicTestimonial? @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  space       PublicSpace?       @relation(fields: [spaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   attachedBy  AppUser  @relation("MediaAttachmentAttachedBy", fields: [attachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   publishedBy AppUser? @relation("MediaAttachmentPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2647,6 +2776,8 @@ model MediaAttachment {
   @@index([therapistId, position])
   @@index([articleId, position])
   @@index([testimonialId, position])
+  /// The space gallery read: "what does this space currently show?"
+  @@index([spaceId, position])
   /// The clinic-space gallery, and the library's "where is this used?" read.
   @@index([ownerType, position])
   @@index([mediaAssetId])

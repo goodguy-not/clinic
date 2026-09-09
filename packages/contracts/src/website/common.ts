@@ -127,6 +127,20 @@ export const PUBLIC_CACHE_TAGS = {
   testimonials: 'public-testimonials',
   /** Milestone 9, checkpoint A2 — the derived URL list, not a page. */
   sitemap: 'public-sitemap',
+  /**
+   * Milestone 9.5, checkpoint A7. The published clinic-space gallery.
+   *
+   * IT HAS NO PER-SLUG PREFIX BESIDE IT, because a space has no address of its
+   * own: the gallery is one read, so one tag is the whole of it.
+   *
+   * WHICH ACTS DROP IT: a space published or unpublished, and a media
+   * attachment on a space published, unpublished or detached — the same rule
+   * the A5 table already states for an article and its illustrations. A space
+   * DRAFT edit drops nothing, because no public read can see one. It never
+   * affects `sitemap`: a space is not a data-driven page and appears in no URL
+   * list.
+   */
+  spaces: 'public-spaces',
 } as const;
 
 /** `public-service:` + the service slug. */

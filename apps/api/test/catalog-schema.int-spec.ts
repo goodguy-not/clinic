@@ -258,6 +258,13 @@ describe('catalog schema objects', () => {
         // testimonial. No page, block, template, media, tag, revision or
         // scheduling table exists.
         'public_article',
+        // Milestone 9.5, checkpoint A7. ONE table and no more: an editorial
+        // description of part of the building. NO room-to-space link table, no
+        // gallery table, no caption table — a space's photographs are
+        // `media_attachment` rows under the A5 owner discriminator, and the
+        // separation from `room` is the ABSENCE of any reference between the
+        // two rather than a table mediating one.
+        'public_space',
         'public_testimonial',
         // Milestone 9, checkpoint A3. ONE table and no more: what a stranger
         // typed into the public contact form. NO INBOX, NO STATUS, NO

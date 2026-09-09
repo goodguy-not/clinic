@@ -186,6 +186,12 @@ describe('guard chain (real PostgreSQL)', () => {
         'promise.create',
         'promise.read',
         'promise.resolve',
+        // Milestone 9.5, checkpoint A7: describing the clinic's building.
+        // `public_space.publish` stays with the manager and is asserted absent
+        // below, beside the room WRITES this role has never held — a public
+        // space is editorial content, a room is scheduling configuration.
+        'public_space.draft',
+        'public_space.read',
         'room.read',
         'service.draft_public_copy',
         'service.read',
@@ -223,6 +229,10 @@ describe('guard chain (real PostgreSQL)', () => {
         // is theirs; deciding that the world sees them is not.
         'article.publish',
         'testimonial.approve',
+        // Milestone 9.5, checkpoint A7: the same boundary for the clinic's own
+        // building. Describing the waiting area is theirs; deciding that the
+        // description is what the website says is not.
+        'public_space.publish',
         'therapist.publish_profile',
         'clinic_profile.read',
         'clinic_profile.update',
@@ -530,7 +540,24 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  a named colleague on the website is the A2 opt-in,
       //                  under `therapist.publish_profile`, and a second route
       //                  would be two names for one decision.
-      expect(routes).toBe(153);
+      //
+      // public spaces:  Milestone 9.5 checkpoint A7 adds SIX routes. Five are
+      //                 under `/content/spaces`, beside the article and
+      //                 testimonial ones, and every one names a permission:
+      //                 list, get and draft under `public_space.read` /
+      //                 `public_space.draft`, which a RECEPTIONIST holds, and
+      //                 the publication route under `public_space.publish`,
+      //                 which only a MANAGER holds and which is the only one of
+      //                 the five that can change a word a visitor reads.
+      //
+      //                 THE SIXTH IS THE PUBLIC READ — `GET /public/spaces`,
+      //                 classified `internal` like every public read beside it,
+      //                 bringing the public surface to ELEVEN reads and one
+      //                 write. NONE OF THE SIX IS A ROOM ROUTE: a public space
+      //                 is editorial content, an operational room is scheduling
+      //                 configuration under `room.*` in the catalog, and the
+      //                 two share no table and no permission.
+      expect(routes).toBe(159);
     });
   });
 });

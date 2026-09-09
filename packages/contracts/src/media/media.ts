@@ -41,16 +41,33 @@ import { publicMediaPathSchema } from '../website/common';
  * four gates as everything else, minus the owner gate that has no row to read.
  * What it does NOT settle is where such photographs appear, in what order,
  * under what heading, how many there may be, or whether they belong to a page
- * of their own: NO PUBLIC PROJECTION IN THIS PRODUCT RETURNS THEM. That is
- * public-space product design and belongs to the checkpoint that builds it,
- * which is free to project these attachments however it decides without
- * migrating anything here.
+ * of their own: NO PUBLIC PROJECTION IN THIS PRODUCT RETURNS A `CLINIC_SPACE`
+ * ATTACHMENT, before checkpoint A7 or after it.
+ *
+ * `PUBLIC_SPACE` IS THE FIFTH VALUE, ADDED IN CHECKPOINT A7, AND IT IS THE NEW
+ * DECISION THIS COMMENT SAID A FIFTH WOULD HAVE TO BE. It names a `public_space`
+ * row — an editorial description of part of the building that a receptionist
+ * drafts and a manager publishes — so it behaves like the first three and not
+ * like `CLINIC_SPACE`: an owner id is REQUIRED, and the image is visible only
+ * while that space is itself published.
+ *
+ * THE TWO ARE NOT DUPLICATES, AND KEEPING BOTH IS DELIBERATE. `CLINIC_SPACE`
+ * remains exactly what A5 froze — an ownerless slot that no public projection
+ * reads — and the web tier uses it as the parking place for a photograph
+ * somebody has uploaded and framed but not yet placed anywhere. Redefining it
+ * to require an owner would have turned that drafting sandbox into a live
+ * public-gallery target, which is precisely the coupling A7 exists to prevent.
+ * REVISIT WHEN the web tier gains a first-class "prepared but unplaced" concept
+ * of its own: `CLINIC_SPACE` is then vocabulary with nothing behind it and
+ * should be retired in a reviewed migration.
  */
 export const MEDIA_ATTACHMENT_OWNERS = [
   'THERAPIST_PROFILE',
   'PUBLIC_ARTICLE',
   'PUBLIC_TESTIMONIAL',
   'CLINIC_SPACE',
+  /** Milestone 9.5, checkpoint A7. A `public_space` row; an owner id is required. */
+  'PUBLIC_SPACE',
 ] as const;
 
 export type MediaAttachmentOwner = (typeof MEDIA_ATTACHMENT_OWNERS)[number];
@@ -103,13 +120,17 @@ export type MediaRendition = z.infer<typeof mediaRenditionSchema>;
 export const mediaAttachmentSchema = z.strictObject({
   id: z.uuid(),
   ownerType: z.enum(MEDIA_ATTACHMENT_OWNERS),
-  /** The article, therapist or testimonial. Null exactly for `CLINIC_SPACE`. */
+  /** The article, therapist, testimonial or public space. Null exactly for `CLINIC_SPACE`. */
   ownerId: z.uuid().nullable(),
   /** Ascending, so a gallery has one order rather than whatever PostgreSQL returns. */
   position: z.int().min(0),
   attachedAt: z.iso.datetime(),
   publishedAt: z.iso.datetime().nullable(),
-  /** Whether the record this hangs off is itself public right now. Always true for `CLINIC_SPACE`. */
+  /**
+   * Whether the record this hangs off is itself public right now. Always true for
+   * `CLINIC_SPACE`, which has no record to read; for `PUBLIC_SPACE` it is that
+   * space's own publication.
+   */
   ownerIsPublic: z.boolean(),
   /**
    * How this use of the photograph is framed. Always present; an unframed

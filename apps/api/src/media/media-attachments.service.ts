@@ -40,10 +40,11 @@ import { MediaService } from './media.service';
  * must be unpublished first, which only a manager can do, and only then
  * detached. `MEDIA_ATTACHMENT_PUBLISHED` is that refusal.
  *
- * THE OWNER MUST EXIST AND THE DATABASE ENFORCES IT. Three real foreign keys
- * under one discriminator, with `media_attachment_owner_chk` requiring exactly
- * the matching column, so an attachment cannot name an article that is not
- * there. This service checks first anyway, in order to return
+ * THE OWNER MUST EXIST AND THE DATABASE ENFORCES IT. Four real foreign keys
+ * under one discriminator — the fourth is `space_id`, added in checkpoint A7 —
+ * with `media_attachment_owner_chk` requiring exactly the matching column and
+ * refusing the other three, so an attachment cannot name an article that is not
+ * there and cannot quietly name two owners at once. This service checks first anyway, in order to return
  * `ARTICLE_NOT_FOUND` rather than a constraint violation — the check is for the
  * message, the constraint is for the guarantee.
  *
@@ -96,6 +97,7 @@ export class MediaAttachmentsService {
           AND therapist_id IS NOT DISTINCT FROM ${owner.therapistId}::uuid
           AND article_id IS NOT DISTINCT FROM ${owner.articleId}::uuid
           AND testimonial_id IS NOT DISTINCT FROM ${owner.testimonialId}::uuid
+          AND space_id IS NOT DISTINCT FROM ${owner.spaceId}::uuid
           AND detached_at IS NULL
       `;
 
@@ -105,11 +107,12 @@ export class MediaAttachmentsService {
 
       await tx.$executeRaw`
         INSERT INTO media_attachment (
-          id, media_asset_id, owner_type, therapist_id, article_id, testimonial_id,
+          id, media_asset_id, owner_type, therapist_id, article_id, testimonial_id, space_id,
           position, attached_at, attached_by_user_id
         ) VALUES (
           ${id}::uuid, ${mediaId}::uuid, ${owner.ownerType}::media_attachment_owner,
           ${owner.therapistId}::uuid, ${owner.articleId}::uuid, ${owner.testimonialId}::uuid,
+          ${owner.spaceId}::uuid,
           ${input.position}, transaction_timestamp(), ${actor.userId}::uuid
         )
       `;
@@ -308,12 +311,17 @@ export class MediaAttachmentsService {
 }
 
 /**
- * The discriminator turned into the three columns the table actually holds.
+ * The discriminator turned into the four columns the table actually holds.
  *
- * A `CLINIC_SPACE` attachment names no owner and the request must not supply
- * one; the other three must. Refused as `VALIDATION_FAILED` rather than
- * silently ignored, because "I sent an owner id and it was dropped" is how a
- * photograph ends up on the wrong page.
+ * `CLINIC_SPACE` IS THE ONLY OWNERLESS TYPE, AND `PUBLIC_SPACE` IS NOT IT. The
+ * two are easy to confuse by name and are opposites here: a `CLINIC_SPACE`
+ * attachment names nothing and the request must not supply an owner id, while a
+ * `PUBLIC_SPACE` attachment names one `public_space` row and must, exactly as a
+ * therapist, article or testimonial attachment does (Milestone 9.5, checkpoint
+ * A7). Refused as `VALIDATION_FAILED` rather than silently ignored, because "I
+ * sent an owner id and it was dropped" is how a photograph ends up on the wrong
+ * page — and here it is also how a photograph ends up in the ownerless slot no
+ * space publication can ever withdraw.
  */
 function normalizeOwner(
   ownerType: MediaAttachmentOwner,
@@ -324,6 +332,7 @@ function normalizeOwner(
   therapistId: string | null;
   articleId: string | null;
   testimonialId: string | null;
+  spaceId: string | null;
 } {
   const wantsOwner = ownerType !== 'CLINIC_SPACE';
 
@@ -343,6 +352,7 @@ function normalizeOwner(
     therapistId: ownerType === 'THERAPIST_PROFILE' ? ownerId : null,
     articleId: ownerType === 'PUBLIC_ARTICLE' ? ownerId : null,
     testimonialId: ownerType === 'PUBLIC_TESTIMONIAL' ? ownerId : null,
+    spaceId: ownerType === 'PUBLIC_SPACE' ? ownerId : null,
   };
 }
 
@@ -373,6 +383,10 @@ async function assertOwnerExists(
         return tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM public_testimonial WHERE id = ${owner.ownerId}::uuid
         `;
+      case 'PUBLIC_SPACE':
+        return tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM public_space WHERE id = ${owner.ownerId}::uuid
+        `;
       case 'CLINIC_SPACE':
         return [];
     }
@@ -387,6 +401,8 @@ async function assertOwnerExists(
       throw new AppError('ARTICLE_NOT_FOUND');
     case 'PUBLIC_TESTIMONIAL':
       throw new AppError('TESTIMONIAL_NOT_FOUND');
+    case 'PUBLIC_SPACE':
+      throw new AppError('PUBLIC_SPACE_NOT_FOUND');
     case 'CLINIC_SPACE':
       return;
   }
@@ -439,7 +455,7 @@ async function lockAttachment(tx: Prisma.TransactionClient, id: string): Promise
   const rows = await tx.$queryRaw<LockedAttachment[]>`
     SELECT media_asset_id,
            owner_type::text AS owner_type,
-           coalesce(therapist_id, article_id, testimonial_id) AS owner_id,
+           coalesce(therapist_id, article_id, testimonial_id, space_id) AS owner_id,
            published_at,
            focal_x,
            focal_y,

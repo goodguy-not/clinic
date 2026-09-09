@@ -20,6 +20,7 @@ import {
   publicServiceSummarySchema,
   publicSitemapEntrySchema,
   publicSlugSchema,
+  publicSpaceSchema,
   publicTestimonialSchema,
   publicTherapistProfileSchema,
   servicePublicCopySchema,
@@ -105,12 +106,29 @@ describe('public website contracts', () => {
       ]);
     });
 
-    it('states three facts about a testimonial, and none identifies anybody', () => {
+    it('states four facts about a testimonial, and none identifies anybody', () => {
       // No slug, no id, no date, no status, no family, no child, no service, no
       // therapist and no outcome. PROJECT_SPEC.md 11 forbids publishing
       // identifying child or clinical data, and the narrowest way to obey a
       // rule about a category of data is not to hold it.
-      expect(keysOf(publicTestimonialSchema)).toEqual(['authorLabel', 'body', 'image']);
+      //
+      // `kind` IS MILESTONE 9.5 CHECKPOINT A7'S ONLY ADDITION HERE, AND IT IS
+      // NEITHER IDENTIFYING NOR CLINICAL. It says how the words arrived —
+      // typed, or transcribed from a note the family wrote — so the web tier
+      // can present a photographed note as one. It adds no name, no age, no
+      // diagnosis and no treatment date, and this exact-equality assertion is
+      // what stops a later checkpoint adding one.
+      expect(keysOf(publicTestimonialSchema)).toEqual(['authorLabel', 'body', 'image', 'kind']);
+    });
+
+    it('states three facts about a public space, and none of them is operational', () => {
+      // Milestone 9.5, checkpoint A7. THE LEAK TEST AT THE CONTRACT LEVEL.
+      // No id, no slug, no publication flag, no display order, no timestamp —
+      // and, above all, NO ROOM. A visitor reads a heading, a paragraph and the
+      // photographs a manager published; a room id, a room status, a service
+      // restriction, an availability window or any other scheduling fact would
+      // fail this assertion before it could reach a browser.
+      expect(keysOf(publicSpaceSchema)).toEqual(['description', 'images', 'name']);
     });
 
     it('states three facts per sitemap entry, and no path or host', () => {
@@ -299,6 +317,10 @@ describe('public website contracts', () => {
         articles: 'public-articles',
         testimonials: 'public-testimonials',
         sitemap: 'public-sitemap',
+        // A7 adds one and renames none, for the reason stated above. There is
+        // no per-space prefix beside it because a space has no address of its
+        // own: the gallery is one read, so one tag is the whole of it.
+        spaces: 'public-spaces',
       });
 
       expect(PUBLIC_SERVICE_CACHE_TAG_PREFIX).toBe('public-service:');

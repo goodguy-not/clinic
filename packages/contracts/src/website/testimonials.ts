@@ -40,6 +40,45 @@ export type TestimonialStatus = (typeof TESTIMONIAL_STATUSES)[number];
 
 export const testimonialStatusSchema = z.enum(TESTIMONIAL_STATUSES);
 
+/**
+ * How the family gave the clinic these words.
+ *
+ * Milestone 9.5, checkpoint A7. TWO VALUES, AND THE SECOND ONE EXISTS TO MAKE
+ * ONE RULE STATEABLE: A HANDWRITTEN TESTIMONIAL MAY NOT BE PUBLISHED FROM
+ * PIXELS ALONE.
+ *
+ * `TYPED` is a quotation somebody typed — the A2 case, unchanged in every
+ * respect, and still the default for every row this product creates.
+ *
+ * `HANDWRITTEN` is a note a family wrote by hand and the clinic photographed.
+ * The photograph may accompany it, and `publicTestimonialSchema.image` is where
+ * it appears. IT IS NEVER THE MEANING. `body` — a transcription a human read
+ * the note and typed — is the authoritative public text, it is required, and a
+ * handwritten testimonial with nothing written down is refused as
+ * `VALIDATION_FAILED` rather than stored as a picture waiting to be understood.
+ *
+ * THERE IS NO OCR IN THIS PRODUCT AND NO FIELD THAT COULD HOLD ITS OUTPUT.
+ * Nothing in the API reads a photograph, and no column anywhere records what a
+ * machine thought a note said. If the web tier ever offers transcription as a
+ * DRAFTING AID, what it saves is what a human read, corrected and accepted
+ * through the ordinary draft route — which is indistinguishable, here, from
+ * typing. An authoritative machine-derived field would be the opposite: a
+ * family's words about their child published because software was confident.
+ *
+ * IT IS NOT A PRIVACY GATE AND DOES NOT WEAKEN ONE. `status` remains the
+ * manager's privacy review and `isPublic` remains placement, for both kinds.
+ *
+ * IT IS NOT IDENTIFYING AND IT IS NOT CLINICAL. It says how the words arrived,
+ * and nothing about who wrote them, which child they concern, or anything that
+ * happened in a session. The A2 privacy-by-absence model is unchanged: no
+ * family, no child, no age, no diagnosis, no service, no therapist, no date.
+ */
+export const TESTIMONIAL_KINDS = ['TYPED', 'HANDWRITTEN'] as const;
+
+export type TestimonialKind = (typeof TESTIMONIAL_KINDS)[number];
+
+export const testimonialKindSchema = z.enum(TESTIMONIAL_KINDS);
+
 export const testimonialSchema = z.strictObject({
   id: z.uuid(),
   /**
@@ -48,7 +87,15 @@ export const testimonialSchema = z.strictObject({
    * identity, and this column is the only thing behind it.
    */
   authorLabel: z.string().nullable(),
+  /**
+   * The authoritative words, whatever the kind.
+   *
+   * For a `HANDWRITTEN` testimonial this is the human transcription, and it is
+   * what a visitor reads: the photograph beside it is an illustration of a note
+   * whose meaning is already here.
+   */
   body: z.string(),
+  kind: testimonialKindSchema,
   status: testimonialStatusSchema,
   approvedAt: z.iso.datetime().nullable(),
   isPublic: z.boolean(),
@@ -59,10 +106,28 @@ export const testimonialSchema = z.strictObject({
 
 export type Testimonial = z.infer<typeof testimonialSchema>;
 
-/** Creating one always creates a `DRAFT`, for the reason an article does. */
+/**
+ * Creating one always creates a `DRAFT`, for the reason an article does.
+ *
+ * `body` IS REQUIRED FOR BOTH KINDS AND THAT IS THE HANDWRITTEN RULE. There is
+ * no shape of this request that carries a `HANDWRITTEN` kind and no words, so
+ * "the image alone is insufficient" is a property of the contract rather than a
+ * check somebody has to remember: `publicProseSchema` is a trimmed, non-empty
+ * string, and the column behind it is NOT NULL with the same CHECK.
+ *
+ * THERE IS NO IMAGE FIELD HERE, for either kind. A photograph is attached
+ * through the media subsystem under `media.attach` and published under
+ * `media.publish`, so this request cannot reference one, cannot require one and
+ * cannot publish one.
+ */
 export const createTestimonialRequestSchema = z.strictObject({
   authorLabel: publicHeadingSchema.nullable(),
   body: publicProseSchema,
+  /**
+   * Defaulted to `TYPED`, so every existing caller keeps its meaning and a
+   * request that says nothing about kind gets the kind that needs no picture.
+   */
+  kind: testimonialKindSchema.default('TYPED'),
 });
 
 export type CreateTestimonialRequest = z.infer<typeof createTestimonialRequestSchema>;

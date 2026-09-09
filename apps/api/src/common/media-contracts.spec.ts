@@ -282,12 +282,19 @@ describe('media contracts', () => {
       expect([...MEDIA_ACCEPTED_CONTENT_TYPES]).not.toContain('image/svg+xml');
     });
 
-    it('names four owners and two asset states', () => {
+    it('names five owners and two asset states', () => {
+      // `PUBLIC_SPACE` is Milestone 9.5 checkpoint A7's addition, and it is
+      // LAST rather than replacing `CLINIC_SPACE`. The two are opposites
+      // despite the names: `CLINIC_SPACE` stays A5's ownerless slot that no
+      // public projection reads, and `PUBLIC_SPACE` names a real
+      // `public_space` row whose own publication gates the photograph. A future
+      // edit that collapses them has to change this list deliberately.
       expect([...MEDIA_ATTACHMENT_OWNERS]).toEqual([
         'THERAPIST_PROFILE',
         'PUBLIC_ARTICLE',
         'PUBLIC_TESTIMONIAL',
         'CLINIC_SPACE',
+        'PUBLIC_SPACE',
       ]);
       expect([...MEDIA_ASSET_STATUSES]).toEqual(['ACTIVE', 'ARCHIVED']);
     });

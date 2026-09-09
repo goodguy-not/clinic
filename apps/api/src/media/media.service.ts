@@ -252,7 +252,7 @@ export class MediaService {
       SELECT ma.id,
              ma.media_asset_id,
              ma.owner_type::text AS owner_type,
-             coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id) AS owner_id,
+             coalesce(ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id) AS owner_id,
              ma.position,
              ma.attached_at,
              ma.published_at,
@@ -311,6 +311,9 @@ const OWNER_IS_PUBLIC = Prisma.sql`
     )
     WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
       SELECT 1 FROM public_testimonial pt WHERE pt.id = ma.testimonial_id AND pt.is_public
+    )
+    WHEN 'PUBLIC_SPACE' THEN EXISTS (
+      SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
     )
     WHEN 'CLINIC_SPACE' THEN TRUE
   END

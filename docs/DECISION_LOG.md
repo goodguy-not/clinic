@@ -4906,3 +4906,90 @@ which remains the only thing that writes `service` and `therapist`.
 - **Trade-off:** a controller whose route prefix does not match its directory, and
   a class comment on each saying why.
 - **Revisit when:** an editorial surface needs a table no catalog module owns.
+
+## 2026-09-09 — A public space is a separate concept from an operational room, with no reference between them
+
+**Status:** Accepted — Milestone 9.5 checkpoint A7
+
+`public_space` is editorial content about the building — a heading, a
+paragraph, an order and photographs — drafted under `public_space.draft` and
+published under `public_space.publish`. `room` remains scheduling
+configuration under `room.*`. The two tables share **no foreign key in either
+direction**, and neither module imports the other.
+
+- **Alternatives:** a nullable manager-set `room_id` on `public_space`,
+  documented as non-publishing; publishing a room directly by giving `room` its
+  own public columns.
+- **Reason:** the frozen boundary is that no operational act may publish
+  anything and no public read may carry an operational fact. With no column
+  joining the tables, both are properties of the SCHEMA — a leak would need a
+  new column and a reviewed migration, not a widened `SELECT` — rather than
+  promises a projection has to keep. Nothing in the accepted product asks a
+  space which room it is, and a nullable link would have been the first half of
+  the coupling the checkpoint exists to prevent. A clinic also genuinely
+  publishes things that are not rooms (a corridor, a garden) and rooms it does
+  not publish.
+- **Trade-off:** a clinic that publishes a description of a room maintains its
+  name in two places, and no report can join published spaces to operational
+  ones.
+- **Revisit when:** a decision arrives that genuinely needs the join — a
+  room-level public page, or an operational report about published spaces. It
+  is then one nullable column and a migration, and the non-publishing rule has
+  to be stated at that point rather than assumed now.
+
+## 2026-09-09 — `PUBLIC_SPACE` is a fifth attachment owner, and `CLINIC_SPACE` is left exactly as A5 froze it
+
+**Status:** Accepted — Milestone 9.5 checkpoint A7
+
+`MEDIA_ATTACHMENT_OWNERS` gains `PUBLIC_SPACE`, which names a `public_space`
+row and requires an owner id like the other three real owners. `CLINIC_SPACE`
+keeps its A5 meaning unchanged: ownerless, `ownerId` null, and returned by no
+public projection.
+
+- **Alternatives:** redefine `CLINIC_SPACE` to carry the new `space_id`, which
+  would have kept the enum at four values and made every owner type uniform.
+- **Reason:** the media workspace shipped in B6 uses the ownerless
+  `CLINIC_SPACE` slot as the parking place for a photograph somebody has
+  uploaded and framed but not yet placed — its own copy says the page creates no
+  public placement. Redefining the slot would have turned that drafting sandbox
+  into a live public-gallery target, which is the accident this checkpoint
+  exists to prevent, and would have rewritten an accepted A5 contract Agent B
+  builds against today. A5 itself said a fifth value would have to be a new
+  decision about what the clinic publishes; this is that decision.
+- **Trade-off:** two owner types whose names read similarly and whose owner-id
+  rules are opposite. The enum comment, the service comment and a schema test
+  state the difference; `normalizeOwner` refuses the wrong shape rather than
+  silently dropping it.
+- **Revisit when:** the web tier gains a first-class "prepared but unplaced"
+  concept of its own. `CLINIC_SPACE` is then vocabulary with nothing behind it
+  and should be retired in a reviewed migration.
+
+## 2026-09-09 — A handwritten testimonial is never publishable from pixels, and no OCR output is ever authoritative
+
+**Status:** Accepted — Milestone 9.5 checkpoint A7
+
+`public_testimonial.kind` records `TYPED` or `HANDWRITTEN`. For both kinds the
+`body` — a human transcription — is the authoritative public text and is
+required by the request contract, by a NOT NULL column and by
+`public_testimonial_handwritten_body_chk`. No column in this schema holds
+machine-read text, and nothing in the API reads a photograph.
+
+- **Alternatives:** no discriminator at all, relying on `body` already being
+  required; an `ocr_text` column beside the transcription; a minimum
+  transcription length for handwritten notes.
+- **Reason:** the rule worth stating is "a photograph of somebody's handwriting
+  about their child is not publishable until a person has read it", and a rule
+  nobody can point at is a rule that erodes. The discriminator makes it
+  checkable, testable and visible to the surface that will render a photographed
+  note. An OCR-derived authoritative field would mean publishing a family's
+  words because software was confident. A minimum length would be inventing
+  policy nobody has approved.
+- **Trade-off:** one more enum in the schema, and a rule the database can never
+  observe failing, because `public_testimonial_body_chk` already refuses an
+  empty body of any kind. That redundancy is the point: the reader finds the
+  rule under its own name.
+- **Revisit when:** the web tier offers transcription as a drafting aid. What it
+  saves must still be what a human read, corrected and accepted through the
+  ordinary draft route — which is indistinguishable, here, from typing. H0, the
+  clinic's consent policy, remains an owner and legal decision and is encoded
+  nowhere.

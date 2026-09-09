@@ -343,6 +343,19 @@ export const ERROR_CODES = [
   // PROJECT_SPEC.md 11 exists to require, surfacing as a refusal: approval is
   // never inferred from a record existing.
   'TESTIMONIAL_NOT_APPROVED',
+  // A public space that is not there (Milestone 9.5, checkpoint A7). Its own
+  // code rather than a shared one, because every entity in this list has its
+  // own and because the sentence a manager needs names the thing they were
+  // looking for.
+  //
+  // THERE IS DELIBERATELY NO CODE FOR A HANDWRITTEN TESTIMONIAL WITHOUT A
+  // TRANSCRIPTION. The transcription is the `body`, `body` is required by the
+  // request contract and by a NOT NULL column, and a handwritten testimonial
+  // with nothing written down is refused as `VALIDATION_FAILED` — a malformed
+  // request rather than a domain state. A second code would suggest there is a
+  // legitimate half-written state that this product will hold, and there is
+  // not: the picture is never the meaning.
+  'PUBLIC_SPACE_NOT_FOUND',
   // There is deliberately NO `ARTICLE_SLUG_REQUIRED` or `ARTICLE_INCOMPLETE`:
   // an article's slug, title and body are NOT NULL from creation, so a draft is
   // always publishable and there is no half-written state to refuse.

@@ -38,6 +38,18 @@ import { Prisma } from '@prisma/client';
  * `clinic_public_profile` is a single row that is always live — editing it IS
  * publishing (Milestone 9, checkpoint A2). Condition (3) therefore carries the
  * whole of the control for clinic-space photographs, and (3) is manager-only.
+ * NO PUBLIC PROJECTION IN THIS PRODUCT LISTS ONE, before checkpoint A7 or
+ * after it: the bytes are reachable to somebody holding the rendition id once a
+ * manager publishes the attachment, and no page names it.
+ *
+ * `PUBLIC_SPACE` IS THE OPPOSITE CASE AND IS THE ONE A7 ADDS. It has a real
+ * owner row — `public_space`, which a receptionist drafts and a manager
+ * publishes — so it satisfies (4) exactly as an article does, and NOT
+ * unconditionally. A photograph of the waiting area on an unpublished or
+ * withdrawn space is refused here however published its own attachment is, and
+ * unpublishing the space revokes every photograph on it at the origin on the
+ * very next request. That is what makes "a draft space does not appear
+ * publicly" true of its PICTURES and not merely of its words.
  *
  * WHY `EXISTS` PER OWNER RATHER THAN THREE LEFT JOINS. A join whose predicate
  * lives in the `ON` clause is a join somebody can later widen by moving one
@@ -57,6 +69,9 @@ export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
         )
         WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
           SELECT 1 FROM public_testimonial pt WHERE pt.id = ma.testimonial_id AND pt.is_public
+        )
+        WHEN 'PUBLIC_SPACE' THEN EXISTS (
+          SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
         )
         WHEN 'CLINIC_SPACE' THEN TRUE
       END

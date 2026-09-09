@@ -69,11 +69,35 @@ export function articleDraft(slug: string): Record<string, unknown> {
   };
 }
 
-/** A synthetic, anonymised testimonial. */
-export function testimonialDraft(): Record<string, unknown> {
+/**
+ * A synthetic, anonymised testimonial.
+ *
+ * `kind` defaults to `TYPED`, which is the A2 case. The handwritten suite
+ * overrides it — and NEVER supplies a photograph of anybody's real handwriting:
+ * every image in these suites is generated in code by `media-support.ts`.
+ */
+export function testimonialDraft(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     authorLabel: 'Synthetic parent label',
     body: 'Synthetic testimonial text written for a test. It names nobody and describes nothing.',
+    kind: 'TYPED',
+    ...overrides,
+  };
+}
+
+/**
+ * A synthetic public-space draft.
+ *
+ * IT NAMES NO ROOM, AND THERE IS NO FIELD ON THE REQUEST THAT COULD. That is
+ * the checkpoint's boundary, visible in the fixture: a public space is a
+ * paragraph about the building, not a reference to a bookable room.
+ */
+export function spaceDraft(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: 'Synthetic waiting area',
+    description: 'Synthetic description of a space that does not exist. It names nobody.',
+    displayOrder: 0,
+    ...overrides,
   };
 }
 
