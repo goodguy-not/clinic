@@ -165,6 +165,73 @@ describe('attachment and framing routes', () => {
     );
   });
 
+  it('passes a fixed clinic content entry owner through the reusable draft attachment route', async () => {
+    const entryId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61';
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        media: {
+          ...MEDIA,
+          attachments: [
+            {
+              ...MEDIA.attachments[0],
+              ownerType: 'CLINIC_CONTENT_ENTRY',
+              ownerId: entryId,
+            },
+          ],
+        },
+      },
+    });
+    const response = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', {
+        mediaId: MEDIA_ID,
+        ownerType: 'CLINIC_CONTENT_ENTRY',
+        ownerId: entryId,
+        position: 0,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { ownerType: 'CLINIC_CONTENT_ENTRY', ownerId: entryId, position: 0 },
+      { sessionToken: SESSION_TOKEN },
+    );
+  });
+
+  it('passes the ownerless clinic open-graph target through the reusable route', async () => {
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        media: {
+          ...MEDIA,
+          attachments: [
+            {
+              ...MEDIA.attachments[0],
+              ownerType: 'CLINIC_OPEN_GRAPH',
+              ownerId: null,
+            },
+          ],
+        },
+      },
+    });
+    const response = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', {
+        mediaId: MEDIA_ID,
+        ownerType: 'CLINIC_OPEN_GRAPH',
+        ownerId: null,
+        position: 0,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { ownerType: 'CLINIC_OPEN_GRAPH', ownerId: null, position: 0 },
+      { sessionToken: SESSION_TOKEN },
+    );
+  });
+
   it('recovers an already-created draft attachment instead of re-uploading', async () => {
     mocks.createMediaAttachment.mockResolvedValueOnce({
       ok: false,

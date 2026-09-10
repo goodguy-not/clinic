@@ -13,6 +13,8 @@ import {
   promiseReportResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetResponseSchema,
+  clinicContentEntryResponseSchema,
+  clinicContentResponseSchema,
   publicClinicProfileResponseSchema,
   servicePublicCopyListResponseSchema,
   servicePublicCopyResponseSchema,
@@ -121,6 +123,8 @@ import {
   type CreateMediaAttachmentRequest,
   type MediaAssetListResponse,
   type MediaAssetResponse,
+  type ClinicContentEntryResponse,
+  type ClinicContentResponse,
   type UpdateMediaFramingRequest,
   type UpdateMediaPublicationRequest,
   type PublicClinicProfileResponse,
@@ -130,6 +134,7 @@ import {
   type TherapistProfileCopyResponse,
   type TherapistPublicProfileResponse,
   type UpdateClinicProfileRequest,
+  type UpdateClinicContentEntryRequest,
   type UpdateServicePublicCopyRequest,
   type UpdateServicePublicCopyPublicationRequest,
   type UpdateTherapistProfileCopyRequest,
@@ -967,6 +972,22 @@ export const api = {
     context: CallerContext,
   ): Promise<ApiResult<PublicClinicProfileResponse>> =>
     call('/content/clinic-profile', 'PUT', publicClinicProfileResponseSchema, context, body),
+
+  listClinicContentEntries: (context: CallerContext): Promise<ApiResult<ClinicContentResponse>> =>
+    call('/content/clinic-profile/entries', 'GET', clinicContentResponseSchema, context),
+
+  updateClinicContentEntry: (
+    id: string,
+    body: UpdateClinicContentEntryRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ClinicContentEntryResponse>> =>
+    call(
+      `/content/clinic-profile/entries/${encodeURIComponent(id)}`,
+      'PUT',
+      clinicContentEntryResponseSchema,
+      context,
+      body,
+    ),
 
   updateArticlePublication: (
     id: string,

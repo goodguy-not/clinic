@@ -40,3 +40,12 @@ export function clinicProfileForm(body: SubmittedBody) {
     telegramUrl: optionalText(body['telegramUrl']),
   };
 }
+
+export function clinicContentEntryForm(body: SubmittedBody) {
+  return {
+    label: optionalText(body['label']),
+    eyebrow: optionalText(body['eyebrow']),
+    heading: optionalText(body['heading']),
+    body: optionalText(body['body']),
+  };
+}

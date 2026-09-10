@@ -230,6 +230,7 @@ const MESSAGES: Record<DisplayableCode, string> = {
   ARTICLE_NOT_FOUND: 'این مطلب پیدا نشد.',
   TESTIMONIAL_NOT_FOUND: 'این رضایت‌نامه پیدا نشد.',
   PUBLIC_SPACE_NOT_FOUND: 'این فضای عمومی پیدا نشد.',
+  CLINIC_CONTENT_ENTRY_NOT_FOUND: 'این بخش از محتوای کلینیک پیدا نشد.',
   // ویرایش متنِ تأییدشده پذیرفته نمی‌شود؛ اول تأیید برداشته می‌شود.
   TESTIMONIAL_APPROVED:
     'متن این رضایت‌نامه تأیید شده و قابل ویرایش نیست. برای تغییر، ابتدا تأیید را بردارید؛ با این کار از وب‌سایت هم برداشته می‌شود.',

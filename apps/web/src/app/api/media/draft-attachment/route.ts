@@ -26,9 +26,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const mediaId = z.uuid().safeParse(body['mediaId']);
+  const submittedOwnerId = body['ownerId'];
   const target = createMediaAttachmentRequestSchema.safeParse({
     ownerType: body['ownerType'] ?? 'CLINIC_SPACE',
-    ownerId: body['ownerId'] === undefined || body['ownerId'] === '' ? null : body['ownerId'],
+    ownerId:
+      submittedOwnerId === undefined || submittedOwnerId === '' || submittedOwnerId === 'null'
+        ? null
+        : submittedOwnerId,
     position: body['position'] === undefined ? 0 : Number(body['position']),
   });
   if (!mediaId.success || !target.success) {

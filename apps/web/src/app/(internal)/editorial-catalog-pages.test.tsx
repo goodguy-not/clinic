@@ -1,12 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type {
+  ClinicContentEntry,
   MediaAsset,
   PublicClinicProfile,
   ServicePublicCopy,
   TherapistProfileCopy,
   TherapistPublicProfile,
 } from '@clinic/contracts';
+import { ClinicContentEditor } from './content/clinic-profile/clinic-content-editor';
 import { ClinicProfileForm } from './content/clinic-profile/clinic-profile-form';
 import { ServiceCopyEditor } from './content/services/[id]/service-copy-editor';
 import { TherapistProfileEditor } from './content/therapists/[id]/therapist-profile-editor';
@@ -150,6 +152,48 @@ describe('clinic profile boundary', () => {
     expect(html).not.toContain('privacy');
     expect(html).not.toContain('ownerCopy');
   });
+
+  it('renders A8 fixed slots in API order without row or ordering controls', () => {
+    const entries = syntheticClinicEntries();
+    const html = renderToStaticMarkup(
+      <ClinicContentEditor entries={entries} media={[]} csrfToken={CSRF} mediaLoadError={null} />,
+    );
+
+    expect(html.indexOf('معرفی آغاز صفحه')).toBeLessThan(html.indexOf('راهنمای شروع'));
+    expect(html.indexOf('راهنمای شروع')).toBeLessThan(html.indexOf('معرفی صفحهٔ دربارهٔ کلینیک'));
+    expect(html).toContain('عنوان، مرز نمایش این بخش است');
+    expect(html).toContain('/api/content/clinic-profile/entries/update');
+    expect(html).not.toContain('name="slot"');
+    expect(html).not.toContain('name="position"');
+    expect(html).not.toContain('/create');
+    expect(html).not.toContain('/delete');
+  });
+
+  it('reuses distinct B5 controls for content and sharing images with manager publication', () => {
+    const entries = syntheticClinicEntries();
+    const contentImage = syntheticClinicImage('CLINIC_CONTENT_ENTRY', entries[1]!.id, false, '71');
+    const openGraphImage = syntheticClinicImage('CLINIC_OPEN_GRAPH', null, true, '81');
+    const html = renderToStaticMarkup(
+      <ClinicContentEditor
+        entries={entries}
+        media={[contentImage, openGraphImage]}
+        csrfToken={CSRF}
+        mediaLoadError={null}
+      />,
+    );
+
+    expect(html).toContain('عکس هنگام اشتراک‌گذاری سایت');
+    expect(html).toContain('این عکس لوگو نیست');
+    expect(html).toContain('قاب پهن');
+    expect(html).toContain('قاب افقی');
+    expect(html).toContain('عکس آمادهٔ انتشار');
+    expect(html).toContain('عکس منتشرشده');
+    expect(html).toContain('action="/api/media/publication"');
+    expect(html).toContain('name="clinicProfile" value="true"');
+
+    const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
 
 function emptyClinic(): PublicClinicProfile {
@@ -193,6 +237,76 @@ function syntheticPortrait(): MediaAsset {
         position: 0,
         attachedAt: '2026-09-01T00:00:00.000Z',
         publishedAt: null,
+        ownerIsPublic: true,
+        framing: { focalX: 0.5, focalY: 0.5, crop: null },
+      },
+    ],
+  };
+}
+
+function syntheticClinicEntries(): ClinicContentEntry[] {
+  return [
+    {
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a70',
+      slot: 'HOME_HERO',
+      position: 0,
+      label: null,
+      eyebrow: null,
+      heading: null,
+      body: null,
+      image: null,
+    },
+    {
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a71',
+      slot: 'HOME_CONCERN',
+      position: 0,
+      label: 'انتخاب ساختگی',
+      eyebrow: 'راهنمای ساختگی',
+      heading: 'عنوان ساختگی',
+      body: 'متن ساختگی',
+      image: null,
+    },
+    {
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a72',
+      slot: 'ABOUT_INTRO',
+      position: 0,
+      label: null,
+      eyebrow: null,
+      heading: null,
+      body: null,
+      image: null,
+    },
+  ];
+}
+
+function syntheticClinicImage(
+  ownerType: 'CLINIC_CONTENT_ENTRY' | 'CLINIC_OPEN_GRAPH',
+  ownerId: string | null,
+  published: boolean,
+  suffix: string,
+): MediaAsset {
+  return {
+    id: `0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a${suffix}`,
+    altText: `عکس ساختگی ${suffix}`,
+    status: 'ACTIVE',
+    width: 1200,
+    height: 800,
+    byteSize: 1000,
+    sourceContentType: 'image/jpeg',
+    sourceByteSize: 1200,
+    isPubliclyServed: published,
+    renditions: [],
+    createdAt: '2026-09-01T00:00:00.000Z',
+    archivedAt: null,
+    bytesPurgedAt: null,
+    attachments: [
+      {
+        id: `0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a${Number(suffix) + 1}`,
+        ownerType,
+        ownerId,
+        position: 0,
+        attachedAt: '2026-09-01T00:00:00.000Z',
+        publishedAt: published ? '2026-09-01T00:00:00.000Z' : null,
         ownerIsPublic: true,
         framing: { focalX: 0.5, focalY: 0.5, crop: null },
       },

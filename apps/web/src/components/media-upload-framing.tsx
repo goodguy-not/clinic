@@ -1,7 +1,7 @@
 'use client';
 
 import type { CreateMediaAttachmentRequest, MediaFraming } from '@clinic/contracts';
-import { useEffect, useRef, useState, type ChangeEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, type ChangeEvent, type PointerEvent } from 'react';
 import {
   cropImageStyle,
   DEFAULT_MEDIA_TARGET_SHAPES,
@@ -33,17 +33,19 @@ export function FramingResultPreview({
   previewUrl,
   framing,
   targetShape,
+  headingId = 'frame-heading',
 }: {
   previewUrl: string;
   framing: MediaFraming;
   targetShape: MediaTargetShape;
+  headingId?: string;
 }) {
   const poorCrop = hasPoorCrop(framing);
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="frame-heading">
+    <section className="flex flex-col gap-3" aria-labelledby={headingId}>
       <div>
-        <h2 id="frame-heading" className="font-bold text-slate-900">
+        <h2 id={headingId} className="font-bold text-slate-900">
           ۳. نتیجه را در قاب واقعی ببینید
         </h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -84,6 +86,11 @@ export function MediaUploadFraming({
   targetShapes?: readonly [MediaTargetShape, ...MediaTargetShape[]];
   attachmentTarget?: CreateMediaAttachmentRequest;
 }) {
+  const idPrefix = useId();
+  const focusHeadingId = `${idPrefix}-focus-heading`;
+  const frameHeadingId = `${idPrefix}-frame-heading`;
+  const altHeadingId = `${idPrefix}-alt-heading`;
+  const altInputId = `${idPrefix}-media-alt`;
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
@@ -310,9 +317,9 @@ export function MediaUploadFraming({
 
       {previewUrl !== null ? (
         <div className="grid gap-5 lg:grid-cols-2">
-          <section className="flex flex-col gap-3" aria-labelledby="focus-heading">
+          <section className="flex flex-col gap-3" aria-labelledby={focusHeadingId}>
             <div>
-              <h2 id="focus-heading" className="font-bold text-slate-900">
+              <h2 id={focusHeadingId} className="font-bold text-slate-900">
                 ۲. بخش مهم عکس را نشان دهید
               </h2>
               <p className="mt-1 text-sm text-slate-600">
@@ -438,20 +445,21 @@ export function MediaUploadFraming({
               previewUrl={previewUrl}
               framing={framing}
               targetShape={targetShape}
+              headingId={frameHeadingId}
             />
           </div>
         </div>
       ) : null}
 
-      <section className="flex flex-col gap-3" aria-labelledby="alt-heading">
-        <h2 id="alt-heading" className="font-bold text-slate-900">
+      <section className="flex flex-col gap-3" aria-labelledby={altHeadingId}>
+        <h2 id={altHeadingId} className="font-bold text-slate-900">
           ۴. عکس را برای همه توضیح دهید
         </h2>
-        <label htmlFor="media-alt" className="text-sm font-semibold text-slate-900">
+        <label htmlFor={altInputId} className="text-sm font-semibold text-slate-900">
           در این عکس چه چیزی دیده می‌شود؟ (برای کسانی که عکس را نمی‌بینند)
         </label>
         <textarea
-          id="media-alt"
+          id={altInputId}
           value={altText}
           maxLength={200}
           required

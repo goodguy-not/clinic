@@ -6,6 +6,7 @@ let captured: Captured[] = [];
 
 const ARTICLE_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4da1';
 const TESTIMONIAL_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4da2';
+const CLINIC_ENTRY_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4da3';
 const ARTICLE = {
   id: ARTICLE_ID,
   publicSlug: 'synthetic-guide',
@@ -29,6 +30,16 @@ const TESTIMONIAL = {
   firstPublishedAt: null,
   publicRevisedAt: null,
   createdAt: '2026-08-01T08:00:00.000Z',
+};
+const CLINIC_ENTRY = {
+  id: CLINIC_ENTRY_ID,
+  slot: 'HOME_HERO',
+  position: 0,
+  label: null,
+  eyebrow: 'خوش آمدید',
+  heading: 'عنوان ساختگی',
+  body: 'متن ساختگی',
+  image: null,
 };
 
 function answer(payload: unknown): void {
@@ -126,5 +137,34 @@ describe('named internal content API client', () => {
     });
     expect(JSON.parse(String(captured[4]?.init.body))).toEqual({ approved: true });
     expect(JSON.parse(String(captured[5]?.init.body))).toEqual({ isPublic: true });
+  });
+
+  it('uses the fixed clinic-content list and entry replacement routes', async () => {
+    answer({ entries: [CLINIC_ENTRY] });
+    await api.listClinicContentEntries({ sessionToken: 'synthetic-token' });
+    answer({ entry: CLINIC_ENTRY });
+    await api.updateClinicContentEntry(
+      CLINIC_ENTRY_ID,
+      {
+        label: null,
+        eyebrow: 'خوش آمدید',
+        heading: 'عنوان ساختگی',
+        body: 'متن ساختگی',
+      },
+      { sessionToken: 'synthetic-token' },
+    );
+
+    expect(captured.map((entry) => [entry.init.method, new URL(entry.url).pathname])).toEqual([
+      ['GET', '/content/clinic-profile/entries'],
+      ['PUT', `/content/clinic-profile/entries/${CLINIC_ENTRY_ID}`],
+    ]);
+    expect(JSON.parse(String(captured[1]?.init.body))).toEqual({
+      label: null,
+      eyebrow: 'خوش آمدید',
+      heading: 'عنوان ساختگی',
+      body: 'متن ساختگی',
+    });
+    expect(JSON.parse(String(captured[1]?.init.body))).not.toHaveProperty('slot');
+    expect(JSON.parse(String(captured[1]?.init.body))).not.toHaveProperty('position');
   });
 });

@@ -211,5 +211,21 @@ describe('B6 editorial page authority follows the accepted draft/publish split',
     expect(service).toContain("requirePermission: 'service.draft_public_copy'");
     expect(therapist).toContain("requirePermission: 'therapist.draft_public_profile'");
     expect(clinic).toContain("requirePermission: ['clinic_profile.read', 'clinic_profile.update']");
+    expect(clinic).toContain('api.listClinicContentEntries(context)');
+  });
+
+  it('keeps the A8 clinic content surface behind the existing manager-only profile permissions', async () => {
+    await expect(
+      requireWith(
+        ['clinic_profile.read', 'clinic_profile.update'],
+        ['clinic_profile.read', 'clinic_profile.update'],
+      ),
+    ).resolves.toEqual(expect.objectContaining({ permissions: expect.any(Array) }));
+    await expect(
+      requireWith(
+        ['media.read', 'media.upload', 'media.attach'],
+        ['clinic_profile.read', 'clinic_profile.update'],
+      ),
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 });

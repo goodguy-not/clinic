@@ -56,8 +56,8 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(79);
-    expect(stateChangingHandlers.length).toBe(78);
+    expect(handlers.length).toBe(80);
+    expect(stateChangingHandlers.length).toBe(79);
   });
 
   it('exposes no catch-all route', () => {
@@ -118,6 +118,7 @@ describe('route handler inventory', () => {
       '/api/content/articles/create',
       '/api/content/articles/publication',
       '/api/content/articles/update',
+      '/api/content/clinic-profile/entries/update',
       '/api/content/clinic-profile/update',
       '/api/content/service-copy/publication',
       '/api/content/service-copy/update',
