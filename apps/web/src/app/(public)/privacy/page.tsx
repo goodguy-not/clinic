@@ -1,11 +1,17 @@
 import type { Metadata } from 'next';
-import { publicMetadata } from '@/server/public-seo';
+import { getPublicMetadataContext } from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'حریم خصوصی | والا',
-  description: 'صفحهٔ اطلاع‌رسانی حریم خصوصی وب‌سایت والا.',
-  path: '/privacy',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('حریم خصوصی', clinicName),
+    description: 'صفحهٔ اطلاع‌رسانی حریم خصوصی وب‌سایت کلینیک.',
+    path: '/privacy',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 export default function PrivacyPage() {
   const sections = [

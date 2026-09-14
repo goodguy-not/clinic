@@ -1,137 +1,173 @@
 import type { Metadata } from 'next';
-import { DevelopmentPhoto, EvaluationCallout, PageHero } from '@/components/public-content';
+import type { PublicClinicContentEntry } from '@clinic/contracts';
+import { EvaluationCallout, PageHero } from '@/components/public-content';
+import { PublicMediaImage } from '@/components/public-media-image';
 import { PublicSpaceTeaser } from '@/components/public-space-teaser';
-import { getPublicClinicProfile } from '@/server/public-site';
-import { publicMetadata } from '@/server/public-seo';
+import {
+  getPublicClinicContent,
+  getPublicClinicProfile,
+  getPublicMetadataContext,
+  getPublicSpaces,
+} from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'دربارهٔ والا و فضاها | والا',
-  description: 'معرفی عمومی منتشرشدهٔ کلینیک توانبخشی والا و راهنمای پیش از مراجعه.',
-  path: '/about',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('دربارهٔ کلینیک و فضاها', clinicName),
+    description: 'معرفی عمومی منتشرشدهٔ کلینیک و راهنمای پیش از مراجعه.',
+    path: '/about',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 export default async function AboutPage() {
-  const clinic = await getPublicClinicProfile();
+  const [clinicRead, contentRead, spaces] = await Promise.all([
+    getPublicClinicProfile(),
+    getPublicClinicContent(),
+    getPublicSpaces(),
+  ]);
+  const clinic = clinicRead.data;
+  const entries = contentRead.data.entries;
+  const inSlot = (slot: PublicClinicContentEntry['slot']) =>
+    entries.filter((entry) => entry.slot === slot);
+  const intro = inSlot('ABOUT_INTRO')[0];
+  const highlights = inSlot('ABOUT_HIGHLIGHT');
+  const spaceNote = inSlot('ABOUT_SPACE_NOTE')[0];
+  const spacePoints = inSlot('ABOUT_SPACE_POINT');
+  const journey = inSlot('ABOUT_JOURNEY_STEP');
+  const showSpaces = spaces.data.length > 0 || process.env.NODE_ENV !== 'production';
 
   return (
     <main id="main-content">
-      <PageHero
-        eyebrow="دربارهٔ والا"
-        title="والا چه جور جایی است؟"
-        aside={
-          <nav className="b2-page-index" aria-label="در این صفحه">
-            <strong>در این صفحه</strong>
-            <a href="#character" className="public-focus">
-              <span>شخصیت والا</span>
-            </a>
-            <a href="#spaces" className="public-focus">
-              <span>فضاهای والا</span>
-            </a>
-            <a href="#why-space" className="public-focus">
-              <span>چرا فضا این‌طور طراحی شده</span>
-            </a>
-            <a href="#first-visit" className="public-focus">
-              <span>اولین برخورد با والا</span>
-            </a>
-          </nav>
-        }
-      >
-        {clinic.data.tagline ? <p className="b2-hero__lead">{clinic.data.tagline}</p> : null}
-      </PageHero>
-
-      <section
-        id="character"
-        className="public-shell b2-fact-rule b2-about-facts"
-        aria-label="شخصیت والا"
-      >
-        <div>
-          <small>مسیر روشن</small>
-          <strong>توضیح تأییدشدهٔ این ویژگی هنوز منتشر نشده است</strong>
-        </div>
-        <div>
-          <small>توضیح به زبان ساده</small>
-          <strong>توضیح تأییدشدهٔ این ویژگی هنوز منتشر نشده است</strong>
-        </div>
-        <div>
-          <small>همراهی خانواده</small>
-          <strong>توضیح تأییدشدهٔ این ویژگی هنوز منتشر نشده است</strong>
-        </div>
-      </section>
-
-      <section className="b2-about-intro" aria-labelledby="about-intro-title">
-        <DevelopmentPhoto
-          src="/dev/vala-synthetic/01-reception.jpg"
-          className="b2-about-intro__photo"
-          sizes="100vw"
-          priority
+      {intro ? (
+        <PageHero
+          eyebrow={intro.eyebrow ?? 'دربارهٔ کلینیک'}
+          title={intro.heading}
+          lead={clinic.tagline ?? undefined}
+          aside={
+            <nav className="b2-page-index" aria-label="در این صفحه">
+              <strong>در این صفحه</strong>
+              {highlights.length ? (
+                <a href="#character" className="public-focus">
+                  شخصیت کلینیک
+                </a>
+              ) : null}
+              {showSpaces ? (
+                <a href="#spaces" className="public-focus">
+                  فضاهای کلینیک
+                </a>
+              ) : null}
+              {spaceNote ? (
+                <a href="#why-space" className="public-focus">
+                  چرا فضا این‌طور طراحی شده
+                </a>
+              ) : null}
+              {journey.length ? (
+                <a href="#first-visit" className="public-focus">
+                  اولین برخورد با کلینیک
+                </a>
+              ) : null}
+            </nav>
+          }
         />
-        <div className="public-shell b2-about-intro__copy">
-          <p className="public-kicker public-kicker--gold">والا به روایت خودش</p>
-          <h2 id="about-intro-title">پیش از آمدن، کمی آشناتر شوید</h2>
-          {clinic.data.about ? (
-            <p>{clinic.data.about}</p>
-          ) : (
-            <p>معرفی تأییدشدهٔ کلینیک هنوز تکمیل نشده است.</p>
-          )}
-        </div>
-      </section>
+      ) : null}
 
-      <section id="spaces" className="b2-spaces-full" aria-labelledby="spaces-title">
-        <div className="public-shell b2-spaces-full__heading">
+      {highlights.length ? (
+        <section
+          id="character"
+          className="public-shell b2-fact-rule b2-about-facts"
+          aria-label="شخصیت کلینیک"
+        >
+          {highlights.map((highlight, index) => (
+            <div key={`${highlight.heading}-${index}`}>
+              {highlight.label ? <small>{highlight.label}</small> : null}
+              <strong>{highlight.body ?? highlight.heading}</strong>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {intro && (clinic.about || intro.body || intro.image) ? (
+        <section className="b2-about-intro" aria-label="معرفی کلینیک">
+          <figure className="b2-about-intro__photo">
+            {intro.image ? (
+              <PublicMediaImage image={intro.image} sizes="100vw" priority />
+            ) : (
+              <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
+            )}
+          </figure>
+          <div className="public-shell b2-about-intro__copy">
+            {clinic.about ? <p>{clinic.about}</p> : null}
+            {intro.body ? <p>{intro.body}</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {showSpaces ? (
+        <section id="spaces" className="b2-spaces-full" aria-labelledby="spaces-title">
+          <div className="public-shell b2-spaces-full__heading">
+            <div>
+              <p className="public-kicker">فضاهای کلینیک</p>
+              <h2 id="spaces-title">یک نگاه، پیش از اولین مراجعه</h2>
+            </div>
+          </div>
+          <PublicSpaceTeaser
+            spaces={spaces.data}
+            full
+            showDevelopmentExamples={process.env.NODE_ENV !== 'production'}
+          />
+        </section>
+      ) : null}
+
+      {spaceNote ? (
+        <section
+          id="why-space"
+          className="public-shell b2-space-rationale"
+          aria-labelledby="space-rationale-title"
+        >
           <div>
-            <p className="public-kicker">فضاهای والا</p>
-            <h2 id="spaces-title">یک نگاه، پیش از اولین مراجعه</h2>
+            {spaceNote.eyebrow ? <p className="public-kicker">{spaceNote.eyebrow}</p> : null}
+            <h2 id="space-rationale-title">{spaceNote.heading}</h2>
+            {spaceNote.body ? <p>{spaceNote.body}</p> : null}
+            {spacePoints.length ? (
+              <ul className="b2-hairline-list">
+                {spacePoints.map((point, index) => (
+                  <li key={`${point.heading}-${index}`}>{point.body ?? point.heading}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
-          <p>
-            این تجربهٔ تعاملی برای جای‌گیری عکس‌های تأییدشده آماده است. تصاویر فعلی فقط مرجع
-            توسعه‌اند و هیچ فضای واقعی را معرفی نمی‌کنند.
-          </p>
-        </div>
-        <PublicSpaceTeaser full />
-      </section>
+          <figure className="b2-space-rationale__photo">
+            {spaceNote.image ? (
+              <PublicMediaImage image={spaceNote.image} sizes="(max-width: 56rem) 100vw, 42vw" />
+            ) : (
+              <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
+            )}
+          </figure>
+        </section>
+      ) : null}
 
-      <section
-        id="why-space"
-        className="public-shell b2-space-rationale"
-        aria-labelledby="space-rationale-title"
-      >
-        <div>
-          <p className="public-kicker">چرا فضا این‌طور طراحی شده</p>
-          <h2 id="space-rationale-title">جزئیات واقعی، پس از تأیید فضا</h2>
-          <p>
-            این بخش برای توضیح تجربهٔ ورود، دسترسی و مسیر حرکت آماده است؛ متن فعلی هیچ ویژگی واقعی
-            را به کلینیک نسبت نمی‌دهد.
-          </p>
-          <ul className="b2-hairline-list">
-            <li>اطلاعات تأییدشدهٔ دسترسی هنوز منتشر نشده است.</li>
-            <li>اطلاعات تأییدشدهٔ مسیر ورود هنوز منتشر نشده است.</li>
-            <li>اطلاعات تأییدشدهٔ امکانات همراهان هنوز منتشر نشده است.</li>
-          </ul>
-        </div>
-        <DevelopmentPhoto
-          src="/dev/vala-synthetic/05-corridor.jpg"
-          className="b2-space-rationale__photo"
-          sizes="(max-width: 56rem) 100vw, 42vw"
-        />
-      </section>
-
-      <section id="first-visit" className="b2-first-visit" aria-labelledby="first-visit-title">
-        <div className="public-shell">
-          <p className="public-kicker">اولین برخورد با والا</p>
-          <h2 id="first-visit-title">از درخواست تا ارزیابی</h2>
-          <div className="b2-first-visit__steps">
-            {['درخواست', 'بررسی', 'هماهنگی'].map((label, index) => (
-              <div key={label}>
-                <span>{index + 1}</span>
-                <strong>{label}</strong>
-                <p>جزئیات تأییدشدهٔ این مرحله در B3 تکمیل می‌شود.</p>
-              </div>
-            ))}
+      {journey.length ? (
+        <section id="first-visit" className="b2-first-visit" aria-labelledby="first-visit-title">
+          <div className="public-shell">
+            <p className="public-kicker">اولین برخورد با کلینیک</p>
+            <h2 id="first-visit-title">از درخواست تا ارزیابی</h2>
+            <div className="b2-first-visit__steps">
+              {journey.map((step, index) => (
+                <div key={`${step.heading}-${index}`}>
+                  <span>{index + 1}</span>
+                  <strong>{step.label ?? step.heading}</strong>
+                  {step.body ? <p>{step.body}</p> : null}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
       <div className="public-shell b2-section-end">
-        <EvaluationCallout title="می‌خواهید دربارهٔ آمدن به والا بپرسید؟" />
+        <EvaluationCallout title="می‌خواهید دربارهٔ آمدن به کلینیک بپرسید؟" />
       </div>
     </main>
   );

@@ -40,9 +40,11 @@ const TIME_OPTIONS: { value: Exclude<ContactTime, ''>; label: string }[] = [
 export function RequestForm({
   serviceSlug,
   serviceName,
+  clinicName,
 }: {
   serviceSlug: string | null;
   serviceName: string | null;
+  clinicName: string | null;
 }) {
   const action = submitPublicRequestAction.bind(null, serviceSlug);
   const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
@@ -231,7 +233,8 @@ export function RequestForm({
           aria-describedby="consent-error"
         />
         <label htmlFor="consent">
-          موافقم که والا برای هماهنگی ارزیابی با من تماس بگیرد و اطلاعات این فرم را نگه دارد.{' '}
+          موافقم که {clinicName ?? 'کلینیک'} برای هماهنگی ارزیابی با من تماس بگیرد و اطلاعات این فرم
+          را نگه دارد.{' '}
           <Link href="/privacy" className="public-focus">
             حریم خصوصی
           </Link>

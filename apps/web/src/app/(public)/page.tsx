@@ -1,96 +1,124 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import type {
+  PublicClinicContentEntry,
   PublicClinicProfile,
+  PublicSpace,
   PublicServiceSummary,
   PublicTherapistProfile,
 } from '@clinic/contracts';
-import { PublicConcernGuide } from '@/components/public-concern-guide';
+import { PublicConcernGuide, type PublicConcernContent } from '@/components/public-concern-guide';
 import { PublicServiceExplorer } from '@/components/public-service-explorer';
 import { PublicSpaceTeaser } from '@/components/public-space-teaser';
 import { PublicTeamTrack } from '@/components/public-team-track';
+import { PublicMediaImage } from '@/components/public-media-image';
 import { publicMetadata } from '@/server/public-seo';
-import { getPublicHomeData, type PublicRead } from '@/server/public-site';
+import { getPublicHomeData, getPublicMetadataContext, type PublicRead } from '@/server/public-site';
 
 export const revalidate = 900;
 
 export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
   return publicMetadata({
-    title: 'کلینیک توانبخشی والا',
-    description: 'آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک توانبخشی والا.',
+    title: clinicName ?? 'کلینیک',
+    description: 'آشنایی با خدمات، تیم درمان و راه‌های ارتباط با کلینیک.',
     path: '/',
+    clinicName,
+    image: openGraphImage,
   });
 }
 
 export default async function PublicHomePage() {
   const home = await getPublicHomeData();
   const clinic = home.clinic.data;
+  const entry = (slot: PublicClinicContentEntry['slot']) =>
+    home.content.data.entries.filter((item) => item.slot === slot);
+  const hero = entry('HOME_HERO')[0];
+  const firstVisit = entry('HOME_FIRST_VISIT')[0];
+  const publicConcern = ({
+    label,
+    eyebrow,
+    heading,
+    body,
+    image,
+  }: PublicClinicContentEntry): PublicConcernContent => ({
+    label,
+    eyebrow,
+    heading,
+    body,
+    image,
+  });
 
   return (
     <main id="main-content">
-      <PublicConcernGuide cityLabel={clinic.cityLabel} />
-      <FirstVisit />
-      <Services read={home.services} />
+      {hero ? (
+        <PublicConcernGuide
+          clinicName={clinic.displayName}
+          cityLabel={clinic.cityLabel}
+          hero={publicConcern(hero)}
+          concerns={entry('HOME_CONCERN').map(publicConcern)}
+        />
+      ) : null}
+      {firstVisit ? (
+        <FirstVisit intro={firstVisit} moments={entry('HOME_FIRST_VISIT_STEP')} />
+      ) : null}
+      <Services read={home.services} clinicName={clinic.displayName} />
       <Team read={home.team} />
-      <Spaces clinic={clinic} />
+      <Spaces clinic={clinic} spaces={home.spaces} />
       <FamilyExperienceBoundary />
       <EvaluationEntry clinic={clinic} profileStatus={home.clinic.status} />
     </main>
   );
 }
 
-function FirstVisit() {
+function FirstVisit({
+  intro,
+  moments,
+}: {
+  intro: PublicClinicContentEntry;
+  moments: PublicClinicContentEntry[];
+}) {
   const persianMomentNumbers = ['۱', '۲', '۳'] as const;
-  const moments = [
-    {
-      title: 'آشنا می‌شویم',
-      text: 'اول گفت‌وگو می‌کنیم و فرصت می‌دهیم محیط و آدم‌ها آشناتر شوند.',
-    },
-    {
-      title: 'شرایط را بهتر می‌فهمیم',
-      text: 'آنچه خانواده می‌بیند و اطلاعاتی که همراه دارد، بخشی از ارزیابی است.',
-    },
-    {
-      title: 'قدم بعد را روشن می‌کنیم',
-      text: 'در پایان، پیشنهاد تیم و دلیل آن برای ادامهٔ مسیر توضیح داده می‌شود.',
-    },
-  ] as const;
 
   return (
     <section className="public-first-visit" aria-labelledby="first-visit-title">
       <div className="public-first-visit__layout">
         <div className="public-first-visit__copy">
-          <p className="public-kicker">در والا چه می‌گذرد؟</p>
-          <h2 id="first-visit-title">جلسهٔ اول، بیشتر از هر چیز، آشنا شدن است</h2>
-          <div className="public-moments">
-            {moments.map((moment, index) => (
-              <article key={moment.title}>
-                <span>{persianMomentNumbers[index]}</span>
-                <h3>{moment.title}</h3>
-                <p>{moment.text}</p>
-              </article>
-            ))}
-          </div>
+          {intro.eyebrow ? <p className="public-kicker">{intro.eyebrow}</p> : null}
+          <h2 id="first-visit-title">{intro.heading}</h2>
+          {intro.body ? <p>{intro.body}</p> : null}
+          {moments.length ? (
+            <div className="public-moments">
+              {moments.map((moment, index) => (
+                <article key={`${moment.heading}-${index}`}>
+                  <span>{persianMomentNumbers[index]}</span>
+                  <h3>{moment.heading}</h3>
+                  {moment.body ? <p>{moment.body}</p> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
         </div>
         <figure className="public-first-visit__media">
-          <Image
-            src="/dev/vala-synthetic/12-therapist-child-interaction.jpg"
-            width="980"
-            height="810"
-            alt=""
-            sizes="(max-width: 47.99rem) 100vw, 31vw"
-            loading="eager"
-          />
-          <figcaption>تصویر آزمایشی — نه مراجع یا درمانگر واقعی والا</figcaption>
+          {intro.image ? (
+            <PublicMediaImage image={intro.image} sizes="(max-width: 47.99rem) 100vw, 31vw" />
+          ) : (
+            <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
+          )}
         </figure>
       </div>
     </section>
   );
 }
 
-function Services({ read }: { read: PublicRead<PublicServiceSummary[]> }) {
+function Services({
+  read,
+  clinicName,
+}: {
+  read: PublicRead<PublicServiceSummary[]>;
+  clinicName: string | null;
+}) {
   const services = read.data.slice(0, 6);
 
   return (
@@ -98,7 +126,7 @@ function Services({ read }: { read: PublicRead<PublicServiceSummary[]> }) {
       <div className="public-section-heading public-shell">
         <div>
           <p className="public-kicker">خدمات</p>
-          <h2 id="services-title">در والا چه کارهایی انجام می‌شود</h2>
+          <h2 id="services-title">در {clinicName ?? 'کلینیک'} چه کارهایی انجام می‌شود</h2>
         </div>
         <p>نام هر خدمت را انتخاب کنید؛ تصویر و توضیح تأییدشده همان‌جا تغییر می‌کند.</p>
         <Link href="/services" className="public-focus public-text-link">
@@ -153,20 +181,27 @@ function Team({ read }: { read: PublicRead<PublicTherapistProfile[]> }) {
   );
 }
 
-function Spaces({ clinic }: { clinic: PublicClinicProfile }) {
+function Spaces({
+  clinic,
+  spaces,
+}: {
+  clinic: PublicClinicProfile;
+  spaces: PublicRead<PublicSpace[]>;
+}) {
+  if (spaces.data.length === 0 && process.env.NODE_ENV === 'production') return null;
   return (
     <section id="about" className="public-spaces" aria-labelledby="spaces-title">
       <div className="public-shell public-spaces__heading">
         <div>
           <p className="public-kicker">آشنایی پیش از مراجعه</p>
-          <h2 id="spaces-title">فضاهای والا</h2>
+          <h2 id="spaces-title">فضاهای {clinic.displayName ?? 'کلینیک'}</h2>
         </div>
-        <p>
-          {clinic.about ??
-            'این پیش‌نمایش فقط زبان تصویری بخش فضاها را نشان می‌دهد. معرفی و تصاویر تأییدشدهٔ کلینیک در مرحلهٔ محتوای عمومی جایگزین می‌شوند.'}
-        </p>
+        {clinic.about ? <p>{clinic.about}</p> : null}
       </div>
-      <PublicSpaceTeaser />
+      <PublicSpaceTeaser
+        spaces={spaces.data}
+        showDevelopmentExamples={process.env.NODE_ENV !== 'production'}
+      />
     </section>
   );
 }
@@ -218,8 +253,8 @@ function EvaluationEntry({
           <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
           <h2 id="request-title">اگر هنوز مطمئن نیستید، همین‌جا شروع کنید.</h2>
           <p>
-            اطلاعات شما ثبت می‌شود، تیم والا آن را بررسی می‌کند و برای هماهنگی ارزیابی با خانواده
-            تماس می‌گیرد. این کار به معنی رزرو یا تأیید نوبت نیست.
+            اطلاعات شما ثبت می‌شود، کلینیک آن را بررسی می‌کند و برای هماهنگی ارزیابی با خانواده تماس
+            می‌گیرد. این کار به معنی رزرو یا تأیید نوبت نیست.
           </p>
           <Link href="/request" className="public-focus public-button public-button--gold">
             شروع درخواست ارزیابی

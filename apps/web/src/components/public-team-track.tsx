@@ -6,13 +6,6 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PublicMediaImage } from './public-media-image';
 
-const SYNTHETIC_PORTRAITS = [
-  '/dev/vala-synthetic/08-therapist-portrait-b.jpg',
-  '/dev/vala-synthetic/07-therapist-portrait-a.jpg',
-  '/dev/vala-synthetic/10-therapist-portrait-d.jpg',
-  '/dev/vala-synthetic/09-therapist-portrait-c.jpg',
-] as const;
-
 function getVisibleCount(width: number) {
   if (width >= 1182) return 4;
   if (width >= 940) return 3;
@@ -170,12 +163,6 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
       >
         <div className="public-team-track__rail">
           {therapists.map((person, index) => {
-            const hasRealPhoto = person.photo !== null || person.photoPath !== null;
-            const photo = hasRealPhoto
-              ? person.photoPath === null
-                ? ''
-                : `/${person.photoPath}`
-              : SYNTHETIC_PORTRAITS[index % SYNTHETIC_PORTRAITS.length]!;
             const isActive = spotlightIndex === index;
             const isReceded = spotlightIndex !== null && !isActive;
 
@@ -200,18 +187,17 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                       image={person.photo}
                       sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
                     />
-                  ) : (
+                  ) : person.photoPath !== null ? (
                     <Image
-                      src={photo}
+                      src={`/${person.photoPath}`}
                       width="620"
                       height="780"
-                      alt={hasRealPhoto ? person.displayName : ''}
+                      alt={person.displayName}
                       sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
                     />
+                  ) : (
+                    <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
                   )}
-                  {!hasRealPhoto ? (
-                    <span className="public-photo-note">تصویر آزمایشی — این درمانگر نیست</span>
-                  ) : null}
                 </div>
                 <div className="public-person-card__body">
                   <h3>{person.displayName}</h3>

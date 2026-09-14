@@ -3,6 +3,7 @@
 import type { PublicTestimonial } from '@clinic/contracts';
 import { useState } from 'react';
 import { toPersianNumber } from './public-content';
+import { PublicMediaImage } from './public-media-image';
 
 const developmentCards = [
   {
@@ -26,13 +27,32 @@ export function PublicTestimonialGrid({
 
   return (
     <div className="b2-stories__grid">
-      {testimonials.map((testimonial, index) => (
-        <figure key={`${testimonial.body}-${index}`} className="b2-story-card b2-story-card--typed">
-          <span>TEXT ONLY · {toPersianNumber(String(index + 1).padStart(2, '0'))}</span>
-          <blockquote>«{testimonial.body}»</blockquote>
-          {testimonial.authorLabel ? <figcaption>{testimonial.authorLabel}</figcaption> : null}
-        </figure>
-      ))}
+      {testimonials.map((testimonial, index) => {
+        const handwritten = testimonial.kind === 'HANDWRITTEN';
+        return (
+          <figure
+            key={`${testimonial.body}-${index}`}
+            className={`b2-story-card ${
+              handwritten ? 'b2-story-card--published-handwritten' : 'b2-story-card--typed'
+            }`}
+          >
+            <span>
+              {handwritten ? 'دست‌نوشته و رونویسی' : 'متن تایپ‌شده'} ·{' '}
+              {toPersianNumber(String(index + 1).padStart(2, '0'))}
+            </span>
+            {handwritten && testimonial.image ? (
+              <span className="b2-story-card__image">
+                <PublicMediaImage
+                  image={testimonial.image}
+                  sizes="(max-width: 48rem) 92vw, (max-width: 75rem) 44vw, 30vw"
+                />
+              </span>
+            ) : null}
+            <blockquote>«{testimonial.body}»</blockquote>
+            {testimonial.authorLabel ? <figcaption>{testimonial.authorLabel}</figcaption> : null}
+          </figure>
+        );
+      })}
       {showDevelopmentExamples
         ? developmentCards.map((card, index) => {
             const active = flipped === index;

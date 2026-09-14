@@ -2,21 +2,14 @@ import Link from 'next/link';
 import type { PublicClinicProfile } from '@clinic/contracts';
 import { PublicMobileMenu } from './public-mobile-menu';
 
-const navigation = [
-  { href: '/services', label: 'خدمات' },
-  { href: '/team', label: 'تیم درمان' },
-  { href: '/about', label: 'دربارهٔ والا' },
-  { href: '/articles', label: 'خواندنی‌ها' },
-  { href: '/testimonials', label: 'تجربهٔ خانواده‌ها' },
-  { href: '/contact', label: 'تماس' },
-] as const;
-
 export function PublicMark({
   compact = false,
   light = false,
+  clinicName,
 }: {
   compact?: boolean;
   light?: boolean;
+  clinicName: string | null;
 }) {
   const logoSrc = light
     ? '/brand/vala-logo-horizontal-white.svg'
@@ -29,7 +22,7 @@ export function PublicMark({
         src={logoSrc}
         width="1311"
         height="582"
-        alt="والا، کلینیک توانبخشی"
+        alt={clinicName ? `نشان ${clinicName}` : 'نشان کلینیک'}
         className="public-brand__artwork"
       />
     </picture>
@@ -39,6 +32,14 @@ export function PublicMark({
 export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
   const contactHref = '/request';
   const contactLabel = 'درخواست ارزیابی';
+  const navigation = [
+    { href: '/services', label: 'خدمات' },
+    { href: '/team', label: 'تیم درمان' },
+    { href: '/about', label: `دربارهٔ ${clinic.displayName ?? 'کلینیک'}` },
+    { href: '/articles', label: 'خواندنی‌ها' },
+    { href: '/testimonials', label: 'تجربهٔ خانواده‌ها' },
+    { href: '/contact', label: 'تماس' },
+  ] as const;
 
   return (
     <>
@@ -46,7 +47,7 @@ export function PublicHeader({ clinic }: { clinic: PublicClinicProfile }) {
         <div className="public-header__inner">
           <div className="public-header__orientation">
             <Link href="/" className="public-focus public-brand-link">
-              <PublicMark compact />
+              <PublicMark compact clinicName={clinic.displayName} />
             </Link>
 
             <nav className="public-nav public-nav--desktop" aria-label="پیمایش اصلی">
@@ -98,13 +99,13 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
       <div className="public-shell public-footer__grid">
         <div className="public-footer__intro">
           <Link href="/" className="public-focus public-brand-link public-brand-link--footer">
-            <PublicMark light />
+            <PublicMark light clinicName={clinic.displayName} />
           </Link>
           <p>همراه خانواده برای فهمیدن شرایط و روشن‌کردن قدم بعدی.</p>
         </div>
 
         <nav aria-label="خدمات و تیم" className="public-footer__links">
-          <strong>آشنایی با والا</strong>
+          <strong>آشنایی با {clinic.displayName ?? 'کلینیک'}</strong>
           <Link href="/services" className="public-focus">
             خدمات
           </Link>
@@ -112,7 +113,7 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
             تیم درمان
           </Link>
           <Link href="/about" className="public-focus">
-            دربارهٔ والا
+            دربارهٔ {clinic.displayName ?? 'کلینیک'}
           </Link>
         </nav>
 
@@ -153,7 +154,7 @@ export function PublicFooter({ clinic }: { clinic: PublicClinicProfile }) {
       </div>
       <div className="public-shell public-footer__base">
         <span>اطلاعات عمومی از محتوای تأییدشدهٔ کلینیک نمایش داده می‌شود.</span>
-        <span>© والا</span>
+        {clinic.displayName ? <span>© {clinic.displayName}</span> : null}
       </div>
     </footer>
   );

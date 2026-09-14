@@ -4,18 +4,22 @@ import {
   EvaluationCallout,
   PageHero,
   PublicPageEmpty,
-  THERAPIST_IMAGES,
   TherapistPhoto,
   toPersianNumber,
 } from '@/components/public-content';
-import { getPublicTeam } from '@/server/public-site';
-import { publicMetadata } from '@/server/public-seo';
+import { getPublicMetadataContext, getPublicTeam } from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'تیم درمان | والا',
-  description: 'پروفایل‌های عمومی و با رضایت تیم درمان کلینیک توانبخشی والا.',
-  path: '/team',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('تیم درمان', clinicName),
+    description: 'پروفایل‌های عمومی و با رضایت تیم درمان کلینیک.',
+    path: '/team',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 export default async function TeamPage() {
   const team = await getPublicTeam();
@@ -51,7 +55,6 @@ export default async function TeamPage() {
               <TherapistPhoto
                 photo={person.photo}
                 photoPath={person.photoPath}
-                fallback={THERAPIST_IMAGES[index % THERAPIST_IMAGES.length]!}
                 name={person.displayName}
                 className="b2-team-row__photo"
                 priority={index === 0}

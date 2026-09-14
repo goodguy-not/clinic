@@ -52,9 +52,8 @@ describe('M9 B3 public evaluation request flow', () => {
 
   it('uses the approved consent wording without a prechecked checkbox', () => {
     const form = request('request-form.tsx');
-    expect(form).toContain(
-      'موافقم که والا برای هماهنگی ارزیابی با من تماس بگیرد و اطلاعات این فرم را نگه دارد.',
-    );
+    expect(form).toContain("clinicName ?? 'کلینیک'");
+    expect(form).toContain('برای هماهنگی ارزیابی با من تماس بگیرد');
     expect(form).toContain('defaultChecked={state.values.consent');
     expect(form).not.toContain('defaultChecked={true}');
   });
@@ -63,7 +62,7 @@ describe('M9 B3 public evaluation request flow', () => {
     const received = request('received', 'page.tsx');
     expect(received).toContain('درخواست شما ثبت شد');
     expect(received).toContain('اطلاعات ثبت شده است');
-    expect(received).toContain('تیم والا آن را مرور می‌کند');
+    expect(received).toContain("تیم {clinic.displayName ?? 'کلینیک'} آن را مرور می‌کند");
     expect(received).toContain('کلینیک برای هماهنگی قدم بعدی تماس می‌گیرد');
     expect(received).not.toMatch(/ساعت|امروز|روز کاری|به‌زودی|تضمین/);
     expect(received).not.toContain('duplicate');

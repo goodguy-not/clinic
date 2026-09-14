@@ -8,7 +8,9 @@ import {
   PUBLIC_THERAPIST_CACHE_TAG_PREFIX,
   publicArticleDetailResponseSchema,
   publicArticleListResponseSchema,
+  publicClinicContentResponseSchema,
   publicClinicProfileResponseSchema,
+  publicSpaceListResponseSchema,
   publicServiceDetailResponseSchema,
   publicServiceListResponseSchema,
   publicSitemapResponseSchema,
@@ -19,9 +21,11 @@ import {
   errorEnvelopeSchema,
   type PublicArticleDetail,
   type PublicArticleSummary,
+  type PublicClinicContentResponse,
   type PublicClinicProfile,
   type PublicServiceDetail,
   type PublicServiceSummary,
+  type PublicSpace,
   type PublicSitemapEntry,
   type PublicTestimonial,
   type PublicTherapistProfile,
@@ -47,8 +51,10 @@ export type PublicDetailRead<T> =
 
 export type PublicHomeData = {
   clinic: PublicRead<PublicClinicProfile>;
+  content: PublicRead<PublicClinicContentResponse>;
   services: PublicRead<PublicServiceSummary[]>;
   team: PublicRead<PublicTherapistProfile[]>;
+  spaces: PublicRead<PublicSpace[]>;
 };
 
 const EMPTY_CLINIC_PROFILE: PublicClinicProfile = {
@@ -80,6 +86,8 @@ async function readPublic<T>(
     | '/public/team'
     | `/public/team/${string}`
     | '/public/clinic-profile'
+    | '/public/clinic-content'
+    | '/public/spaces'
     | '/public/articles'
     | `/public/articles/${string}`
     | '/public/testimonials'
@@ -155,21 +163,56 @@ export const getPublicClinicProfile = cache(async function getPublicClinicProfil
   return { status: result.status, data: result.data.clinic };
 });
 
+export const getPublicClinicContent = cache(async function getPublicClinicContent(): Promise<
+  PublicRead<PublicClinicContentResponse>
+> {
+  return readPublic(
+    '/public/clinic-content',
+    publicClinicContentResponseSchema,
+    PUBLIC_CACHE_TAGS.clinicProfile,
+    { openGraphImage: null, entries: [] },
+  );
+});
+
+export const getPublicSpaces = cache(async function getPublicSpaces(): Promise<
+  PublicRead<PublicSpace[]>
+> {
+  const result = await readPublic(
+    '/public/spaces',
+    publicSpaceListResponseSchema,
+    PUBLIC_CACHE_TAGS.spaces,
+    { spaces: [] },
+  );
+  return { status: result.status, data: result.data.spaces };
+});
+
+export const getPublicMetadataContext = cache(async function getPublicMetadataContext() {
+  const [clinic, content] = await Promise.all([getPublicClinicProfile(), getPublicClinicContent()]);
+  return {
+    clinicName: clinic.data.displayName,
+    openGraphImage: content.data.openGraphImage,
+  };
+});
+
 export async function getPublicHomeData(): Promise<PublicHomeData> {
-  const [clinic, services, team] = await Promise.all([
+  const [clinic, content, services, team, spaces] = await Promise.all([
     getPublicClinicProfile(),
+    getPublicClinicContent(),
     readPublic('/public/services', publicServiceListResponseSchema, PUBLIC_CACHE_TAGS.services, {
       services: [],
     }),
     readPublic('/public/team', publicTeamResponseSchema, PUBLIC_CACHE_TAGS.team, {
       therapists: [],
     }),
+    getPublicSpaces(),
   ]);
 
   return {
     clinic,
+    content,
     services: { status: services.status, data: services.data.services },
     team: { status: team.status, data: team.data.therapists },
+    spaces,
   };
 }
 

@@ -1,22 +1,35 @@
 import type { Metadata } from 'next';
 import { RequestForm } from './request-form';
-import { getPublicService } from '@/server/public-site';
-import { publicMetadata } from '@/server/public-seo';
+import {
+  getPublicClinicProfile,
+  getPublicMetadataContext,
+  getPublicService,
+} from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'درخواست ارزیابی | والا',
-  description:
-    'ثبت درخواست ارزیابی برای بررسی تیم والا و تماس جهت هماهنگی؛ این درخواست رزرو نوبت نیست.',
-  path: '/request',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('درخواست ارزیابی', clinicName),
+    description:
+      'ثبت درخواست ارزیابی برای بررسی کلینیک و تماس جهت هماهنگی؛ این درخواست رزرو نوبت نیست.',
+    path: '/request',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 type Props = { searchParams: Promise<{ service?: string | string[] }> };
 
 export default async function RequestPage({ searchParams }: Props) {
   const serviceParam = (await searchParams).service;
   const candidate = typeof serviceParam === 'string' ? serviceParam : null;
-  const service = candidate === null ? null : await getPublicService(candidate);
+  const [service, clinicRead] = await Promise.all([
+    candidate === null ? null : getPublicService(candidate),
+    getPublicClinicProfile(),
+  ]);
   const context = service?.status === 'ready' ? service.data : null;
+  const clinicName = clinicRead.data.displayName;
 
   return (
     <main id="main-content" className="request-page">
@@ -27,11 +40,15 @@ export default async function RequestPage({ searchParams }: Props) {
               <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
               <h1>اگر مطمئن نیستید، بپرسید.</h1>
               <p>
-                اطلاعات کوتاهی بگذارید؛ تیم والا آن را بررسی می‌کند و کلینیک برای هماهنگی قدم بعدی
-                با شما تماس می‌گیرد. با این فرم نوبتی رزرو نمی‌شود.
+                اطلاعات کوتاهی بگذارید؛ {clinicName ?? 'کلینیک'} آن را بررسی می‌کند و برای هماهنگی
+                قدم بعدی با شما تماس می‌گیرد. با این فرم نوبتی رزرو نمی‌شود.
               </p>
             </header>
-            <RequestForm serviceSlug={context?.slug ?? null} serviceName={context?.name ?? null} />
+            <RequestForm
+              serviceSlug={context?.slug ?? null}
+              serviceName={context?.name ?? null}
+              clinicName={clinicName}
+            />
           </div>
 
           <aside className="request-next" aria-labelledby="request-next-title">
@@ -43,7 +60,7 @@ export default async function RequestPage({ searchParams }: Props) {
               </li>
               <li>
                 <span>۲</span>
-                <p>تیم والا آن را بررسی می‌کند.</p>
+                <p>{clinicName ?? 'کلینیک'} آن را بررسی می‌کند.</p>
               </li>
               <li>
                 <span>۳</span>

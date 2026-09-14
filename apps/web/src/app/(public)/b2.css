@@ -1688,6 +1688,16 @@
   background: var(--vala-cream);
   box-shadow: none;
 }
+.b2-story-card--published-handwritten {
+  background: var(--vala-paper);
+}
+.b2-story-card__image {
+  position: relative;
+  min-height: 13rem;
+  overflow: hidden;
+  border: 1px solid var(--vala-rule);
+  aspect-ratio: 4 / 3;
+}
 .b2-story-card--handwritten {
   padding: 0;
   border: 0;

@@ -1,14 +1,19 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { DevelopmentPhoto, PageHero, PublicPageEmpty } from '@/components/public-content';
-import { getPublicClinicProfile } from '@/server/public-site';
-import { publicMetadata } from '@/server/public-seo';
+import { PageHero, PublicPageEmpty } from '@/components/public-content';
+import { getPublicClinicProfile, getPublicMetadataContext } from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'تماس و نشانی | والا',
-  description: 'راه‌های ارتباط با کلینیک توانبخشی والا و شروع درخواست ارزیابی.',
-  path: '/contact',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('تماس و نشانی', clinicName),
+    description: 'راه‌های ارتباط با کلینیک و شروع درخواست ارزیابی.',
+    path: '/contact',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 export default async function ContactPage() {
   const read = await getPublicClinicProfile();
@@ -30,7 +35,7 @@ export default async function ContactPage() {
     <main id="main-content">
       <PageHero
         eyebrow="تماس"
-        title="آمدن به والا"
+        title="آمدن به کلینیک"
         lead="می‌توانید با راه‌های تأییدشدهٔ زیر تماس بگیرید یا از مسیر درخواست ارزیابی شروع کنید."
       />
       <section className="public-shell b2-contact-layout" aria-label="راه‌های تماس و نشانی">
@@ -148,12 +153,9 @@ export default async function ContactPage() {
               <li>راهنمای تأییدشدهٔ همراهان هنوز منتشر نشده است.</li>
             </ul>
           </div>
-          <DevelopmentPhoto
-            src="/dev/vala-synthetic/05-corridor.jpg"
-            className="b2-contact-photo"
-            sizes="(max-width: 56rem) 100vw, 46vw"
-            priority
-          />
+          <div className="b2-contact-photo">
+            <span className="public-media-empty">تصویر عمومی ورود منتشر نشده است</span>
+          </div>
         </div>
       </section>
 
@@ -162,8 +164,8 @@ export default async function ContactPage() {
           <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
           <h2>ترجیح می‌دهید ما تماس بگیریم؟</h2>
           <p>
-            اطلاعات کوتاهی ثبت می‌شود، تیم والا آن را بررسی می‌کند و کلینیک برای هماهنگی قدم بعدی با
-            خانواده تماس می‌گیرد. این درخواست به معنی رزرو نوبت نیست.
+            اطلاعات کوتاهی ثبت می‌شود، کلینیک آن را بررسی می‌کند و برای هماهنگی قدم بعدی با خانواده
+            تماس می‌گیرد. این درخواست به معنی رزرو نوبت نیست.
           </p>
           <Link href="/request" className="public-focus public-button public-button--gold">
             شروع درخواست ارزیابی

@@ -1,29 +1,27 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  EvaluationCallout,
-  THERAPIST_IMAGES,
-  TherapistPhoto,
-  toPersianNumber,
-} from '@/components/public-content';
-import { getPublicTeam, getPublicTherapist } from '@/server/public-site';
-import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
+import { EvaluationCallout, TherapistPhoto, toPersianNumber } from '@/components/public-content';
+import { getPublicMetadataContext, getPublicTeam, getPublicTherapist } from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata, publicPageTitle } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const read = await getPublicTherapist(slug);
-  if (read.status !== 'ready') return privatePublicMetadata('تیم درمان | والا');
+  const [read, context] = await Promise.all([getPublicTherapist(slug), getPublicMetadataContext()]);
+  if (read.status !== 'ready')
+    return privatePublicMetadata(publicPageTitle('تیم درمان', context.clinicName));
   return publicMetadata({
-    title: `${read.data.displayName} | والا`,
+    title: publicPageTitle(read.data.displayName, context.clinicName),
     description:
       read.data.bio ??
       (read.data.title
-        ? `${read.data.displayName}، ${read.data.title} در تیم درمان والا.`
+        ? `${read.data.displayName}، ${read.data.title} در تیم درمان کلینیک.`
         : undefined),
     path: `/team/${read.data.slug}`,
+    clinicName: context.clinicName,
+    image: read.data.photo ?? context.openGraphImage,
   });
 }
 
@@ -62,7 +60,6 @@ export default async function TherapistPage({ params }: Props) {
         <TherapistPhoto
           photo={person.photo}
           photoPath={person.photoPath}
-          fallback={THERAPIST_IMAGES[position % THERAPIST_IMAGES.length]!}
           name={person.displayName}
           className="b2-profile__photo"
           priority
@@ -96,7 +93,7 @@ export default async function TherapistPage({ params }: Props) {
           </section>
           <section className="b2-profile-relations" aria-label="ارتباط‌های محتوایی">
             <div>
-              <small>خدمات مرتبط در والا</small>
+              <small>خدمات مرتبط در کلینیک</small>
               <strong>اطلاعات تأییدشده هنوز منتشر نشده است</strong>
             </div>
             <div>
@@ -118,11 +115,6 @@ export default async function TherapistPage({ params }: Props) {
               <TherapistPhoto
                 photo={previous.photo}
                 photoPath={previous.photoPath}
-                fallback={
-                  THERAPIST_IMAGES[
-                    (position - 1 + THERAPIST_IMAGES.length) % THERAPIST_IMAGES.length
-                  ]!
-                }
                 name={previous.displayName}
                 className="b2-profile-nav__photo"
               />
@@ -137,7 +129,6 @@ export default async function TherapistPage({ params }: Props) {
               <TherapistPhoto
                 photo={next.photo}
                 photoPath={next.photoPath}
-                fallback={THERAPIST_IMAGES[(position + 1) % THERAPIST_IMAGES.length]!}
                 name={next.displayName}
                 className="b2-profile-nav__photo"
               />

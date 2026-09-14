@@ -26,13 +26,14 @@ describe('M9 B1 route ownership', () => {
 });
 
 describe('M9 B1 public boundary and interaction policy', () => {
-  it('uses the approved Vala identity and exact production artwork', () => {
+  it('uses the managed clinic identity and keeps the accepted static brand artwork', () => {
     const page = read('(public)', 'page.tsx');
     const chrome = readFileSync(join(SRC, 'components', 'public-chrome.tsx'), 'utf8');
 
-    expect(page).toContain("title: 'کلینیک توانبخشی والا'");
-    expect(page).toContain('کلینیک توانبخشی والا');
-    expect(page).not.toContain('clinic.displayName');
+    expect(page).toContain('getPublicMetadataContext');
+    expect(page).toContain("title: clinicName ?? 'کلینیک'");
+    expect(page).toContain('clinic.displayName');
+    expect(readFileSync(join(SRC, 'server', 'public-seo.ts'), 'utf8')).not.toContain('SITE_NAME');
     expect(chrome).toContain('/brand/vala-logo-horizontal.svg');
     expect(chrome).toContain('/brand/vala-logo-horizontal-white.svg');
     expect(chrome).toContain('/brand/vala-icon.svg');
@@ -59,9 +60,9 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(menu).toContain("removeAttribute('open')");
     expect(menu).toContain('<details');
     expect(concerns).toMatch(/^['"]use client['"]/);
-    expect(concerns).toContain('از کجا شروع کنیم؟');
-    expect(concerns).toContain('loading="eager"');
-    expect(concerns).not.toContain('priority');
+    expect(concerns).toContain('hero.heading');
+    expect(concerns).toContain('concerns.map');
+    expect(concerns).toContain('<PublicMediaImage');
     expect(services).toMatch(/^['"]use client['"]/);
     expect(services).toContain('useState(0)');
     expect(services).not.toContain('@/server/');
@@ -112,12 +113,11 @@ describe('M9 B1 public boundary and interaction policy', () => {
     expect(spaces).toContain('onPointerLeave');
     expect(spaces).toContain('HOVER_INTENT_MS');
     expect(spaces).toContain('public-space-browser__controls-bar');
-    expect(spaces).toContain('/dev/vala-synthetic/05-corridor.jpg');
+    expect(spaces).toContain('spaces.map');
+    expect(spaces).toContain('<PublicMediaImage');
     expect(spaces).toContain('href="/about#spaces"');
     expect(spaces).not.toContain('priority={index === 0}');
-    expect(page).toMatch(
-      /src="\/dev\/vala-synthetic\/12-therapist-child-interaction\.jpg"[\s\S]*?loading="eager"/,
-    );
+    expect(page).toContain("entry('HOME_FIRST_VISIT_STEP')");
     expect(read('(public)', 'public.css')).toMatch(
       /\.public-team-track__controls\s*{[^}]*direction:\s*ltr/,
     );

@@ -164,6 +164,19 @@
   line-height: 1.5;
 }
 
+.public-media-empty {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  color: var(--vala-muted);
+  background: linear-gradient(135deg, rgb(1 44 91 / 5%), rgb(28 116 115 / 9%)), var(--vala-sand);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
 /* Public chrome */
 .public-header {
   position: relative;

@@ -2,69 +2,86 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import type { PublicImage, PublicSpace } from '@clinic/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PublicMediaImage } from './public-media-image';
+import { toPersianNumber } from './public-content';
 
 const HOVER_INTENT_MS = 90;
 
-const spaces = [
+const DEVELOPMENT_SPACES = [
   {
     name: 'فضای کودک — نمونهٔ بصری',
-    caption: 'پیش‌نمایش چیدمان برای آزمودن زبان تصویری صفحه؛ نه نمایش فضای واقعی والا.',
+    description: 'پیش‌نمایش چیدمان برای آزمودن زبان تصویری صفحه؛ نه نمایش فضای واقعی کلینیک.',
     image: '/dev/vala-synthetic/03-pediatric-room.jpg',
     detail: '/dev/vala-synthetic/12-therapist-child-interaction.jpg',
   },
   {
     name: 'فضای تمرین — نمونهٔ بصری',
-    caption: 'پیش‌نمایش توسعه برای سنجش قاب، نور و مقیاس؛ نه نمایش فضای واقعی والا.',
+    description: 'پیش‌نمایش توسعه برای سنجش قاب، نور و مقیاس؛ نه نمایش فضای واقعی کلینیک.',
     image: '/dev/vala-synthetic/02-rehab-gym.jpg',
     detail: '/dev/vala-synthetic/11-balance-therapy.jpg',
   },
-  {
-    name: 'فضای درمان — نمونهٔ بصری',
-    caption: 'پیش‌نمایش توسعه برای ترکیب عکس اصلی و جزئیات نزدیک؛ نه یک ادعای کلینیکی.',
-    image: '/dev/vala-synthetic/04-treatment-room.jpg',
-    detail: '/dev/vala-synthetic/13-hand-therapy-detail.jpg',
-  },
-  {
-    name: 'پذیرش — نمونهٔ بصری',
-    caption: 'پیش‌نمایش توسعه برای آشنایی پیش از مراجعه؛ مشخصات واقعی هنوز منتشر نشده است.',
-    image: '/dev/vala-synthetic/01-reception.jpg',
-    detail: '/dev/vala-synthetic/06-brand-wall.jpg',
-  },
-  {
-    name: 'مسیر ورود — نمونهٔ بصری',
-    caption: 'پیش‌نمایش توسعه برای آزمودن مسیر روایت فضاها؛ نه نمایش ساختمان واقعی والا.',
-    image: '/dev/vala-synthetic/05-corridor.jpg',
-    detail: '/dev/vala-synthetic/01-reception.jpg',
-  },
 ] as const;
 
-const persianIndices = ['۰۱', '۰۲', '۰۳', '۰۴', '۰۵'] as const;
+type SpaceView = {
+  name: string;
+  description: string | null;
+  image: PublicImage | null;
+  detail: PublicImage | null;
+  developmentImage?: string;
+  developmentDetail?: string;
+};
 
-export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
+export function PublicSpaceTeaser({
+  spaces,
+  full = false,
+  showDevelopmentExamples = false,
+}: {
+  spaces: PublicSpace[];
+  full?: boolean;
+  showDevelopmentExamples?: boolean;
+}) {
+  const displayed: SpaceView[] = spaces.length
+    ? spaces.map((space) => ({
+        name: space.name,
+        description: space.description,
+        image: space.images[0] ?? null,
+        detail: space.images[1] ?? null,
+      }))
+    : showDevelopmentExamples
+      ? DEVELOPMENT_SPACES.map((space) => ({
+          name: space.name,
+          description: space.description,
+          image: null,
+          detail: null,
+          developmentImage: space.image,
+          developmentDetail: space.detail,
+        }))
+      : [];
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const hoverTimerRef = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const goTo = useCallback((index: number) => {
-    const nextIndex = Math.max(0, Math.min(index, spaces.length - 1));
-    setActiveIndex(nextIndex);
+  const goTo = useCallback(
+    (index: number) => {
+      const nextIndex = Math.max(0, Math.min(index, displayed.length - 1));
+      setActiveIndex(nextIndex);
 
-    if (window.matchMedia('(max-width: 63.99rem)').matches) {
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const viewport = viewportRef.current;
-      const target = panelRefs.current[nextIndex];
-      if (viewport !== null && target !== null && target !== undefined) {
-        const inlineDelta =
-          target.getBoundingClientRect().right - viewport.getBoundingClientRect().right;
-        viewport.scrollBy({
-          left: inlineDelta,
-          behavior: reduceMotion ? 'auto' : 'smooth',
-        });
+      if (window.matchMedia('(max-width: 63.99rem)').matches) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const viewport = viewportRef.current;
+        const target = panelRefs.current[nextIndex];
+        if (viewport !== null && target !== null && target !== undefined) {
+          const inlineDelta =
+            target.getBoundingClientRect().right - viewport.getBoundingClientRect().right;
+          viewport.scrollBy({ left: inlineDelta, behavior: reduceMotion ? 'auto' : 'smooth' });
+        }
       }
-    }
-  }, []);
+    },
+    [displayed.length],
+  );
 
   const clearHoverIntent = useCallback(() => {
     if (hoverTimerRef.current === null) return;
@@ -81,13 +98,8 @@ export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
       ) {
         return;
       }
-
       clearHoverIntent();
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        goTo(index);
-        return;
-      }
-
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return goTo(index);
       hoverTimerRef.current = window.setTimeout(() => {
         hoverTimerRef.current = null;
         goTo(index);
@@ -98,8 +110,9 @@ export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
 
   useEffect(() => clearHoverIntent, [clearHoverIntent]);
 
+  if (displayed.length === 0) return null;
   const hasPrevious = activeIndex > 0;
-  const hasNext = activeIndex < spaces.length - 1;
+  const hasNext = activeIndex < displayed.length - 1;
 
   return (
     <div
@@ -115,16 +128,12 @@ export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
         }
       }}
     >
-      <div
-        ref={viewportRef}
-        className="public-space-browser__panels"
-        aria-label="پیش‌نمایش فضاهای کلینیک"
-      >
-        {spaces.map((space, index) => {
+      <div ref={viewportRef} className="public-space-browser__panels" aria-label="فضاهای کلینیک">
+        {displayed.map((space, index) => {
           const active = index === activeIndex;
           return (
             <button
-              key={space.name}
+              key={`${space.name}-${index}`}
               ref={(node) => {
                 panelRefs.current[index] = node;
               }}
@@ -142,34 +151,56 @@ export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
                 goTo(index);
               }}
             >
-              <Image
-                src={space.image}
-                fill
-                alt=""
-                sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
-                loading="eager"
-              />
+              {space.image ? (
+                <PublicMediaImage
+                  image={space.image}
+                  sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
+                />
+              ) : space.developmentImage ? (
+                <Image
+                  src={space.developmentImage}
+                  fill
+                  alt=""
+                  sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
+                />
+              ) : (
+                <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
+              )}
               <span className="public-space-panel__veil" aria-hidden="true" />
-              <span className="public-space-panel__index">{persianIndices[index]}</span>
+              <span className="public-space-panel__index">
+                {toPersianNumber(String(index + 1).padStart(2, '0'))}
+              </span>
               <span className="public-space-panel__copy">
                 <strong>{space.name}</strong>
-                <small>{space.caption}</small>
+                {space.description ? <small>{space.description}</small> : null}
               </span>
-              <span className="public-space-panel__detail" aria-hidden="true">
-                <Image src={space.detail} fill alt="" sizes="112px" loading="eager" />
-              </span>
+              {space.detail || space.developmentDetail ? (
+                <span className="public-space-panel__detail" aria-hidden="true">
+                  {space.detail ? (
+                    <PublicMediaImage image={space.detail} sizes="112px" />
+                  ) : (
+                    <Image src={space.developmentDetail!} fill alt="" sizes="112px" />
+                  )}
+                </span>
+              ) : null}
+              {space.developmentImage ? (
+                <span className="public-photo-note">
+                  تصویر نمونهٔ آزمایشی — نه فضای واقعی کلینیک
+                </span>
+              ) : null}
             </button>
           );
         })}
       </div>
       <div className="public-shell public-space-browser__controls-bar">
         <p aria-live="polite">
-          فضای {persianIndices[activeIndex]} از {persianIndices.at(-1)}
+          فضای {toPersianNumber(String(activeIndex + 1).padStart(2, '0'))} از{' '}
+          {toPersianNumber(String(displayed.length).padStart(2, '0'))}
         </p>
-        <div className="public-track-dots" aria-label="انتخاب فضای پیش‌نمایش">
-          {spaces.map((space, index) => (
+        <div className="public-track-dots" aria-label="انتخاب فضای کلینیک">
+          {displayed.map((space, index) => (
             <button
-              key={space.name}
+              key={`${space.name}-${index}`}
               type="button"
               className="public-focus"
               data-active={activeIndex === index || undefined}
@@ -201,18 +232,17 @@ export function PublicSpaceTeaser({ full = false }: { full?: boolean }) {
         </div>
       </div>
       <div className="public-space-browser__footer">
-        <p>تصاویر آزمایشی‌اند و فضای واقعی کلینیک والا را نشان نمی‌دهند.</p>
-        {full ? (
-          <span className="public-space-browser__future">
-            <strong>نمایش ساختاری کامل</strong>
-            <small>در انتظار عکس‌ها و توضیحات تأییدشدهٔ فضای واقعی</small>
-          </span>
+        {spaces.length ? (
+          <p>تصاویر و توضیحات منتشرشدهٔ فضاهای کلینیک</p>
         ) : (
+          <p>نمونه‌های توسعه؛ نه فضای واقعی کلینیک</p>
+        )}
+        {!full ? (
           <Link href="/about#spaces" className="public-focus public-space-browser__future">
-            <strong>دربارهٔ والا و فضاها</strong>
+            <strong>دربارهٔ کلینیک و فضاها</strong>
             <small>دیدن تجربهٔ کامل فضاها</small>
           </Link>
-        )}
+        ) : null}
       </div>
     </div>
   );

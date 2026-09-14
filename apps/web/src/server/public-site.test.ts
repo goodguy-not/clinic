@@ -4,7 +4,9 @@ import {
   getPublicArticle,
   getPublicArticles,
   getPublicHomeData,
+  getPublicClinicContent,
   getPublicService,
+  getPublicSpaces,
   getPublicTeam,
   getPublicTestimonials,
   getPublicTherapist,
@@ -19,6 +21,8 @@ describe('public website reads', () => {
   it('uses only the A1 public routes, strict projections, and frozen cache tags', async () => {
     const responses: Record<string, unknown> = {
       '/public/clinic-profile': { clinic: emptyClinic() },
+      '/public/clinic-content': { openGraphImage: null, entries: [] },
+      '/public/spaces': { spaces: [] },
       '/public/services': {
         services: [{ slug: 'speech-therapy', name: 'گفتاردرمانی', description: null }],
       },
@@ -46,11 +50,13 @@ describe('public website reads', () => {
 
     expect(result.services.data[0]?.slug).toBe('speech-therapy');
     expect(result.team.data[0]?.displayName).toBe('درمانگر نمونه');
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy).toHaveBeenCalledTimes(5);
     const calls = fetchSpy.mock.calls as [string, RequestInit][];
     expect(calls.map(([url]) => new URL(url).pathname).sort()).toEqual([
+      '/public/clinic-content',
       '/public/clinic-profile',
       '/public/services',
+      '/public/spaces',
       '/public/team',
     ]);
     expect(calls.every(([, init]) => init.cache === 'force-cache')).toBe(true);
@@ -59,6 +65,7 @@ describe('public website reads', () => {
     ).toEqual(
       expect.arrayContaining([
         PUBLIC_CACHE_TAGS.clinicProfile,
+        PUBLIC_CACHE_TAGS.spaces,
         PUBLIC_CACHE_TAGS.services,
         PUBLIC_CACHE_TAGS.team,
       ]),
@@ -152,6 +159,63 @@ describe('public website reads', () => {
     expect(testimonials.data).toEqual([
       { authorLabel: null, body: 'روایت تأییدشده', kind: 'TYPED', image: null },
     ]);
+  });
+
+  it('reads A8 content and A7 spaces only through their strict public projections', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/public/clinic-content') {
+        return Response.json({
+          openGraphImage: null,
+          entries: [
+            {
+              slot: 'HOME_HERO',
+              label: null,
+              eyebrow: 'معرفی نمونه',
+              heading: 'عنوان مدیریت‌شده',
+              body: 'متن مدیریت‌شده',
+              image: null,
+            },
+          ],
+        });
+      }
+      return Response.json({
+        spaces: [{ name: 'فضای منتشرشده', description: 'توضیح منتشرشده', images: [] }],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [content, spaces] = await Promise.all([getPublicClinicContent(), getPublicSpaces()]);
+    expect(content.data.entries.map((entry) => entry.heading)).toEqual(['عنوان مدیریت‌شده']);
+    expect(spaces.data).toEqual([
+      { name: 'فضای منتشرشده', description: 'توضیح منتشرشده', images: [] },
+    ]);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).pathname).sort()).toEqual([
+      '/public/clinic-content',
+      '/public/spaces',
+    ]);
+  });
+
+  it('fails closed when a supposed public space carries operational room data', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          spaces: [
+            {
+              name: 'فضای ناسالم',
+              description: null,
+              images: [],
+              roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d70',
+              status: 'ACTIVE',
+              capacity: 3,
+            },
+          ],
+        }),
+      ),
+    );
+
+    await expect(getPublicSpaces()).resolves.toEqual({ status: 'unavailable', data: [] });
   });
 
   it('distinguishes a private-or-missing detail from a transport failure without exposing why', async () => {

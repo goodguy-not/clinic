@@ -4,22 +4,6 @@ import type { PublicImage } from '@clinic/contracts';
 import type { ReactNode } from 'react';
 import { PublicMediaImage } from './public-media-image';
 
-export const SERVICE_IMAGES = [
-  '/dev/vala-synthetic/12-therapist-child-interaction.jpg',
-  '/dev/vala-synthetic/13-hand-therapy-detail.jpg',
-  '/dev/vala-synthetic/11-balance-therapy.jpg',
-  '/dev/vala-synthetic/03-pediatric-room.jpg',
-  '/dev/vala-synthetic/02-rehab-gym.jpg',
-  '/dev/vala-synthetic/04-treatment-room.jpg',
-] as const;
-
-export const THERAPIST_IMAGES = [
-  '/dev/vala-synthetic/08-therapist-portrait-b.jpg',
-  '/dev/vala-synthetic/07-therapist-portrait-a.jpg',
-  '/dev/vala-synthetic/10-therapist-portrait-d.jpg',
-  '/dev/vala-synthetic/09-therapist-portrait-c.jpg',
-] as const;
-
 export function PageHero({
   eyebrow,
   title,
@@ -75,7 +59,7 @@ export function DevelopmentPhoto({
         loading={priority ? undefined : 'eager'}
       />
       <figcaption className="public-photo-note">
-        تصویر نمونهٔ آزمایشی — نه فضای واقعی والا
+        تصویر نمونهٔ آزمایشی — نه فضای واقعی کلینیک
       </figcaption>
     </figure>
   );
@@ -84,14 +68,12 @@ export function DevelopmentPhoto({
 export function TherapistPhoto({
   photo,
   photoPath,
-  fallback,
   name,
   className,
   priority = false,
 }: {
   photo: PublicImage | null;
   photoPath: string | null;
-  fallback: string;
   name: string;
   className?: string;
   priority?: boolean;
@@ -110,32 +92,19 @@ export function TherapistPhoto({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/${photoPath}`} alt={name} loading={priority ? 'eager' : 'lazy'} />
       ) : (
-        <Image
-          src={fallback}
-          fill
-          alt=""
-          sizes="(max-width: 48rem) 100vw, 42vw"
-          priority={priority}
-        />
+        <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
       )}
-      {photo === null && !photoPath ? (
-        <figcaption className="public-photo-note">
-          تصویر نمونهٔ آزمایشی — این درمانگر نیست
-        </figcaption>
-      ) : null}
     </figure>
   );
 }
 
 export function ArticlePhoto({
   image,
-  fallback,
   className,
   sizes,
   priority = false,
 }: {
   image: PublicImage | null;
-  fallback?: string;
   className: string;
   sizes: string;
   priority?: boolean;
@@ -147,9 +116,7 @@ export function ArticlePhoto({
       </figure>
     );
   }
-  return fallback === undefined ? null : (
-    <DevelopmentPhoto src={fallback} className={className} sizes={sizes} priority={priority} />
-  );
+  return null;
 }
 
 export function PublicPageEmpty({
@@ -187,7 +154,7 @@ export function EvaluationCallout({
         <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
         <h2 id="b2-cta-title">{title}</h2>
         <p>
-          اطلاعات کوتاهی بگذارید؛ تیم والا آن را بررسی می‌کند و برای هماهنگی ارزیابی تماس می‌گیرد.
+          اطلاعات کوتاهی بگذارید؛ کلینیک آن را بررسی می‌کند و برای هماهنگی ارزیابی تماس می‌گیرد.
         </p>
       </div>
       <Link href={href} className="public-focus public-button public-button--gold">

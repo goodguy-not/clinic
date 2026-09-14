@@ -7,19 +7,26 @@ import {
   formatPersianDate,
   toPersianNumber,
 } from '@/components/public-content';
-import { getPublicArticle, getPublicArticles } from '@/server/public-site';
-import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
+import {
+  getPublicArticle,
+  getPublicArticles,
+  getPublicMetadataContext,
+} from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata, publicPageTitle } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const read = await getPublicArticle(slug);
-  if (read.status !== 'ready') return privatePublicMetadata('خواندنی‌ها | والا');
+  const [read, context] = await Promise.all([getPublicArticle(slug), getPublicMetadataContext()]);
+  if (read.status !== 'ready')
+    return privatePublicMetadata(publicPageTitle('خواندنی‌ها', context.clinicName));
   return publicMetadata({
-    title: `${read.data.title} | والا`,
+    title: publicPageTitle(read.data.title, context.clinicName),
     description: read.data.summary,
     path: `/articles/${read.data.slug}`,
+    clinicName: context.clinicName,
+    image: read.data.images[0] ?? context.openGraphImage,
     kind: 'article',
     publishedTime: read.data.publishedAt,
   });
@@ -64,7 +71,6 @@ export default async function ArticlePage({ params }: Props) {
         </header>
         <ArticlePhoto
           image={article.images[0] ?? null}
-          fallback="/dev/vala-synthetic/01-reception.jpg"
           className="b2-reading__photo"
           sizes="(max-width: 47.99rem) 100vw, 960px"
           priority

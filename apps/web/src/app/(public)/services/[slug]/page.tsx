@@ -1,25 +1,23 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import {
-  DevelopmentPhoto,
-  EvaluationCallout,
-  SERVICE_IMAGES,
-  toPersianNumber,
-} from '@/components/public-content';
-import { getPublicService, getPublicServices } from '@/server/public-site';
-import { privatePublicMetadata, publicMetadata } from '@/server/public-seo';
+import { EvaluationCallout, toPersianNumber } from '@/components/public-content';
+import { getPublicMetadataContext, getPublicService } from '@/server/public-site';
+import { privatePublicMetadata, publicMetadata, publicPageTitle } from '@/server/public-seo';
 
 type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const read = await getPublicService(slug);
-  if (read.status !== 'ready') return privatePublicMetadata('خدمت | والا');
+  const [read, context] = await Promise.all([getPublicService(slug), getPublicMetadataContext()]);
+  if (read.status !== 'ready')
+    return privatePublicMetadata(publicPageTitle('خدمت', context.clinicName));
   return publicMetadata({
-    title: `${read.data.name} | والا`,
+    title: publicPageTitle(read.data.name, context.clinicName),
     description: read.data.description,
     path: `/services/${read.data.slug}`,
+    clinicName: context.clinicName,
+    image: context.openGraphImage,
   });
 }
 
@@ -42,21 +40,12 @@ export default async function ServiceDetailPage({ params }: Props) {
   }
 
   const service = read.data;
-  const list = await getPublicServices();
-  const index = Math.max(
-    0,
-    list.data.findIndex((item) => item.slug === slug),
-  );
-
   return (
     <main id="main-content">
       <article className="b2-service-detail">
-        <DevelopmentPhoto
-          src={SERVICE_IMAGES[index % SERVICE_IMAGES.length]!}
-          className="b2-service-detail__photo"
-          sizes="100vw"
-          priority
-        />
+        <div className="b2-service-detail__photo">
+          <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+        </div>
         <header className="public-shell b2-service-detail__copy">
           <Link href="/services" className="public-focus public-text-link public-text-link--light">
             خدمات / {service.name}
@@ -126,11 +115,9 @@ export default async function ServiceDetailPage({ params }: Props) {
             <p className="public-kicker">خواندنی مرتبط</p>
             <h2>نوشتهٔ مرتبط هنوز منتشر نشده است</h2>
           </div>
-          <DevelopmentPhoto
-            src={SERVICE_IMAGES[(index + 1) % SERVICE_IMAGES.length]!}
-            className="b2-related-band__photo"
-            sizes="(max-width: 56rem) 100vw, 34vw"
-          />
+          <div className="b2-related-band__photo">
+            <span className="public-media-empty">تصویر عمومی مرتبط منتشر نشده است</span>
+          </div>
         </div>
       </section>
       <div className="public-shell b2-section-end">

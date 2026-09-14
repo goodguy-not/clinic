@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getPublicClinicProfile } from '@/server/public-site';
+import { publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = {
-  title: 'درخواست شما ثبت شد | والا',
-  robots: { index: false, follow: false, nocache: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { data: clinic } = await getPublicClinicProfile();
+  return {
+    title: publicPageTitle('درخواست شما ثبت شد', clinic.displayName),
+    robots: { index: false, follow: false, nocache: true },
+  };
+}
 
 export default async function RequestReceivedPage() {
   const { data: clinic } = await getPublicClinicProfile();
@@ -20,8 +24,9 @@ export default async function RequestReceivedPage() {
           <p className="public-kicker public-kicker--gold">درخواست ارزیابی</p>
           <h1>درخواست شما ثبت شد</h1>
           <p>
-            اطلاعاتی که فرستادید در والا ثبت شده است. تیم آن را بررسی می‌کند و کلینیک برای هماهنگی
-            قدم بعدی با شما تماس می‌گیرد. این ثبت به معنی رزرو یا تأیید نوبت نیست.
+            اطلاعاتی که فرستادید در {clinic.displayName ?? 'کلینیک'} ثبت شده است. تیم آن را بررسی
+            می‌کند و کلینیک برای هماهنگی قدم بعدی با شما تماس می‌گیرد. این ثبت به معنی رزرو یا تأیید
+            نوبت نیست.
           </p>
         </div>
       </section>
@@ -36,7 +41,7 @@ export default async function RequestReceivedPage() {
             </li>
             <li>
               <span>۲</span>
-              <p>تیم والا آن را مرور می‌کند.</p>
+              <p>تیم {clinic.displayName ?? 'کلینیک'} آن را مرور می‌کند.</p>
             </li>
             <li>
               <span>۳</span>
@@ -47,7 +52,7 @@ export default async function RequestReceivedPage() {
         <div className="request-received__links">
           <h2>در این فاصله، اگر دوست دارید</h2>
           <Link href="/about#spaces" className="public-focus">
-            <strong>فضاهای والا را ببینید</strong>
+            <strong>فضاهای {clinic.displayName ?? 'کلینیک'} را ببینید</strong>
             <span>پیش از مراجعه با محیط آشنا شوید ←</span>
           </Link>
           <Link href="/articles" className="public-focus">

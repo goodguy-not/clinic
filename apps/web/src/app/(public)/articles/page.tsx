@@ -8,14 +8,19 @@ import {
   formatPersianDate,
   toPersianNumber,
 } from '@/components/public-content';
-import { getPublicArticles } from '@/server/public-site';
-import { publicMetadata } from '@/server/public-seo';
+import { getPublicArticles, getPublicMetadataContext } from '@/server/public-site';
+import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
-export const metadata: Metadata = publicMetadata({
-  title: 'خواندنی‌ها | والا',
-  description: 'نوشته‌های عمومی و منتشرشدهٔ کلینیک توانبخشی والا.',
-  path: '/articles',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const { clinicName, openGraphImage } = await getPublicMetadataContext();
+  return publicMetadata({
+    title: publicPageTitle('خواندنی‌ها', clinicName),
+    description: 'نوشته‌های عمومی و منتشرشدهٔ کلینیک.',
+    path: '/articles',
+    clinicName,
+    image: openGraphImage,
+  });
+}
 
 export default async function ArticlesPage() {
   const read = await getPublicArticles();
@@ -40,7 +45,6 @@ export default async function ArticlesPage() {
           <Link href={`/articles/${featured.slug}`} className="public-focus b2-featured-article">
             <ArticlePhoto
               image={featured.images[0] ?? null}
-              fallback="/dev/vala-synthetic/01-reception.jpg"
               className="b2-featured-article__photo"
               sizes="(max-width: 56rem) 100vw, 47vw"
               priority

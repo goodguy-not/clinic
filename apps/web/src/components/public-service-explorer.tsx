@@ -2,17 +2,7 @@
 
 import { useState } from 'react';
 import type { PublicServiceSummary } from '@clinic/contracts';
-import Image from 'next/image';
 import Link from 'next/link';
-
-const DEVELOPMENT_IMAGES = [
-  '/dev/vala-synthetic/12-therapist-child-interaction.jpg',
-  '/dev/vala-synthetic/13-hand-therapy-detail.jpg',
-  '/dev/vala-synthetic/11-balance-therapy.jpg',
-  '/dev/vala-synthetic/03-pediatric-room.jpg',
-  '/dev/vala-synthetic/02-rehab-gym.jpg',
-  '/dev/vala-synthetic/04-treatment-room.jpg',
-] as const;
 
 export function PublicServiceExplorer({ services }: { services: PublicServiceSummary[] }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -26,16 +16,7 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
     <div className="public-service-explorer">
       <article id="public-service-stage" className="public-service-stage" aria-live="polite">
         <div className="public-service-stage__image">
-          <Image
-            key={active.slug}
-            src={DEVELOPMENT_IMAGES[activeIndex % DEVELOPMENT_IMAGES.length]!}
-            width="700"
-            height="470"
-            alt=""
-            sizes="(max-width: 54rem) 100vw, 55vw"
-            loading="eager"
-          />
-          <span className="public-photo-note">تصویر آزمایشی — نه فضای واقعی والا</span>
+          <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
         </div>
         <div className="public-service-stage__copy">
           <p className="public-kicker public-kicker--gold">خدمت منتشرشده</p>

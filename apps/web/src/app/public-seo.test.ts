@@ -9,6 +9,7 @@ const reads = vi.hoisted(() => ({
   article: vi.fn(),
   service: vi.fn(),
   therapist: vi.fn(),
+  context: vi.fn(),
 }));
 
 vi.mock('@/server/public-site', async (importOriginal) => {
@@ -18,6 +19,7 @@ vi.mock('@/server/public-site', async (importOriginal) => {
     getPublicArticle: reads.article,
     getPublicService: reads.service,
     getPublicTherapist: reads.therapist,
+    getPublicMetadataContext: reads.context,
   };
 });
 
@@ -26,11 +28,29 @@ import { generateMetadata as serviceMetadata } from './(public)/services/[slug]/
 import { generateMetadata as therapistMetadata } from './(public)/team/[slug]/page';
 
 const ORIGIN = 'https://clinic.test';
+const MANAGED_IMAGE = {
+  mediaId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d71',
+  alt: 'تصویر عمومی مدیریت‌شده',
+  width: 960,
+  height: 640,
+  renditions: [
+    {
+      path: 'media/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d72',
+      format: 'jpeg' as const,
+      width: 960,
+      height: 640,
+      byteSize: 32000,
+    },
+  ],
+  framing: { focalX: 0.5, focalY: 0.5, crop: null },
+};
 
 beforeEach(() => {
   reads.article.mockReset();
   reads.service.mockReset();
   reads.therapist.mockReset();
+  reads.context.mockReset();
+  reads.context.mockResolvedValue({ clinicName: 'کلینیک نمونه', openGraphImage: null });
 });
 
 describe('M9 B5 public metadata policy', () => {
@@ -40,6 +60,8 @@ describe('M9 B5 public metadata policy', () => {
         title: 'خدمات توانبخشی | والا',
         description: 'خدمات عمومی و منتشرشدهٔ والا.',
         path: '/services',
+        clinicName: 'کلینیک نمونه',
+        image: MANAGED_IMAGE,
       },
       ORIGIN,
     );
@@ -49,12 +71,29 @@ describe('M9 B5 public metadata policy', () => {
     expect(metadata.openGraph).toMatchObject({
       type: 'website',
       locale: 'fa_IR',
-      siteName: 'کلینیک توانبخشی والا',
+      siteName: 'کلینیک نمونه',
       url: `${ORIGIN}/services`,
       title: 'خدمات توانبخشی | والا',
       description: 'خدمات عمومی و منتشرشدهٔ والا.',
-      images: [{ url: `${ORIGIN}/icon.png`, alt: 'نشان والا' }],
+      images: [
+        {
+          url: `${ORIGIN}/media/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d72`,
+          width: 960,
+          height: 640,
+          alt: 'تصویر عمومی مدیریت‌شده',
+        },
+      ],
     });
+    expect(JSON.stringify(metadata)).not.toContain('/icon.png');
+  });
+
+  it('omits site identity and imagery when the nullable managed values are absent', () => {
+    const metadata = publicMetadata(
+      { title: 'خدمات', path: '/services', clinicName: null, image: null },
+      ORIGIN,
+    );
+    expect(metadata.openGraph).not.toHaveProperty('siteName');
+    expect(metadata.openGraph).not.toHaveProperty('images');
   });
 
   it('does not give unavailable or non-public details a canonical or social card', () => {
@@ -100,6 +139,7 @@ describe('M9 B5 public metadata policy', () => {
         summary: 'خلاصهٔ منتشرشده',
         publishedAt: '2026-08-01T08:00:00.000Z',
         body: 'متن منتشرشده',
+        images: [MANAGED_IMAGE],
       },
     });
 
@@ -110,21 +150,22 @@ describe('M9 B5 public metadata policy', () => {
     ]);
 
     expect(service).toMatchObject({
-      title: 'گفتاردرمانی | والا',
+      title: 'گفتاردرمانی | کلینیک نمونه',
       description: 'توضیح عمومی تأییدشده',
       alternates: { canonical: 'http://localhost:3000/services/speech-therapy' },
     });
     expect(therapist).toMatchObject({
-      title: 'درمانگر عمومی | والا',
+      title: 'درمانگر عمومی | کلینیک نمونه',
       description: 'زندگی‌نامهٔ عمومی تأییدشده',
       alternates: { canonical: 'http://localhost:3000/team/public-person' },
     });
     expect(article).toMatchObject({
-      title: 'جلسهٔ اول | والا',
+      title: 'جلسهٔ اول | کلینیک نمونه',
       description: 'خلاصهٔ منتشرشده',
       alternates: { canonical: 'http://localhost:3000/articles/first-visit' },
       openGraph: { type: 'article', publishedTime: '2026-08-01T08:00:00.000Z' },
     });
+    expect(JSON.stringify(article.openGraph)).toContain(MANAGED_IMAGE.renditions[0]!.path);
   });
 
   it('keeps every failed public detail read noindex and free of entity metadata', async () => {

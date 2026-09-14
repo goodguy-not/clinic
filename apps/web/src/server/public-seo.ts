@@ -1,15 +1,16 @@
 import 'server-only';
 import type { Metadata } from 'next';
+import type { PublicImage } from '@clinic/contracts';
 import { publicSiteOrigin } from '@/env';
 
-const SITE_NAME = 'کلینیک توانبخشی والا';
-const DEFAULT_OG_IMAGE_PATH = '/icon.png';
 const MAX_DESCRIPTION_CHARACTERS = 160;
 
 type PublicMetadataInput = {
   title: string;
   description?: string | null;
   path: `/${string}` | '/';
+  clinicName: string | null;
+  image?: PublicImage | null;
   kind?: 'website' | 'article';
   publishedTime?: string;
 };
@@ -29,14 +30,52 @@ export function metadataDescription(value?: string | null): string | undefined {
     .trimEnd()}…`;
 }
 
+/** A page title that never invents a clinic identity when the managed name is absent. */
+export function publicPageTitle(page: string | null, clinicName: string | null): string {
+  return [page, clinicName].filter((part): part is string => Boolean(part?.trim())).join(' | ');
+}
+
+function publicMetadataImage(image: PublicImage | null | undefined, origin: string) {
+  if (image == null) return undefined;
+  const rendition =
+    image.renditions.filter((candidate) => candidate.format === 'jpeg').at(-1) ??
+    image.renditions.at(-1);
+  if (rendition === undefined) return undefined;
+
+  return [
+    {
+      url: absolutePublicUrl(`/${rendition.path}`, origin),
+      width: rendition.width,
+      height: rendition.height,
+      alt: image.alt,
+    },
+  ];
+}
+
 /** Shared, truthful metadata for an indexable public document. */
 export function publicMetadata(
-  { title, description, path, kind = 'website', publishedTime }: PublicMetadataInput,
+  {
+    title,
+    description,
+    path,
+    clinicName,
+    image,
+    kind = 'website',
+    publishedTime,
+  }: PublicMetadataInput,
   origin = publicSiteOrigin(),
 ): Metadata {
   const url = absolutePublicUrl(path, origin);
   const summary = metadataDescription(description);
-  const imageUrl = absolutePublicUrl(DEFAULT_OG_IMAGE_PATH, origin);
+  const images = publicMetadataImage(image, origin);
+  const common = {
+    locale: 'fa_IR' as const,
+    ...(clinicName === null ? {} : { siteName: clinicName }),
+    title,
+    description: summary,
+    url,
+    ...(images === undefined ? {} : { images }),
+  };
 
   return {
     title,
@@ -47,22 +86,12 @@ export function publicMetadata(
       kind === 'article'
         ? {
             type: 'article',
-            locale: 'fa_IR',
-            siteName: SITE_NAME,
-            title,
-            description: summary,
-            url,
+            ...common,
             publishedTime,
-            images: [{ url: imageUrl, width: 512, height: 512, alt: 'نشان والا' }],
           }
         : {
             type: 'website',
-            locale: 'fa_IR',
-            siteName: SITE_NAME,
-            title,
-            description: summary,
-            url,
-            images: [{ url: imageUrl, width: 512, height: 512, alt: 'نشان والا' }],
+            ...common,
           },
   };
 }
