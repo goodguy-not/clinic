@@ -575,7 +575,15 @@ describe('guard chain (real PostgreSQL)', () => {
       //                 `POST` and no `DELETE` among the three: the editorial
       //                 blocks are the accepted page design, they arrive with a
       //                 migration, and the database refuses to delete one.
-      expect(routes).toBe(162);
+      //
+      // staff preview:  Milestone 9.5's staff-preview checkpoint adds ONE route
+      //                 and NO PERMISSION. `GET /media/renditions/:id/preview`
+      //                 names `media.read`, and the service then requires the
+      //                 owning content's own read permission. It is a SESSION
+      //                 route, not a public one: the public surface is still
+      //                 twelve reads and one write, and still the only place a
+      //                 stranger can reach a byte.
+      expect(routes).toBe(163);
     });
   });
 });

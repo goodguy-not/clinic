@@ -181,6 +181,25 @@ export const PUBLIC_MEDIA_MAX_AGE_SECONDS = PUBLIC_MEDIA_REVOCATION_WINDOW_SECON
 export const PUBLIC_MEDIA_CACHE_TAG_PREFIX = 'public-media:';
 
 /**
+ * The `Cache-Control` on a STAFF PREVIEW of a rendition, at both tiers.
+ *
+ * Milestone 9.5, the staff-preview checkpoint. `GET
+ * /media/renditions/:renditionId/preview` serves the same re-encoded bytes the
+ * public route does, but to a signed-in colleague and regardless of
+ * publication — so what it returns may be a photograph the clinic has not
+ * decided to show anybody. `private` keeps it out of every shared cache and
+ * `no-store` keeps it out of the browser's too, so logging out (or losing the
+ * permission) is the end of seeing it: there is no copy for a later, logged-out
+ * visit to find.
+ *
+ * DELIBERATELY NOT `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`. That window is a
+ * tolerance granted to PUBLISHED bytes; nothing unpublished is granted any.
+ * The web tier must forward this value unchanged and must not cache the
+ * upstream response (`cache: 'no-store'`, no tag).
+ */
+export const MEDIA_PREVIEW_CACHE_CONTROL = 'private, no-store';
+
+/**
  * The Persian text a screen reader says instead of the photograph.
  *
  * REQUIRED, WITH NO EMPTY OPTION. An unlabelled image on a clinic's public site

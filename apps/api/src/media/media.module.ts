@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { MediaAttachmentsService } from './media-attachments.service';
+import { MediaPreviewService } from './media-preview.service';
 import { MediaStorageService } from './media-storage.service';
 import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
@@ -34,6 +35,10 @@ import { PublicMediaService } from './public-media.service';
  * public controller would be the second place a reviewer had to look, and the
  * second place is the one nobody looks at.
  *
+ * `MediaPreviewService` IS NOT EXPORTED EITHER. It serves unpublished bytes to
+ * a session through this module's own controller, and a second module able to
+ * reach it would be a second route to a draft.
+ *
  * `MediaAttachmentsService` IS NOT EXPORTED. Attaching, detaching and
  * publishing are reached through this module's own controller and by nothing
  * else; a second module able to publish a photograph would be a second
@@ -49,7 +54,13 @@ import { PublicMediaService } from './public-media.service';
 @Module({
   imports: [AuditModule],
   controllers: [MediaController],
-  providers: [MediaService, MediaAttachmentsService, MediaStorageService, PublicMediaService],
+  providers: [
+    MediaService,
+    MediaAttachmentsService,
+    MediaPreviewService,
+    MediaStorageService,
+    PublicMediaService,
+  ],
   exports: [PublicMediaService],
 })
 export class MediaModule {}

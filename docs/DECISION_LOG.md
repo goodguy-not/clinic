@@ -5126,3 +5126,30 @@ follow-up, not an optional tidy-up.
 - **Revisit when:** never for the duplication itself. If a build-time default is
   ever genuinely needed it must be owner-supplied configuration, not a literal in
   the repository.
+
+## 2026-09-20 — Staff can preview persisted draft media through one session-bound route, gated by the owner's own read permission
+
+**Status:** Accepted — Milestone 9.5, staff-preview checkpoint (Agent A)
+
+`GET /media/renditions/:renditionId/preview` serves a stored rendition to a signed-in
+colleague whether or not it is published. It needs `media.read` plus the read permission
+of the content the image is attached to (`MediaPreviewService.MEDIA_PREVIEW_OWNER_PERMISSION`).
+It refuses archived, erased, unattached and detached-only media. The response is
+`Cache-Control: private, no-store` (`MEDIA_PREVIEW_CACHE_CONTROL`). The anonymous
+predicate `LIVE_ATTACHMENT_PREDICATE` and the public route are unchanged. This reverses
+A5's "no privileged preview route" position for staff only.
+
+- **Alternatives:** signed, short-lived preview URLs; widening the public route for
+  sessions; one preview endpoint per content type; `media.read` alone as the gate.
+- **Reason:** a manager cannot approve a picture they cannot see after the uploader's
+  local preview is gone. A session-bound route reuses the existing guard chain, so a
+  copied URL is worthless without a session, with no token scheme to design. One
+  media-level route covers articles, testimonials, spaces and B8. Reusing each owner's
+  existing read permission means preview grants nothing that reading the draft did not.
+- **Trade-off:** a second byte-serving query exists. It is kept safe by answering a
+  different question: it is session-only, never publicly cacheable, and shares no SQL
+  with the public predicate. A receptionist cannot preview images parked in
+  `CLINIC_SPACE`, because that owner type belongs to the manager's clinic profile.
+- **Revisit when:** the product wants receptionists to re-view their own unplaced
+  uploads, or unattached library thumbnails. Either one widens who can see unpublished
+  pixels and needs an owner decision. Also revisit if a third role arrives.

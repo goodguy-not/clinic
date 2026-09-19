@@ -184,15 +184,16 @@ and required for the other three — sending the wrong shape is `VALIDATION_FAIL
 
 ## 5. Routes and permissions
 
-| Route                                      | Permission      | Held by            |
-| ------------------------------------------ | --------------- | ------------------ |
-| `GET /media`, `GET /media/:id`             | `media.read`    | receptionist + mgr |
-| `POST /media` (multipart)                  | `media.upload`  | receptionist + mgr |
-| `POST /media/:id/attachments`              | `media.attach`  | receptionist + mgr |
-| `PATCH /media/attachments/:id/framing`     | `media.attach`  | receptionist + mgr |
-| `DELETE /media/attachments/:id`            | `media.attach`  | receptionist + mgr |
-| `PATCH /media/attachments/:id/publication` | `media.publish` | **manager only**   |
-| `PATCH /media/:id/archive`                 | `media.publish` | **manager only**   |
+| Route                                      | Permission                      | Held by            |
+| ------------------------------------------ | ------------------------------- | ------------------ |
+| `GET /media`, `GET /media/:id`             | `media.read`                    | receptionist + mgr |
+| `POST /media` (multipart)                  | `media.upload`                  | receptionist + mgr |
+| `POST /media/:id/attachments`              | `media.attach`                  | receptionist + mgr |
+| `PATCH /media/attachments/:id/framing`     | `media.attach`                  | receptionist + mgr |
+| `DELETE /media/attachments/:id`            | `media.attach`                  | receptionist + mgr |
+| `PATCH /media/attachments/:id/publication` | `media.publish`                 | **manager only**   |
+| `PATCH /media/:id/archive`                 | `media.publish`                 | **manager only**   |
+| `GET /media/renditions/:id/preview`        | `media.read` + owner read (§10) | see §10            |
 
 Attaching **always** creates an unpublished attachment; the request has no field that
 could ask otherwise. Detaching a **published** attachment is refused — unpublish first,
@@ -297,3 +298,68 @@ erasure — and no UI should imply that it does. `bytesPurgedAt` exists so that 
 decision, when it is taken, is an ordinary piece of work rather than a redesign; it is
 `null` on every asset and nothing in this product writes it. Treat it as read-only
 information, and do not build a control that appears to trigger it.
+
+## 10. Staff preview of persisted draft media (added after A8)
+
+Why: once the uploader's browser-local preview is gone, a manager otherwise has no way to
+see a persisted draft image before deciding to publish it. The public route (§1, §8) is
+**unchanged** and still refuses every unpublished image.
+
+**Request** — NestJS, through the server-only client, never from the browser:
+
+```
+GET /media/renditions/<renditionId>/preview
+x-internal-key: <internal key>
+x-session-id:   <the signed-in user's session token>
+```
+
+- `renditionId` is `MediaAsset.renditions[].id` from `GET /media` or `GET /media/:id`.
+  Pick a size the same way as for public images. Not an asset id: the master cannot be
+  named.
+- **Response 200**: the rendition's bytes. `Content-Type` is the rendition's own type
+  (`MEDIA_RENDITION_CONTENT_TYPE[format]`), plus `Content-Length`,
+  `X-Content-Type-Options: nosniff`, `Content-Disposition: inline` (no filename), and
+  **`Cache-Control: private, no-store`** (`MEDIA_PREVIEW_CACHE_CONTROL`). No `ETag`.
+  The bytes are identical to what the public route serves once the image is live: the
+  stored, re-encoded, metadata-free rendition. Never the upload, never the master.
+
+**Who sees what.** The caller needs `media.read`, and the asset must be `ACTIVE`, not
+erased, and have at least one **standing** (not detached) attachment on an owner whose
+draft the caller can read. Publication is not checked either way.
+
+| Attachment owner                                            | Also required                    |
+| ----------------------------------------------------------- | -------------------------------- |
+| `PUBLIC_ARTICLE`                                            | `article.read`                   |
+| `PUBLIC_TESTIMONIAL`                                        | `testimonial.read`               |
+| `PUBLIC_SPACE`                                              | `public_space.read`              |
+| `THERAPIST_PROFILE`                                         | `therapist.draft_public_profile` |
+| `CLINIC_CONTENT_ENTRY`, `CLINIC_OPEN_GRAPH`, `CLINIC_SPACE` | `clinic_profile.read` (manager)  |
+
+So with today's roles the manager can preview every attached draft, and the receptionist
+can preview article, testimonial, public-space and therapist-profile drafts. The
+receptionist **cannot** preview images parked in `CLINIC_SPACE` (the upload component's
+default target). Unattached uploads and archived assets cannot be previewed by anyone.
+
+**Refusals**
+
+| Status | Code                        | When                                                                                                        |
+| ------ | --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 401    | `AUTH_SESSION_INVALID` etc. | no, expired or revoked session (the usual session codes)                                                    |
+| 401    | `AUTH_INTERNAL_KEY_INVALID` | missing internal key                                                                                        |
+| 403    | `AUTH_FORBIDDEN`            | no `media.read`                                                                                             |
+| 400    | `VALIDATION_FAILED`         | `renditionId` is not a UUID                                                                                 |
+| 404    | `MEDIA_NOT_FOUND`           | everything else: unknown, unattached, only detached, archived, erased, or no attachment the caller can read |
+
+Error bodies are the usual JSON envelope with `Cache-Control: no-store`.
+
+**What the web tier must do**
+
+- Serve it from an authenticated, session-checked Route Handler (or equivalent). With no
+  valid session cookie it must refuse, not fall back to the public route. Copying the URL
+  into a logged-out browser must not work.
+- Fetch upstream with `cache: 'no-store'` and **no** cache tag. Forward
+  `MEDIA_PREVIEW_CACHE_CONTROL` unchanged. Never reuse the public media handler, its
+  300-second window or its `public-media:` tags.
+- Apply the attachment's `framing` in CSS, exactly as for public images.
+- Keep public pages on `/media/<id>`. Preview is only for internal screens (article and
+  testimonial review, later the B8 draft preview).

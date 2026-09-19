@@ -8,10 +8,15 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
+  MEDIA_PREVIEW_CACHE_CONTROL,
+  MEDIA_RENDITION_CONTENT_TYPE,
   createMediaAttachmentRequestSchema,
   mediaUploadFieldsSchema,
   updateMediaArchiveRequestSchema,
@@ -31,6 +36,7 @@ import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { ZodBodyPipe } from '../common/zod-validation.pipe';
 import { MediaAttachmentsService } from './media-attachments.service';
+import { MediaPreviewService } from './media-preview.service';
 import { MediaUploadInterceptor, type UploadedImage } from './media-upload.interceptor';
 import { MediaService } from './media.service';
 
@@ -39,19 +45,20 @@ import { MediaService } from './media.service';
  *
  * Milestone 9.5, checkpoint A5.
  *
- * NO ROUTE HERE SERVES A BYTE. Reading a photograph is the public surface's
- * job, and it lives on `PublicSiteController` with every other thing the world
- * can reach — see the note on that file. A colleague looking at this library
- * sees the same rendition paths a visitor would, and fetches them the same way
- * through the web tier; there is deliberately no privileged preview route,
- * because a route that served unpublished bytes to a session would be a second
- * serving path with a second predicate, and the second one is always the one
- * that is wrong.
+ * ONE ROUTE HERE SERVES BYTES, AND ONLY TO A SESSION. Serving a photograph to
+ * the world is the public surface's job, on `PublicSiteController`, under
+ * `LIVE_ATTACHMENT_PREDICATE`. A5 had no staff equivalent, reasoning that a
+ * second serving path would carry a second, wrong predicate. The staff-preview
+ * checkpoint adds one because a manager cannot approve a picture they cannot
+ * see once the uploader's browser has gone; it answers a DIFFERENT question —
+ * "may this colleague read the draft this picture is on?" — and never the
+ * stranger's one. See `MediaPreviewService`.
  *
  * THE AUTHORITY SPLIT, ROUTE BY ROUTE:
  *
  *   GET    /media                          media.read
  *   GET    /media/:id                      media.read
+ *   GET    /media/renditions/:id/preview   media.read + the owner's read
  *   POST   /media                          media.upload
  *   POST   /media/:id/attachments          media.attach     (always a draft)
  *   PATCH  /media/attachments/:id/framing  media.attach     (refused if published)
@@ -72,12 +79,48 @@ export class MediaController {
   constructor(
     private readonly media: MediaService,
     private readonly attachments: MediaAttachmentsService,
+    private readonly preview: MediaPreviewService,
   ) {}
 
   @Get()
   @RequirePermissions('media.read')
   async list(): Promise<MediaAssetListResponse> {
     return { media: await this.media.list() };
+  }
+
+  /**
+   * One rendition's bytes for a signed-in colleague, PUBLISHED OR NOT.
+   *
+   * `media.read` gets the caller in; which renditions they then receive is
+   * decided per owner by `MediaPreviewService` — the owner's own draft-read
+   * permission, on a standing attachment of an asset still in circulation.
+   * Everything else is `MEDIA_NOT_FOUND`.
+   *
+   * `MEDIA_PREVIEW_CACHE_CONTROL` (`private, no-store`), NOT THE PUBLIC WINDOW,
+   * and no `ETag`: there is nothing to revalidate because nothing may keep a
+   * copy. `nosniff` and a filename-free `inline` disposition, as on the public
+   * route, because the body is uploaded content.
+   *
+   * No session → `SessionGuard` refuses before this runs. The identifier is a
+   * RENDITION id; the master has no rendition row and cannot be named.
+   */
+  @Get('renditions/:renditionId/preview')
+  @RequirePermissions('media.read')
+  async getPreview(
+    @Param('renditionId', ParseUUIDPipe) renditionId: string,
+    @CurrentSession() session: ResolvedSession,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const rendition = await this.preview.findPreviewableRendition(renditionId, session.permissions);
+
+    response.setHeader('cache-control', MEDIA_PREVIEW_CACHE_CONTROL);
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('content-disposition', 'inline');
+
+    return new StreamableFile(rendition.bytes, {
+      type: MEDIA_RENDITION_CONTENT_TYPE[rendition.format],
+      length: rendition.byteSize,
+    });
   }
 
   /**
