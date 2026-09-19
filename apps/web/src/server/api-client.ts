@@ -46,6 +46,8 @@ import {
   roomResponseSchema,
   serviceListResponseSchema,
   serviceResponseSchema,
+  spaceListResponseSchema,
+  spaceResponseSchema,
   sessionResponseSchema,
   sessionChargeResponseSchema,
   tariffListResponseSchema,
@@ -82,6 +84,7 @@ import {
   type CreateFamilyRequest,
   type CreateRoomRequest,
   type CreateServiceRequest,
+  type CreateSpaceRequest,
   type CreateTariffRequest,
   type CreateTherapistRequest,
   type CreateTestimonialRequest,
@@ -161,6 +164,8 @@ import {
   type RoomResponse,
   type ServiceListResponse,
   type ServiceResponse,
+  type SpaceListResponse,
+  type SpaceResponse,
   type SessionResponse,
   type SessionChargeDetail,
   type SessionChargeResponse,
@@ -178,6 +183,8 @@ import {
   type UpdateArticleRequest,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
+  type UpdateSpacePublicationRequest,
+  type UpdateSpaceRequest,
   type UpdateTherapistRequest,
   type UpdateTestimonialApprovalRequest,
   type UpdateTestimonialPublicationRequest,
@@ -852,6 +859,38 @@ export const api = {
       `/content/articles/${encodeURIComponent(id)}`,
       'PATCH',
       articleResponseSchema,
+      context,
+      body,
+    ),
+
+  listSpaces: (context: CallerContext): Promise<ApiResult<SpaceListResponse>> =>
+    call('/content/spaces', 'GET', spaceListResponseSchema, context),
+
+  getSpace: (id: string, context: CallerContext): Promise<ApiResult<SpaceResponse>> =>
+    call(`/content/spaces/${encodeURIComponent(id)}`, 'GET', spaceResponseSchema, context),
+
+  createSpace: (
+    body: CreateSpaceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call('/content/spaces', 'POST', spaceResponseSchema, context, body),
+
+  updateSpace: (
+    id: string,
+    body: UpdateSpaceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call(`/content/spaces/${encodeURIComponent(id)}`, 'PATCH', spaceResponseSchema, context, body),
+
+  updateSpacePublication: (
+    id: string,
+    body: UpdateSpacePublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call(
+      `/content/spaces/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      spaceResponseSchema,
       context,
       body,
     ),

@@ -24,6 +24,16 @@ export function testimonialFormToRequest(body: SubmittedBody): Record<string, un
   };
 }
 
+/** Draft-only public-space payload. Publication remains a separate manager act. */
+export function spaceFormToRequest(body: SubmittedBody): Record<string, unknown> {
+  const description = nullableTrimmed(body['description']);
+  return {
+    name: (body['name'] ?? '').trim(),
+    description,
+    displayOrder: Number(body['displayOrder']),
+  };
+}
+
 /** Keeps malformed booleans malformed so the shared schema refuses them. */
 export function explicitBoolean(value: string | undefined): boolean | string | undefined {
   if (value === 'true') return true;

@@ -9,11 +9,13 @@ const mocks = vi.hoisted(() => ({
   createMediaAttachment: vi.fn(),
   getMedia: vi.fn(),
   updateMediaFraming: vi.fn(),
+  updateMediaPublication: vi.fn(),
 }));
 vi.mock('@/server/api-client', () => ({ api: mocks }));
 
 import { POST as attachDraft } from './draft-attachment/route';
 import { POST as saveFraming } from './framing/route';
+import { POST as setPublication } from './publication/route';
 import { POST as uploadMedia } from './upload/route';
 
 const ORIGIN = 'http://localhost:3000';
@@ -75,6 +77,7 @@ beforeEach(() => {
   mocks.createMediaAttachment.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.getMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.updateMediaFraming.mockResolvedValue({ ok: true, data: { media: MEDIA } });
+  mocks.updateMediaPublication.mockResolvedValue({ ok: true, data: { media: MEDIA } });
 });
 
 describe('media upload route', () => {
@@ -131,6 +134,41 @@ describe('media upload route', () => {
 });
 
 describe('attachment and framing routes', () => {
+  it('passes a public-space owner through the reusable draft attachment route', async () => {
+    const spaceId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a62';
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        media: {
+          ...MEDIA,
+          attachments: [
+            {
+              ...MEDIA.attachments[0],
+              ownerType: 'PUBLIC_SPACE',
+              ownerId: spaceId,
+              position: 1,
+            },
+          ],
+        },
+      },
+    });
+    const response = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', {
+        mediaId: MEDIA_ID,
+        ownerType: 'PUBLIC_SPACE',
+        ownerId: spaceId,
+        position: 1,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { ownerType: 'PUBLIC_SPACE', ownerId: spaceId, position: 1 },
+      { sessionToken: SESSION_TOKEN },
+    );
+  });
+
   it('passes a therapist portrait owner through the reusable draft attachment route', async () => {
     const therapistId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60';
     mocks.createMediaAttachment.mockResolvedValueOnce({
@@ -280,5 +318,25 @@ describe('attachment and framing routes', () => {
     expect(refused.status).toBe(409);
     expect(body.error.message).toContain('مدیر');
     expect(body.error.message).toContain('قاب');
+  });
+
+  it('publishes a public-space photograph and returns to its editor', async () => {
+    const spaceId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a62';
+    const response = await setPublication(
+      jsonRequest('/api/media/publication', {
+        attachmentId: ATTACHMENT_ID,
+        spaceId,
+        isPublished: 'true',
+      }),
+    );
+
+    expect(mocks.updateMediaPublication).toHaveBeenCalledWith(
+      ATTACHMENT_ID,
+      { isPublished: true },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/spaces/${spaceId}/edit?success=space-photo-published`,
+    );
   });
 });

@@ -42,6 +42,9 @@ export async function AppHeader() {
   if (user.permissions.includes('article.read') && user.permissions.includes('testimonial.read')) {
     links.push({ href: '/content', label: 'محتوای وب‌سایت' });
   }
+  if (user.permissions.includes('public_space.read')) {
+    links.push({ href: '/content/spaces', label: 'معرفی فضاهای کلینیک' });
+  }
   if (user.permissions.includes('media.read')) {
     links.push({ href: '/media', label: 'عکس‌ها' });
   }
