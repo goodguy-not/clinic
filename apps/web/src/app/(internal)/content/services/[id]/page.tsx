@@ -25,7 +25,11 @@ export default async function ServiceCopyPage({
   const user = await requireSession({ requirePermission: 'service.draft_public_copy' });
   const { id } = await params;
   const token = await readSessionToken();
-  const result = await api.getServicePublicCopy(id, await callerContext(token ?? undefined));
+  const context = await callerContext(token ?? undefined);
+  const [result, mediaResult] = await Promise.all([
+    api.getServicePublicCopy(id, context),
+    api.listMedia(context),
+  ]);
   if (!result.ok) {
     if (result.code === 'SERVICE_NOT_FOUND') notFound();
     throw new Error(`Failed to load service copy: ${result.code}`);
@@ -42,7 +46,11 @@ export default async function ServiceCopyPage({
           ? 'متن آماده روی سایت منتشر شد.'
           : success === 'withdrawn'
             ? 'توضیح منتشرشده از سایت برداشته شد.'
-            : null;
+            : success === 'service-image-published'
+              ? 'عکس خدمت پس از بررسی مدیر منتشر شد.'
+              : success === 'service-image-withdrawn'
+                ? 'عکس خدمت از سایت برداشته شد؛ نسخهٔ آماده برای بررسی باقی مانده است.'
+                : null;
 
   return (
     <>
@@ -51,6 +59,9 @@ export default async function ServiceCopyPage({
         copy={result.data.copy}
         csrfToken={(await readCsrfCookie()) ?? ''}
         canPublish={user.permissions.includes('service.update')}
+        canPublishMedia={user.permissions.includes('media.publish')}
+        media={mediaResult.ok ? mediaResult.data.media : []}
+        mediaLoadError={mediaResult.ok ? null : persianMessage(mediaResult.code)}
         message={message}
       />
     </>

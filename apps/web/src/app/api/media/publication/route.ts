@@ -27,6 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const attachmentId = z.uuid().safeParse(body['attachmentId']);
   const therapistId = z.uuid().safeParse(body['therapistId']);
   const spaceId = z.uuid().safeParse(body['spaceId']);
+  const serviceId = z.uuid().safeParse(body['serviceId']);
   const articleId = z.uuid().safeParse(body['articleId']);
   const testimonialId = z.uuid().safeParse(body['testimonialId']);
   const clinicProfile = body['clinicProfile'] === 'true';
@@ -41,19 +42,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   const path: `/${string}` = clinicProfile
     ? '/content/clinic-profile'
-    : spaceId.success
-      ? `/content/spaces/${encodeURIComponent(spaceId.data)}/edit`
-      : articleId.success
-        ? `/content/articles/${encodeURIComponent(articleId.data)}/edit`
-        : testimonialId.success
-          ? `/content/testimonials/${encodeURIComponent(testimonialId.data)}/edit`
-          : therapistId.success
-            ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
-            : '/content';
+    : serviceId.success
+      ? `/content/services/${encodeURIComponent(serviceId.data)}`
+      : spaceId.success
+        ? `/content/spaces/${encodeURIComponent(spaceId.data)}/edit`
+        : articleId.success
+          ? `/content/articles/${encodeURIComponent(articleId.data)}/edit`
+          : testimonialId.success
+            ? `/content/testimonials/${encodeURIComponent(testimonialId.data)}/edit`
+            : therapistId.success
+              ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
+              : '/content';
   if (
     !attachmentId.success ||
     (!clinicProfile &&
       !therapistId.success &&
+      !serviceId.success &&
       !spaceId.success &&
       !articleId.success &&
       !testimonialId.success) ||
@@ -68,20 +72,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ? parsed.data.isPublished
       ? 'image-published'
       : 'image-withdrawn'
-    : spaceId.success
+    : serviceId.success
       ? parsed.data.isPublished
-        ? 'space-photo-published'
-        : 'space-photo-withdrawn'
-      : articleId.success
+        ? 'service-image-published'
+        : 'service-image-withdrawn'
+      : spaceId.success
         ? parsed.data.isPublished
-          ? 'article-image-published'
-          : 'article-image-withdrawn'
-        : testimonialId.success
+          ? 'space-photo-published'
+          : 'space-photo-withdrawn'
+        : articleId.success
           ? parsed.data.isPublished
-            ? 'testimonial-image-published'
-            : 'testimonial-image-withdrawn'
-          : parsed.data.isPublished
-            ? 'photo-published'
-            : 'photo-withdrawn';
+            ? 'article-image-published'
+            : 'article-image-withdrawn'
+          : testimonialId.success
+            ? parsed.data.isPublished
+              ? 'testimonial-image-published'
+              : 'testimonial-image-withdrawn'
+            : parsed.data.isPublished
+              ? 'photo-published'
+              : 'photo-withdrawn';
   return secureRedirect(request, `${path}?success=${success}`);
 }

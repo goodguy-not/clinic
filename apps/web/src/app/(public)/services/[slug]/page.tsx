@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { EvaluationCallout, toPersianNumber } from '@/components/public-content';
+import { PublicMediaImage } from '@/components/public-media-image';
 import { getPublicMetadataContext, getPublicService } from '@/server/public-site';
 import { privatePublicMetadata, publicMetadata, publicPageTitle } from '@/server/public-seo';
 
@@ -44,7 +45,11 @@ export default async function ServiceDetailPage({ params }: Props) {
     <main id="main-content">
       <article className="b2-service-detail">
         <div className="b2-service-detail__photo">
-          <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+          {service.image ? (
+            <PublicMediaImage image={service.image} sizes="100vw" priority />
+          ) : (
+            <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+          )}
         </div>
         <header className="public-shell b2-service-detail__copy">
           <Link href="/services" className="public-focus public-text-link public-text-link--light">

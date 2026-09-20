@@ -203,6 +203,40 @@ describe('attachment and framing routes', () => {
     );
   });
 
+  it('passes the service image owner through the reusable draft attachment route', async () => {
+    const serviceId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a66';
+    mocks.createMediaAttachment.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        media: {
+          ...MEDIA,
+          attachments: [
+            {
+              ...MEDIA.attachments[0],
+              ownerType: 'PUBLIC_SERVICE',
+              ownerId: serviceId,
+            },
+          ],
+        },
+      },
+    });
+    const response = await attachDraft(
+      jsonRequest('/api/media/draft-attachment', {
+        mediaId: MEDIA_ID,
+        ownerType: 'PUBLIC_SERVICE',
+        ownerId: serviceId,
+        position: 0,
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.createMediaAttachment).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { ownerType: 'PUBLIC_SERVICE', ownerId: serviceId, position: 0 },
+      { sessionToken: SESSION_TOKEN },
+    );
+  });
+
   it('passes a fixed clinic content entry owner through the reusable draft attachment route', async () => {
     const entryId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61';
     mocks.createMediaAttachment.mockResolvedValueOnce({
@@ -337,6 +371,26 @@ describe('attachment and framing routes', () => {
     );
     expect(response.headers.get('location')).toBe(
       `${ORIGIN}/content/spaces/${spaceId}/edit?success=space-photo-published`,
+    );
+  });
+
+  it('publishes a service photograph and returns to the service editor', async () => {
+    const serviceId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a66';
+    const response = await setPublication(
+      jsonRequest('/api/media/publication', {
+        attachmentId: ATTACHMENT_ID,
+        serviceId,
+        isPublished: 'true',
+      }),
+    );
+
+    expect(mocks.updateMediaPublication).toHaveBeenCalledWith(
+      ATTACHMENT_ID,
+      { isPublished: true },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/services/${serviceId}?success=service-image-published`,
     );
   });
 

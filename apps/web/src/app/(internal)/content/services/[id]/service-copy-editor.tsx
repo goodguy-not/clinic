@@ -1,4 +1,4 @@
-import type { ServicePublicCopy } from '@clinic/contracts';
+import type { MediaAsset, ServicePublicCopy } from '@clinic/contracts';
 import {
   Alert,
   Badge,
@@ -10,16 +10,23 @@ import {
   Panel,
   SubmitButton,
 } from '@/components/ui';
+import { imageForService, ServiceImageEditor } from './service-image-editor';
 
 export function ServiceCopyEditor({
   copy,
   csrfToken,
   canPublish,
+  canPublishMedia,
+  media,
+  mediaLoadError,
   message,
 }: {
   copy: ServicePublicCopy;
   csrfToken: string;
   canPublish: boolean;
+  canPublishMedia: boolean;
+  media: readonly MediaAsset[];
+  mediaLoadError: string | null;
   message: string | null;
 }) {
   return (
@@ -68,6 +75,14 @@ export function ServiceCopyEditor({
           </FormActions>
         </form>
       </Panel>
+
+      <ServiceImageEditor
+        copy={copy}
+        image={imageForService(media, copy.serviceId)}
+        csrfToken={csrfToken}
+        canPublishMedia={canPublishMedia}
+        loadError={mediaLoadError}
+      />
 
       <Panel title="نسخهٔ منتشرشده">
         {copy.publishedDescription === null ? (

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { PublicServiceSummary } from '@clinic/contracts';
 import Link from 'next/link';
+import { PublicMediaImage } from './public-media-image';
 
 export function PublicServiceExplorer({ services }: { services: PublicServiceSummary[] }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -16,7 +17,11 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
     <div className="public-service-explorer">
       <article id="public-service-stage" className="public-service-stage" aria-live="polite">
         <div className="public-service-stage__image">
-          <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+          {active.image ? (
+            <PublicMediaImage image={active.image} sizes="100vw" />
+          ) : (
+            <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+          )}
         </div>
         <div className="public-service-stage__copy">
           <p className="public-kicker public-kicker--gold">خدمت منتشرشده</p>

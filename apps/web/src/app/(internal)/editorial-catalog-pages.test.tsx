@@ -60,7 +60,15 @@ const PROFILE: TherapistPublicProfile = {
 describe('service public-copy editor', () => {
   it('makes the prepared and published states clear while keeping receptionist controls narrow', () => {
     const html = renderToStaticMarkup(
-      <ServiceCopyEditor copy={SERVICE} csrfToken={CSRF} canPublish={false} message={null} />,
+      <ServiceCopyEditor
+        copy={SERVICE}
+        csrfToken={CSRF}
+        canPublish={false}
+        canPublishMedia={false}
+        media={[]}
+        mediaLoadError={null}
+        message={null}
+      />,
     );
     expect(html).toContain('تغییرات آمادهٔ انتشار');
     expect(html).toContain(SERVICE.description);
@@ -69,16 +77,64 @@ describe('service public-copy editor', () => {
     expect(html).not.toContain('/api/content/service-copy/publication');
     expect(html).not.toContain('publicSlug');
     expect(html).not.toContain('/services/');
+    expect(html).toContain('عکس این خدمت');
+    expect(html).toContain('انتخاب از گوشی یا رایانه');
+    expect(html).toContain('ذخیرهٔ عکس آن را روی سایت منتشر نمی‌کند');
+    expect(html).not.toContain('PUBLIC_SERVICE');
+    expect(html).not.toContain('/api/media/publication');
   });
 
   it('shows manager publication and the permanent-address warning before first publication', () => {
     const html = renderToStaticMarkup(
-      <ServiceCopyEditor copy={SERVICE} csrfToken={CSRF} canPublish message={null} />,
+      <ServiceCopyEditor
+        copy={SERVICE}
+        csrfToken={CSRF}
+        canPublish
+        canPublishMedia
+        media={[]}
+        mediaLoadError={null}
+        message={null}
+      />,
     );
     expect(html).toContain('/api/content/service-copy/publication');
     expect(html).toContain('انتشار تغییرات آماده');
     expect(html).toContain('پس از انتشار دائمی می‌شود');
     expect(html).toContain(`/catalog/services/${ID}/edit`);
+  });
+
+  it('previews the persisted prepared image privately and keeps publication manager-only', () => {
+    const media = syntheticServiceImage();
+    const receptionist = renderToStaticMarkup(
+      <ServiceCopyEditor
+        copy={SERVICE}
+        csrfToken={CSRF}
+        canPublish={false}
+        canPublishMedia={false}
+        media={[media]}
+        mediaLoadError={null}
+        message={null}
+      />,
+    );
+    expect(receptionist).toContain(`/api/media/renditions/${media.renditions[0]!.id}/preview`);
+    expect(receptionist).toContain('آماده؛ در انتظار انتشار مدیر');
+    expect(receptionist).toContain('برای بررسی و انتشار مدیر آماده است');
+    expect(receptionist).not.toContain('/api/media/publication');
+    expect(receptionist).not.toContain(media.id);
+
+    const manager = renderToStaticMarkup(
+      <ServiceCopyEditor
+        copy={SERVICE}
+        csrfToken={CSRF}
+        canPublish
+        canPublishMedia
+        media={[media]}
+        mediaLoadError={null}
+        message={null}
+      />,
+    );
+    expect(manager).toContain('/api/media/publication');
+    expect(manager).toContain('name="serviceId"');
+    expect(manager).toContain('انتشار عکس پس از بررسی');
   });
 });
 
@@ -239,6 +295,46 @@ function syntheticPortrait(): MediaAsset {
         publishedAt: null,
         ownerIsPublic: true,
         framing: { focalX: 0.5, focalY: 0.5, crop: null },
+      },
+    ],
+  };
+}
+
+function syntheticServiceImage(): MediaAsset {
+  return {
+    id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a63',
+    altText: 'اتاق روشن گفتاردرمانی با میز و صندلی',
+    status: 'ACTIVE',
+    width: 1200,
+    height: 800,
+    byteSize: 24000,
+    sourceContentType: 'image/jpeg',
+    sourceByteSize: 36000,
+    isPubliclyServed: false,
+    renditions: [
+      {
+        id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64',
+        path: 'media/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64',
+        format: 'webp',
+        width: 960,
+        height: 640,
+        byteSize: 18000,
+        contentHash: 'synthetic-service-image-hash',
+      },
+    ],
+    createdAt: '2026-09-01T00:00:00.000Z',
+    archivedAt: null,
+    bytesPurgedAt: null,
+    attachments: [
+      {
+        id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a65',
+        ownerType: 'PUBLIC_SERVICE',
+        ownerId: ID,
+        position: 0,
+        attachedAt: '2026-09-01T00:00:00.000Z',
+        publishedAt: null,
+        ownerIsPublic: false,
+        framing: { focalX: 0.4, focalY: 0.6, crop: null },
       },
     ],
   };
