@@ -24,7 +24,7 @@ describe('public website reads', () => {
       '/public/clinic-content': { openGraphImage: null, entries: [] },
       '/public/spaces': { spaces: [] },
       '/public/services': {
-        services: [{ slug: 'speech-therapy', name: 'گفتاردرمانی', description: null }],
+        services: [{ slug: 'speech-therapy', name: 'گفتاردرمانی', description: null, image: null }],
       },
       '/public/team': {
         therapists: [
@@ -95,6 +95,7 @@ describe('public website reads', () => {
           slug: 'speech-therapy',
           name: 'گفتاردرمانی',
           description: null,
+          image: null,
           sessionDurationsMinutes: [45],
         },
       },

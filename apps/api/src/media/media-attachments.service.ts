@@ -101,6 +101,7 @@ export class MediaAttachmentsService {
           AND testimonial_id IS NOT DISTINCT FROM ${owner.testimonialId}::uuid
           AND space_id IS NOT DISTINCT FROM ${owner.spaceId}::uuid
           AND content_entry_id IS NOT DISTINCT FROM ${owner.contentEntryId}::uuid
+          AND service_id IS NOT DISTINCT FROM ${owner.serviceId}::uuid
           AND detached_at IS NULL
       `;
 
@@ -111,11 +112,11 @@ export class MediaAttachmentsService {
       await tx.$executeRaw`
         INSERT INTO media_attachment (
           id, media_asset_id, owner_type, therapist_id, article_id, testimonial_id, space_id,
-          content_entry_id, position, attached_at, attached_by_user_id
+          content_entry_id, service_id, position, attached_at, attached_by_user_id
         ) VALUES (
           ${id}::uuid, ${mediaId}::uuid, ${owner.ownerType}::media_attachment_owner,
           ${owner.therapistId}::uuid, ${owner.articleId}::uuid, ${owner.testimonialId}::uuid,
-          ${owner.spaceId}::uuid, ${owner.contentEntryId}::uuid,
+          ${owner.spaceId}::uuid, ${owner.contentEntryId}::uuid, ${owner.serviceId}::uuid,
           ${input.position}, transaction_timestamp(), ${actor.userId}::uuid
         )
       `;
@@ -314,9 +315,9 @@ export class MediaAttachmentsService {
 }
 
 /**
- * The discriminator turned into the five owner columns the table actually holds.
+ * The discriminator turned into the six owner columns the table actually holds.
  *
- * TWO OWNER TYPES NAME NOTHING AND FIVE NAME EXACTLY ONE ROW.
+ * TWO OWNER TYPES NAME NOTHING AND SIX NAME EXACTLY ONE ROW.
  * `MEDIA_OWNERLESS_ATTACHMENT_OWNERS` is the list, stated once in the shared
  * contract rather than as a `!== 'CLINIC_SPACE'` in each place that needs it.
  *
@@ -325,7 +326,9 @@ export class MediaAttachmentsService {
  * not supply an owner id, while a `PUBLIC_SPACE` attachment names one
  * `public_space` row and must, exactly as a therapist, article or testimonial
  * attachment does (Milestone 9.5, checkpoint A7). `CLINIC_OPEN_GRAPH` joins the
- * first group and `CLINIC_CONTENT_ENTRY` the second (checkpoint A8).
+ * first group and `CLINIC_CONTENT_ENTRY` the second (checkpoint A8), as does
+ * `PUBLIC_SERVICE` (checkpoint A9): a service photograph names the service it
+ * illustrates, so that withdrawing the service withdraws the photograph.
  *
  * Refused as `VALIDATION_FAILED` rather than silently ignored, because "I sent
  * an owner id and it was dropped" is how a photograph ends up on the wrong page
@@ -343,6 +346,7 @@ function normalizeOwner(
   testimonialId: string | null;
   spaceId: string | null;
   contentEntryId: string | null;
+  serviceId: string | null;
 } {
   const wantsOwner = !isOwnerlessMediaAttachment(ownerType);
 
@@ -362,6 +366,7 @@ function normalizeOwner(
     testimonialId: ownerType === 'PUBLIC_TESTIMONIAL' ? ownerId : null,
     spaceId: ownerType === 'PUBLIC_SPACE' ? ownerId : null,
     contentEntryId: ownerType === 'CLINIC_CONTENT_ENTRY' ? ownerId : null,
+    serviceId: ownerType === 'PUBLIC_SERVICE' ? ownerId : null,
   };
 }
 
@@ -400,6 +405,17 @@ async function assertOwnerExists(
         return tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM clinic_content_entry WHERE id = ${owner.ownerId}::uuid
         `;
+      // THE SERVICE HAS TO EXIST, AND NOTHING MORE IS ASKED OF IT HERE
+      // (Milestone 9.5, checkpoint A9). A private, unpublished or deactivated
+      // service is a perfectly ordinary thing to prepare a photograph for —
+      // that is what drafting IS — and whether the picture ever reaches a
+      // visitor is decided by `LIVE_ATTACHMENT_PREDICATE` on every read, not
+      // by a one-off check at attach time that would go stale the moment
+      // somebody changed the service.
+      case 'PUBLIC_SERVICE':
+        return tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM service WHERE id = ${owner.ownerId}::uuid
+        `;
       case 'CLINIC_SPACE':
       case 'CLINIC_OPEN_GRAPH':
         return [];
@@ -419,6 +435,8 @@ async function assertOwnerExists(
       throw new AppError('PUBLIC_SPACE_NOT_FOUND');
     case 'CLINIC_CONTENT_ENTRY':
       throw new AppError('CLINIC_CONTENT_ENTRY_NOT_FOUND');
+    case 'PUBLIC_SERVICE':
+      throw new AppError('SERVICE_NOT_FOUND');
     case 'CLINIC_SPACE':
     case 'CLINIC_OPEN_GRAPH':
       return;

@@ -57,13 +57,18 @@ describe('public website contracts', () => {
   });
 
   describe('the projections are exactly these fields', () => {
-    it('states three facts about a listed service', () => {
-      expect(keysOf(publicServiceSummarySchema)).toEqual(['description', 'name', 'slug']);
+    it('states four facts about a listed service', () => {
+      // `image` is the fourth, added in Milestone 9.5 checkpoint A9, and it is
+      // the last published page in this product to gain one. It is a
+      // `publicImageSchema` or `null` — never a path a manager typed, and
+      // never an id of the service it illustrates.
+      expect(keysOf(publicServiceSummarySchema)).toEqual(['description', 'image', 'name', 'slug']);
     });
 
     it('adds session lengths, and only that, on the detail', () => {
       expect(keysOf(publicServiceDetailSchema)).toEqual([
         'description',
+        'image',
         'name',
         'sessionDurationsMinutes',
         'slug',

@@ -2168,6 +2168,34 @@ foreign key at all — no therapist, room, service, appointment, family or child
 so a leak would need a new column and a reviewed migration rather than a widened
 `SELECT`.
 
+## Service imagery (Milestone 9.5, checkpoint A9)
+
+A service was the last record in this product with a published page and no way
+to illustrate it. `PUBLIC_SERVICE` is the eighth attachment owner and the sixth
+that names a row, `media_attachment.service_id` is the whole of the storage
+change, and `PublicServiceSummary` gains a nullable `image` that both service
+reads carry. No new permission, error code or route came with it.
+
+**The owner gate is three conditions, not a flag, and that is the checkpoint.**
+A service is on the website when `is_public` is set AND `status = 'ACTIVE'` AND
+it has a slug — what `GET /public/services` has required since Milestone 9
+checkpoint A1 — and `LIVE_ATTACHMENT_PREDICATE` now requires exactly the same
+three. Deactivating a service writes `status` alone and leaves `is_public`
+standing, so a photograph gated on the flag by itself would have outlived the
+page it illustrates. The picture and the page now appear and disappear together.
+
+**Two gates, both the manager's.** `media.publish` publishes the attachment;
+`service.update` and `service.update_status` decide whether the service is
+reachable at all. Closing either revokes the bytes at the origin on the very next
+request. A receptionist prepares — `media.upload`, `media.attach` — and can
+review a draft under `service.draft_public_copy`, the editorial read they already
+hold, which reaches nothing operational and publishes nothing.
+
+**One photograph, not a gallery.** `image` is a single nullable `PublicImage`,
+like a testimonial's; the attachment table can hold more and the projection
+returns the first by `position`. `null` is the ordinary state, and the internal
+service id is a join key that no response carries.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the

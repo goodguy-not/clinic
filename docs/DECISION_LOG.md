@@ -5153,3 +5153,62 @@ A5's "no privileged preview route" position for staff only.
 - **Revisit when:** the product wants receptionists to re-view their own unplaced
   uploads, or unattached library thumbnails. Either one widens who can see unpublished
   pixels and needs an owner decision. Also revisit if a third role arrives.
+
+## 2026-09-21 — Service imagery is a dedicated media owner gated on the service being publicly reachable
+
+**Status:** Accepted — Milestone 9.5, checkpoint A9 (Agent A)
+
+`PUBLIC_SERVICE` is the eighth `media_attachment_owner` and the sixth that names a row.
+`media_attachment.service_id` references `service(id)` under the existing discriminator,
+and `publicServiceSummarySchema` gains a nullable `image` that the list and the detail
+reads both carry. The owner gate in `LIVE_ATTACHMENT_PREDICATE` is the THREE conditions
+that make a service reachable — `is_public` AND `status = 'ACTIVE'` AND a non-null
+`public_slug` — not the flag alone. No permission, error code or audit action was added:
+preparing is `media.upload` + `media.attach`, reviewing a draft is
+`service.draft_public_copy`, publishing is `media.publish`.
+
+- **Alternatives:** reusing `CLINIC_SPACE` (ownerless, so no service act could withdraw
+  the picture and no projection could tell which service it belonged to); reusing
+  `PUBLIC_SPACE` (a space is a place, and it would need a service↔space link the product
+  deliberately does not have); a `public_photo_path`-style column on `service` (the
+  pre-media legacy pattern, with no EXIF stripping, renditions, framing or publication
+  gate); publishing no service imagery at all.
+- **Reason:** a service is the last record in this product with a published page and no
+  way to illustrate it, and it already has everything an owner needs — a row, a
+  publication flag, a status and an address. A dedicated owner makes "withdrawing the
+  service withdraws the picture" a property of one predicate rather than a promise a
+  projection keeps.
+- **Trade-off:** an eighth enum label and a sixth owner column, so the owner CHECK is
+  restated over eight branches again. The alternative — one loose `owner_id` — cannot be
+  constrained or referenced, which is the trade A5 already made.
+- **Assumptions:** one photograph per service, matching the accepted design's single slot
+  on the list stage and the detail hero; the attachment table can hold more and the
+  projection returns the first by `position`, exactly as a testimonial does.
+- **Revisit when:** the design wants a gallery per service. That is a widening of `image`
+  to `images[]` and a web change, not a schema change.
+
+## 2026-09-21 — A deactivated therapist's portrait stays anonymously servable (open finding, not fixed here)
+
+**Status:** Proposed — follow-up security finding raised by Milestone 9.5 checkpoint A9
+
+`LIVE_ATTACHMENT_PREDICATE` gates a `THERAPIST_PROFILE` photograph on `therapist.is_public`
+alone, while `PublicSiteService.listTeam` additionally requires `status = 'ACTIVE'`.
+`TherapistsService.setStatus` writes `status` and leaves `is_public` standing, so a
+colleague who has left the clinic disappears from `/public/team` while the bytes of their
+portrait remain retrievable by anybody holding the rendition id, until somebody also clears
+their public flag. The same divergence would have existed for services; checkpoint A9
+avoided it by gating `PUBLIC_SERVICE` on all three conditions.
+
+- **Decision:** record it; change nothing. A9 adds service imagery and does not alter
+  accepted therapist semantics.
+- **Alternatives:** adding `AND t.status = 'ACTIVE'` to the therapist branch inside A9;
+  clearing `is_public` when a therapist is deactivated.
+- **Reason:** narrowing a live serving predicate is a behaviour change to accepted A5/A1
+  scope and belongs in a checkpoint that owns it, with its own tests and its own note to
+  the web lane.
+- **Trade-off:** the gap stays open meanwhile. It is bounded: the photograph was already
+  public, no unpublished content is exposed, and a manager clearing the public flag closes
+  it immediately.
+- **Revisit when:** the next checkpoint that touches therapist publication. The fix is two
+  lines — the branch in `media-visibility.ts` and the mirror in `media.service.ts` — plus a
+  deactivation test alongside the A9 one.

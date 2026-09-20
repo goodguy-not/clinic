@@ -139,12 +139,14 @@ describe('public space schema objects', () => {
         ORDER BY e.enumsortorder
       `;
 
-      // The last two arrived in checkpoint A8 and are asserted HERE, in the A7
-      // suite, deliberately: this list is the one place the whole owner
-      // vocabulary is written out, and a checkpoint that adds a label without
-      // reading it would be a checkpoint that could quietly widen what a
-      // photograph may hang off. `CLINIC_CONTENT_ENTRY` names an editorial
-      // block; `CLINIC_OPEN_GRAPH` is ownerless like `CLINIC_SPACE`.
+      // The last three arrived after A7 and are asserted HERE, in the A7 suite,
+      // deliberately: this list is the one place the whole owner vocabulary is
+      // written out in declaration order, and a checkpoint that adds a label
+      // without reading it would be a checkpoint that could quietly widen what
+      // a photograph may hang off. `CLINIC_CONTENT_ENTRY` names an editorial
+      // block; `CLINIC_OPEN_GRAPH` is ownerless like `CLINIC_SPACE`;
+      // `PUBLIC_SERVICE` (checkpoint A9) names a `service` row and is gated on
+      // that service being publicly reachable.
       expect(rows.map((row) => row.label)).toEqual([
         'THERAPIST_PROFILE',
         'PUBLIC_ARTICLE',
@@ -153,6 +155,7 @@ describe('public space schema objects', () => {
         'PUBLIC_SPACE',
         'CLINIC_CONTENT_ENTRY',
         'CLINIC_OPEN_GRAPH',
+        'PUBLIC_SERVICE',
       ]);
     });
   });

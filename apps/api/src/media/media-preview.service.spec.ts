@@ -21,6 +21,7 @@ describe('media preview authority', () => {
       PUBLIC_ARTICLE: 'article.read',
       PUBLIC_TESTIMONIAL: 'testimonial.read',
       PUBLIC_SPACE: 'public_space.read',
+      PUBLIC_SERVICE: 'service.draft_public_copy',
       CLINIC_CONTENT_ENTRY: 'clinic_profile.read',
       CLINIC_OPEN_GRAPH: 'clinic_profile.read',
       CLINIC_SPACE: 'clinic_profile.read',
@@ -32,8 +33,19 @@ describe('media preview authority', () => {
   });
 
   it('gives a receptionist the drafts they can read, and none of the clinic profile', () => {
+    // `PUBLIC_SERVICE` joins the list in Milestone 9.5 checkpoint A9 and adds
+    // no authority: the receptionist already holds `service.draft_public_copy`,
+    // which is the editorial read of a service's public copy, and a draft
+    // photograph for that service is part of the same draft. Nothing
+    // operational and nothing publishing comes with it.
     expect(new Set(previewableOwnerTypes(ROLE_PERMISSIONS.RECEPTIONIST))).toEqual(
-      new Set(['THERAPIST_PROFILE', 'PUBLIC_ARTICLE', 'PUBLIC_TESTIMONIAL', 'PUBLIC_SPACE']),
+      new Set([
+        'THERAPIST_PROFILE',
+        'PUBLIC_ARTICLE',
+        'PUBLIC_TESTIMONIAL',
+        'PUBLIC_SPACE',
+        'PUBLIC_SERVICE',
+      ]),
     );
   });
 

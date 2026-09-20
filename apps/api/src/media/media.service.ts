@@ -253,7 +253,8 @@ export class MediaService {
              ma.media_asset_id,
              ma.owner_type::text AS owner_type,
              coalesce(
-               ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id, ma.content_entry_id
+               ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id,
+               ma.content_entry_id, ma.service_id
              ) AS owner_id,
              ma.position,
              ma.attached_at,
@@ -303,6 +304,13 @@ export class MediaService {
  * and this answers "is the page live?". Sharing one expression between the two
  * would make a change intended for the library able to widen the serving rule.
  *
+ * Milestone 9.5, checkpoint A9 adds `PUBLIC_SERVICE`, whose owner gate is the
+ * three conditions that make a service reachable — published, active and
+ * addressable — and not `is_public` alone. It is the same expression the
+ * serving predicate applies, restated here for the reason stated above, and it
+ * is what lets the library tell a manager "the service page is not live"
+ * about a photograph attached to a service somebody has deactivated.
+ *
  * Milestone 9.5, checkpoint A8 adds the two clinic-profile owners. The
  * ownerless `CLINIC_OPEN_GRAPH` is unconditionally live, like `CLINIC_SPACE`;
  * `CLINIC_CONTENT_ENTRY` asks whether the editorial block has been WRITTEN,
@@ -323,6 +331,13 @@ const OWNER_IS_PUBLIC = Prisma.sql`
     )
     WHEN 'PUBLIC_SPACE' THEN EXISTS (
       SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
+    )
+    WHEN 'PUBLIC_SERVICE' THEN EXISTS (
+      SELECT 1 FROM service svc
+      WHERE svc.id = ma.service_id
+        AND svc.is_public
+        AND svc.status = 'ACTIVE'::catalog_status
+        AND svc.public_slug IS NOT NULL
     )
     WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
       SELECT 1 FROM clinic_content_entry ce

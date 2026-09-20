@@ -5,6 +5,7 @@ import {
   PUBLIC_MEDIA_MAX_AGE_SECONDS,
   articleResponseSchema,
   mediaAssetResponseSchema,
+  serviceResponseSchema,
   testimonialResponseSchema,
   type MediaAsset,
 } from '@clinic/contracts';
@@ -189,6 +190,36 @@ describe('staff media preview (real PostgreSQL)', () => {
       .set({ 'x-session-id': manager });
     expect(noKey.status).toBe(401);
     expect(noKey.body.error.code).toBe('AUTH_INTERNAL_KEY_INVALID');
+  });
+
+  it('lets both roles review a draft SERVICE image, and shows a visitor nothing', async () => {
+    // Milestone 9.5, checkpoint A9. A service photograph adds no permission:
+    // `service.draft_public_copy` is the editorial read of a service's public
+    // copy, the receptionist and the manager both hold it, and a draft
+    // photograph for that service is part of the same draft. The service here
+    // is private and unaddressed — which is what preparing one looks like.
+    const created = await request(server())
+      .post('/catalog/services')
+      .set(as(manager))
+      .send({
+        name: `Synthetic service ${uuidv7().slice(-8)}`,
+        publicDescription: 'Synthetic draft copy. It names nobody.',
+        isPublic: false,
+        allowedDurationsMinutes: [45],
+      });
+    expect(created.status).toBe(201);
+    const serviceId = serviceResponseSchema.parse(created.body).service.id;
+
+    const asset = await uploadPhoto(harness, receptionist);
+    expect(
+      (await attach(asset.id, { ownerType: 'PUBLIC_SERVICE', ownerId: serviceId })).status,
+    ).toBe(201);
+
+    expectPrivatePreview(await preview(renditionOf(asset), as(receptionist)));
+    expectPrivatePreview(await preview(renditionOf(asset), as(manager)));
+
+    // Reviewing is not publishing, and the service is not even public.
+    expectNotFound(await fetchPublic(renditionOf(asset)));
   });
 
   it('refuses staff who cannot read the owning content, and serves those who can', async () => {

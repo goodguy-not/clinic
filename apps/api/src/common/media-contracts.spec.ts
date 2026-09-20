@@ -284,7 +284,7 @@ describe('media contracts', () => {
       expect([...MEDIA_ACCEPTED_CONTENT_TYPES]).not.toContain('image/svg+xml');
     });
 
-    it('names seven owners and two asset states', () => {
+    it('names eight owners and two asset states', () => {
       // `PUBLIC_SPACE` is Milestone 9.5 checkpoint A7's addition, and it is
       // APPENDED rather than replacing `CLINIC_SPACE`. The two are opposites
       // despite the names: `CLINIC_SPACE` stays A5's ownerless slot that no
@@ -292,11 +292,17 @@ describe('media contracts', () => {
       // `public_space` row whose own publication gates the photograph. A future
       // edit that collapses them has to change this list deliberately.
       //
-      // The last two are checkpoint A8's and are appended for the same reason.
+      // The next two are checkpoint A8's and are appended for the same reason.
       // `CLINIC_CONTENT_ENTRY` names an editorial block of the home or about
       // page; `CLINIC_OPEN_GRAPH` is the site's social-preview photograph and
       // is OWNERLESS, so it joins `CLINIC_SPACE` rather than the four types
       // with rows.
+      //
+      // `PUBLIC_SERVICE` is checkpoint A9's and is the last published page in
+      // this product to gain imagery. It names a real `service` row, so it
+      // belongs with `PUBLIC_SPACE` and not with `CLINIC_SPACE`, and its owner
+      // gate is the three conditions that make a service reachable rather than
+      // a single flag.
       expect([...MEDIA_ATTACHMENT_OWNERS]).toEqual([
         'THERAPIST_PROFILE',
         'PUBLIC_ARTICLE',
@@ -305,6 +311,7 @@ describe('media contracts', () => {
         'PUBLIC_SPACE',
         'CLINIC_CONTENT_ENTRY',
         'CLINIC_OPEN_GRAPH',
+        'PUBLIC_SERVICE',
       ]);
       expect([...MEDIA_ASSET_STATUSES]).toEqual(['ACTIVE', 'ARCHIVED']);
     });

@@ -217,7 +217,7 @@ describe('public website reads (real PostgreSQL)', () => {
       expect(body.services.map((service) => service.slug)).toEqual(['published-service']);
     });
 
-    it('states three facts and no more, whatever the row carries', async () => {
+    it('states four facts and no more, whatever the row carries', async () => {
       // `publicServiceListResponseSchema` is strict, so an internal field
       // arriving in this response fails the parse rather than reaching a page.
       await seedService({
@@ -229,10 +229,14 @@ describe('public website reads (real PostgreSQL)', () => {
       const response = await request(server()).get('/public/services').set(internalHeaders());
       const [service] = publicServiceListResponseSchema.parse(response.body).services;
 
+      // `image` is Milestone 9.5 checkpoint A9's, and `null` is its ordinary
+      // state: this service has no attached photograph, which is what most
+      // services will look like.
       expect(service).toEqual({
         slug: 'published-service',
         name: 'Synthetic Published Service',
         description: 'Synthetic public description.',
+        image: null,
       });
 
       const serialised = JSON.stringify(response.body);
@@ -271,6 +275,7 @@ describe('public website reads (real PostgreSQL)', () => {
         slug: 'published-service',
         name: 'Synthetic Published Service',
         description: null,
+        image: null,
         sessionDurationsMinutes: [30, 45],
       });
     });

@@ -96,6 +96,27 @@ export const MEDIA_ATTACHMENT_OWNERS = [
    * uploader by design, and nothing here makes a logo staff-manageable.
    */
   'CLINIC_OPEN_GRAPH',
+  /**
+   * Milestone 9.5, checkpoint A9. A `service` row; an owner id is required.
+   *
+   * IT IS THE LAST PUBLISHED PAGE IN THIS PRODUCT TO GAIN IMAGERY, and it
+   * behaves like `PUBLIC_SPACE`: the photograph is visible only while the
+   * service it illustrates is itself publicly reachable.
+   *
+   * THE OWNER GATE IS THREE CONDITIONS AND NOT ONE. A service is reachable when
+   * `is_public` is set AND `status` is `ACTIVE` AND it has a slug, which is
+   * what `GET /public/services` has required since Milestone 9, checkpoint A1.
+   * Deactivating a service writes `status` alone and leaves `is_public` where
+   * it was, so a photograph gated on the flag by itself would outlive the page
+   * it illustrates.
+   *
+   * NO NEW PERMISSION CAME WITH IT. Preparing a service photograph is
+   * `media.upload` + `media.attach` as everywhere else, reviewing a draft one
+   * is `service.draft_public_copy` — the editorial read the receptionist
+   * already holds — and publishing it is `media.publish`, the manager's alone.
+   * A1 said no name would be added for publishing a service and none is.
+   */
+  'PUBLIC_SERVICE',
 ] as const;
 
 export type MediaAttachmentOwner = (typeof MEDIA_ATTACHMENT_OWNERS)[number];
@@ -168,8 +189,8 @@ export const mediaAttachmentSchema = z.strictObject({
   id: z.uuid(),
   ownerType: z.enum(MEDIA_ATTACHMENT_OWNERS),
   /**
-   * The article, therapist, testimonial, public space or clinic content entry.
-   * Null exactly for the ownerless types — see
+   * The article, therapist, testimonial, public space, clinic content entry or
+   * service. Null exactly for the ownerless types — see
    * `MEDIA_OWNERLESS_ATTACHMENT_OWNERS`.
    */
   ownerId: z.uuid().nullable(),
@@ -180,8 +201,10 @@ export const mediaAttachmentSchema = z.strictObject({
   /**
    * Whether the record this hangs off is itself public right now. Always true for
    * the ownerless types, which have no record to read; for `PUBLIC_SPACE` it is
-   * that space's own publication, and for `CLINIC_CONTENT_ENTRY` it is whether
-   * that editorial slot has been written at all (Milestone 9.5, checkpoint A8).
+   * that space's own publication, for `CLINIC_CONTENT_ENTRY` it is whether
+   * that editorial slot has been written at all (Milestone 9.5, checkpoint A8),
+   * and for `PUBLIC_SERVICE` it is that service being publicly reachable —
+   * published, active and addressable (checkpoint A9).
    */
   ownerIsPublic: z.boolean(),
   /**

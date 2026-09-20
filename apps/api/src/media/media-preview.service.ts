@@ -25,9 +25,20 @@ import type { ServableRendition } from './public-media.service';
  *   PUBLIC_ARTICLE ......... `article.read`
  *   PUBLIC_TESTIMONIAL ..... `testimonial.read`
  *   PUBLIC_SPACE ........... `public_space.read`
+ *   PUBLIC_SERVICE ......... `service.draft_public_copy` — the editorial read
+ *                            of a service's public copy. Not `service.read`,
+ *                            which is the operational catalog record, and not
+ *                            `service.update`, which publishes.
  *   CLINIC_CONTENT_ENTRY ... `clinic_profile.read` — the entries hang off the
  *   CLINIC_OPEN_GRAPH ...... `clinic_profile.read`   clinic profile, which is
  *   CLINIC_SPACE ........... `clinic_profile.read`   the manager's surface.
+ *
+ * `PUBLIC_SERVICE` FOLLOWS THE SAME RULE AS EVERY OTHER OWNER (Milestone 9.5,
+ * checkpoint A9) AND ADDS NO NAME. Preparing and reviewing a service's public
+ * copy is `service.draft_public_copy`, held by the receptionist and the
+ * manager, and a draft photograph for that service is part of the same draft.
+ * It grants nothing operational — a service's durations, status, slug, tariffs
+ * and visibility stay behind `service.update` — and it publishes nothing.
  *
  * `CLINIC_SPACE` FOLLOWS ITS OWNER, NOT ITS USE AS A PARKING SLOT. The web tier
  * parks unplaced uploads there, but A5 defines it as the clinic's own photograph
@@ -43,6 +54,7 @@ export const MEDIA_PREVIEW_OWNER_PERMISSION: Record<MediaAttachmentOwner, Permis
   PUBLIC_ARTICLE: 'article.read',
   PUBLIC_TESTIMONIAL: 'testimonial.read',
   PUBLIC_SPACE: 'public_space.read',
+  PUBLIC_SERVICE: 'service.draft_public_copy',
   CLINIC_CONTENT_ENTRY: 'clinic_profile.read',
   CLINIC_OPEN_GRAPH: 'clinic_profile.read',
   CLINIC_SPACE: 'clinic_profile.read',

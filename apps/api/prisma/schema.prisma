@@ -420,7 +420,8 @@ enum MediaAssetStatus {
 /// `CLINIC_SPACE` is the one with no owner row: see `MediaAttachment.ownerType`.
 /// `PUBLIC_SPACE` — Milestone 9.5, checkpoint A7 — is the fifth value A5 said a
 /// new published surface would have to be, and it names a real `public_space`
-/// row like the first three.
+/// row like the first three. `PUBLIC_SERVICE` — checkpoint A9 — is the last
+/// published page in this product to gain one, and names a real `service` row.
 enum MediaAttachmentOwner {
   THERAPIST_PROFILE
   PUBLIC_ARTICLE
@@ -435,6 +436,11 @@ enum MediaAttachmentOwner {
   /// like `CLINIC_SPACE`: it hangs off the always-live clinic profile, so
   /// manager publication of the attachment is the whole of the control.
   CLINIC_OPEN_GRAPH
+  /// Milestone 9.5, checkpoint A9. A `service` row; an owner id is required,
+  /// and the photograph is reachable only while that service is itself
+  /// publicly reachable — published, active AND addressable, which is the
+  /// SAME three conditions the public service reads have always applied.
+  PUBLIC_SERVICE
 
   @@map("media_attachment_owner")
 }
@@ -783,6 +789,11 @@ model Service {
   /// form, which is the ONLY direction this relation goes: a website request
   /// points at a service, and nothing about a service depends on one.
   websiteRequests  WebsiteRequest[]
+  /// Milestone 9.5, checkpoint A9. The photographs prepared for this service's
+  /// public page. ON DELETE RESTRICT on the other side, like every other
+  /// attachment owner: a service row is never deleted anyway, and the
+  /// photograph must not be the thing that makes one deletable.
+  mediaAttachments MediaAttachment[]
 
   @@index([status])
   @@map("service")
@@ -2793,8 +2804,8 @@ model MediaAttachment {
   mediaAssetId String               @map("media_asset_id") @db.Uuid
   ownerType    MediaAttachmentOwner @map("owner_type")
 
-  /// Exactly one of these four is set, and none of them is set for
-  /// `CLINIC_SPACE`. Pinned by `media_attachment_owner_chk`.
+  /// Exactly one of these six is set, and none of them is set for the two
+  /// ownerless types. Pinned by `media_attachment_owner_chk`.
   therapistId    String? @map("therapist_id") @db.Uuid
   articleId      String? @map("article_id") @db.Uuid
   testimonialId  String? @map("testimonial_id") @db.Uuid
@@ -2805,6 +2816,17 @@ model MediaAttachment {
   spaceId        String? @map("space_id") @db.Uuid
   /// Milestone 9.5, checkpoint A8. The editorial block this illustrates.
   contentEntryId String? @map("content_entry_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A9. The SIXTH real foreign key, and the last
+  /// published page in this product to get one. `PUBLIC_SERVICE` behaves like
+  /// `PUBLIC_SPACE` and not like `CLINIC_SPACE`: a photograph illustrating a
+  /// service is visible only while that service is itself publicly reachable,
+  /// which is `is_public` AND `status = 'ACTIVE'` AND a non-null
+  /// `public_slug` — the three conditions the public service reads have
+  /// applied since Milestone 9, checkpoint A1, and NOT the flag alone.
+  /// Deactivating a service writes `status` and leaves `is_public` where it
+  /// was, so reading the flag alone would take the page down and leave the
+  /// photograph servable.
+  serviceId      String? @map("service_id") @db.Uuid
 
   /// Ascending, so a gallery has one order rather than whatever PostgreSQL
   /// returns. Ties are broken by id, which is time-ordered.
@@ -2852,6 +2874,7 @@ model MediaAttachment {
   testimonial  PublicTestimonial?  @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   space        PublicSpace?        @relation(fields: [spaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   contentEntry ClinicContentEntry? @relation(fields: [contentEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service      Service?            @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   attachedBy  AppUser  @relation("MediaAttachmentAttachedBy", fields: [attachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   publishedBy AppUser? @relation("MediaAttachmentPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2866,6 +2889,8 @@ model MediaAttachment {
   @@index([spaceId, position])
   /// The editorial block read: "what does this block currently show?"
   @@index([contentEntryId, position])
+  /// The service page read: "what does this service currently show?"
+  @@index([serviceId, position])
   /// The clinic-space gallery, and the library's "where is this used?" read.
   @@index([ownerType, position])
   @@index([mediaAssetId])

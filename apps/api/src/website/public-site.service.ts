@@ -86,6 +86,8 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 
 type PublicServiceRow = {
+  /** The join key for the media lookup. Never projected — see the class note. */
+  internal_id: string;
   public_slug: string;
   name: string;
   published_public_description: string | null;
@@ -200,10 +202,23 @@ export class PublicSiteService {
    * checkpoint's defect: unreviewed copy on the live page the instant it was
    * saved. The name is not split and is deliberately still the catalog name —
    * a service's name IS its public name (DECISION_LOG, 2026-08-21).
+   *
+   * THE PHOTOGRAPH IS ONE MORE STATEMENT, NOT ONE PER ROW (Milestone 9.5,
+   * checkpoint A9). `imagesForOwners` carries `LIVE_ATTACHMENT_PREDICATE`, so
+   * the three conditions above and the four the media subsystem applies are
+   * evaluated independently and a picture survives only if both agree. A
+   * service with no published photograph gets `null`, which is the ordinary
+   * state and not an error.
+   *
+   * `internal_id` IS SELECTED AND NEVER PROJECTED. It is the join key for that
+   * lookup and `toPublicServiceSummary` does not copy it — the same
+   * arrangement `listTeam` and `listArticles` use, for the reason
+   * `publicServiceSummarySchema` states: the internal UUID names this row in
+   * the tariff, appointment and charge tables and has no public purpose.
    */
   async listServices(): Promise<PublicServiceSummary[]> {
     const rows = await this.prisma.$queryRaw<PublicServiceRow[]>`
-      SELECT s.public_slug, s.name, s.published_public_description
+      SELECT s.id AS internal_id, s.public_slug, s.name, s.published_public_description
       FROM service s
       WHERE s.is_public IS TRUE
         AND s.status = 'ACTIVE'::catalog_status
@@ -211,7 +226,12 @@ export class PublicSiteService {
       ORDER BY s.name ASC
     `;
 
-    return rows.map(toPublicServiceSummary);
+    const images = await this.media.imagesForOwners(
+      'PUBLIC_SERVICE',
+      rows.map((row) => row.internal_id),
+    );
+
+    return rows.map((row) => toPublicServiceSummary(row, firstImage(images, row.internal_id)));
   }
 
   /**
@@ -222,10 +242,14 @@ export class PublicSiteService {
    * public" response would be a side channel: anybody could enumerate the
    * clinic's internal catalogue by watching which spellings answered
    * differently.
+   *
+   * The photograph arrives exactly as it does in the list, through the same
+   * predicate, and `internal_id` is again a join key that no response carries.
    */
   async getService(slug: string): Promise<PublicServiceDetail> {
     const rows = await this.prisma.$queryRaw<PublicServiceDetailRow[]>`
       SELECT
+        s.id AS internal_id,
         s.public_slug,
         s.name,
         s.published_public_description,
@@ -246,7 +270,12 @@ export class PublicSiteService {
     const row = rows[0];
     if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
 
-    return { ...toPublicServiceSummary(row), sessionDurationsMinutes: row.durations };
+    const images = await this.media.imagesForOwners('PUBLIC_SERVICE', [row.internal_id]);
+
+    return {
+      ...toPublicServiceSummary(row, firstImage(images, row.internal_id)),
+      sessionDurationsMinutes: row.durations,
+    };
   }
 
   /**
@@ -674,11 +703,15 @@ function toPublicArticleSummary(
   };
 }
 
-function toPublicServiceSummary(row: PublicServiceRow): PublicServiceSummary {
+function toPublicServiceSummary(
+  row: PublicServiceRow,
+  image: PublicImage | null,
+): PublicServiceSummary {
   return {
     slug: row.public_slug,
     name: row.name,
     description: row.published_public_description,
+    image,
   };
 }
 

@@ -69,6 +69,18 @@ import { Prisma } from '@prisma/client';
  * very next request. That is what makes "a draft space does not appear
  * publicly" true of its PICTURES and not merely of its words.
  *
+ * `PUBLIC_SERVICE` IS THE A9 TYPE AND IT HAS A REAL OWNER ROW, so it satisfies
+ * (4) conditionally like `PUBLIC_SPACE` — but its owner gate is THREE
+ * CONDITIONS RATHER THAN A FLAG, and stating why is the point of this
+ * paragraph. A service is on the website when `is_public` is set AND `status`
+ * is `ACTIVE` AND it has a slug; that is what `PublicSiteService.listServices`
+ * has required since Milestone 9, checkpoint A1, and this branch requires
+ * exactly the same three. Deactivating a service writes `status` ALONE and
+ * leaves `is_public` where it was — `ServicesService.setStatus` does not touch
+ * the flag — so a branch that read the flag by itself would take the page down
+ * and go on handing the photograph to anybody holding the rendition id. One
+ * service, one rule, in the projection and here.
+ *
  * WHY `EXISTS` PER OWNER RATHER THAN THREE LEFT JOINS. A join whose predicate
  * lives in the `ON` clause is a join somebody can later widen by moving one
  * line into the `WHERE`; a correlated `EXISTS` states "there is a public owner"
@@ -90,6 +102,13 @@ export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
         )
         WHEN 'PUBLIC_SPACE' THEN EXISTS (
           SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
+        )
+        WHEN 'PUBLIC_SERVICE' THEN EXISTS (
+          SELECT 1 FROM service svc
+          WHERE svc.id = ma.service_id
+            AND svc.is_public
+            AND svc.status = 'ACTIVE'::catalog_status
+            AND svc.public_slug IS NOT NULL
         )
         WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
           SELECT 1 FROM clinic_content_entry ce
