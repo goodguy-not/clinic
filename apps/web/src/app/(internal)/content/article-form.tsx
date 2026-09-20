@@ -1,4 +1,5 @@
 import type { Article } from '@clinic/contracts';
+import type { ReactNode } from 'react';
 import {
   Alert,
   Field,
@@ -13,10 +14,12 @@ export function ArticleForm({
   article,
   csrfToken,
   errorMessage,
+  children,
 }: {
   article?: Article;
   csrfToken: string;
   errorMessage: string | null;
+  children?: ReactNode;
 }) {
   const isEdit = article !== undefined;
 
@@ -130,6 +133,7 @@ export function ArticleForm({
           </FormActions>
         </form>
       </Panel>
+      {children}
     </PageShell>
   );
 }

@@ -339,4 +339,24 @@ describe('attachment and framing routes', () => {
       `${ORIGIN}/content/spaces/${spaceId}/edit?success=space-photo-published`,
     );
   });
+
+  it('publishes an article photograph and returns to the article editor', async () => {
+    const articleId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a63';
+    const response = await setPublication(
+      jsonRequest('/api/media/publication', {
+        attachmentId: ATTACHMENT_ID,
+        articleId,
+        isPublished: 'true',
+      }),
+    );
+
+    expect(mocks.updateMediaPublication).toHaveBeenCalledWith(
+      ATTACHMENT_ID,
+      { isPublished: true },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/articles/${articleId}/edit?success=article-image-published`,
+    );
+  });
 });

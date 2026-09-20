@@ -56,8 +56,10 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    expect(handlers.length).toBe(80);
-    expect(stateChangingHandlers.length).toBe(79);
+    // 83 accepted handlers were already present after the A7 public-space
+    // routes; this checkpoint adds one read-only, session-bound media preview.
+    expect(handlers.length).toBe(84);
+    expect(stateChangingHandlers.length).toBe(82);
   });
 
   it('exposes no catch-all route', () => {
@@ -122,6 +124,9 @@ describe('route handler inventory', () => {
       '/api/content/clinic-profile/update',
       '/api/content/service-copy/publication',
       '/api/content/service-copy/update',
+      '/api/content/spaces/create',
+      '/api/content/spaces/publication',
+      '/api/content/spaces/update',
       '/api/content/testimonials/approval',
       '/api/content/testimonials/create',
       '/api/content/testimonials/publication',
@@ -146,6 +151,7 @@ describe('route handler inventory', () => {
       '/api/media/draft-attachment',
       '/api/media/framing',
       '/api/media/publication',
+      '/api/media/renditions/[renditionId]/preview',
       '/api/media/upload',
       // Milestone 6 family money writes: B1 payments and B2 promise workflow.
       '/api/payments/create',

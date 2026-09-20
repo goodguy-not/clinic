@@ -111,7 +111,7 @@ describe('content draft handlers', () => {
       },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/content?success=article-created`);
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/content/articles/${ARTICLE_ID}/edit`);
   });
 
   it('constructs testimonial drafts without accepting approval or publication flags', async () => {

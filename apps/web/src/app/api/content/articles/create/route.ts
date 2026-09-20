@@ -33,5 +33,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.createArticle(parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content/articles/new', result.code);
 
-  return secureRedirect(request, '/content?success=article-created');
+  return secureRedirect(request, `/content/articles/${result.data.article.id}/edit`);
 }

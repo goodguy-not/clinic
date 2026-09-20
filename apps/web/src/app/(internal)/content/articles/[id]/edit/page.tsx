@@ -10,6 +10,7 @@ import {
 } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
+import { ArticleImageEditor, imagesForArticle } from '../../../article-image-editor';
 import { ArticleForm } from '../../../article-form';
 
 export const dynamic = 'force-dynamic';
@@ -22,10 +23,14 @@ export default async function EditArticlePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: 'article.draft' });
+  const user = await requireSession({ requirePermission: 'article.draft' });
   const { id } = await params;
   const token = await readSessionToken();
-  const result = await api.getArticle(id, await callerContext(token ?? undefined));
+  const context = await callerContext(token ?? undefined);
+  const [result, mediaResult] = await Promise.all([
+    api.getArticle(id, context),
+    api.listMedia(context),
+  ]);
   if (!result.ok) {
     if (result.code === 'ARTICLE_NOT_FOUND') notFound();
     throw new Error(`Failed to load article: ${result.code}`);
@@ -34,14 +39,30 @@ export default async function EditArticlePage({
   const rawError = Array.isArray(query['error']) ? query['error'][0] : query['error'];
   const errorCode = rawError ?? null;
 
+  const csrfToken = (await readCsrfCookie()) ?? '';
+  const article = result.data.article;
+
   return (
     <>
       <AppHeader />
       <ArticleForm
-        article={result.data.article}
-        csrfToken={(await readCsrfCookie()) ?? ''}
-        errorMessage={isKnownErrorCode(errorCode) ? persianMessage(errorCode) : null}
-      />
+        article={article}
+        csrfToken={csrfToken}
+        errorMessage={
+          isKnownErrorCode(errorCode)
+            ? persianMessage(errorCode)
+            : mediaResult.ok
+              ? null
+              : persianMessage(mediaResult.code)
+        }
+      >
+        <ArticleImageEditor
+          article={article}
+          images={imagesForArticle(mediaResult.ok ? mediaResult.data.media : [], article.id)}
+          csrfToken={csrfToken}
+          canPublishMedia={user.permissions.includes('media.publish')}
+        />
+      </ArticleForm>
     </>
   );
 }

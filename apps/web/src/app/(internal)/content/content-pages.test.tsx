@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { Article, Testimonial } from '@clinic/contracts';
+import type { Article, MediaAsset, Testimonial } from '@clinic/contracts';
+import { ArticleImageEditor, imagesForArticle } from './article-image-editor';
 import { ArticleForm } from './article-form';
 import { EditorialWorkspace } from './editorial-workspace';
 import { TestimonialForm } from './testimonial-form';
@@ -43,6 +44,48 @@ const TESTIMONIAL_APPROVED: Testimonial = {
   isPublic: true,
   firstPublishedAt: '2026-08-03T09:00:00.000Z',
   publicRevisedAt: '2026-08-03T09:00:00.000Z',
+};
+
+const ARTICLE_MEDIA: MediaAsset = {
+  id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d84',
+  altText: 'کودک در حال تمرین با توپ ساختگی',
+  status: 'ACTIVE',
+  width: 1600,
+  height: 1000,
+  byteSize: 140000,
+  sourceContentType: 'image/jpeg',
+  sourceByteSize: 220000,
+  isPubliclyServed: false,
+  renditions: [
+    {
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d85',
+      path: 'media/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d85',
+      format: 'webp',
+      width: 1200,
+      height: 750,
+      byteSize: 90000,
+      contentHash: 'synthetic-article-image-hash',
+    },
+  ],
+  attachments: [
+    {
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d86',
+      ownerType: 'PUBLIC_ARTICLE',
+      ownerId: ARTICLE.id,
+      position: 0,
+      attachedAt: '2026-08-04T08:00:00.000Z',
+      publishedAt: null,
+      ownerIsPublic: ARTICLE.isPublic,
+      framing: {
+        focalX: 0.7,
+        focalY: 0.4,
+        crop: { x: 0.2, y: 0, width: 0.7, height: 1 },
+      },
+    },
+  ],
+  createdAt: '2026-08-04T08:00:00.000Z',
+  archivedAt: null,
+  bytesPurgedAt: null,
 };
 
 function workspace(authority: 'receptionist' | 'manager'): string {
@@ -131,6 +174,47 @@ describe('draft forms', () => {
   });
 });
 
+describe('article image editor', () => {
+  function images(authority: 'receptionist' | 'manager'): string {
+    return renderToStaticMarkup(
+      createElement(ArticleImageEditor, {
+        article: ARTICLE,
+        images: imagesForArticle([ARTICLE_MEDIA], ARTICLE.id),
+        csrfToken: CSRF,
+        canPublishMedia: authority === 'manager',
+      }),
+    );
+  }
+
+  it('shows persisted framing through the authenticated preview and no public fallback', () => {
+    const markup = images('receptionist');
+
+    expect(markup).toContain(`/api/media/renditions/${ARTICLE_MEDIA.renditions[0]!.id}/preview`);
+    expect(markup).not.toContain(`/${ARTICLE_MEDIA.renditions[0]!.path}`);
+    expect(markup).toContain('left:-28.571428571428573%');
+    expect(markup).toContain('آماده؛ در انتظار انتشار مدیر');
+    expect(markup).toContain('این عکس هنوز عمومی نیست');
+  });
+
+  it('reuses upload/framing and withholds every publication control from Receptionist', () => {
+    const markup = images('receptionist');
+
+    expect(markup).toContain('انتخاب از گوشی یا رایانه');
+    expect(markup).toContain('در این عکس چه چیزی دیده می‌شود؟');
+    expect(markup).not.toContain('/api/media/publication');
+    expect(markup).not.toContain('/api/content/articles/publication');
+  });
+
+  it('gives Manager only the separate image-publication control on this editor', () => {
+    const markup = images('manager');
+
+    expect(markup).toContain('action="/api/media/publication"');
+    expect(markup).toContain(`name="articleId" value="${ARTICLE.id}"`);
+    expect(markup).toContain('انتشار عکس پس از بررسی');
+    expect(markup).not.toContain('/api/content/articles/publication');
+  });
+});
+
 describe('page and navigation boundaries', () => {
   const source = (relative: string) => readFileSync(new URL(relative, import.meta.url), 'utf8');
 
@@ -140,6 +224,7 @@ describe('page and navigation boundaries', () => {
     );
     expect(source('./articles/new/page.tsx')).toContain("requirePermission: 'article.draft'");
     expect(source('./articles/[id]/edit/page.tsx')).toContain("requirePermission: 'article.draft'");
+    expect(source('./articles/[id]/edit/page.tsx')).toContain('api.listMedia(context)');
     expect(source('./testimonials/new/page.tsx')).toContain(
       "requirePermission: 'testimonial.draft'",
     );

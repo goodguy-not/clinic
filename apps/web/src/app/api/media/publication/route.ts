@@ -27,6 +27,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const attachmentId = z.uuid().safeParse(body['attachmentId']);
   const therapistId = z.uuid().safeParse(body['therapistId']);
   const spaceId = z.uuid().safeParse(body['spaceId']);
+  const articleId = z.uuid().safeParse(body['articleId']);
   const clinicProfile = body['clinicProfile'] === 'true';
   const publicationValue =
     body['isPublished'] === 'true'
@@ -41,12 +42,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ? '/content/clinic-profile'
     : spaceId.success
       ? `/content/spaces/${encodeURIComponent(spaceId.data)}/edit`
-      : therapistId.success
-        ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
-        : '/content';
+      : articleId.success
+        ? `/content/articles/${encodeURIComponent(articleId.data)}/edit`
+        : therapistId.success
+          ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
+          : '/content';
   if (
     !attachmentId.success ||
-    (!clinicProfile && !therapistId.success && !spaceId.success) ||
+    (!clinicProfile && !therapistId.success && !spaceId.success && !articleId.success) ||
     !parsed.success
   )
     return failureRedirect(request, path, 'VALIDATION_FAILED');
@@ -62,8 +65,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? parsed.data.isPublished
         ? 'space-photo-published'
         : 'space-photo-withdrawn'
-      : parsed.data.isPublished
-        ? 'photo-published'
-        : 'photo-withdrawn';
+      : articleId.success
+        ? parsed.data.isPublished
+          ? 'article-image-published'
+          : 'article-image-withdrawn'
+        : parsed.data.isPublished
+          ? 'photo-published'
+          : 'photo-withdrawn';
   return secureRedirect(request, `${path}?success=${success}`);
 }
