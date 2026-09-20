@@ -7,6 +7,7 @@ import { ArticleImageEditor, imagesForArticle } from './article-image-editor';
 import { ArticleForm } from './article-form';
 import { EditorialWorkspace } from './editorial-workspace';
 import { TestimonialForm } from './testimonial-form';
+import { imagesForTestimonial, TestimonialImageEditor } from './testimonial-image-editor';
 
 const CSRF = 'synthetic-content-csrf';
 
@@ -44,6 +45,13 @@ const TESTIMONIAL_APPROVED: Testimonial = {
   isPublic: true,
   firstPublishedAt: '2026-08-03T09:00:00.000Z',
   publicRevisedAt: '2026-08-03T09:00:00.000Z',
+};
+
+const HANDWRITTEN_DRAFT: Testimonial = {
+  ...TESTIMONIAL_DRAFT,
+  id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d87',
+  body: 'رونویسی انسانیِ ساختگی از یک یادداشت آزمایشی.',
+  kind: 'HANDWRITTEN',
 };
 
 const ARTICLE_MEDIA: MediaAsset = {
@@ -86,6 +94,28 @@ const ARTICLE_MEDIA: MediaAsset = {
   createdAt: '2026-08-04T08:00:00.000Z',
   archivedAt: null,
   bytesPurgedAt: null,
+};
+
+const TESTIMONIAL_MEDIA: MediaAsset = {
+  ...ARTICLE_MEDIA,
+  id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d88',
+  altText: 'یادداشت دست‌نویس ساختگی روی کاغذ سفید',
+  renditions: [
+    {
+      ...ARTICLE_MEDIA.renditions[0]!,
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d89',
+      path: 'media/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d89',
+    },
+  ],
+  attachments: [
+    {
+      ...ARTICLE_MEDIA.attachments[0]!,
+      id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d90',
+      ownerType: 'PUBLIC_TESTIMONIAL',
+      ownerId: HANDWRITTEN_DRAFT.id,
+      framing: { focalX: 0.5, focalY: 0.5, crop: { x: 0, y: 0, width: 1, height: 0.8 } },
+    },
+  ],
 };
 
 function workspace(authority: 'receptionist' | 'manager'): string {
@@ -169,8 +199,86 @@ describe('draft forms', () => {
     expect(article).toContain('name="publicSlug"');
     expect(article).not.toContain('name="isPublic"');
     expect(testimonial).toContain('action="/api/content/testimonials/create"');
+    expect(testimonial).toContain('name="kind"');
+    expect(testimonial).toContain('value="HANDWRITTEN"');
+    expect(testimonial).toContain('رونویسی / متن نقل‌قول');
     expect(testimonial).not.toContain('name="approved"');
     expect(testimonial).not.toContain('name="isPublic"');
+  });
+});
+
+describe('handwritten testimonial editor', () => {
+  function editor(authority: 'receptionist' | 'manager'): string {
+    return renderToStaticMarkup(
+      createElement(TestimonialImageEditor, {
+        testimonial: HANDWRITTEN_DRAFT,
+        images: imagesForTestimonial([TESTIMONIAL_MEDIA], HANDWRITTEN_DRAFT.id),
+        csrfToken: CSRF,
+        canApprove: authority === 'manager',
+        canPublishMedia: authority === 'manager',
+      }),
+    );
+  }
+
+  it('shows Receptionist the persisted private preview and no manager act', () => {
+    const markup = editor('receptionist');
+
+    expect(markup).toContain(
+      `/api/media/renditions/${TESTIMONIAL_MEDIA.renditions[0]!.id}/preview`,
+    );
+    expect(markup).not.toContain(`/${TESTIMONIAL_MEDIA.renditions[0]!.path}`);
+    expect(markup).toContain(TESTIMONIAL_MEDIA.altText);
+    expect(markup).toContain('آماده؛ در انتظار انتشار مدیر');
+    expect(markup).not.toContain('/api/media/publication');
+    expect(markup).not.toContain('/api/content/testimonials/approval');
+    expect(markup).not.toContain('/api/content/testimonials/publication');
+  });
+
+  it('lets Manager compare transcription and image, then use each separate gate', () => {
+    const markup = editor('manager');
+
+    expect(markup).toContain(HANDWRITTEN_DRAFT.body);
+    expect(markup).toContain('تصویر بالا را با رونویسی زیر مقایسه کنید');
+    expect(markup).toContain('action="/api/media/publication"');
+    expect(markup).toContain(`name="testimonialId" value="${HANDWRITTEN_DRAFT.id}"`);
+    expect(markup).toContain('action="/api/content/testimonials/approval"');
+    expect(markup).not.toContain('action="/api/content/testimonials/publication"');
+  });
+
+  it('offers Manager testimonial placement only after privacy approval', () => {
+    const approved = renderToStaticMarkup(
+      createElement(TestimonialImageEditor, {
+        testimonial: {
+          ...HANDWRITTEN_DRAFT,
+          status: 'APPROVED',
+          approvedAt: '2026-09-20T08:00:00.000Z',
+        },
+        images: imagesForTestimonial([TESTIMONIAL_MEDIA], HANDWRITTEN_DRAFT.id),
+        csrfToken: CSRF,
+        canApprove: true,
+        canPublishMedia: true,
+      }),
+    );
+
+    expect(approved).toContain('برداشتن تأیید حریم خصوصی');
+    expect(approved).toContain('action="/api/content/testimonials/publication"');
+    expect(approved).toContain('قرار دادن نقل‌قول روی سایت');
+  });
+
+  it('renders upload and framing only for an unprepared handwritten draft', () => {
+    const markup = renderToStaticMarkup(
+      createElement(TestimonialImageEditor, {
+        testimonial: HANDWRITTEN_DRAFT,
+        images: [],
+        csrfToken: CSRF,
+        canApprove: false,
+        canPublishMedia: false,
+      }),
+    );
+
+    expect(markup).toContain('انتخاب از گوشی یا رایانه');
+    expect(markup).toContain('در این عکس چه چیزی دیده می‌شود؟');
+    expect(markup).toContain('قاب عمودی');
   });
 });
 
@@ -231,6 +339,7 @@ describe('page and navigation boundaries', () => {
     expect(source('./testimonials/[id]/edit/page.tsx')).toContain(
       "requirePermission: 'testimonial.draft'",
     );
+    expect(source('./testimonials/[id]/edit/page.tsx')).toContain('api.listMedia(context)');
   });
 
   it('shows navigation only when both content-read permissions are present', () => {

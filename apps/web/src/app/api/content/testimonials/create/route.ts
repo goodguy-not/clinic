@@ -34,5 +34,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.createTestimonial(parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content/testimonials/new', result.code);
 
-  return secureRedirect(request, '/content?success=testimonial-created');
+  return secureRedirect(
+    request,
+    `/content/testimonials/${encodeURIComponent(result.data.testimonial.id)}/edit?success=testimonial-created`,
+  );
 }

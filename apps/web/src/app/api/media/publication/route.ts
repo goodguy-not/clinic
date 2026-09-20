@@ -28,6 +28,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const therapistId = z.uuid().safeParse(body['therapistId']);
   const spaceId = z.uuid().safeParse(body['spaceId']);
   const articleId = z.uuid().safeParse(body['articleId']);
+  const testimonialId = z.uuid().safeParse(body['testimonialId']);
   const clinicProfile = body['clinicProfile'] === 'true';
   const publicationValue =
     body['isPublished'] === 'true'
@@ -44,12 +45,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? `/content/spaces/${encodeURIComponent(spaceId.data)}/edit`
       : articleId.success
         ? `/content/articles/${encodeURIComponent(articleId.data)}/edit`
-        : therapistId.success
-          ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
-          : '/content';
+        : testimonialId.success
+          ? `/content/testimonials/${encodeURIComponent(testimonialId.data)}/edit`
+          : therapistId.success
+            ? `/content/therapists/${encodeURIComponent(therapistId.data)}`
+            : '/content';
   if (
     !attachmentId.success ||
-    (!clinicProfile && !therapistId.success && !spaceId.success && !articleId.success) ||
+    (!clinicProfile &&
+      !therapistId.success &&
+      !spaceId.success &&
+      !articleId.success &&
+      !testimonialId.success) ||
     !parsed.success
   )
     return failureRedirect(request, path, 'VALIDATION_FAILED');
@@ -69,8 +76,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? parsed.data.isPublished
           ? 'article-image-published'
           : 'article-image-withdrawn'
-        : parsed.data.isPublished
-          ? 'photo-published'
-          : 'photo-withdrawn';
+        : testimonialId.success
+          ? parsed.data.isPublished
+            ? 'testimonial-image-published'
+            : 'testimonial-image-withdrawn'
+          : parsed.data.isPublished
+            ? 'photo-published'
+            : 'photo-withdrawn';
   return secureRedirect(request, `${path}?success=${success}`);
 }

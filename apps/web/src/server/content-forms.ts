@@ -21,6 +21,7 @@ export function testimonialFormToRequest(body: SubmittedBody): Record<string, un
   return {
     authorLabel: nullableTrimmed(body['authorLabel']),
     body: (body['body'] ?? '').trim(),
+    kind: body['kind'] ?? 'TYPED',
   };
 }
 

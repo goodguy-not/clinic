@@ -27,4 +27,6 @@ export const CONTENT_SUCCESS_MESSAGES: Record<string, string> = {
   'testimonial-approval-revoked': 'تأیید نقل‌قول برداشته شد و روی سایت عمومی نیست.',
   'testimonial-published': 'نقل‌قول روی سایت عمومی قرار گرفت.',
   'testimonial-unpublished': 'نقل‌قول از سایت عمومی برداشته شد.',
+  'testimonial-image-published': 'عکس دست‌نوشته برای نمایش عمومی تأیید شد.',
+  'testimonial-image-withdrawn': 'عکس دست‌نوشته از دسترس عمومی برداشته شد.',
 };

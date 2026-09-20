@@ -115,18 +115,22 @@ describe('content draft handlers', () => {
   });
 
   it('constructs testimonial drafts without accepting approval or publication flags', async () => {
-    await createTestimonial(
+    const response = await createTestimonial(
       request('/api/content/testimonials/create', {
         authorLabel: ' ',
         body: ' نقل‌قول ساختگی ',
+        kind: 'HANDWRITTEN',
         approved: 'true',
         isPublic: 'true',
       }),
     );
 
     expect(mocks.createTestimonial).toHaveBeenCalledWith(
-      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'HANDWRITTEN' },
       { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-created`,
     );
   });
 
@@ -140,11 +144,12 @@ describe('content draft handlers', () => {
         body: 'متن ساختگی',
       }),
     );
-    await updateTestimonial(
+    const testimonialResponse = await updateTestimonial(
       request('/api/content/testimonials/update', {
         id: TESTIMONIAL_ID,
         authorLabel: '',
         body: 'نقل‌قول ساختگی',
+        kind: 'HANDWRITTEN',
       }),
     );
 
@@ -155,9 +160,27 @@ describe('content draft handlers', () => {
     );
     expect(mocks.updateTestimonial).toHaveBeenCalledWith(
       TESTIMONIAL_ID,
-      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'TYPED' },
+      { authorLabel: null, body: 'نقل‌قول ساختگی', kind: 'HANDWRITTEN' },
       { sessionToken: SESSION_TOKEN },
     );
+    expect(testimonialResponse.headers.get('location')).toBe(
+      `${ORIGIN}/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-updated`,
+    );
+  });
+
+  it('refuses a handwritten draft without a human transcription', async () => {
+    const response = await createTestimonial(
+      request('/api/content/testimonials/create', {
+        authorLabel: '',
+        body: '   ',
+        kind: 'HANDWRITTEN',
+      }),
+    );
+
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/testimonials/new?error=VALIDATION_FAILED`,
+    );
+    expect(mocks.createTestimonial).not.toHaveBeenCalled();
   });
 });
 

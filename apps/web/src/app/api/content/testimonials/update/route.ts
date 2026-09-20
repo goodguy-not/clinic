@@ -35,5 +35,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.updateTestimonial(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content', result.code);
 
-  return secureRedirect(request, '/content?success=testimonial-updated');
+  return secureRedirect(
+    request,
+    `/content/testimonials/${encodeURIComponent(id.data)}/edit?success=testimonial-updated`,
+  );
 }

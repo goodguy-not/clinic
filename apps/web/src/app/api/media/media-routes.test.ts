@@ -359,4 +359,24 @@ describe('attachment and framing routes', () => {
       `${ORIGIN}/content/articles/${articleId}/edit?success=article-image-published`,
     );
   });
+
+  it('publishes a handwritten-testimonial photograph and returns to its review', async () => {
+    const testimonialId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64';
+    const response = await setPublication(
+      jsonRequest('/api/media/publication', {
+        attachmentId: ATTACHMENT_ID,
+        testimonialId,
+        isPublished: 'true',
+      }),
+    );
+
+    expect(mocks.updateMediaPublication).toHaveBeenCalledWith(
+      ATTACHMENT_ID,
+      { isPublished: true },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/testimonials/${testimonialId}/edit?success=testimonial-image-published`,
+    );
+  });
 });

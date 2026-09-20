@@ -34,13 +34,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!id.success || !parsed.success)
     return failureRedirect(request, '/content', 'VALIDATION_FAILED');
 
+  const returnPath: `/${string}` =
+    body['returnToEdit'] === 'true'
+      ? `/content/testimonials/${encodeURIComponent(id.data)}/edit`
+      : '/content';
+
   const result = await api.updateTestimonialPublication(id.data, parsed.data, { sessionToken });
-  if (!result.ok) return failureRedirect(request, '/content', result.code);
+  if (!result.ok) return failureRedirect(request, returnPath, result.code);
 
   return secureRedirect(
     request,
     parsed.data.isPublic
-      ? '/content?success=testimonial-published'
-      : '/content?success=testimonial-unpublished',
+      ? `${returnPath}?success=testimonial-published`
+      : `${returnPath}?success=testimonial-unpublished`,
   );
 }
