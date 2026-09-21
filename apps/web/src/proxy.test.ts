@@ -110,6 +110,16 @@ describe('open redirect', () => {
 });
 
 describe('prohibitions', () => {
+  it('marks draft previews no-store without attempting authorization itself', () => {
+    const response = proxy(
+      get('http://localhost:3000/content/preview/services/synthetic-service-id'),
+    );
+
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('same-origin');
+    expect(setCookieNames(response)).toEqual([]);
+  });
+
   it('passes a request carrying a session cookie straight through', () => {
     const response = proxy(
       get('http://localhost:3000/login', { [DEV.session.name]: 'v1.abc.def' }),
@@ -138,10 +148,10 @@ describe('prohibitions', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('matches only /login', async () => {
+  it('matches only login and authenticated preview responses', async () => {
     const { config } = await import('./proxy');
 
-    expect(config.matcher).toEqual(['/login']);
+    expect(config.matcher).toEqual(['/login', '/content/preview/:path*']);
   });
 });
 

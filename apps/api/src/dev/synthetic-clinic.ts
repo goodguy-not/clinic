@@ -218,7 +218,7 @@ export async function seedSyntheticClinic(
     );
   }
 
-  const serviceIds = serviceRows.map((service) => service.id);
+  const serviceIds = serviceRows.map(({ service }) => service.id);
 
   const roomRows = [];
   for (const index of [1, 2, 3]) {
@@ -289,7 +289,7 @@ export async function seedSyntheticClinic(
     { services, therapistProfiles, articles, testimonials, clinicProfile },
     manager,
     runTag,
-    serviceRows.map((service) => service.id),
+    serviceRows.map(({ service }) => service.id),
     therapistRows.map((therapist) => therapist.id),
   );
 

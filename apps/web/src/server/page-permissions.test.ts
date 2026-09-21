@@ -23,6 +23,8 @@ import {
 
 const APP_ROOT = join(__dirname, '..', 'app', '(internal)');
 
+const verifiedSession = vi.hoisted(() => vi.fn((): string | null => 'synthetic-token'));
+
 const redirected = vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`);
 });
@@ -33,12 +35,17 @@ vi.mock('next/headers', () => ({
   headers: async () => new Headers(),
 }));
 vi.mock('@/env', () => ({ loadServerEnv: () => ({ SESSION_COOKIE_SECRET: 'synthetic-secret' }) }));
-vi.mock('@/server/session-cookie', () => ({ verifySessionCookie: () => 'synthetic-token' }));
+vi.mock('@/server/session-cookie', () => ({ verifySessionCookie: () => verifiedSession() }));
 
 const sessionUser = vi.fn();
 vi.mock('@/server/api-client', () => ({ api: { session: () => sessionUser() } }));
 
-async function requireWith(permissions: readonly Permission[], required: unknown) {
+async function requireWith(
+  permissions: readonly Permission[],
+  required: unknown,
+  role: 'MANAGER' | 'RECEPTIONIST' = 'RECEPTIONIST',
+) {
+  verifiedSession.mockReturnValue('synthetic-token');
   sessionUser.mockResolvedValue({
     ok: true,
     data: {
@@ -46,7 +53,7 @@ async function requireWith(permissions: readonly Permission[], required: unknown
         id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d01',
         username: 'synthetic',
         displayName: 'کاربر آزمایشی',
-        role: 'RECEPTIONIST',
+        role,
         mustChangePassword: false,
         permissions,
       },
@@ -59,6 +66,44 @@ async function requireWith(permissions: readonly Permission[], required: unknown
 
 afterEach(() => {
   redirected.mockClear();
+  sessionUser.mockClear();
+  verifiedSession.mockReset();
+  verifiedSession.mockReturnValue('synthetic-token');
+});
+
+describe('B8 manager draft-preview boundary', () => {
+  it('refuses an anonymous request before any internal content read', async () => {
+    verifiedSession.mockReturnValueOnce(null);
+    const { requireManagerSession } = await import('./auth-session');
+
+    await expect(requireManagerSession()).rejects.toThrow('REDIRECT:/session-expired');
+    expect(sessionUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Receptionist and admits a Manager', async () => {
+    await requireWith([], undefined, 'RECEPTIONIST');
+    const { requireManagerSession } = await import('./auth-session');
+    await expect(requireManagerSession()).rejects.toThrow('REDIRECT:/dashboard');
+
+    await requireWith([], undefined, 'MANAGER');
+    await expect(requireManagerSession()).resolves.toEqual(
+      expect.objectContaining({ role: 'MANAGER' }),
+    );
+  });
+
+  it('keeps preview dynamic, noindex, and free of the anonymous public API lane', () => {
+    const layout = readFileSync(join(APP_ROOT, 'content', 'preview', 'layout.tsx'), 'utf8');
+    const page = readFileSync(
+      join(APP_ROOT, 'content', 'preview', '[kind]', '[id]', 'page.tsx'),
+      'utf8',
+    );
+    expect(layout).toContain("dynamic = 'force-dynamic'");
+    expect(layout).toContain('revalidate = 0');
+    expect(layout).toContain('index: false');
+    expect(`${layout}\n${page}`).not.toContain('/public/');
+    expect(page).toContain('api.getArticle');
+    expect(page).toContain('api.getServicePublicCopy');
+  });
 });
 
 describe('a page may demand several permissions, and then demands all of them', () => {

@@ -11,6 +11,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateTestimonialsPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const result = await api.updateTestimonialApproval(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, returnPath, result.code);
+  // Revoking approval also withdraws a live testimonial transactionally. The
+  // collection is exact; testimonials have no detail URL or sitemap entry.
+  invalidateTestimonialsPublication();
 
   return secureRedirect(
     request,

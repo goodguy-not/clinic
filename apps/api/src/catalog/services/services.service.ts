@@ -4,6 +4,7 @@ import type {
   CatalogStatus,
   CreateServiceRequest,
   Service,
+  ServiceMutationResponse,
   UpdateServiceRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
@@ -114,7 +115,7 @@ export class ServicesService {
     input: CreateServiceRequest,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const id = uuidv7();
     const name = canonicalText(input.name);
     const publicDescription = canonicalOptionalText(input.publicDescription);
@@ -181,7 +182,14 @@ export class ServicesService {
       return row;
     });
 
-    return toService(created);
+    const service = toService(created);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache: isPubliclyReachable(created),
+      },
+    };
   }
 
   async update(
@@ -189,7 +197,7 @@ export class ServicesService {
     input: UpdateServiceRequest,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const name = canonicalText(input.name);
     const publicDescription = canonicalOptionalText(input.publicDescription);
     const durations = normalizeDurations(input.allowedDurationsMinutes);
@@ -305,10 +313,18 @@ export class ServicesService {
         },
       });
 
-      return after;
+      return { before, after };
     });
 
-    return toService(updated);
+    const service = toService(updated.after);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache:
+          isPubliclyReachable(updated.before) || isPubliclyReachable(updated.after),
+      },
+    };
   }
 
   async changeStatus(
@@ -316,7 +332,7 @@ export class ServicesService {
     status: CatalogStatus,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
 
@@ -324,7 +340,7 @@ export class ServicesService {
       // an audit row for a change that did not happen. Makes the endpoint
       // idempotent and keeps the trail free of entries whose before and after
       // are identical.
-      if (before.status === status) return before;
+      if (before.status === status) return { before, after: before, changed: false };
 
       // `transaction_timestamp()` rather than a value from Node: it is constant
       // for the whole transaction, so this timestamp and the `occurred_at` of
@@ -356,10 +372,19 @@ export class ServicesService {
         after: { status: after.status },
       });
 
-      return after;
+      return { before, after, changed: true };
     });
 
-    return toService(updated);
+    const service = toService(updated.after);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache:
+          updated.changed &&
+          (isPubliclyReachable(updated.before) || isPubliclyReachable(updated.after)),
+      },
+    };
   }
 
   private async insertDurations(
@@ -437,6 +462,10 @@ export class ServicesService {
     if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
     return row;
   }
+}
+
+function isPubliclyReachable(row: ServiceRow): boolean {
+  return row.is_public && row.public_slug !== null && row.status === 'ACTIVE';
 }
 
 /** Deduplicated and ordered, so two spellings of the same set behave the same. */

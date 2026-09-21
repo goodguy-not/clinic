@@ -11,6 +11,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateTestimonialsPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const result = await api.updateTestimonialPublication(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, returnPath, result.code);
+  invalidateTestimonialsPublication();
 
   return secureRedirect(
     request,

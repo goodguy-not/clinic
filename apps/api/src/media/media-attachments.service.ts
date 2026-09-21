@@ -5,6 +5,7 @@ import {
   type CreateMediaAttachmentRequest,
   type MediaAsset,
   type MediaAttachmentOwner,
+  type MediaPublicationResponse,
   type UpdateMediaFramingRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
@@ -14,6 +15,7 @@ import type { RequestContext, ResolvedSession } from '../common/request-context'
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from './media.service';
+import { OWNER_IS_PUBLIC } from './media-visibility';
 
 /**
  * Where a photograph is, and whether the world may see it there.
@@ -273,8 +275,8 @@ export class MediaAttachmentsService {
     isPublished: boolean,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<MediaAsset> {
-    const mediaId = await this.prisma.$transaction(async (tx) => {
+  ): Promise<MediaPublicationResponse> {
+    const mutation = await this.prisma.$transaction(async (tx) => {
       const attachment = await lockAttachment(tx, attachmentId);
 
       if (isPublished) {
@@ -283,36 +285,93 @@ export class MediaAttachmentsService {
       }
 
       const wasPublished = attachment.published_at !== null;
-      if (wasPublished === isPublished) return attachment.media_asset_id;
+      if (wasPublished !== isPublished) {
+        await tx.$executeRaw`
+          UPDATE media_attachment
+          SET published_at = ${isPublished ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
+              published_by_user_id = ${
+                isPublished ? Prisma.sql`${actor.userId}::uuid` : Prisma.sql`NULL`
+              }
+          WHERE id = ${attachmentId}::uuid
+        `;
 
-      await tx.$executeRaw`
-        UPDATE media_attachment
-        SET published_at = ${isPublished ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
-            published_by_user_id = ${
-              isPublished ? Prisma.sql`${actor.userId}::uuid` : Prisma.sql`NULL`
-            }
-        WHERE id = ${attachmentId}::uuid
+        await this.audit.record(tx, actorContext(actor, context), {
+          action: isPublished ? 'media.published' : 'media.unpublished',
+          entityType: 'media_attachment',
+          entityId: attachmentId,
+          before: { published: wasPublished },
+          after: { published: isPublished },
+          metadata: {
+            mediaAssetId: attachment.media_asset_id,
+            ownerType: attachment.owner_type,
+            ownerId: attachment.owner_id,
+          },
+        });
+      }
+
+      // Capture the cache identity in the mutation transaction. Reading it
+      // afterwards would leave a successful unpublication vulnerable to a
+      // concurrent detach removing the row before the Web tier can learn what
+      // must be invalidated.
+      const identities = await tx.$queryRaw<PublicationIdentityRow[]>`
+        SELECT
+          ma.owner_type::text AS owner_type,
+          coalesce(
+            ma.therapist_id, ma.article_id, ma.testimonial_id, ma.space_id,
+            ma.content_entry_id, ma.service_id
+          ) AS owner_id,
+          CASE ma.owner_type
+            WHEN 'PUBLIC_SERVICE' THEN (
+              SELECT s.public_slug FROM service s WHERE s.id = ma.service_id
+            )
+            WHEN 'THERAPIST_PROFILE' THEN (
+              SELECT t.public_slug FROM therapist t WHERE t.id = ma.therapist_id
+            )
+            WHEN 'PUBLIC_ARTICLE' THEN (
+              SELECT a.public_slug FROM public_article a WHERE a.id = ma.article_id
+            )
+            ELSE NULL
+          END AS public_slug,
+          (${OWNER_IS_PUBLIC}) AS owner_is_public,
+          ARRAY(
+            SELECT mr.id
+            FROM media_rendition mr
+            WHERE mr.media_asset_id = ma.media_asset_id
+            ORDER BY mr.id
+          ) AS rendition_ids
+        FROM media_attachment ma
+        WHERE ma.id = ${attachmentId}::uuid
       `;
+      const identity = identities[0];
+      if (identity === undefined) throw new AppError('MEDIA_ATTACHMENT_NOT_FOUND');
 
-      await this.audit.record(tx, actorContext(actor, context), {
-        action: isPublished ? 'media.published' : 'media.unpublished',
-        entityType: 'media_attachment',
-        entityId: attachmentId,
-        before: { published: wasPublished },
-        after: { published: isPublished },
-        metadata: {
-          mediaAssetId: attachment.media_asset_id,
-          ownerType: attachment.owner_type,
-          ownerId: attachment.owner_id,
+      return {
+        mediaId: attachment.media_asset_id,
+        publication: {
+          attachmentId,
+          ownerType: identity.owner_type,
+          ownerId: identity.owner_id,
+          publicSlug: identity.public_slug,
+          ownerIsPublic: identity.owner_is_public,
+          renditionIds: identity.rendition_ids,
         },
-      });
-
-      return attachment.media_asset_id;
+      };
     });
 
-    return this.media.get(mediaId);
+    return {
+      media: await this.media.get(mutation.mediaId),
+      publication: mutation.publication,
+    };
   }
 }
+
+type PublicationIdentityRow = {
+  owner_type: MediaAttachmentOwner;
+  owner_id: string | null;
+  public_slug: string | null;
+  owner_is_public: boolean;
+  rendition_ids: string[];
+};
 
 /**
  * The discriminator turned into the six owner columns the table actually holds.

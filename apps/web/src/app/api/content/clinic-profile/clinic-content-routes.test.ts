@@ -8,8 +8,13 @@ const mocks = vi.hoisted(() => ({
   updateClinicContentEntry: vi.fn(),
   updateMediaPublication: vi.fn(),
 }));
+const invalidations = vi.hoisted(() => ({ clinic: vi.fn(), media: vi.fn() }));
 
 vi.mock('@/server/api-client', () => ({ api: mocks }));
+vi.mock('@/server/public-cache-invalidation', () => ({
+  invalidateClinicPublication: invalidations.clinic,
+  invalidateMediaPublication: invalidations.media,
+}));
 
 import { POST as updateEntry } from './entries/update/route';
 import { POST as updateMediaPublication } from '../../media/publication/route';
@@ -35,10 +40,25 @@ function request(path: string, body: Record<string, string>): NextRequest {
 }
 
 beforeEach(() => {
+  invalidations.clinic.mockReset();
+  invalidations.media.mockReset();
   mocks.updateClinicContentEntry.mockReset();
   mocks.updateMediaPublication.mockReset();
   mocks.updateClinicContentEntry.mockResolvedValue({ ok: true, data: { entry: {} } });
-  mocks.updateMediaPublication.mockResolvedValue({ ok: true, data: { media: {} } });
+  mocks.updateMediaPublication.mockResolvedValue({
+    ok: true,
+    data: {
+      media: {},
+      publication: {
+        attachmentId: ATTACHMENT_ID,
+        ownerType: 'CLINIC_OPEN_GRAPH',
+        ownerId: null,
+        publicSlug: null,
+        ownerIsPublic: true,
+        renditionIds: [],
+      },
+    },
+  });
 });
 
 describe('clinic content entry handler', () => {

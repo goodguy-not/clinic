@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { AppHeader } from '@/components/app-header';
 import { api } from '@/server/api-client';
@@ -52,6 +53,16 @@ export default async function EditTestimonialPage({
   return (
     <>
       <AppHeader />
+      {user.role === 'MANAGER' ? (
+        <div className="mx-auto max-w-6xl px-4 pt-4">
+          <Link
+            className="text-sm font-semibold text-teal-800 underline"
+            href={`/content/preview/testimonials/${testimonial.id}`}
+          >
+            پیش‌نمایش خصوصی نسخهٔ آماده
+          </Link>
+        </div>
+      ) : null}
       <TestimonialForm
         testimonial={testimonial}
         csrfToken={csrfToken}

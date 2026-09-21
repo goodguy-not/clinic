@@ -9,6 +9,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateServicePublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.changeServiceStatus(body['id'] ?? '', status.data, { sessionToken });
 
   if (!result.ok) return failureRedirect(request, '/catalog/services', result.code);
+  if (result.data.publication.affectsPublicCache)
+    invalidateServicePublication(result.data.publication.publicSlug);
 
   return secureRedirect(request, '/catalog/services');
 }

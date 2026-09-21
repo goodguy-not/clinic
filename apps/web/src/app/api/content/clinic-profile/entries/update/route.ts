@@ -11,6 +11,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateClinicPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const result = await api.updateClinicContentEntry(id.data, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, '/content/clinic-profile', result.code);
+  invalidateClinicPublication();
 
   return secureRedirect(request, '/content/clinic-profile?success=entry-saved');
 }

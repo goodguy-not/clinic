@@ -17,7 +17,7 @@ import type { RequestContext, ResolvedSession } from '../common/request-context'
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { deriveMedia } from './image-processing';
-import { assetIsPubliclyServed } from './media-visibility';
+import { assetIsPubliclyServed, OWNER_IS_PUBLIC } from './media-visibility';
 import { toFraming } from './public-media.service';
 import { MediaStorageService } from './media-storage.service';
 
@@ -318,36 +318,6 @@ export class MediaService {
  * no page. A manager looking at the library therefore sees "the page is not
  * live" for a photograph attached to a slot nobody has filled in.
  */
-const OWNER_IS_PUBLIC = Prisma.sql`
-  CASE ma.owner_type
-    WHEN 'THERAPIST_PROFILE' THEN EXISTS (
-      SELECT 1 FROM therapist t WHERE t.id = ma.therapist_id AND t.is_public
-    )
-    WHEN 'PUBLIC_ARTICLE' THEN EXISTS (
-      SELECT 1 FROM public_article pa WHERE pa.id = ma.article_id AND pa.is_public
-    )
-    WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
-      SELECT 1 FROM public_testimonial pt WHERE pt.id = ma.testimonial_id AND pt.is_public
-    )
-    WHEN 'PUBLIC_SPACE' THEN EXISTS (
-      SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
-    )
-    WHEN 'PUBLIC_SERVICE' THEN EXISTS (
-      SELECT 1 FROM service svc
-      WHERE svc.id = ma.service_id
-        AND svc.is_public
-        AND svc.status = 'ACTIVE'::catalog_status
-        AND svc.public_slug IS NOT NULL
-    )
-    WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
-      SELECT 1 FROM clinic_content_entry ce
-      WHERE ce.id = ma.content_entry_id AND ce.heading IS NOT NULL
-    )
-    WHEN 'CLINIC_SPACE' THEN TRUE
-    WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
-  END
-`;
-
 const ASSET_COLUMNS = Prisma.sql`
   a.id,
   a.alt_text,

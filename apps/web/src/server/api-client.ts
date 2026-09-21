@@ -13,6 +13,7 @@ import {
   promiseReportResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetResponseSchema,
+  mediaPublicationResponseSchema,
   clinicContentEntryResponseSchema,
   clinicContentResponseSchema,
   publicClinicProfileResponseSchema,
@@ -46,6 +47,7 @@ import {
   roomResponseSchema,
   serviceListResponseSchema,
   serviceResponseSchema,
+  serviceMutationResponseSchema,
   spaceListResponseSchema,
   spaceResponseSchema,
   sessionResponseSchema,
@@ -126,6 +128,7 @@ import {
   type CreateMediaAttachmentRequest,
   type MediaAssetListResponse,
   type MediaAssetResponse,
+  type MediaPublicationResponse,
   type ClinicContentEntryResponse,
   type ClinicContentResponse,
   type UpdateMediaFramingRequest,
@@ -164,6 +167,7 @@ import {
   type RoomResponse,
   type ServiceListResponse,
   type ServiceResponse,
+  type ServiceMutationResponse,
   type SpaceListResponse,
   type SpaceResponse,
   type SessionResponse,
@@ -554,11 +558,11 @@ export const api = {
     attachmentId: string,
     body: UpdateMediaPublicationRequest,
     context: CallerContext,
-  ): Promise<ApiResult<MediaAssetResponse>> =>
+  ): Promise<ApiResult<MediaPublicationResponse>> =>
     call(
       `/media/attachments/${encodeURIComponent(attachmentId)}/publication`,
       'PATCH',
-      mediaAssetResponseSchema,
+      mediaPublicationResponseSchema,
       context,
       body,
     ),
@@ -1112,18 +1116,18 @@ export const api = {
   createService: (
     body: CreateServiceRequest,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
-    call('/catalog/services', 'POST', serviceResponseSchema, context, body),
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
+    call('/catalog/services', 'POST', serviceMutationResponseSchema, context, body),
 
   updateService: (
     id: string,
     body: UpdateServiceRequest,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
     call(
       `/catalog/services/${encodeURIComponent(id)}`,
       'PATCH',
-      serviceResponseSchema,
+      serviceMutationResponseSchema,
       context,
       body,
     ),
@@ -1132,11 +1136,11 @@ export const api = {
     id: string,
     status: CatalogStatus,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
     call(
       `/catalog/services/${encodeURIComponent(id)}/status`,
       'PATCH',
-      serviceResponseSchema,
+      serviceMutationResponseSchema,
       context,
       { status },
     ),

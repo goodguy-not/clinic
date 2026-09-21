@@ -4,7 +4,8 @@ import { cookieConfigFor } from '@/server/cookie-config';
 import { issueCsrfToken, verifyCsrfToken } from '@/server/csrf';
 
 /**
- * Pre-login CSRF cookie issuance. That is the whole job.
+ * Pre-login CSRF cookie issuance, plus the response privacy header for the
+ * authenticated draft-preview route.
  *
  * It exists because a Server Component cannot set a response cookie, so nothing
  * else can attach a cookie to the navigation that renders `/login` — and
@@ -13,21 +14,29 @@ import { issueCsrfToken, verifyCsrfToken } from '@/server/csrf';
  * JavaScript for no security gain.
  *
  * This file must never: call NestJS, authenticate, authorize, reset a session,
- * inspect database state, or grow into general middleware. Page protection
- * lives in `requireSession()`, which is authoritative; stale-session recovery
- * is a POST handler. Tests assert each of those prohibitions.
+ * or inspect database state. Page protection lives in `requireManagerSession()`,
+ * which is authoritative; this layer only prevents browsers and intermediary
+ * caches retaining the unpublished response bytes. Tests assert those
+ * prohibitions.
  *
  * `proxy.ts` is the Next.js 16 file convention that replaced `middleware.ts`.
  */
 
 export const config = {
-  matcher: ['/login'],
+  matcher: ['/login', '/content/preview/:path*'],
 };
 
 /** 30 minutes: long enough to fill a form, short enough that a stale one fails closed. */
 const CSRF_PRELOGIN_TTL_SECONDS = 30 * 60;
 
 export function proxy(request: NextRequest): NextResponse {
+  if (request.nextUrl.pathname.startsWith('/content/preview/')) {
+    const response = NextResponse.next();
+    response.headers.set('cache-control', 'no-store');
+    response.headers.set('referrer-policy', 'same-origin');
+    return response;
+  }
+
   // GET only. A cookie-mutating response to any other method would be a
   // state-changing request without Origin or CSRF protection.
   if (request.method !== 'GET') return NextResponse.next();

@@ -25,6 +25,7 @@ import {
   type CreateMediaAttachmentRequest,
   type MediaAssetListResponse,
   type MediaAssetResponse,
+  type MediaPublicationResponse,
   type MediaUploadFields,
   type UpdateMediaArchiveRequest,
   type UpdateMediaFramingRequest,
@@ -174,10 +175,8 @@ export class MediaController {
     body: UpdateMediaPublicationRequest,
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
-  ): Promise<MediaAssetResponse> {
-    return {
-      media: await this.attachments.setPublished(attachmentId, body.isPublished, session, context),
-    };
+  ): Promise<MediaPublicationResponse> {
+    return this.attachments.setPublished(attachmentId, body.isPublished, session, context);
   }
 
   @Get(':id')

@@ -10,6 +10,7 @@ import {
 } from '@/server/handler-support';
 import { serviceFormToRequest } from '@/server/catalog-forms';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateServicePublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.createService(parsed.data, { sessionToken });
 
   if (!result.ok) return failureRedirect(request, '/catalog/services/new', result.code);
+  if (result.data.publication.affectsPublicCache)
+    invalidateServicePublication(result.data.publication.publicSlug);
 
   return secureRedirect(request, '/catalog/services');
 }

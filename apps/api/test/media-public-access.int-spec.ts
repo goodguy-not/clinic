@@ -4,6 +4,7 @@ import {
   PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS,
   articleResponseSchema,
   mediaAssetResponseSchema,
+  mediaPublicationResponseSchema,
   publicArticleDetailResponseSchema,
   publicClinicProfileResponseSchema,
   publicTeamResponseSchema,
@@ -140,7 +141,7 @@ describe('anonymous media access (real PostgreSQL)', () => {
     const attachmentId = mediaAssetResponseSchema.parse(attached.body).media.attachments[0]!.id;
     const published = await setPublished(attachmentId, true);
 
-    return { asset: mediaAssetResponseSchema.parse(published.body).media, attachmentId };
+    return { asset: mediaPublicationResponseSchema.parse(published.body).media, attachmentId };
   }
 
   async function publishedArticle(slug: string): Promise<string> {

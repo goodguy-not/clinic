@@ -87,10 +87,9 @@ import { Prisma } from '@prisma/client';
  * as one indivisible fact, and a reader checking whether the public site can
  * leak an unpublished photograph has one expression to read.
  */
-export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
-  ma.detached_at IS NULL
-  AND ma.published_at IS NOT NULL
-  AND CASE ma.owner_type
+/** The owner half of the public-media gate, reusable by mutation handshakes. */
+export const OWNER_IS_PUBLIC = Prisma.sql`
+  CASE ma.owner_type
         WHEN 'THERAPIST_PROFILE' THEN EXISTS (
           SELECT 1 FROM therapist t WHERE t.id = ma.therapist_id AND t.is_public
         )
@@ -117,6 +116,12 @@ export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
         WHEN 'CLINIC_SPACE' THEN TRUE
         WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
       END
+`;
+
+export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`
+  ma.detached_at IS NULL
+  AND ma.published_at IS NOT NULL
+  AND (${OWNER_IS_PUBLIC})
 `;
 
 /**

@@ -111,6 +111,13 @@ export async function requireSession(options: SessionOptions = {}): Promise<Auth
   return user;
 }
 
+/** A session gate for surfaces that are policy-level Manager tools. */
+export async function requireManagerSession(): Promise<AuthenticatedUser> {
+  const user = await requireSession();
+  if (user.role !== 'MANAGER') redirect('/dashboard');
+  return user;
+}
+
 /**
  * For `/login`, which must not redirect an anonymous visitor anywhere.
  * Returns the user when a valid session exists, otherwise null.

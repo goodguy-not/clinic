@@ -10,6 +10,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateTherapistPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     sessionToken: token,
   });
   if (!result.ok) return failureRedirect(request, path, result.code);
+  invalidateTherapistPublication(result.data.profile.publicSlug);
   return secureRedirect(
     request,
     `${path}?success=${parsed.data.isPublic ? 'published' : 'withdrawn'}`,

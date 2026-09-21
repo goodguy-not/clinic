@@ -10,6 +10,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateServicePublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     sessionToken: token,
   });
   if (!result.ok) return failureRedirect(request, path, result.code);
+  if (result.data.copy.isPublic && result.data.copy.publicSlug !== null)
+    invalidateServicePublication(result.data.copy.publicSlug);
   return secureRedirect(
     request,
     `${path}?success=${parsed.data.isPublished ? 'published' : 'withdrawn'}`,

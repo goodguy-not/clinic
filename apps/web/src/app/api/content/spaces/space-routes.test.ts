@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   updateSpace: vi.fn(),
   updateSpacePublication: vi.fn(),
 }));
+const invalidateSpacesPublication = vi.hoisted(() => vi.fn());
 vi.mock('@/server/api-client', () => ({ api: mocks }));
+vi.mock('@/server/public-cache-invalidation', () => ({ invalidateSpacesPublication }));
 
 import { POST as createSpace } from './create/route';
 import { POST as publishSpace } from './publication/route';
@@ -46,6 +48,7 @@ function request(path: string, body: Record<string, string>, origin = ORIGIN): N
 }
 
 beforeEach(() => {
+  invalidateSpacesPublication.mockReset();
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.createSpace.mockResolvedValue({ ok: true, data: { space: SPACE } });
   mocks.updateSpace.mockResolvedValue({ ok: true, data: { space: SPACE } });

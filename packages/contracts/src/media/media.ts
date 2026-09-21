@@ -5,7 +5,7 @@ import {
   mediaAltTextSchema,
   mediaFramingSchema,
 } from './common';
-import { publicMediaPathSchema } from '../website/common';
+import { publicMediaPathSchema, publicSlugSchema } from '../website/common';
 
 /**
  * The STAFF view of the media library.
@@ -321,6 +321,31 @@ export const updateMediaPublicationRequestSchema = z.strictObject({
 });
 
 export type UpdateMediaPublicationRequest = z.infer<typeof updateMediaPublicationRequestSchema>;
+
+/**
+ * Canonical cache identity returned only by the Manager publication mutation.
+ *
+ * It is deliberately absent from the general media-library read. In
+ * particular, an unpublished therapist slug is a Manager publication setting,
+ * not media metadata a Receptionist holding `media.read` may inspect.
+ */
+export const mediaPublicationIdentitySchema = z.strictObject({
+  attachmentId: z.uuid(),
+  ownerType: z.enum(MEDIA_ATTACHMENT_OWNERS),
+  ownerId: z.uuid().nullable(),
+  publicSlug: publicSlugSchema.nullable(),
+  ownerIsPublic: z.boolean(),
+  renditionIds: z.array(z.uuid()),
+});
+
+export type MediaPublicationIdentity = z.infer<typeof mediaPublicationIdentitySchema>;
+
+export const mediaPublicationResponseSchema = z.strictObject({
+  media: mediaAssetSchema,
+  publication: mediaPublicationIdentitySchema,
+});
+
+export type MediaPublicationResponse = z.infer<typeof mediaPublicationResponseSchema>;
 
 /**
  * Re-framing. The narrowest write in the subsystem: no byte moves, no rendition

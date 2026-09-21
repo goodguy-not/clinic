@@ -24,6 +24,9 @@ import {
   publicTestimonialSchema,
   publicTherapistProfileSchema,
   servicePublicCopySchema,
+  serviceMutationResponseSchema,
+  servicePublicationIdentitySchema,
+  serviceResponseSchema,
   serviceSchema,
   therapistProfileCopySchema,
   therapistSchema,
@@ -54,6 +57,13 @@ describe('public website contracts', () => {
    */
   const emptyClinicProfile = (): Record<string, unknown> => ({
     ...Object.fromEntries(Object.keys(publicClinicProfileSchema.shape).map((key) => [key, null])),
+  });
+
+  it('keeps the service mutation cache handshake separate from ordinary service data', () => {
+    expect(keysOf(servicePublicationIdentitySchema)).toEqual(['affectsPublicCache', 'publicSlug']);
+    expect(keysOf(serviceMutationResponseSchema)).toEqual(['publication', 'service']);
+    expect(keysOf(serviceResponseSchema)).toEqual(['publication', 'service']);
+    expect(keysOf(serviceSchema)).not.toContain('publication');
   });
 
   describe('the projections are exactly these fields', () => {

@@ -72,9 +72,32 @@ export const updateServiceRequestSchema = createServiceRequestSchema;
 
 export type UpdateServiceRequest = z.infer<typeof updateServiceRequestSchema>;
 
-export const serviceResponseSchema = z.strictObject({ service: serviceSchema });
+/** Canonical cache identity emitted only by a Manager service mutation. */
+export const servicePublicationIdentitySchema = z.strictObject({
+  publicSlug: publicSlugSchema.nullable(),
+  affectsPublicCache: z.boolean(),
+});
+
+export type ServicePublicationIdentity = z.infer<typeof servicePublicationIdentitySchema>;
+
+/**
+ * Reads return only `service`; Manager mutations additionally carry the exact
+ * cache handshake. Optional here keeps the shared envelope parseable for both
+ * endpoints without putting publication state on the service itself.
+ */
+export const serviceResponseSchema = z.strictObject({
+  service: serviceSchema,
+  publication: servicePublicationIdentitySchema.optional(),
+});
 
 export type ServiceResponse = z.infer<typeof serviceResponseSchema>;
+
+export const serviceMutationResponseSchema = z.strictObject({
+  service: serviceSchema,
+  publication: servicePublicationIdentitySchema,
+});
+
+export type ServiceMutationResponse = z.infer<typeof serviceMutationResponseSchema>;
 
 export const serviceListResponseSchema = z.strictObject({
   services: z.array(serviceSchema),

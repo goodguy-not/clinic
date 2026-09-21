@@ -10,6 +10,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateMediaPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     sessionToken: token,
   });
   if (!result.ok) return failureRedirect(request, path, result.code);
+  invalidateMediaPublication(result.data.publication);
   const success = clinicProfile
     ? parsed.data.isPublished
       ? 'image-published'

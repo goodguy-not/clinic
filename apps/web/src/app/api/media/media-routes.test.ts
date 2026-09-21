@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
   updateMediaFraming: vi.fn(),
   updateMediaPublication: vi.fn(),
 }));
+const invalidateMediaPublication = vi.hoisted(() => vi.fn());
 vi.mock('@/server/api-client', () => ({ api: mocks }));
+vi.mock('@/server/public-cache-invalidation', () => ({ invalidateMediaPublication }));
 
 import { POST as attachDraft } from './draft-attachment/route';
 import { POST as saveFraming } from './framing/route';
@@ -73,11 +75,25 @@ function uploadRequest(attemptId: string): NextRequest {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  invalidateMediaPublication.mockReset();
   mocks.uploadMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.createMediaAttachment.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.getMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.updateMediaFraming.mockResolvedValue({ ok: true, data: { media: MEDIA } });
-  mocks.updateMediaPublication.mockResolvedValue({ ok: true, data: { media: MEDIA } });
+  mocks.updateMediaPublication.mockResolvedValue({
+    ok: true,
+    data: {
+      media: MEDIA,
+      publication: {
+        attachmentId: ATTACHMENT_ID,
+        ownerType: 'CLINIC_SPACE',
+        ownerId: null,
+        publicSlug: null,
+        ownerIsPublic: true,
+        renditionIds: [],
+      },
+    },
+  });
 });
 
 describe('media upload route', () => {
@@ -371,6 +387,9 @@ describe('attachment and framing routes', () => {
     );
     expect(response.headers.get('location')).toBe(
       `${ORIGIN}/content/spaces/${spaceId}/edit?success=space-photo-published`,
+    );
+    expect(invalidateMediaPublication).toHaveBeenCalledWith(
+      expect.objectContaining({ attachmentId: ATTACHMENT_ID, ownerType: 'CLINIC_SPACE' }),
     );
   });
 

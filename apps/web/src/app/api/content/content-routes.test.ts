@@ -13,8 +13,16 @@ const mocks = vi.hoisted(() => ({
   updateTestimonialApproval: vi.fn(),
   updateTestimonialPublication: vi.fn(),
 }));
+const invalidations = vi.hoisted(() => ({
+  article: vi.fn(),
+  testimonials: vi.fn(),
+}));
 
 vi.mock('@/server/api-client', () => ({ api: mocks }));
+vi.mock('@/server/public-cache-invalidation', () => ({
+  invalidateArticlePublication: invalidations.article,
+  invalidateTestimonialsPublication: invalidations.testimonials,
+}));
 
 import { POST as createArticle } from './articles/create/route';
 import { POST as publishArticle } from './articles/publication/route';
@@ -72,6 +80,7 @@ function request(path: string, body: Record<string, string>, origin = ORIGIN): N
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  for (const mock of Object.values(invalidations)) mock.mockReset();
   mocks.createArticle.mockResolvedValue({ ok: true, data: { article: ARTICLE } });
   mocks.updateArticle.mockResolvedValue({ ok: true, data: { article: ARTICLE } });
   mocks.updateArticlePublication.mockResolvedValue({
@@ -166,6 +175,8 @@ describe('content draft handlers', () => {
     expect(testimonialResponse.headers.get('location')).toBe(
       `${ORIGIN}/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-updated`,
     );
+    expect(invalidations.article).not.toHaveBeenCalled();
+    expect(invalidations.testimonials).not.toHaveBeenCalled();
   });
 
   it('refuses a handwritten draft without a human transcription', async () => {
@@ -214,6 +225,8 @@ describe('manager authority handlers', () => {
       { isPublic: true },
       { sessionToken: SESSION_TOKEN },
     );
+    expect(invalidations.article).toHaveBeenCalledWith('synthetic-guide');
+    expect(invalidations.testimonials).toHaveBeenCalledTimes(2);
   });
 
   it('preserves the backend receptionist refusal', async () => {

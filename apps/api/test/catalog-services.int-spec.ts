@@ -2,6 +2,7 @@ import request from 'supertest';
 import {
   loginResponseSchema,
   serviceListResponseSchema,
+  serviceMutationResponseSchema,
   serviceResponseSchema,
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
@@ -136,6 +137,31 @@ describe('catalog services (real PostgreSQL)', () => {
   });
 
   describe('creation', () => {
+    it('returns whether the exact public cache identity was affected', async () => {
+      const { token } = await signIn('MANAGER');
+
+      const unaddressable = serviceMutationResponseSchema.parse(
+        (await createService(token, { name: 'Unaddressable synthetic service' })).body,
+      );
+      const published = serviceMutationResponseSchema.parse(
+        (
+          await createService(token, {
+            name: 'Published synthetic service',
+            publicSlug: 'published-synthetic-service',
+          })
+        ).body,
+      );
+
+      expect(unaddressable.publication).toEqual({
+        publicSlug: null,
+        affectsPublicCache: false,
+      });
+      expect(published.publication).toEqual({
+        publicSlug: 'published-synthetic-service',
+        affectsPublicCache: true,
+      });
+    });
+
     it('creates a service with its durations and records who created it', async () => {
       const { user, token } = await signIn('MANAGER');
 

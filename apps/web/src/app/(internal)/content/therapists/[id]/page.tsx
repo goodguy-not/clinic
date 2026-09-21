@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AppHeader } from '@/components/app-header';
 import { api } from '@/server/api-client';
@@ -59,6 +60,16 @@ export default async function TherapistProfilePage({
   return (
     <>
       <AppHeader />
+      {user.role === 'MANAGER' ? (
+        <div className="mx-auto max-w-6xl px-4 pt-4">
+          <Link
+            className="text-sm font-semibold text-teal-800 underline"
+            href={`/content/preview/therapists/${copyResult.data.copy.therapistId}`}
+          >
+            پیش‌نمایش خصوصی نسخهٔ آماده
+          </Link>
+        </div>
+      ) : null}
       <TherapistProfileEditor
         copy={copyResult.data.copy}
         profile={profileResult?.data.profile ?? null}

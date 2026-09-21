@@ -22,6 +22,8 @@ import {
   mediaAltTextSchema,
   mediaAssetSchema,
   mediaAttachmentSchema,
+  mediaPublicationIdentitySchema,
+  mediaPublicationResponseSchema,
   mediaUploadFieldsSchema,
   publicImageSchema,
   publicMediaPathSchema,
@@ -188,6 +190,19 @@ describe('media contracts', () => {
     it('keeps the two manager requests to one boolean each', () => {
       expect(keysOf(updateMediaPublicationRequestSchema)).toEqual(['isPublished']);
       expect(keysOf(updateMediaArchiveRequestSchema)).toEqual(['archived']);
+    });
+
+    it('returns exact page and rendition identity only from the publication mutation', () => {
+      expect(keysOf(mediaPublicationResponseSchema)).toEqual(['media', 'publication']);
+      expect(keysOf(mediaPublicationIdentitySchema)).toEqual([
+        'attachmentId',
+        'ownerId',
+        'ownerIsPublic',
+        'ownerType',
+        'publicSlug',
+        'renditionIds',
+      ]);
+      expect(keysOf(mediaAttachmentSchema)).not.toContain('publicSlug');
     });
 
     it('asks an upload for an alt text and nothing else', () => {
