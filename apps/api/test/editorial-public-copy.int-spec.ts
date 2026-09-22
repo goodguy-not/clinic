@@ -188,6 +188,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
           slug: 'synthetic-service',
           name: 'خدمت نمونه',
           description: 'شرح نمونهٔ منتشرشده.',
+          image: null,
         },
       ]);
     });

@@ -77,7 +77,7 @@ describe('service public presentation (real PostgreSQL)', () => {
 
       expect(publishedResponse.status).toBe(200);
       expect(publicServiceListResponseSchema.parse(listed.body).services).toEqual([
-        { slug: 'a-published-service', name, description: 'شرح عمومی نمونه.' },
+        { slug: 'a-published-service', name, description: 'شرح عمومی نمونه.', image: null },
       ]);
 
       await update(id, {
