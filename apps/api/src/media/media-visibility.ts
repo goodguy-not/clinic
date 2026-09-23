@@ -1,4 +1,12 @@
 import { Prisma } from '@prisma/client';
+import {
+  articleIsPublic,
+  contentEntryIsPublic,
+  serviceIsPublic,
+  spaceIsPublic,
+  testimonialIsPublic,
+  therapistIsPublic,
+} from '../common/public-reachability';
 
 /**
  * THE ONE PREDICATE THAT DECIDES WHAT A STRANGER MAY SEE.
@@ -33,14 +41,15 @@ import { Prisma } from '@prisma/client';
  *  4. THE OWNER IS ITSELF PUBLIC. An image on an unpublished article is not
  *     public, however published its own attachment is.
  *
- * `CLINIC_SPACE` SATISFIES (4) UNCONDITIONALLY, and the reason is stated rather
- * than implied: there is no owner row to consult, because
- * `clinic_public_profile` is a single row that is always live — editing it IS
- * publishing (Milestone 9, checkpoint A2). Condition (3) therefore carries the
- * whole of the control for clinic-space photographs, and (3) is manager-only.
- * NO PUBLIC PROJECTION IN THIS PRODUCT LISTS ONE, before checkpoint A7 or A8 or
- * after either: the bytes are reachable to somebody holding the rendition id
- * once a manager publishes the attachment, and no page names it.
+ * `CLINIC_SPACE` NEVER SATISFIES (4), and the reason is stated rather than
+ * implied (Milestone 9.5 stabilisation). It is the web tier's staging slot for
+ * a photograph uploaded but not yet placed, and NO PUBLIC PROJECTION IN THIS
+ * PRODUCT READS IT. Until the stabilisation checkpoint it satisfied (4)
+ * unconditionally, which made a published staging photograph bytes reachable
+ * by id with no page and no public owner behind them — exactly what the rule
+ * "servable only while the owner is in its public projection" forbids. A
+ * manager may still publish such an attachment; it changes nothing a visitor
+ * can reach, and colleagues see it through the session-bound preview.
  *
  * `CLINIC_OPEN_GRAPH` IS THE SECOND OWNERLESS TYPE AND IS THE ONE A8 ADDS ON
  * THAT SIDE (Milestone 9.5, checkpoint A8). It is the site's own social-preview
@@ -81,41 +90,51 @@ import { Prisma } from '@prisma/client';
  * and go on handing the photograph to anybody holding the rendition id. One
  * service, one rule, in the projection and here.
  *
- * WHY `EXISTS` PER OWNER RATHER THAN THREE LEFT JOINS. A join whose predicate
+ * THE OWNER CONDITIONS ARE NOT WRITTEN IN THIS FILE (Milestone 9.5
+ * stabilisation). Each owner kind's "is on the public site" is one fragment in
+ * `common/public-reachability.ts`, and `PublicSiteService` interpolates the
+ * same fragment into its list, detail and sitemap reads. Before that, this
+ * file restated a shorter rule than the projections applied, and a deactivated
+ * therapist left the team page while their portrait stayed servable. A
+ * condition added to a projection is now, by construction, a condition added
+ * to its photographs.
+ *
+ * WHY `EXISTS` PER OWNER RATHER THAN SIX LEFT JOINS. A join whose predicate
  * lives in the `ON` clause is a join somebody can later widen by moving one
  * line into the `WHERE`; a correlated `EXISTS` states "there is a public owner"
  * as one indivisible fact, and a reader checking whether the public site can
  * leak an unpublished photograph has one expression to read.
+ *
+ * `OWNER_IS_PUBLIC` IS ALSO WHAT THE STAFF LIBRARY REPORTS as "the page is
+ * live", and what the manager publication handshake returns. One answer to
+ * that question, three readers.
  */
-/** The owner half of the public-media gate, reusable by mutation handshakes. */
 export const OWNER_IS_PUBLIC = Prisma.sql`
   CASE ma.owner_type
-        WHEN 'THERAPIST_PROFILE' THEN EXISTS (
-          SELECT 1 FROM therapist t WHERE t.id = ma.therapist_id AND t.is_public
-        )
-        WHEN 'PUBLIC_ARTICLE' THEN EXISTS (
-          SELECT 1 FROM public_article pa WHERE pa.id = ma.article_id AND pa.is_public
-        )
-        WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
-          SELECT 1 FROM public_testimonial pt WHERE pt.id = ma.testimonial_id AND pt.is_public
-        )
-        WHEN 'PUBLIC_SPACE' THEN EXISTS (
-          SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ps.is_public
-        )
-        WHEN 'PUBLIC_SERVICE' THEN EXISTS (
-          SELECT 1 FROM service svc
-          WHERE svc.id = ma.service_id
-            AND svc.is_public
-            AND svc.status = 'ACTIVE'::catalog_status
-            AND svc.public_slug IS NOT NULL
-        )
-        WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
-          SELECT 1 FROM clinic_content_entry ce
-          WHERE ce.id = ma.content_entry_id AND ce.heading IS NOT NULL
-        )
-        WHEN 'CLINIC_SPACE' THEN TRUE
-        WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
-      END
+    WHEN 'THERAPIST_PROFILE' THEN EXISTS (
+      SELECT 1 FROM therapist t WHERE t.id = ma.therapist_id AND ${therapistIsPublic('t')}
+    )
+    WHEN 'PUBLIC_ARTICLE' THEN EXISTS (
+      SELECT 1 FROM public_article pa WHERE pa.id = ma.article_id AND ${articleIsPublic('pa')}
+    )
+    WHEN 'PUBLIC_TESTIMONIAL' THEN EXISTS (
+      SELECT 1 FROM public_testimonial pt
+      WHERE pt.id = ma.testimonial_id AND ${testimonialIsPublic('pt')}
+    )
+    WHEN 'PUBLIC_SPACE' THEN EXISTS (
+      SELECT 1 FROM public_space ps WHERE ps.id = ma.space_id AND ${spaceIsPublic('ps')}
+    )
+    WHEN 'PUBLIC_SERVICE' THEN EXISTS (
+      SELECT 1 FROM service svc WHERE svc.id = ma.service_id AND ${serviceIsPublic('svc')}
+    )
+    WHEN 'CLINIC_CONTENT_ENTRY' THEN EXISTS (
+      SELECT 1 FROM clinic_content_entry ce
+      WHERE ce.id = ma.content_entry_id AND ${contentEntryIsPublic('ce')}
+    )
+    WHEN 'CLINIC_OPEN_GRAPH' THEN TRUE
+    WHEN 'CLINIC_SPACE' THEN FALSE
+    ELSE FALSE
+  END
 `;
 
 export const LIVE_ATTACHMENT_PREDICATE = Prisma.sql`

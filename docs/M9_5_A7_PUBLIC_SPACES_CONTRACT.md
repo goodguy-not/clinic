@@ -37,6 +37,11 @@ Only the last row needs work in `apps/web`, and it is one Persian sentence. See 
 - it has no owner row, so a manager publishing the attachment is the whole of the control;
 - **no public projection in this product returns one**, before A7 or after it.
 
+> **Superseded in part by the Milestone 9.5 stabilisation (2026-09-23).** Because no
+> projection reads it, a `CLINIC_SPACE` photograph is now **never** anonymously servable,
+> even when published (A5 contract §11). Nothing else here changes: the ownerless shape,
+> the staging use, and the draft-attachment route are untouched.
+
 That matters because the media workspace shipped in B6 parks an uploaded-and-framed
 photograph on the ownerless `CLINIC_SPACE` slot precisely _because_ it has no public
 surface — the page says so in its own copy ("جایگاه عمومی تازه‌ای نمی‌سازد"). Redefining

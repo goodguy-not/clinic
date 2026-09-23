@@ -17,6 +17,14 @@ import type {
   TestimonialKind,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
+import {
+  articleIsPublic,
+  contentEntryIsPublic,
+  serviceIsPublic,
+  spaceIsPublic,
+  testimonialIsPublic,
+  therapistIsPublic,
+} from '../common/public-reachability';
 import { OWNERLESS_ATTACHMENT_KEY, PublicMediaService } from '../media/public-media.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -83,6 +91,14 @@ import { PrismaService } from '../prisma/prisma.service';
  * entered" is internal history a visitor is not owed, while the date an article
  * was published is editorial content a reader judges it by. It is the FIRST
  * publication, never a later edit.
+ *
+ * MILESTONE 9.5 STABILISATION: THE OWNER CONDITIONS ARE SHARED, NOT RESTATED.
+ * Each "is this owner on the public site?" rule below is a fragment from
+ * `common/public-reachability.ts`, and `OWNER_IS_PUBLIC` in
+ * `media-visibility.ts` interpolates the very same fragment. The comments
+ * beside each query still say what the conditions are and why; the SQL that
+ * enforces them lives in one place, so a page and its photographs cannot come
+ * apart again the way the team page and the portrait gate once did.
  */
 
 type PublicServiceRow = {
@@ -220,9 +236,7 @@ export class PublicSiteService {
     const rows = await this.prisma.$queryRaw<PublicServiceRow[]>`
       SELECT s.id AS internal_id, s.public_slug, s.name, s.published_public_description
       FROM service s
-      WHERE s.is_public IS TRUE
-        AND s.status = 'ACTIVE'::catalog_status
-        AND s.public_slug IS NOT NULL
+      WHERE ${serviceIsPublic('s')}
       ORDER BY s.name ASC
     `;
 
@@ -263,8 +277,7 @@ export class PublicSiteService {
         ) AS durations
       FROM service s
       WHERE s.public_slug = ${slug}
-        AND s.is_public IS TRUE
-        AND s.status = 'ACTIVE'::catalog_status
+        AND ${serviceIsPublic('s')}
     `;
 
     const row = rows[0];
@@ -309,10 +322,7 @@ export class PublicSiteService {
       SELECT t.id AS internal_id, t.public_slug, t.published_public_display_name,
              t.published_public_title, t.published_public_bio, t.public_photo_path
       FROM therapist t
-      WHERE t.is_public IS TRUE
-        AND t.status = 'ACTIVE'::catalog_status
-        AND t.public_slug IS NOT NULL
-        AND t.published_public_display_name IS NOT NULL
+      WHERE ${therapistIsPublic('t')}
       ORDER BY t.public_display_order ASC, t.published_public_display_name ASC, t.id ASC
     `;
 
@@ -335,9 +345,7 @@ export class PublicSiteService {
              t.published_public_title, t.published_public_bio, t.public_photo_path
       FROM therapist t
       WHERE t.public_slug = ${slug}
-        AND t.is_public IS TRUE
-        AND t.status = 'ACTIVE'::catalog_status
-        AND t.published_public_display_name IS NOT NULL
+        AND ${therapistIsPublic('t')}
     `;
 
     const row = rows[0];
@@ -429,7 +437,7 @@ export class PublicSiteService {
     const rows = await this.prisma.$queryRaw<ClinicContentRow[]>`
       SELECT e.id AS internal_id, e.slot::text AS slot, e.label, e.eyebrow, e.heading, e.body
       FROM clinic_content_entry e
-      WHERE e.heading IS NOT NULL
+      WHERE ${contentEntryIsPublic('e')}
       ORDER BY e.slot ASC, e.position ASC
     `;
 
@@ -487,8 +495,7 @@ export class PublicSiteService {
       SELECT a.id AS internal_id, a.public_slug, a.published_title, a.published_summary,
              a.public_first_published_at
       FROM public_article a
-      WHERE a.is_public IS TRUE
-        AND a.public_first_published_at IS NOT NULL
+      WHERE ${articleIsPublic('a')}
       ORDER BY a.public_first_published_at DESC, a.id DESC
     `;
 
@@ -520,8 +527,7 @@ export class PublicSiteService {
         a.public_first_published_at
       FROM public_article a
       WHERE a.public_slug = ${slug}
-        AND a.is_public IS TRUE
-        AND a.public_first_published_at IS NOT NULL
+        AND ${articleIsPublic('a')}
     `;
 
     const row = rows[0];
@@ -554,9 +560,7 @@ export class PublicSiteService {
     const rows = await this.prisma.$queryRaw<PublicTestimonialRow[]>`
       SELECT t.id AS internal_id, t.author_label, t.body, t.kind::text AS kind
       FROM public_testimonial t
-      WHERE t.is_public IS TRUE
-        AND t.status = 'APPROVED'::testimonial_status
-        AND t.approved_at IS NOT NULL
+      WHERE ${testimonialIsPublic('t')}
       ORDER BY t.public_first_published_at DESC, t.id DESC
     `;
 
@@ -616,9 +620,7 @@ export class PublicSiteService {
     const rows = await this.prisma.$queryRaw<PublicSpaceRow[]>`
       SELECT s.id AS internal_id, s.published_name, s.published_description
       FROM public_space s
-      WHERE s.is_public IS TRUE
-        AND s.published_name IS NOT NULL
-        AND s.public_first_published_at IS NOT NULL
+      WHERE ${spaceIsPublic('s')}
       ORDER BY s.published_display_order ASC, s.public_first_published_at ASC, s.id ASC
     `;
 
@@ -655,26 +657,20 @@ export class PublicSiteService {
     const rows = await this.prisma.$queryRaw<SitemapRow[]>`
       SELECT 'service' AS kind, s.public_slug, s.public_revised_at, s.name AS sort_key
       FROM service s
-      WHERE s.is_public IS TRUE
-        AND s.status = 'ACTIVE'::catalog_status
-        AND s.public_slug IS NOT NULL
+      WHERE ${serviceIsPublic('s')}
 
       UNION ALL
 
       SELECT 'therapist' AS kind, t.public_slug, t.public_revised_at,
              t.published_public_display_name
       FROM therapist t
-      WHERE t.is_public IS TRUE
-        AND t.status = 'ACTIVE'::catalog_status
-        AND t.public_slug IS NOT NULL
-        AND t.published_public_display_name IS NOT NULL
+      WHERE ${therapistIsPublic('t')}
 
       UNION ALL
 
       SELECT 'article' AS kind, a.public_slug, a.public_revised_at, a.published_title
       FROM public_article a
-      WHERE a.is_public IS TRUE
-        AND a.public_first_published_at IS NOT NULL
+      WHERE ${articleIsPublic('a')}
 
       ORDER BY kind ASC, sort_key ASC
     `;

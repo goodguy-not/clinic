@@ -31,14 +31,16 @@ import { publicMediaPathSchema, publicSlugSchema } from '../website/common';
  * `CLINIC_SPACE` IS THE ONE WITH NO OWNER ROW, and the difference matters for
  * publication. The other three hang off a record that is itself either public
  * or not, so an image on them is visible only while that record is. A
- * clinic-space photograph has no such record to hang off, so it is visible
- * exactly while its own attachment is published, and manager authority over
- * that attachment is the whole of the control.
+ * clinic-space photograph has no such record to hang off and no page that
+ * reads it, so it is not visible to a stranger at all (Milestone 9.5
+ * stabilisation); colleagues see it through the session-bound preview.
  *
- * IT IS A SLOT, NOT A PRODUCT SURFACE, AND THE DIFFERENCE IS DELIBERATE. What
- * Milestone 9.5 settles is that a photograph of the clinic's own rooms can be
- * uploaded, attached, published by a manager and anonymously served — the same
- * four gates as everything else, minus the owner gate that has no row to read.
+ * IT IS A SLOT, NOT A PRODUCT SURFACE, AND THE DIFFERENCE IS DELIBERATE. A
+ * photograph can be uploaded, attached here and even published by a manager,
+ * but since the Milestone 9.5 stabilisation it is NEVER anonymously served:
+ * bytes are servable only while their owner is in a public projection, and no
+ * projection reads this one. (A5 originally served a published one with no
+ * page behind it; that was the gap the stabilisation closed.)
  * What it does NOT settle is where such photographs appear, in what order,
  * under what heading, how many there may be, or whether they belong to a page
  * of their own: NO PUBLIC PROJECTION IN THIS PRODUCT RETURNS A `CLINIC_SPACE`

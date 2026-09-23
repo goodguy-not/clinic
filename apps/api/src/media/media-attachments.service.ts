@@ -549,7 +549,9 @@ async function lockAttachment(tx: Prisma.TransactionClient, id: string): Promise
   const rows = await tx.$queryRaw<LockedAttachment[]>`
     SELECT media_asset_id,
            owner_type::text AS owner_type,
-           coalesce(therapist_id, article_id, testimonial_id, space_id, content_entry_id) AS owner_id,
+           coalesce(
+             therapist_id, article_id, testimonial_id, space_id, content_entry_id, service_id
+           ) AS owner_id,
            published_at,
            focal_x,
            focal_y,

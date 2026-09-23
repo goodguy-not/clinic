@@ -378,16 +378,39 @@ describe('anonymous media access (real PostgreSQL)', () => {
       expectRefused(await fetchMedia(renditionId));
     }, 60_000);
 
-    it('refuses a deactivated therapist s portrait, without anybody touching the media', async () => {
-      // A colleague who has left stops appearing on the website; their
+    it('refuses a portrait once the therapist s public flag is cleared, without touching the media', async () => {
+      // Clearing the opt-in takes the colleague off the website; their
       // photograph goes with them, because the public projection they hang off
-      // stops returning them.
+      // stops returning them. (This used to be named "deactivated", which it
+      // never was: it clears `is_public`. Deactivation is the next test.)
       const { asset } = await publishedTherapistPortrait();
 
-      await harness.prisma.$executeRaw`
-        UPDATE therapist SET is_public = FALSE WHERE id = ${therapistId}::uuid
-      `;
+      await request(server())
+        .patch(`/catalog/therapists/${therapistId}/public-profile/visibility`)
+        .set(as(manager))
+        .send({ isPublic: false })
+        .expect(200);
 
+      expectRefused(await fetchMedia(firstRenditionOf(asset)));
+    }, 60_000);
+
+    it('refuses a deactivated therapist s portrait, while their public flag stays set', async () => {
+      // Milestone 9.5 stabilisation. Deactivation writes `status` alone and
+      // leaves `is_public` standing; the team page has always dropped an
+      // inactive colleague, and now the portrait goes with them.
+      const { asset } = await publishedTherapistPortrait();
+      expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(200);
+
+      await request(server())
+        .patch(`/catalog/therapists/${therapistId}/status`)
+        .set(as(manager))
+        .send({ status: 'INACTIVE' })
+        .expect(200);
+
+      const [row] = await harness.prisma.$queryRaw<{ is_public: boolean }[]>`
+        SELECT is_public FROM therapist WHERE id = ${therapistId}::uuid
+      `;
+      expect(row!.is_public).toBe(true);
       expectRefused(await fetchMedia(firstRenditionOf(asset)));
     }, 60_000);
 
@@ -526,41 +549,32 @@ describe('anonymous media access (real PostgreSQL)', () => {
     }, 60_000);
 
     /**
-     * `CLINIC_SPACE` IS A SLOT, AND THIS TEST IS DELIBERATELY ABOUT BYTES RATHER
-     * THAN ABOUT A PAGE.
+     * `CLINIC_SPACE` IS A STAGING SLOT, AND NO PAGE READS IT.
      *
-     * Milestone 9.5 settles that a photograph of the clinic's own rooms goes
-     * through the same gates as every other photograph, minus the owner gate
-     * that has no row to read: unpublished is refused, published is served, and
-     * unpublishing refuses again at once. It deliberately does NOT settle where
-     * such photographs appear, in what order, or under what heading — that is
-     * public-space product design and belongs to the checkpoint that builds it.
-     *
-     * NO PUBLIC PROJECTION RETURNS THEM, and the assertion below that the clinic
-     * profile is unchanged is what keeps that true: a later checkpoint is free
-     * to project these attachments however it decides, and until it does, this
-     * checkpoint has frozen nothing about the page.
+     * Milestone 9.5 stabilisation reverses what A5 froze here. A5 served a
+     * published clinic-space photograph to anybody holding its rendition id
+     * although no projection named it; the rule is now that bytes are servable
+     * only while their owner is in its public projection, and this owner is in
+     * none. Publishing is still accepted — it records a manager's intent — and
+     * reaches nothing a visitor can fetch.
      */
-    it('serves a published clinic-space photograph, and projects it onto no page', async () => {
+    it('never serves a clinic-space photograph, published or not, and projects it onto no page', async () => {
       const asset = await uploadPhoto(harness, receptionist);
 
       const attached = await attach(asset.id, { ownerType: 'CLINIC_SPACE', ownerId: null });
       const attachmentId = mediaAssetResponseSchema.parse(attached.body).media.attachments[0]!.id;
 
-      // Before publication: refused, even though there is no owner row that
-      // could have been unpublished. The manager's decision is the whole gate.
       expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(404);
 
-      await setPublished(attachmentId, true);
-      expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(200);
+      const published = await setPublished(attachmentId, true);
+      expect(published.status).toBe(200);
+      const identity = mediaPublicationResponseSchema.parse(published.body).publication;
+      expect(identity.ownerIsPublic).toBe(false);
 
-      // Unpublishing is immediate at the origin, exactly as everywhere else.
-      await setPublished(attachmentId, false);
       expect((await fetchMedia(firstRenditionOf(asset))).status).toBe(404);
 
       // AND THE CLINIC PROFILE IS UNTOUCHED BY ANY OF IT. Thirteen owner-typed
       // facts, no gallery key, nothing about media at all.
-      await setPublished(attachmentId, true);
       const clinic = publicClinicProfileResponseSchema.parse(
         (await request(server()).get('/public/clinic-profile').set(asVisitor())).body,
       );

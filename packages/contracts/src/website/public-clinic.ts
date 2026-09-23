@@ -19,9 +19,10 @@ import { z } from 'zod';
  * page layout in the database.
  *
  * AND NO PHOTOGRAPHS OF THE CLINIC'S ROOMS, DELIBERATELY, AFTER MILESTONE 9.5.
- * The media subsystem can hold, attach, publish and serve a clinic-space
- * photograph — `CLINIC_SPACE` is one of the four attachment targets, and the
- * bytes are anonymously retrievable once a manager publishes the attachment.
+ * The media subsystem can hold, attach and publish a clinic-space photograph —
+ * `CLINIC_SPACE` is one of the attachment targets — but since the Milestone 9.5
+ * stabilisation its bytes are never anonymously servable, because no public
+ * projection reads that owner. Public room photographs are `PUBLIC_SPACE` (A7).
  * What is NOT decided is where those photographs appear, in what order, under
  * what heading, and whether they belong to this profile at all rather than to a
  * page of their own. That is public-space product design, it belongs to the
