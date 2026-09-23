@@ -2053,6 +2053,48 @@ reopened (DECISION_LOG, 2026-09-08).
 4. **Real public copy is owner-supplied.** Where approved wording has not arrived,
    a page states a truthful boundary rather than filling the space.
 
+## Milestone 9.5 contracts — where each one is stated
+
+The shared schemas in `packages/contracts` are the wire contract for every
+checkpoint; the notes below say what each checkpoint promises and why. Where a
+note and a schema disagree, the schema and its pinning tests win and the note is
+the bug.
+
+| Checkpoint                             | Authoritative contract                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A5 — media                             | [docs/M9_5_A5_MEDIA_CONTRACT.md](docs/M9_5_A5_MEDIA_CONTRACT.md) and [Media](#media-milestone-95-checkpoint-a5) below                                         |
+| Staff preview of draft media           | [A5 contract §10](docs/M9_5_A5_MEDIA_CONTRACT.md)                                                                                                             |
+| A6 — draft and published public copy   | [Draft and published public copy](#draft-and-published-public-copy-milestone-95-checkpoint-a6) below                                                          |
+| A7 — spaces, article imagery, notes    | [docs/M9_5_A7_PUBLIC_SPACES_CONTRACT.md](docs/M9_5_A7_PUBLIC_SPACES_CONTRACT.md)                                                                              |
+| A8 — the clinic's own public copy      | [The clinic's own public copy](#the-clinics-own-public-copy-milestone-95-checkpoint-a8) below                                                                 |
+| A9 — service imagery                   | [docs/M9_5_A9_SERVICE_IMAGERY_CONTRACT.md](docs/M9_5_A9_SERVICE_IMAGERY_CONTRACT.md) and [Service imagery](#service-imagery-milestone-95-checkpoint-a9) below |
+| Stabilisation — servability and upload | [Media](#media-milestone-95-checkpoint-a5) below, and DECISION_LOG 2026-09-23                                                                                 |
+
+## Draft and published public copy (Milestone 9.5, checkpoint A6)
+
+A service's public description and a therapist's public display name, title and
+biography exist twice on the same row: a **working draft** the front desk may
+prepare, and a **published copy** that is what the website says. Every public
+read selects the published columns only. Schemas:
+`packages/contracts/src/website/public-copy.ts` and
+`packages/contracts/src/website/therapist-public-profile.ts`.
+
+- **Drafting** is `service.draft_public_copy` and `therapist.draft_public_profile`
+  (receptionist and manager), under `/content/service-copy` and
+  `/content/therapist-profiles`. A draft changes no live page.
+- **Publishing** is the manager's. A service that becomes reachable through
+  `service.update` publishes its prepared description in the same transaction; a
+  later change to a live service is promoted explicitly with
+  `PATCH /content/service-copy/:id/publication`. For a therapist, the visibility
+  opt-in (`therapist.publish_profile`) copies the prepared copy onto the
+  published columns — there is no second route.
+- **Not draftable:** a service's `name` (it is the public name), a therapist's
+  slug, display order, `is_public`, and the legacy `public_photo_path`.
+- `hasUnpublishedChanges` is derived per read, never stored.
+
+The reasoning is in DECISION_LOG, 2026-09-09 (six entries, "Milestone 9.5
+checkpoint A6").
+
 ## Media (Milestone 9.5, checkpoint A5)
 
 Staff upload ordinary phone photographs; the API stores, sanitises and serves
@@ -2089,6 +2131,21 @@ on every request: the asset is `ACTIVE`, its attachment is undetached, a manager
 published that attachment, and the owner it hangs off is itself public. Every
 failure is the same `404 MEDIA_NOT_FOUND`, so nobody can enumerate the clinic's
 unpublished photographs one identifier at a time.
+
+**"The owner is public" means exactly "the owner is in its public read".** Each
+owner kind's conditions are one SQL fragment in
+`apps/api/src/common/public-reachability.ts`, used by the public projection and
+the serving predicate alike, so deactivating a therapist or a service,
+unpublishing an article or a space, withdrawing a testimonial's approval, or
+clearing a content block's heading refuses the owner's photographs on the very
+next request. `CLINIC_SPACE`, which no page reads, is never anonymously
+servable.
+
+**A retried upload does not duplicate.** Uploading the same bytes again returns
+the asset the same colleague already uploaded, keyed on a SHA-256 of the upload
+held in the database, so it survives any restart. Image processing runs one
+upload at a time per process, which caps peak memory at roughly one worst-case
+decode (≈290 MiB) plus 12 MiB per waiting upload (DECISION_LOG, 2026-09-23).
 
 **Publishing is manager-only.** `media.read`, `media.upload` and `media.attach`
 are the receptionist's — attaching is drafting, and the request has no field that
@@ -2293,8 +2350,14 @@ DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?sch
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> pnpm test:int
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory outside the repository> pnpm test:int
 ```
+
+`INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are both required: the operator CLI
+suites build a real NestJS context, which validates the whole API environment
+and refuses to start without either. The HTTP suites ignore both — the harness
+supplies its own synthetic key and a per-process temporary media root — so
+nothing a test writes lands in the directory you name.
 
 The harness accepts only a database whose name ends in `_test` or `_ci`. That is an
 allowlist, not a blocklist: excluding `clinic_dev` by name would protect one database and let

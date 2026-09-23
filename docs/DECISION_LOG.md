@@ -5189,7 +5189,8 @@ preparing is `media.upload` + `media.attach`, reviewing a draft is
 
 ## 2026-09-21 — A deactivated therapist's portrait stays anonymously servable (open finding, not fixed here)
 
-**Status:** Proposed — follow-up security finding raised by Milestone 9.5 checkpoint A9
+**Status:** Superseded 2026-09-23 — fixed by "Anonymous media servability is exactly the
+owner's public projection" (Milestone 9.5 stabilisation). Kept as the record of the finding.
 
 `LIVE_ATTACHMENT_PREDICATE` gates a `THERAPIST_PROFILE` photograph on `therapist.is_public`
 alone, while `PublicSiteService.listTeam` additionally requires `status = 'ACTIVE'`.
@@ -5212,3 +5213,157 @@ avoided it by gating `PUBLIC_SERVICE` on all three conditions.
 - **Revisit when:** the next checkpoint that touches therapist publication. The fix is two
   lines — the branch in `media-visibility.ts` and the mirror in `media.service.ts` — plus a
   deactivation test alongside the A9 one.
+
+## 2026-09-23 — Service imagery (A9) and the staff draft preview are accepted as in-scope
+
+**Status:** Accepted — Milestone 9.5 stabilisation (coordinator review of both status audits)
+
+Checkpoint A9 (`PUBLIC_SERVICE` media owner) and the session-bound staff preview
+(`GET /media/renditions/:id/preview`) were both built by Agent A ahead of an explicit
+checkpoint instruction. The coordinator accepted both in substance: the plan always
+required a per-service image, and the plan's manager preview cannot work once the
+uploader's local preview is gone. Their entries of 2026-09-20 and 2026-09-21 stand as
+written; this entry records that they are in scope, not additions to it.
+
+- **Revisit when:** never for scope; the entries' own revisit triggers still apply.
+
+## 2026-09-23 — A lane does not change the other lane's code without the owning agent's review
+
+**Status:** Accepted — Milestone 9.5 stabilisation (coordinator rule)
+
+`apps/api` and `packages/contracts` belong to Agent A (backend lane); `apps/web` belongs
+to Agent B (web lane). From this checkpoint on, a lane that needs a change in the other
+lane's code **proposes** it — a contract note, a patch in a message, or a branch the
+owner reviews — and the owning agent reviews and lands it. No silent cross-lane edit.
+
+- **Why now:** Agent B changed API code and contracts in `c5dc17e` and `4e840a7` without
+  backend review. The changes were reviewed after the fact at this checkpoint (verdicts in
+  the checkpoint report), integrated by fast-forward, and corrected in a follow-up commit
+  where the review disagreed.
+- **Alternatives:** shared ownership of `packages/contracts`; review only for
+  security-relevant files.
+- **Reason:** the contracts package is the one place both lanes meet, so it is exactly
+  where an unreviewed change costs most. One rule with no category judgement is
+  cheaper to keep than a rule about which files count.
+- **Trade-off:** a web change that needs one new contract field waits for the backend
+  owner. That is minutes, not a milestone.
+- **Revisit when:** there is only one lane.
+
+## 2026-09-23 — Anonymous media servability is exactly the owner's public projection
+
+**Status:** Accepted — Milestone 9.5 stabilisation (supersedes the open finding of
+2026-09-21, and A5's statement that a published `CLINIC_SPACE` photograph is anonymously
+servable)
+
+A photograph is anonymously servable only while its owner would appear in that owner's
+public projection. The owner conditions are now **one SQL fragment per owner kind** in
+`apps/api/src/common/public-reachability.ts`, and both `PublicSiteService` (every public
+list, detail and sitemap read) and `OWNER_IS_PUBLIC` in `media-visibility.ts` interpolate
+the same fragment. The audit that found the divergences:
+
+| Owner                  | Public projection requires                               | Serve gate before | Gap closed                         |
+| ---------------------- | -------------------------------------------------------- | ----------------- | ---------------------------------- |
+| `THERAPIST_PROFILE`    | `is_public`, `status = ACTIVE`, slug, published name     | `is_public`       | **deactivation** (a real leak)     |
+| `PUBLIC_SERVICE`       | `is_public`, `status = ACTIVE`, slug                     | same three        | none                               |
+| `PUBLIC_ARTICLE`       | `is_public`, `public_first_published_at`                 | `is_public`       | implied by a trigger; now explicit |
+| `PUBLIC_TESTIMONIAL`   | `is_public`, `status = APPROVED`, `approved_at`          | `is_public`       | implied by a CHECK; now explicit   |
+| `PUBLIC_SPACE`         | `is_public`, published name, `public_first_published_at` | `is_public`       | implied by a CHECK and a trigger   |
+| `CLINIC_CONTENT_ENTRY` | `heading IS NOT NULL`                                    | same              | none                               |
+| `CLINIC_OPEN_GRAPH`    | always read by `GET /public/clinic-content`              | `TRUE`            | none                               |
+| `CLINIC_SPACE`         | **read by no projection**                                | `TRUE`            | **published-but-pageless bytes**   |
+
+- **`CLINIC_SPACE` is now never anonymously servable.** It is the web tier's staging slot
+  for a photograph uploaded but not yet placed; no page reads it, so a published one was
+  bytes reachable by id with no public owner. Publishing such an attachment is still
+  accepted (it records manager intent and changes nothing a visitor can reach), and staff
+  still see it through the session-bound preview.
+- **The library shares the gate.** `media.service.ts` previously kept its own copy of the
+  owner gate on the reasoning that a library change must not be able to widen serving.
+  Agent B's `c5dc17e` merged the two; that is accepted, because the defect this entry
+  fixes is precisely two copies of one rule disagreeing, and the library's "is the page
+  live?" must give the same answer as the origin.
+- **Alternatives:** clearing `is_public` on deactivation (a second writer of a manager's
+  publication decision, and it would not cover the next owner); adding the missing
+  conditions to the media predicate only (the next projection change would drift again);
+  leaving `CLINIC_SPACE` servable (keeps a frozen A5 test green at the cost of the rule).
+- **Reason:** "anything that removes an owner from the site revokes its bytes on the next
+  request" can only be true by construction if both readers use one definition.
+- **Trade-off:** the fragments are interpolated SQL, so a projection's WHERE clause is no
+  longer readable in one place; each fragment's comment names the reads that use it.
+- **Revisit when:** a new owner kind or a new projection condition. It goes into the
+  fragment, never into one reader. Retiring `CLINIC_SPACE` altogether stays as the
+  contract note says: when the web tier has its own "prepared but unplaced" concept.
+
+## 2026-09-23 — A retried upload returns the uploader's existing asset for the same bytes
+
+**Status:** Accepted — Milestone 9.5 stabilisation (frozen A5 outcome: a retry creates no
+duplicate)
+
+`media_asset.source_content_hash` holds the SHA-256 of the bytes as uploaded. Before any
+image processing, `MediaService.upload` looks for an `ACTIVE`, unpurged asset **created by
+the same user** with the same digest and, if there is one, returns it unchanged — no new
+files, rows or audit entry. The insert re-checks under a transaction-scoped advisory lock
+on (user, digest), so two concurrent retries converge on one asset. Migration
+`20260923090000_m95_media_upload_idempotency` is additive (a nullable column and an
+index); existing assets have a NULL digest and simply never match.
+
+- **Alternatives:** a client-supplied `Idempotency-Key` (lost when the tab or the web
+  process restarts — the failure the checkpoint names); dedup across all users (returns a
+  colleague's asset; no wider visibility today, since `media.read` sees the whole library,
+  but it couples two people's alt texts and audit trails); dedup on the derived master's
+  hash (needs the full, expensive derivation first, and changes whenever sharp does); a
+  unique index (would make restoring an archived duplicate fail).
+- **Reason:** the photograph itself is the only retry identity that survives every
+  interruption. Scoping it to the uploader means the returned asset is one the caller
+  created, so nobody gains sight of, or the ability to attach, anything they could not
+  before.
+- **Trade-off:** the digest of an original telephone photograph is stored. It is not the
+  photograph and cannot reproduce it or its GPS; it lets someone who already holds a file
+  and can read the database confirm that the file was uploaded — and that reader can
+  already see the derived pictures. A second upload of the same bytes with a
+  **different** alt text returns the first asset with its first alt text; there is no
+  alt-text edit today. An archived asset is not matched, so re-uploading after archiving
+  creates a new asset. A concurrent twin that loses the race leaves derived files that no
+  row names — the harmless failure mode the A5 upload order already accepts.
+- **Revisit when:** alt-text editing arrives (a replay could then update it), or
+  deliberate duplicates are ever wanted.
+
+## 2026-09-23 — Uploads stay buffered in memory, and image derivation runs one at a time
+
+**Status:** Accepted — Milestone 9.5 stabilisation
+
+The ≤12 MiB upload stays a memory buffer (multer memory storage); streaming is not
+adopted. Derivation (`deriveMedia`) goes through a process-wide FIFO gate of **one**
+concurrent derivation (`MEDIA_DERIVE_CONCURRENCY`); later uploads wait holding only
+their buffered source.
+
+Measured on synthetic ~50 MP sources (the pixel cap) with sharp 0.34.5, running this
+repository's derivation pipeline with 24 libvips threads: one derivation adds
+**≈270–290 MiB** RSS (a 50 MP RGBA PNG decodes to ~200 MB); two concurrent add
+≈370–480 MiB; four add ≈470–950 MiB. **Peak memory under N concurrent uploads is
+therefore about baseline + 290 MiB + N × 12 MiB**, instead of growing by up to
+~240 MiB per concurrent upload.
+
+- **Alternatives:** streaming to disk (writes the original, GPS intact — the one file
+  the A5 design never creates); streaming into sharp (the decode still needs the full
+  bitmap for `rotate()`, so it saves at most the 12 MiB buffer, not the ~200 MB bitmap
+  that matters); a lower pixel cap (refuses real telephone panoramas); a gate of two
+  (≈480 MiB worst case for twice the throughput nobody needs yet).
+- **Reason:** the decoded bitmap, not the 12 MiB buffer, dominates, and only a
+  concurrency bound caps it. The buffer is also what keeps the original off disk.
+- **Trade-off:** a burst of uploads queues; a worst-case derivation takes seconds, and a
+  clinic's staff rarely upload in parallel. Waiting requests keep their buffers; only
+  authenticated `media.upload` holders reach the parser, because guards run before the
+  interceptor.
+- **Revisit when:** uploads are opened to a wider audience, the API runs several
+  processes per host, or queueing shows up as web-tier timeouts.
+
+## 2026-09-23 — Follow-up: the legacy therapist photograph path is dropped after its last reader
+
+**Status:** Open follow-up — deliberately not done in this checkpoint
+
+`therapist.public_photo_path` still exists and is still selected by the public team
+projection (`PublicTherapistProfile.photoPath`). Agent B removes its last web reader
+next; the column, its contract field and the projection's selection then go in one
+reviewed, destructive migration owned by the backend lane. See the 2026-09-09 entry
+"The legacy therapist photograph path is not split, and not yet removed".

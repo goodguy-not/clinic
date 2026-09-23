@@ -363,3 +363,32 @@ Error bodies are the usual JSON envelope with `Cache-Control: no-store`.
 - Apply the attachment's `framing` in CSS, exactly as for public images.
 - Keep public pages on `/media/<id>`. Preview is only for internal screens (article and
   testimonial review, later the B8 draft preview).
+
+## 11. Stabilisation changes (2026-09-23)
+
+Three behaviour changes, all on the API side. **No contract schema changed.**
+
+**Servability equals the owner's public projection.** A rendition is anonymously
+servable only while its owner would appear in its public read. The owner conditions are
+one SQL fragment per owner kind (`apps/api/src/common/public-reachability.ts`), read by
+the public projections and by the serving predicate alike. Anything that takes an owner
+off the site — deactivating a therapist or a service, unpublishing an article or a space,
+withdrawing a testimonial's approval, clearing a content block's heading — refuses its
+bytes at the origin on the very next request. The one visible change for the web tier:
+
+- **A published `CLINIC_SPACE` attachment is no longer anonymously servable.** No page
+  reads that owner, so its bytes had no public owner. Publishing one still succeeds and
+  the library reports its page as not live (`ownerIsPublic: false`); staff keep seeing it
+  through §10's preview. The web tier's `CLINIC_SPACE` staging use is unaffected.
+
+**A retried upload does not duplicate.** `POST /media` with bytes identical to an
+`ACTIVE` asset the **same user** uploaded returns that asset (same `mediaId`, same
+renditions, its original alt text) instead of creating a new one. The response shape and
+status are unchanged. The identity is the SHA-256 of the uploaded bytes and lives in the
+database, so it survives web and API restarts; the web tier's per-process duplicate
+guard is no longer needed for correctness (removing it is the web lane's call). A
+different photograph is always a new asset.
+
+**Derivation is serialised.** Image processing runs one upload at a time per API
+process; concurrent uploads queue. A worst-case upload takes a few seconds, so the web
+tier's upload timeout should allow for one queued upload ahead of it.
