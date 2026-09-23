@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -16,7 +17,7 @@ import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
-import { deriveMedia } from './image-processing';
+import { deriveMediaGated } from './image-processing';
 import { assetIsPubliclyServed, OWNER_IS_PUBLIC } from './media-visibility';
 import { toFraming } from './public-media.service';
 import { MediaStorageService } from './media-storage.service';
@@ -80,7 +81,16 @@ export class MediaService {
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<MediaAsset> {
-    const derived = await deriveMedia(source);
+    // A RETRY IS NOT A SECOND PHOTOGRAPH (Milestone 9.5 stabilisation). The
+    // digest of the bytes as uploaded is the retry identity: it survives every
+    // restart because it lives in PostgreSQL, and it is scoped to the uploader,
+    // so a replay can only hand back an asset the caller created. Checked here,
+    // before any image processing, so a retry costs one indexed read.
+    const sourceHash = createHash('sha256').update(source).digest('hex');
+    const replayed = await this.findRetryTarget(this.prisma, actor.userId, sourceHash);
+    if (replayed !== null) return this.get(replayed);
+
+    const derived = await deriveMediaGated(source);
     const id = uuidv7();
     const alt = canonicalText(altText);
 
@@ -97,15 +107,26 @@ export class MediaService {
       await this.storage.write(rendition.key, rendition.bytes);
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    const winner = await this.prisma.$transaction(async (tx) => {
+      // Two retries racing each other both miss the read above. The advisory
+      // lock serialises them on (uploader, digest) for the length of this
+      // transaction, and the second re-reads under it and finds the first. The
+      // loser's derived files stay on disk named by no row — the harmless
+      // failure mode the order of these steps was chosen for.
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`media-upload:${actor.userId}:${sourceHash}`}, 0))
+      `;
+      const raced = await this.findRetryTarget(tx, actor.userId, sourceHash);
+      if (raced !== null) return raced;
+
       await tx.$executeRaw`
         INSERT INTO media_asset (
-          id, alt_text, status, source_content_type, source_byte_size,
+          id, alt_text, status, source_content_type, source_byte_size, source_content_hash,
           master_storage_key, master_content_hash, master_byte_size,
           master_width, master_height, created_at, created_by_user_id
         ) VALUES (
           ${id}::uuid, ${alt}, 'ACTIVE'::media_asset_status,
-          ${derived.sourceContentType}, ${source.byteLength},
+          ${derived.sourceContentType}, ${source.byteLength}, ${sourceHash},
           ${masterKey}, ${derived.master.contentHash}, ${derived.master.bytes.byteLength},
           ${derived.master.width}, ${derived.master.height},
           transaction_timestamp(), ${actor.userId}::uuid
@@ -146,9 +167,36 @@ export class MediaService {
           altTextLength: alt.length,
         },
       });
+
+      return id;
     });
 
-    return this.get(id);
+    return this.get(winner);
+  }
+
+  /**
+   * The asset a retry of these bytes by this colleague should return, if any:
+   * theirs, still in circulation, and with its bytes. An archived asset is not
+   * matched — re-uploading after archiving is a deliberate new photograph —
+   * and neither is a colleague's, so nothing becomes visible or attachable to
+   * anybody who could not already reach it.
+   */
+  private async findRetryTarget(
+    client: Prisma.TransactionClient | PrismaService,
+    userId: string,
+    sourceHash: string,
+  ): Promise<string | null> {
+    const rows = await client.$queryRaw<{ id: string }[]>`
+      SELECT id FROM media_asset
+      WHERE created_by_user_id = ${userId}::uuid
+        AND source_content_hash = ${sourceHash}
+        AND status = 'ACTIVE'::media_asset_status
+        AND bytes_purged_at IS NULL
+      ORDER BY id
+      LIMIT 1
+    `;
+
+    return rows[0]?.id ?? null;
   }
 
   /** The whole library, newest first. Behind `media.read`. */
@@ -294,30 +342,6 @@ export class MediaService {
   }
 }
 
-/**
- * Whether the record an attachment hangs off is itself public right now, on its
- * own — the fourth condition of the serving predicate, isolated so the library
- * can show a manager WHICH gate is closed.
- *
- * It is stated here rather than imported from `media-visibility` because it is
- * a different question: that file answers "may a stranger have these bytes?",
- * and this answers "is the page live?". Sharing one expression between the two
- * would make a change intended for the library able to widen the serving rule.
- *
- * Milestone 9.5, checkpoint A9 adds `PUBLIC_SERVICE`, whose owner gate is the
- * three conditions that make a service reachable — published, active and
- * addressable — and not `is_public` alone. It is the same expression the
- * serving predicate applies, restated here for the reason stated above, and it
- * is what lets the library tell a manager "the service page is not live"
- * about a photograph attached to a service somebody has deactivated.
- *
- * Milestone 9.5, checkpoint A8 adds the two clinic-profile owners. The
- * ownerless `CLINIC_OPEN_GRAPH` is unconditionally live, like `CLINIC_SPACE`;
- * `CLINIC_CONTENT_ENTRY` asks whether the editorial block has been WRITTEN,
- * because that table carries no publication flag and an unwritten block is on
- * no page. A manager looking at the library therefore sees "the page is not
- * live" for a photograph attached to a slot nobody has filled in.
- */
 const ASSET_COLUMNS = Prisma.sql`
   a.id,
   a.alt_text,

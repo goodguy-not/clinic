@@ -10,6 +10,7 @@ import {
   type MediaRenditionFormat,
 } from '@clinic/contracts';
 import { AppError } from '../common/app-error';
+import { createConcurrencyGate } from './concurrency-gate';
 
 /**
  * Everything this product does to a photograph, and nothing it does to a row.
@@ -232,6 +233,25 @@ export async function deriveMedia(source: Buffer): Promise<DerivedMedia> {
     },
     renditions,
   };
+}
+
+/**
+ * How many derivations one API process runs at once. ONE.
+ *
+ * Milestone 9.5 stabilisation. Measured with this pipeline on synthetic ~50 MP
+ * sources (the pixel cap): one derivation adds ≈270–290 MiB of RSS, and
+ * concurrent ones add roughly that much each (four: ≈470–950 MiB). The upload
+ * buffer is ≤12 MiB; the decoded bitmap is what needs a bound. With one slot,
+ * peak memory under N concurrent uploads is about baseline + 290 MiB +
+ * N × 12 MiB. See DECISION_LOG, 2026-09-23.
+ */
+export const MEDIA_DERIVE_CONCURRENCY = 1;
+
+const deriveGate = createConcurrencyGate(MEDIA_DERIVE_CONCURRENCY);
+
+/** `deriveMedia` behind the process-wide bound. What the upload path calls. */
+export function deriveMediaGated(source: Buffer): Promise<DerivedMedia> {
+  return deriveGate(() => deriveMedia(source));
 }
 
 type EncodeOptions = {

@@ -26,6 +26,17 @@ const SYNTHETIC_CAMERA_MAKE = 'SyntheticPhoneMake';
 const SYNTHETIC_CAMERA_MODEL = 'SyntheticPhoneModel';
 
 /**
+ * EVERY CALL IS A DIFFERENT PHOTOGRAPH (Milestone 9.5 stabilisation).
+ *
+ * The API treats the same bytes from the same colleague as a retry and returns
+ * the asset it already has, so two calls that meant "two photographs" must not
+ * produce identical bytes. One channel steps per call; a test that wants the
+ * same photograph twice keeps the buffer and sends it twice.
+ */
+let shade = 0;
+const nextShade = (): number => 40 + (shade++ % 180);
+
+/**
  * A synthetic "telephone photograph".
  *
  * Landscape pixels, tagged `orientation: 6` — the common case, where the
@@ -41,7 +52,7 @@ export async function syntheticPhonePhoto(options?: {
   const height = options?.height ?? 600;
 
   const flat = await sharp({
-    create: { width, height, channels: 3, background: { r: 30, g: 90, b: 160 } },
+    create: { width, height, channels: 3, background: { r: 30, g: nextShade(), b: 160 } },
   })
     .jpeg({ quality: 92 })
     .toBuffer();
@@ -64,7 +75,12 @@ export async function syntheticPhonePhoto(options?: {
 /** A plain synthetic PNG, for the paths that do not need EXIF. */
 export async function syntheticPng(size = 400): Promise<Buffer> {
   return sharp({
-    create: { width: size, height: size, channels: 3, background: { r: 200, g: 120, b: 40 } },
+    create: {
+      width: size,
+      height: size,
+      channels: 3,
+      background: { r: 200, g: nextShade(), b: 40 },
+    },
   })
     .png()
     .toBuffer();

@@ -2670,6 +2670,11 @@ model MediaAsset {
   /// product that recorded either would be recording a claim as a fact.
   sourceContentType String @map("source_content_type")
   sourceByteSize    Int    @map("source_byte_size")
+  /// SHA-256 of the bytes AS UPLOADED — a digest, never the photograph. The
+  /// retry identity: a colleague re-sending the same photograph gets back the
+  /// asset they already created (Milestone 9.5 stabilisation). NULL on assets
+  /// uploaded before it existed, which therefore never match a retry.
+  sourceContentHash String? @map("source_content_hash")
 
   /// --- the master. THE ONLY COPY THE CLINIC KEEPS, AND NEVER SERVED. ---
   /// NULLABLE ONLY SO THAT ERASURE IS REPRESENTABLE, never because an asset may
@@ -2716,6 +2721,9 @@ model MediaAsset {
   /// The library read: newest first, optionally narrowed to what is still in
   /// circulation.
   @@index([status, id])
+  /// The retry lookup: this uploader, this photograph. Not unique — see the
+  /// migration for why.
+  @@index([createdByUserId, sourceContentHash])
   @@map("media_asset")
 }
 
