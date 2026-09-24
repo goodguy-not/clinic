@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   PUBLIC_MEDIA_PATH_PREFIX,
+  type MediaAltTextResponse,
   type MediaAsset,
   type MediaAssetStatus,
   type MediaAttachment,
@@ -18,7 +19,12 @@ import type { RequestContext, ResolvedSession } from '../common/request-context'
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { deriveMediaGated } from './image-processing';
-import { assetIsPubliclyServed, OWNER_IS_PUBLIC } from './media-visibility';
+import { readPublicationIdentities } from './media-publication-identity';
+import {
+  assetIsPubliclyServed,
+  LIVE_ATTACHMENT_PREDICATE,
+  OWNER_IS_PUBLIC,
+} from './media-visibility';
 import { toFraming } from './public-media.service';
 import { MediaStorageService } from './media-storage.service';
 
@@ -274,6 +280,82 @@ export class MediaService {
     });
 
     return this.get(id);
+  }
+
+  /**
+   * Correct a photograph's description. Behind `media.attach`.
+   *
+   * THE DESCRIPTION IS THE ASSET'S. It says what is in the picture, which does
+   * not depend on where the picture is used, so one correction reaches every
+   * page the photograph is on.
+   *
+   * THE AUTHORITY FOLLOWS THE PUBLICATION BOUNDARY. While no stranger can be
+   * served this photograph, the description is draft material and anybody who
+   * may attach may correct it. Once it is served anywhere, the description is
+   * public content and changing it is the manager's act (`media.publish`).
+   *
+   * "SERVED" IS READ AFTER THE ASSET LOCK, IN A SEPARATE STATEMENT, so it sees
+   * whatever a concurrent publish or restore — both of which lock this row —
+   * committed while this transaction waited. A manager making the OWNER public
+   * at the same instant does not lock the asset; that race is the ordinary
+   * draft-versus-publish one, and serialises as "corrected, then published".
+   */
+  async updateAltText(
+    id: string,
+    altText: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<MediaAltTextResponse> {
+    const alt = canonicalText(altText);
+
+    const publications = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ alt_text: string }[]>`
+        SELECT alt_text FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
+      `;
+
+      const before = locked[0];
+      if (before === undefined) throw new AppError('MEDIA_NOT_FOUND');
+
+      const served = await tx.$queryRaw<{ is_publicly_served: boolean }[]>`
+        SELECT (${assetIsPubliclyServed('a')}) AS is_publicly_served
+        FROM media_asset a WHERE a.id = ${id}::uuid
+      `;
+      const isPubliclyServed = served[0]?.is_publicly_served === true;
+
+      if (isPubliclyServed && !actor.permissions.includes('media.publish')) {
+        throw new AppError(
+          'AUTH_FORBIDDEN',
+          undefined,
+          'Only a manager may change the description of a publicly served photograph',
+        );
+      }
+
+      if (before.alt_text === alt) return [];
+
+      await tx.$executeRaw`
+        UPDATE media_asset SET alt_text = ${alt} WHERE id = ${id}::uuid
+      `;
+
+      // Lengths, not the words, exactly as `media.uploaded` records them: a
+      // description can name a child, and `audit_log` is never pruned.
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'media.alt_text_updated',
+        entityType: 'media_asset',
+        entityId: id,
+        before: { altTextLength: before.alt_text.length },
+        after: { altTextLength: alt.length },
+        metadata: { isPubliclyServed },
+      });
+
+      if (!isPubliclyServed) return [];
+
+      return readPublicationIdentities(
+        tx,
+        Prisma.sql`ma.media_asset_id = ${id}::uuid AND ${LIVE_ATTACHMENT_PREDICATE}`,
+      );
+    });
+
+    return { media: await this.get(id), publications };
   }
 
   /**

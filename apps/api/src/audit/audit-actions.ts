@@ -397,6 +397,11 @@ export const AUDIT_ACTIONS = [
   // It records image COMPOSITION and never image CONTENT, so unlike most
   // payloads in this application there is nothing to reduce before writing it.
   'media.reframed',
+  // Correcting a photograph's description (Milestone 9.5 stabilisation).
+  // LENGTHS, NOT WORDS, as `media.uploaded` records them: a description can
+  // name a child. `metadata.isPubliclyServed` says whether the correction
+  // changed public content, which is what made it a manager act.
+  'media.alt_text_updated',
   'media.published',
   'media.unpublished',
   'clinic_public_profile.updated',

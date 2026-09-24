@@ -325,11 +325,15 @@ export const updateMediaPublicationRequestSchema = z.strictObject({
 export type UpdateMediaPublicationRequest = z.infer<typeof updateMediaPublicationRequestSchema>;
 
 /**
- * Canonical cache identity returned only by the Manager publication mutation.
+ * Canonical cache identity returned by the Manager publication mutation, and
+ * by a description correction on a publicly served photograph.
  *
  * It is deliberately absent from the general media-library read. In
  * particular, an unpublished therapist slug is a Manager publication setting,
- * not media metadata a Receptionist holding `media.read` may inspect.
+ * not media metadata a Receptionist holding `media.read` may inspect. The
+ * description correction returns it only for LIVE attachments, whose owner —
+ * and therefore whose slug — is already public, and only a manager may
+ * correct a photograph that has any (see `updateMediaAltTextRequestSchema`).
  */
 export const mediaPublicationIdentitySchema = z.strictObject({
   attachmentId: z.uuid(),
@@ -348,6 +352,39 @@ export const mediaPublicationResponseSchema = z.strictObject({
 });
 
 export type MediaPublicationResponse = z.infer<typeof mediaPublicationResponseSchema>;
+
+/**
+ * Correcting a photograph's description (Milestone 9.5 stabilisation).
+ *
+ * THE DESCRIPTION BELONGS TO THE ASSET, NOT TO THE ATTACHMENT. It says what is
+ * in the picture, which does not change with where the picture is used, so a
+ * photograph on three pages has one description and correcting it corrects all
+ * three at once.
+ *
+ * BEHIND `media.attach`, AND THE AUTHORITY FOLLOWS THE PUBLICATION BOUNDARY.
+ * While the photograph is not publicly served, anybody who may attach it may
+ * correct it. Once it is served anywhere, the description is public content and
+ * only `media.publish` may change it; a receptionist receives `AUTH_FORBIDDEN`.
+ * Same plain-text and length rule as at upload.
+ */
+export const updateMediaAltTextRequestSchema = z.strictObject({
+  altText: mediaAltTextSchema,
+});
+
+export type UpdateMediaAltTextRequest = z.infer<typeof updateMediaAltTextRequestSchema>;
+
+/**
+ * `publications` names every LIVE attachment whose public page now shows the
+ * new description, in the shape `invalidateMediaPublication` already consumes.
+ * It is empty when nothing changed or the photograph is not publicly served —
+ * which is always the case for a receptionist's successful correction.
+ */
+export const mediaAltTextResponseSchema = z.strictObject({
+  media: mediaAssetSchema,
+  publications: z.array(mediaPublicationIdentitySchema),
+});
+
+export type MediaAltTextResponse = z.infer<typeof mediaAltTextResponseSchema>;
 
 /**
  * Re-framing. The narrowest write in the subsystem: no byte moves, no rendition

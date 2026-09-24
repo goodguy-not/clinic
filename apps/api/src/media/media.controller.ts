@@ -19,14 +19,17 @@ import {
   MEDIA_RENDITION_CONTENT_TYPE,
   createMediaAttachmentRequestSchema,
   mediaUploadFieldsSchema,
+  updateMediaAltTextRequestSchema,
   updateMediaArchiveRequestSchema,
   updateMediaFramingRequestSchema,
   updateMediaPublicationRequestSchema,
   type CreateMediaAttachmentRequest,
+  type MediaAltTextResponse,
   type MediaAssetListResponse,
   type MediaAssetResponse,
   type MediaPublicationResponse,
   type MediaUploadFields,
+  type UpdateMediaAltTextRequest,
   type UpdateMediaArchiveRequest,
   type UpdateMediaFramingRequest,
   type UpdateMediaPublicationRequest,
@@ -42,7 +45,7 @@ import { MediaUploadInterceptor, type UploadedImage } from './media-upload.inter
 import { MediaService } from './media.service';
 
 /**
- * The staff media library. EIGHT ROUTES, FOUR PERMISSIONS, AND NOTHING PUBLIC.
+ * The staff media library. TEN ROUTES, FOUR PERMISSIONS, AND NOTHING PUBLIC.
  *
  * Milestone 9.5, checkpoint A5.
  *
@@ -64,11 +67,14 @@ import { MediaService } from './media.service';
  *   POST   /media/:id/attachments          media.attach     (always a draft)
  *   PATCH  /media/attachments/:id/framing  media.attach     (refused if published)
  *   DELETE /media/attachments/:id          media.attach     (refused if published)
+ *   PATCH  /media/:id/alt-text             media.attach     (+ media.publish if served)
  *   PATCH  /media/attachments/:id/publication   media.publish
  *   PATCH  /media/:id/archive                   media.publish
  *
  * THE TWO `media.publish` ROUTES ARE THE MANAGER'S ALONE AND THEY ARE THE ONLY
- * TWO THAT CAN CHANGE WHAT A STRANGER SEES. Everything above them prepares.
+ * TWO THAT CAN CHANGE WHETHER A STRANGER SEES A PHOTOGRAPH. Everything above
+ * them prepares. The description route changes what a stranger READS about
+ * one, and so requires `media.publish` too once the photograph is served.
  *
  * NO DELETE OF AN ASSET. `DELETE` appears once, on an ATTACHMENT, and it
  * detaches rather than removes — the row survives, so anybody afterwards can
@@ -225,6 +231,25 @@ export class MediaController {
     @Ctx() context: RequestContext,
   ): Promise<MediaAssetResponse> {
     return { media: await this.attachments.attach(id, body, session, context) };
+  }
+
+  /**
+   * Correct the description a visitor who cannot see the photograph is read.
+   *
+   * `media.attach` gets the caller in; once the photograph is publicly served
+   * the service additionally requires `media.publish` — see
+   * `MediaService.updateAltText`. `publications` tells the Web tier which live
+   * pages to invalidate, and is empty when there are none.
+   */
+  @Patch(':id/alt-text')
+  @RequirePermissions('media.attach')
+  async updateAltText(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(updateMediaAltTextRequestSchema)) body: UpdateMediaAltTextRequest,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<MediaAltTextResponse> {
+    return this.media.updateAltText(id, body.altText, session, context);
   }
 
   /** Out of circulation everywhere at once, and back again. Manager-only. */
