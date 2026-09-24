@@ -147,6 +147,112 @@ pnpm db:down
 Credentials in `docker-compose.yml` are synthetic and local-only. Production secrets never
 live in Git. Never use real clinic data in development, tests, seeds, or logs.
 
+The API does not connect as the container's superuser. Provision the runtime role once,
+migrate as the owner, then run the API as the runtime role — see
+[Database roles](#database-roles):
+
+```bash
+docker exec -i clinic-db psql -U clinic -d postgres -v database=clinic_dev -v runtime_password=clinic_app_dev_only -f - < apps/api/prisma/provision-roles.sql
+```
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
+```
+
+Locally the container superuser `clinic` stays the owner of `clinic_dev`, because an
+existing development database already has every object owned by it. `.env` names
+`clinic_app`, the runtime login.
+
+## Database roles
+
+Milestone 10, checkpoint A1. **The API never connects as the owner of the schema.** An
+owner can `DROP`, `TRUNCATE` and `ALTER TABLE ... DISABLE TRIGGER`, so every append-only,
+immutability and erase-in-place guarantee in this schema would be one statement away from
+gone for anybody who could make the API run SQL.
+
+| Role             | Login | Owns                          | Used by                                                                   |
+| ---------------- | ----- | ----------------------------- | ------------------------------------------------------------------------- |
+| `clinic_owner`   | yes   | the database and every object | `prisma migrate deploy` only — and, in tests, the between-test reset      |
+| `clinic_runtime` | no    | nothing                       | holds the grants; no password, cannot sign in                             |
+| `clinic_app`     | yes   | nothing                       | member of `clinic_runtime`: the API server and every operator CLI command |
+
+`clinic_runtime` is referenced by name in migrations; the two login names are conventions.
+A second login — say a separately attributable one for the CLI — needs only
+`GRANT clinic_runtime TO <login>`.
+
+### What each process connects as
+
+| Process                                                      | `DATABASE_URL` names |
+| ------------------------------------------------------------ | -------------------- |
+| `prisma migrate deploy` / `migrate status` / `migrate diff`  | `clinic_owner`       |
+| API server (`node dist/main.js`)                             | `clinic_app`         |
+| `cli bootstrap-manager`, `cli reset-password`                | `clinic_app`         |
+| `cli purge-website-requests` (the ninety-day erase-in-place) | `clinic_app`         |
+| Synthetic clinic seeder (development only)                   | `clinic_app`         |
+| Integration tests — the API under test                       | `clinic_app`         |
+| Integration tests — the reset (`TEST_OWNER_DATABASE_URL`)    | `clinic_owner`       |
+
+Every CLI command runs through the same NestJS services as the API and needs nothing the
+API does not. There is **no media orphan-ageing job**: media retention is an open owner
+decision (DECISION_LOG, 2026-09-08). When it lands, its erasure is an `UPDATE` of
+`media_asset` and `media_rendition`, and `media_rendition` holds no `UPDATE` today — its
+migration must grant it, reasoned, like any other widening.
+
+### The privilege matrix
+
+Migration `20260925120000_m10_a1_runtime_role` grants, derived from the statements the
+application actually runs:
+
+| Privileges                  | Tables                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SELECT, INSERT              | `audit_log`, `media_rendition`, `settlement_period`, `settlement_line` — append-only                                                                                                                                                                                                                                                                |
+| SELECT, UPDATE              | `clinic_public_profile`, `clinic_content_entry` — rows created by migrations                                                                                                                                                                                                                                                                        |
+| SELECT, INSERT, DELETE      | `therapist_service`, `room_service`, `service_duration`, `therapist_availability`, `therapist_availability_exception`, `guardian` — replaced by delete-and-insert                                                                                                                                                                                   |
+| SELECT, INSERT, UPDATE, DEL | `registration_draft` — transient, consumed and removed                                                                                                                                                                                                                                                                                              |
+| SELECT, INSERT, UPDATE      | every other table: users and sessions, catalog, families and children, appointments and series, charges, adjustments, payments, promises, share rules, ratings, public content, website requests, media assets and attachments. Their immutable columns stay guarded by their own triggers; `appointment_series` holds UPDATE only for `FOR UPDATE` |
+| USAGE                       | `child_file_number_seq` — `nextval`, never `setval`                                                                                                                                                                                                                                                                                                 |
+| nothing                     | `_prisma_migrations`; `TRUNCATE`, `REFERENCES` and `TRIGGER` on anything; `CREATE` on the schema or database; `TEMPORARY`                                                                                                                                                                                                                           |
+
+So every historical table — money above all — refuses `DELETE` twice: by privilege for the
+runtime, and by its own trigger for anybody who does hold the privilege. Where the runtime
+may `UPDATE` a table with immutable columns (a charge, a payment, a published slug, an
+erased website request), the table's own trigger still refuses the forbidden change, exactly
+as before; the difference is that the runtime can no longer switch it off.
+`runtime-role.int-spec.ts` pins this matrix exactly and proves, from the API's own
+connection, that DDL, `TRUNCATE`, disabling or dropping any trigger or constraint,
+`session_replication_role`, `SET ROLE` to the owner and every domain-forbidden `DELETE` are
+refused.
+
+**Adding a table:** grant it in the same migration that creates it, and add it to
+`EXPECTED_TABLE_PRIVILEGES` with its reason. There are deliberately no default privileges —
+a default would hand every future table the widest shape without anybody deciding it — so a
+table added without a decision fails CI rather than failing in production.
+
+### Provisioning a deployment
+
+Once per cluster and database, by whoever administers PostgreSQL (a superuser or a
+`CREATEROLE` administrator), **before** the first migration. Passwords arrive as psql
+variables, typed or piped from the deployment's secret store — never written into the
+repository, a migration or a committed file:
+
+```bash
+psql -h <host> -U <administrator> -d postgres -v database=<database> -v owner_password=<secret> -v runtime_password=<secret> -f apps/api/prisma/provision-roles.sql
+```
+
+It creates `clinic_owner` (`NOSUPERUSER`, `NOCREATEROLE`), the database owned by it,
+`clinic_runtime` (`NOLOGIN`) and `clinic_app`, and revokes `CONNECT` and `TEMPORARY` on
+the database from `PUBLIC`. Re-running it is safe and is how a password is rotated. Then:
+
+1. migrate as the owner — `DATABASE_URL=<clinic_owner URL> prisma migrate deploy`. The
+   runtime migration refuses to run if `clinic_runtime` is missing, holds a cluster
+   attribute, or could become the migrating role;
+2. give the API and CLI processes the `clinic_app` URL, and no other. The owner's URL
+   belongs only to the migration step's environment.
+
+A PostgreSQL 13 or later server is required (`btree_gist` must be a trusted extension so a
+non-superuser owner can create it). Managed services whose "admin" user is not a superuser
+work unchanged.
+
 ## Authentication and audit (Milestone 1)
 
 ### Where the boundary sits
@@ -709,9 +815,8 @@ constraints or triggers and would let one disappear silently.
 reasons: guardians are configuration replaced wholesale and recorded as audit values, and a
 draft is meant to be consumed and removed.
 
-As in both earlier migrations, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
-Closing that needs a runtime database role that does not own these tables, and remains a
-production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ## Appointments (Milestone 4)
 
@@ -940,9 +1045,8 @@ The two availability tables deliberately carry **no** delete trigger: they are
 current configuration recorded in `audit_log` as values, like `guardian` and
 `therapist_service`.
 
-As in every earlier migration, a table owner can still
-`ALTER TABLE ... DISABLE TRIGGER`. Closing that needs a runtime database role that
-does not own these tables, and remains a production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ## Family ledger (Milestone 5)
 
@@ -1123,9 +1227,8 @@ The lock order extends Milestone 4's rather than competing with it: `appointment
 for anything that can create a charge, then `session_charge`, then `charge_adjustment`.
 No path takes them the other way round.
 
-As in every earlier migration, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
-Closing that needs a runtime database role that does not own these tables, and remains a
-production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ### Verification
 
@@ -1559,7 +1662,7 @@ pnpm --filter @clinic/api build
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --weeks 5 --families 12
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --weeks 5 --families 12
 ```
 
 It refuses to run unless `NODE_ENV` is not production **and** the database name
@@ -1593,7 +1696,7 @@ The database-backed suite, which is where the reporting invariants are proved �
 see [Integration tests](#integration-tests) for the disposable-database setup:
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory> pnpm test:int
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_test?schema=public' TEST_OWNER_DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory> pnpm test:int
 ```
 
 `INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are here because the operator CLI
@@ -1607,11 +1710,11 @@ Migration status and schema drift, exactly as
 migration and `migrate diff` exits 2 if `schema.prisma` was edited without one:
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate status
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate status
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-schema-datasource prisma/schema.prisma --exit-code
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-schema-datasource prisma/schema.prisma --exit-code
 ```
 
 Neither sees the hand-written CHECKs, triggers or the protected-row function;
@@ -2261,14 +2364,14 @@ Never commit a real value for any of these. `.env` and `.env.local` are ignored;
 
 ### `apps/api` — repository-root `.env`
 
-| Variable                 | Required | Purpose                                                   |
-| ------------------------ | -------- | --------------------------------------------------------- |
-| `DATABASE_URL`           | yes      | PostgreSQL connection string. Never given to `apps/web`.  |
-| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server. |
-| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.            |
-| `API_PORT`               | no       | Defaults to 3001.                                         |
-| `NODE_ENV`               | no       | Defaults to `development`.                                |
-| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.  |
+| Variable                 | Required | Purpose                                                                      |
+| ------------------------ | -------- | ---------------------------------------------------------------------------- |
+| `DATABASE_URL`           | yes      | The runtime role (`clinic_app`), never the owner. Never given to `apps/web`. |
+| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server.                    |
+| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.                               |
+| `API_PORT`               | no       | Defaults to 3001.                                                            |
+| `NODE_ENV`               | no       | Defaults to `development`.                                                   |
+| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.                     |
 
 `MEDIA_STORAGE_DIR` has no default, and the reason is not the reason
 `INTERNAL_API_KEY` has none. A default here would not be a published credential —
@@ -2339,20 +2442,29 @@ because by the time it runs the value is already in shell history and the proces
 ## Integration tests
 
 These run against real PostgreSQL. They truncate every table and temporarily disable the
-audit triggers, so they need a **disposable** database — which is also a live demonstration
-of the gap a separate non-owner runtime role would close in production.
+audit triggers between tests, so they need a **disposable** database — and that reset is
+the one thing in the suite that runs as the owner. The API under test connects as the
+runtime role, exactly as in a deployment, and the harness **refuses to start** if its
+connection is a superuser, owns anything, can become the owner, or can create objects.
+
+A throwaway cluster keeps the owner non-superuser, as in production:
 
 ```bash
-docker exec clinic-db psql -U clinic -d postgres -c "CREATE DATABASE clinic_test"
+docker exec -i clinic-db psql -U clinic -d postgres -v database=clinic_test -v owner_password=clinic_owner_test_only -v runtime_password=clinic_app_dev_only -f - < apps/api/prisma/provision-roles.sql
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory outside the repository> pnpm test:int
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_test?schema=public' TEST_OWNER_DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory outside the repository> pnpm test:int
 ```
+
+An existing `clinic_test` created by `clinic` keeps `clinic` as its owner; drop and
+re-provision it, or pass the `clinic` URL as `TEST_OWNER_DATABASE_URL`.
+`TEST_OWNER_DATABASE_URL` must name the same server and database as `DATABASE_URL` and a
+different role. Nothing in `src/` reads it.
 
 `INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are both required: the operator CLI
 suites build a real NestJS context, which validates the whole API environment

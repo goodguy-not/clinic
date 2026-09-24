@@ -5451,3 +5451,44 @@ remain reviewable and reproducible.
 - **Revisit when:** legal counsel or the owner requires a staff-managed legal-copy workflow with
   immutable versions, review, approval and a reliable record of which wording each submission
   accepted.
+
+## 2026-09-25 — The API connects as a non-owner runtime role; only migrations run as the owner
+
+**Status:** Accepted — Milestone 10 checkpoint A1
+
+The API and every operator CLI command connect as `clinic_app`, a login whose only
+membership is `clinic_runtime`. `clinic_runtime` is `NOLOGIN`, owns nothing and holds the
+table privileges migration `20260925120000_m10_a1_runtime_role` grants it — SELECT
+everywhere, INSERT/UPDATE/DELETE only where the application's own statements need them,
+never TRUNCATE, REFERENCES or TRIGGER, nothing on `_prisma_migrations`, USAGE only on the
+one sequence. `clinic_owner` owns the database and runs `prisma migrate deploy`, and
+nothing else. Roles are created by `apps/api/prisma/provision-roles.sql`, run once by an
+administrator; passwords arrive as psql variables and never enter the repository. The
+matrix and the refusals are pinned in `runtime-role.int-spec.ts`; README, Database roles,
+has the table.
+
+- **Alternatives:** a migration that creates the role (needs CREATEROLE on the owner, and
+  puts a cluster-wide side effect in schema history); an idempotent grants script run
+  after each migration (grants drift from the tables they describe); `ALTER DEFAULT
+PRIVILEGES` (every future table silently gets the widest shape); column-level UPDATE
+  grants mirroring each immutability trigger; a separate role per CLI job.
+- **Reason:** grants belong beside the table they describe, in the same reviewed
+  migration, and a pinned exact matrix makes an undecided table a CI failure. Table-level
+  privileges plus the existing triggers are enough: the triggers remain the one authority
+  on which columns change, and a second, column-level copy of those rules would have to
+  be kept in step with every column added. Every CLI command runs through the same NestJS
+  services as the API, audits the same way, and needs nothing the API does not, so a
+  per-job role would restate the same grants.
+- **Trade-off:** the runtime still holds UPDATE on tables whose immutable columns only a
+  trigger protects — defence there is one layer, as before, but that layer can no longer be
+  switched off by the runtime. `appointment_series` holds UPDATE purely because its row is
+  locked `FOR UPDATE`. A CLI host is as privileged as the API host. Every new table now
+  needs an explicit grant. `user_session` is described as prunable but holds no DELETE,
+  because nothing prunes it yet. Integration tests need a second, test-only connection
+  string (`TEST_OWNER_DATABASE_URL`) for the reset, and refuse to run the API as anything
+  but a least-privilege role. Local `clinic_dev` keeps the container superuser as owner so
+  an existing volume needs no ownership rewrite.
+- **Revisit when:** a job needs a privilege the API must not have (media erasure, session
+  pruning — each widens the matrix in its own migration, or gets its own role); a table's
+  protection has to hold against a runtime that already holds UPDATE without a trigger;
+  or row-level security is introduced.
