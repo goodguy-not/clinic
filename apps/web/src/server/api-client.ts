@@ -293,6 +293,7 @@ export type ReportExportQuery =
   | SettlementStatementExportQuery;
 
 const REQUEST_TIMEOUT_MS = 8000;
+export const MEDIA_UPLOAD_TIMEOUT_MS = 60_000;
 const MAX_USER_AGENT_LENGTH = 256;
 
 /**
@@ -423,7 +424,9 @@ async function callMultipart<T>(
       method: 'POST',
       headers: buildHeaders(context, requestId, false),
       body: form,
-      signal: AbortSignal.timeout(30_000),
+      // A5 serialises image derivation per API process. This covers the
+      // current upload plus one ordinary upload already ahead in the queue.
+      signal: AbortSignal.timeout(MEDIA_UPLOAD_TIMEOUT_MS),
       cache: 'no-store',
     });
   } catch {

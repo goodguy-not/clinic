@@ -51,6 +51,9 @@ describe('A5 public image rendering', () => {
     expect(html).toContain('777w');
     expect(html).not.toContain('640w');
     expect(html).toContain('درمانگر در اتاق روشن درمانگاه');
+    expect(html).toContain('width="777"');
+    expect(html).toContain('height="583"');
+    expect(html).toContain('sizes="50vw"');
     expect(html).toContain('height:133.33333333333334%');
   });
 });

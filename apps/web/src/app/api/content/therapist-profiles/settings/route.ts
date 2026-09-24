@@ -36,7 +36,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     displayName: current.data.profile.displayName,
     title: current.data.profile.title,
     bio: current.data.profile.bio,
-    photoPath: current.data.profile.photoPath,
+    // Managed media is now the only portrait source. Keep satisfying the
+    // frozen write contract without preserving the retired free-typed path.
+    photoPath: null,
     displayOrder: Number(body['displayOrder']),
   });
   if (!parsed.success) return failureRedirect(request, path, 'VALIDATION_FAILED');

@@ -1,6 +1,5 @@
 import { type NextRequest, type NextResponse } from 'next/server';
 import { mediaUploadFieldsSchema } from '@clinic/contracts';
-import { z } from 'zod';
 import { api } from '@/server/api-client';
 import { persianMessage } from '@/server/errors-fa';
 import {
@@ -10,7 +9,6 @@ import {
   type SubmittedBody,
 } from '@/server/handler-support';
 import { secureJson, secureRedirect } from '@/server/security-headers';
-import { uploadOnce } from '@/media/upload-once';
 
 export const runtime = 'nodejs';
 
@@ -34,18 +32,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const fields = mediaUploadFieldsSchema.safeParse({ altText: body['altText'] });
-  const attempt = z.uuid().safeParse(body['attemptId']);
   const file = form?.get('file');
-  if (!fields.success || !attempt.success || !(file instanceof Blob) || file.size === 0) {
+  if (!fields.success || !(file instanceof Blob) || file.size === 0) {
     return secureJson(
       { error: { code: 'VALIDATION_FAILED', message: persianMessage('VALIDATION_FAILED') } },
       400,
     );
   }
 
-  const result = await uploadOnce(sessionToken, attempt.data, () =>
-    api.uploadMedia(file, fields.data.altText, { sessionToken }),
-  );
+  const result = await api.uploadMedia(file, fields.data.altText, { sessionToken });
   if (!result.ok) {
     return secureJson(
       { error: { code: result.code, message: persianMessage(result.code) } },

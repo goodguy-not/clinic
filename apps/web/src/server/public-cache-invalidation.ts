@@ -107,8 +107,5 @@ export function invalidateMediaPublication(publication: MediaPublicationIdentity
     case 'CLINIC_OPEN_GRAPH':
       invalidate([...renditionTags, PUBLIC_CACHE_TAGS.clinicProfile]);
       return;
-    case 'CLINIC_SPACE':
-      // This accepted ownerless staging slot is not read by a public page.
-      invalidate(renditionTags);
   }
 }

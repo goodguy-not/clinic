@@ -59,11 +59,10 @@ function jsonRequest(path: string, body: Record<string, unknown>): NextRequest {
   });
 }
 
-function uploadRequest(attemptId: string): NextRequest {
+function uploadRequest(): NextRequest {
   const auth = authentication();
   const form = new FormData();
   form.set('csrfToken', auth.csrfToken);
-  form.set('attemptId', attemptId);
   form.set('altText', 'اتاق روشن درمانگاه');
   form.set('file', new Blob(['synthetic-photo'], { type: 'image/jpeg' }), 'phone-photo.jpg');
   return new NextRequest(`${ORIGIN}/api/media/upload`, {
@@ -89,7 +88,7 @@ beforeEach(() => {
         ownerType: 'CLINIC_SPACE',
         ownerId: null,
         publicSlug: null,
-        ownerIsPublic: true,
+        ownerIsPublic: false,
         renditionIds: [],
       },
     },
@@ -97,19 +96,18 @@ beforeEach(() => {
 });
 
 describe('media upload route', () => {
-  it('memoises a successful attempt so a retry does not create a duplicate', async () => {
-    const attempt = crypto.randomUUID();
-    const first = await uploadMedia(uploadRequest(attempt));
-    const retry = await uploadMedia(uploadRequest(attempt));
+  it('delegates retries to A5 durable same-user byte identity', async () => {
+    const first = await uploadMedia(uploadRequest());
+    const retry = await uploadMedia(uploadRequest());
 
     expect(first.status).toBe(201);
     expect(retry.status).toBe(201);
-    expect(mocks.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(await first.json()).toEqual(await retry.json());
+    expect(mocks.uploadMedia).toHaveBeenCalledTimes(2);
   });
 
-  it('does not create a second asset when attachment fails after upload and the user retries', async () => {
-    const attempt = crypto.randomUUID();
-    const uploaded = await uploadMedia(uploadRequest(attempt));
+  it('gets the same asset back when attachment recovery begins with an upload retry', async () => {
+    const uploaded = await uploadMedia(uploadRequest());
     expect(uploaded.status).toBe(201);
 
     mocks.createMediaAttachment.mockResolvedValueOnce({
@@ -122,15 +120,29 @@ describe('media upload route', () => {
     );
     expect(failedAttachment.status).toBe(503);
 
-    const retriedUpload = await uploadMedia(uploadRequest(attempt));
+    const retriedUpload = await uploadMedia(uploadRequest());
     const retriedAttachment = await attachDraft(
       jsonRequest('/api/media/draft-attachment', { mediaId: MEDIA_ID }),
     );
 
     expect(retriedUpload.status).toBe(201);
     expect(retriedAttachment.status).toBe(201);
-    expect(mocks.uploadMedia).toHaveBeenCalledTimes(1);
+    expect(await retriedUpload.json()).toEqual({ media: MEDIA });
+    expect(mocks.uploadMedia).toHaveBeenCalledTimes(2);
     expect(mocks.createMediaAttachment).toHaveBeenCalledTimes(2);
+  });
+
+  it('invites a retry in Persian when the upload service genuinely fails', async () => {
+    mocks.uploadMedia.mockResolvedValueOnce({
+      ok: false,
+      code: 'API_UNREACHABLE',
+      status: 503,
+    });
+    const response = await uploadMedia(uploadRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.message).toContain('دوباره تلاش کنید');
   });
 
   it('returns a photograph-oriented Persian refusal from A5', async () => {
@@ -139,7 +151,7 @@ describe('media upload route', () => {
       code: 'MEDIA_TYPE_UNSUPPORTED',
       status: 415,
     });
-    const response = await uploadMedia(uploadRequest(crypto.randomUUID()));
+    const response = await uploadMedia(uploadRequest());
     const body = await response.json();
 
     expect(response.status).toBe(415);

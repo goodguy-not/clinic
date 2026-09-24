@@ -67,14 +67,10 @@ export function DevelopmentPhoto({
 
 export function TherapistPhoto({
   photo,
-  photoPath,
-  name,
   className,
   priority = false,
 }: {
   photo: PublicImage | null;
-  photoPath: string | null;
-  name: string;
   className?: string;
   priority?: boolean;
 }) {
@@ -86,11 +82,6 @@ export function TherapistPhoto({
           sizes="(max-width: 48rem) 100vw, 42vw"
           priority={priority}
         />
-      ) : photoPath ? (
-        // Public media paths are already constrained to same-site relative paths by A1.
-        // A plain image keeps the rendering independent of a storage provider.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/${photoPath}`} alt={name} loading={priority ? 'eager' : 'lazy'} />
       ) : (
         <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
       )}

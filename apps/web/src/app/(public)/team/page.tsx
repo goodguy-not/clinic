@@ -54,8 +54,6 @@ export default async function TeamPage() {
             >
               <TherapistPhoto
                 photo={person.photo}
-                photoPath={person.photoPath}
-                name={person.displayName}
                 className="b2-team-row__photo"
                 priority={index === 0}
               />

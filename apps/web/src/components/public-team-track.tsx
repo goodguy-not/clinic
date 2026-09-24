@@ -1,7 +1,6 @@
 'use client';
 
 import type { PublicTherapistProfile } from '@clinic/contracts';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PublicMediaImage } from './public-media-image';
@@ -185,14 +184,6 @@ export function PublicTeamTrack({ therapists }: { therapists: PublicTherapistPro
                   {person.photo !== null ? (
                     <PublicMediaImage
                       image={person.photo}
-                      sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
-                    />
-                  ) : person.photoPath !== null ? (
-                    <Image
-                      src={`/${person.photoPath}`}
-                      width="620"
-                      height="780"
-                      alt={person.displayName}
                       sizes="(max-width: 39rem) 76vw, (max-width: 74rem) 31vw, 22vw"
                     />
                   ) : (

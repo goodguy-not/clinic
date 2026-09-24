@@ -57,13 +57,7 @@ export default async function TherapistPage({ params }: Props) {
   return (
     <main id="main-content">
       <article className="public-shell b2-profile">
-        <TherapistPhoto
-          photo={person.photo}
-          photoPath={person.photoPath}
-          name={person.displayName}
-          className="b2-profile__photo"
-          priority
-        />
+        <TherapistPhoto photo={person.photo} className="b2-profile__photo" priority />
         <div className="b2-profile__copy">
           <div className="b2-profile__utility">
             <Link href="/team" className="public-focus public-text-link">
@@ -112,12 +106,7 @@ export default async function TherapistPage({ params }: Props) {
         <nav className="b2-profile-nav" aria-label="پروفایل‌های دیگر تیم درمان">
           <div className="public-shell b2-profile-nav__inner">
             <Link href={`/team/${previous.slug}`} className="public-focus b2-profile-nav__item">
-              <TherapistPhoto
-                photo={previous.photo}
-                photoPath={previous.photoPath}
-                name={previous.displayName}
-                className="b2-profile-nav__photo"
-              />
+              <TherapistPhoto photo={previous.photo} className="b2-profile-nav__photo" />
               <span aria-hidden="true">→</span>
               <small>پروفایل قبلی</small>
               <strong>{previous.displayName}</strong>
@@ -126,12 +115,7 @@ export default async function TherapistPage({ params }: Props) {
               href={`/team/${next.slug}`}
               className="public-focus b2-profile-nav__item b2-profile-nav__item--next"
             >
-              <TherapistPhoto
-                photo={next.photo}
-                photoPath={next.photoPath}
-                name={next.displayName}
-                className="b2-profile-nav__photo"
-              />
+              <TherapistPhoto photo={next.photo} className="b2-profile-nav__photo" />
               <small>پروفایل بعدی</small>
               <strong>{next.displayName}</strong>
               <span aria-hidden="true">←</span>

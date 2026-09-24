@@ -114,4 +114,19 @@ describe('public cache invalidation', () => {
       'public-media:0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d92',
     ]);
   });
+
+  it('treats the ownerless clinic-space slot as preview-only', () => {
+    invalidateMediaPublication({
+      attachmentId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d93',
+      ownerType: 'CLINIC_SPACE',
+      ownerId: null,
+      publicSlug: null,
+      ownerIsPublic: false,
+      renditionIds: ['0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d92'],
+    });
+
+    expect(revalidateTag.mock.calls.map(([tag]) => tag)).toEqual([
+      'public-media:0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d92',
+    ]);
+  });
 });

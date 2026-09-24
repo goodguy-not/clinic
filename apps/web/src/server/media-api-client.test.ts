@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from './api-client';
+import { api, MEDIA_UPLOAD_TIMEOUT_MS } from './api-client';
 
 const MEDIA_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d81';
 const ATTACHMENT_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d82';
@@ -27,7 +27,7 @@ const MEDIA = {
       position: 0,
       attachedAt: '2026-09-09T08:00:00.000Z',
       publishedAt: null,
-      ownerIsPublic: true,
+      ownerIsPublic: false,
       framing: FRAMING,
     },
   ],
@@ -71,6 +71,7 @@ describe('named A5 media client', () => {
     const form = request.init.body as FormData;
     expect(form.get('altText')).toBe(MEDIA.altText);
     expect(form.get('file')).toBeInstanceOf(Blob);
+    expect(MEDIA_UPLOAD_TIMEOUT_MS).toBe(60_000);
   });
 
   it('keeps attachment and framing as separate exact A5 writes', async () => {

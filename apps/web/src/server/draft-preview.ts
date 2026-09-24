@@ -81,7 +81,9 @@ export function therapistDraftPreview(
     displayName: copy.displayName ?? 'نام عمومی هنوز آماده نشده است',
     title: copy.title,
     bio: copy.bio,
-    photoPath: profile.photoPath,
+    // The frozen projection still requires this field until Agent A removes
+    // the legacy column. Web never reads or propagates its former value.
+    photoPath: null,
     photo: previewImagesForOwner(media, 'THERAPIST_PROFILE', copy.therapistId)[0] ?? null,
   };
 }

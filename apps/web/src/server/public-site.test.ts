@@ -61,6 +61,12 @@ describe('public website reads', () => {
     ]);
     expect(calls.every(([, init]) => init.cache === 'force-cache')).toBe(true);
     expect(
+      calls.every(
+        ([, init]) =>
+          (init as RequestInit & { next: { revalidate: number } }).next.revalidate === 900,
+      ),
+    ).toBe(true);
+    expect(
       calls.map(([, init]) => (init as RequestInit & { next: { tags: string[] } }).next.tags[0]),
     ).toEqual(
       expect.arrayContaining([

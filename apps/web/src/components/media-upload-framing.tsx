@@ -100,7 +100,6 @@ export function MediaUploadFraming({
   const [mediaId, setMediaId] = useState<string | null>(null);
   const [attachmentId, setAttachmentId] = useState<string | null>(null);
   const [framingSaved, setFramingSaved] = useState(false);
-  const [attemptId, setAttemptId] = useState(() => crypto.randomUUID());
   const [busyStep, setBusyStep] = useState<Exclude<MediaWorkflowStep, 'complete'> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
@@ -131,7 +130,6 @@ export function MediaUploadFraming({
     setMediaId(null);
     setAttachmentId(null);
     setFramingSaved(false);
-    setAttemptId(crypto.randomUUID());
     setErrorMessage(null);
     setComplete(false);
   }
@@ -188,7 +186,6 @@ export function MediaUploadFraming({
         body.set('file', file);
         body.set('altText', altText.trim());
         body.set('csrfToken', csrfToken);
-        body.set('attemptId', attemptId);
         const response = await fetch('/api/media/upload', { method: 'POST', body });
         const answer = await answerFrom(response);
         if (!response.ok || answer.media === undefined) {
