@@ -10,6 +10,7 @@ import {
   type MediaTargetShape,
 } from '@/media/framing';
 import { nextMediaWorkflowStep, type MediaWorkflowStep } from '@/media/workflow';
+import { MEDIA_ALT_TEXT_HEADING, MEDIA_ALT_TEXT_QUESTION } from './media-alt-text-copy';
 import { CONTROL_CLASS, FOCUS_RING } from './styles';
 
 const DEFAULT_FRAMING: MediaFraming = { focalX: 0.5, focalY: 0.5, crop: null };
@@ -450,10 +451,10 @@ export function MediaUploadFraming({
 
       <section className="flex flex-col gap-3" aria-labelledby={altHeadingId}>
         <h2 id={altHeadingId} className="font-bold text-slate-900">
-          ۴. عکس را برای همه توضیح دهید
+          ۴. {MEDIA_ALT_TEXT_HEADING}
         </h2>
         <label htmlFor={altInputId} className="text-sm font-semibold text-slate-900">
-          در این عکس چه چیزی دیده می‌شود؟ (برای کسانی که عکس را نمی‌بینند)
+          {MEDIA_ALT_TEXT_QUESTION}
         </label>
         <textarea
           id={altInputId}

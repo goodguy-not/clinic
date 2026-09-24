@@ -75,6 +75,7 @@ export default async function TherapistProfilePage({
         profile={profileResult?.data.profile ?? null}
         media={mediaResult.ok ? mediaResult.data.media : []}
         csrfToken={(await readCsrfCookie()) ?? ''}
+        canPublishMedia={user.permissions.includes('media.publish')}
         message={message}
       />
     </>

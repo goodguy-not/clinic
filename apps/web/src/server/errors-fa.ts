@@ -12,7 +12,7 @@ import { COPY } from './copy-fa';
  * reading an account: it says what the situation is and what to do about it,
  * and it names no table, column, constraint or internal status value.
  *
- * Three codes are the web tier's own and are deliberately not in the contract,
+ * A small set of codes are the web tier's own and deliberately not in the contract,
  * because NestJS cannot raise any of them:
  *
  *  - `API_UNREACHABLE` — NestJS did not answer, so it cannot report its own
@@ -28,6 +28,8 @@ export const WEB_ONLY_ERROR_CODES = [
   'TARIFF_BRANCH_CONTRADICTORY',
   'TARIFF_DATE_INVALID',
   'AVAILABILITY_DATE_INVALID',
+  'MEDIA_ALT_TEXT_INVALID',
+  'MEDIA_ALT_TEXT_MANAGER_REQUIRED',
 ] as const;
 
 export type WebOnlyErrorCode = (typeof WEB_ONLY_ERROR_CODES)[number];
@@ -76,6 +78,9 @@ const MESSAGES: Record<DisplayableCode, string> = {
     'نوع تعرفه با اطلاعات واردشده هم‌خوانی ندارد. برای تعرفهٔ پرداختی فقط مبلغ و برای تعرفهٔ رایگان فقط دلیل را پر کنید.',
   TARIFF_DATE_INVALID: 'تاریخ واردشده معتبر نیست.',
   AVAILABILITY_DATE_INVALID: 'تاریخ حضور واردشده معتبر نیست.',
+  MEDIA_ALT_TEXT_INVALID: 'توضیح عکس را با متن ساده و حداکثر ۲۰۰ نویسه بنویسید.',
+  MEDIA_ALT_TEXT_MANAGER_REQUIRED:
+    'این عکس اکنون روی سایت دیده می‌شود و فقط مدیر می‌تواند توضیح آن را تغییر دهد.',
 
   // خانواده‌ها و کودکان.
   FAMILY_NOT_FOUND: 'خانواده پیدا نشد.',

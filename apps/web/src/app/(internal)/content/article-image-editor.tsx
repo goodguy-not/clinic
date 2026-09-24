@@ -1,5 +1,6 @@
 import type { Article, MediaAsset } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import { Badge, Panel, SubmitButton } from '@/components/ui';
 import { cropImageStyle, MEDIA_TARGET_SHAPE_PRESETS } from '@/media/framing';
 
@@ -122,6 +123,14 @@ export function ArticleImageEditor({
                       ) : null}
                     </div>
                   </div>
+
+                  <MediaAltTextEditor
+                    asset={asset}
+                    csrfToken={csrfToken}
+                    canPublishMedia={canPublishMedia}
+                    returnTarget={{ type: 'article', id: article.id }}
+                    instanceId={attachment.id}
+                  />
 
                   {canPublishMedia ? (
                     <form method="post" action="/api/media/publication">

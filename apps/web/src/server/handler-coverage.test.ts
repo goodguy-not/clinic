@@ -56,10 +56,10 @@ describe('route handler inventory', () => {
   it('finds the handlers it is meant to be checking', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
-    // 83 accepted handlers were already present after the A7 public-space
-    // routes; this checkpoint adds one read-only, session-bound media preview.
-    expect(handlers.length).toBe(84);
-    expect(stateChangingHandlers.length).toBe(82);
+    // 84 accepted handlers include the session-bound media preview; description
+    // correction adds one explicitly guarded state-changing handler.
+    expect(handlers.length).toBe(85);
+    expect(stateChangingHandlers.length).toBe(83);
   });
 
   it('exposes no catch-all route', () => {
@@ -146,8 +146,9 @@ describe('route handler inventory', () => {
       '/api/ledger/adjustments/void',
       '/api/ledger/session-charges/post',
       '/api/ledger/session-charges/void',
-      // M9.5 B5: three narrow stages so retrying attachment or framing never
-      // repeats the photograph upload.
+      // Narrow media operations stay named, so correcting a description cannot
+      // smuggle framing, attachment or publication changes.
+      '/api/media/alt-text',
       '/api/media/draft-attachment',
       '/api/media/framing',
       '/api/media/publication',

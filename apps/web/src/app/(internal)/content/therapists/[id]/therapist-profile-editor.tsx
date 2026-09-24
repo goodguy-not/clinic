@@ -1,5 +1,6 @@
 import type { MediaAsset, TherapistProfileCopy, TherapistPublicProfile } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import {
   Alert,
   Badge,
@@ -19,12 +20,14 @@ export function TherapistProfileEditor({
   profile,
   media,
   csrfToken,
+  canPublishMedia,
   message,
 }: {
   copy: TherapistProfileCopy;
   profile: TherapistPublicProfile | null;
   media: MediaAsset[];
   csrfToken: string;
+  canPublishMedia: boolean;
   message: string | null;
 }) {
   const canPublish = profile !== null;
@@ -161,29 +164,38 @@ export function TherapistProfileEditor({
             {portraits.map(({ asset, attachment }) => (
               <div
                 key={attachment.id}
-                className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3"
               >
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-slate-900">{asset.altText}</span>
-                  <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
-                    {attachment.publishedAt === null ? 'عکس آمادهٔ انتشار' : 'عکس منتشرشده'}
-                  </Badge>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold text-slate-900">{asset.altText}</span>
+                    <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
+                      {attachment.publishedAt === null ? 'عکس آمادهٔ انتشار' : 'عکس منتشرشده'}
+                    </Badge>
+                  </div>
+                  {canPublish ? (
+                    <form method="post" action="/api/media/publication">
+                      <input type="hidden" name="csrfToken" value={csrfToken} />
+                      <input type="hidden" name="attachmentId" value={attachment.id} />
+                      <input type="hidden" name="therapistId" value={copy.therapistId} />
+                      <input
+                        type="hidden"
+                        name="isPublished"
+                        value={attachment.publishedAt === null ? 'true' : 'false'}
+                      />
+                      <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
+                        {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
+                      </SubmitButton>
+                    </form>
+                  ) : null}
                 </div>
-                {canPublish ? (
-                  <form method="post" action="/api/media/publication">
-                    <input type="hidden" name="csrfToken" value={csrfToken} />
-                    <input type="hidden" name="attachmentId" value={attachment.id} />
-                    <input type="hidden" name="therapistId" value={copy.therapistId} />
-                    <input
-                      type="hidden"
-                      name="isPublished"
-                      value={attachment.publishedAt === null ? 'true' : 'false'}
-                    />
-                    <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
-                      {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
-                    </SubmitButton>
-                  </form>
-                ) : null}
+                <MediaAltTextEditor
+                  asset={asset}
+                  csrfToken={csrfToken}
+                  canPublishMedia={canPublishMedia}
+                  returnTarget={{ type: 'therapist', id: copy.therapistId }}
+                  instanceId={attachment.id}
+                />
               </div>
             ))}
           </div>

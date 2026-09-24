@@ -5430,3 +5430,24 @@ stamps `public_revised_at`.
 - **Trade-off:** irreversible for any remaining value; restoring one means re-uploading
   the portrait.
 - **Revisit when:** never expected.
+
+## 2026-09-25 — Privacy and consent wording remains developer-maintained and versioned
+
+**Status:** Owner-approved — Milestone 9.5
+
+The privacy-page text and the request-form consent text remain maintained in source by a
+developer. They are legal texts, change rarely, and each consent wording is tied to a frozen
+consent version. This does not conflict with the rule that routine website content must be
+editable without a developer: legal wording and its version boundary are not routine editorial
+content.
+
+The owner will supply the final approved wording through the content pack. A developer will
+then enter it as an explicit, versioned source change so the words shown for each consent version
+remain reviewable and reproducible.
+
+- **Reason:** changing consent words independently of the recorded version would make the stored
+  consent ambiguous; source review keeps wording and version changes together.
+- **Trade-off:** even a small legal-copy correction requires a developer change and deployment.
+- **Revisit when:** legal counsel or the owner requires a staff-managed legal-copy workflow with
+  immutable versions, review, approval and a reliable record of which wording each submission
+  accepted.

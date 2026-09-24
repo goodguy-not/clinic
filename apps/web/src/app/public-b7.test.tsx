@@ -6,7 +6,6 @@ import type { PublicImage } from '@clinic/contracts';
 import { PublicConcernGuide } from '@/components/public-concern-guide';
 import { PublicSpaceTeaser } from '@/components/public-space-teaser';
 import { PublicTestimonialGrid } from '@/components/public-testimonial-grid';
-import { PublicTeamTrack } from '@/components/public-team-track';
 
 const IMAGE: PublicImage = {
   mediaId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d71',
@@ -100,25 +99,6 @@ describe('M9.5 B7 managed public rendering', () => {
     expect(html).toContain('<blockquote>«رونویسی انسانی و تأییدشدهٔ دست‌نوشته»</blockquote>');
     expect(html).toContain(IMAGE.renditions[1]!.path);
     expect(html).not.toContain('نمونهٔ توسعه');
-  });
-
-  it('never renders the legacy therapist photo path', () => {
-    const html = renderToStaticMarkup(
-      <PublicTeamTrack
-        therapists={[
-          {
-            slug: 'managed-only',
-            displayName: 'درمانگر نمونه',
-            title: null,
-            bio: null,
-            photo: null,
-          },
-        ]}
-      />,
-    );
-
-    expect(html).toContain('تصویر عمومی منتشر نشده است');
-    expect(html).not.toContain('legacy/full-size-portrait.jpg');
   });
 
   it('does not compile synthetic photos into populated service, therapist, or article pages', () => {

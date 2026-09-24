@@ -1,5 +1,6 @@
 import type { ClinicContentEntry, ClinicContentSlot, MediaAsset } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import { Alert, Badge, Field, FormActions, Panel, SubmitButton } from '@/components/ui';
 import { MEDIA_TARGET_SHAPE_PRESETS, type MediaTargetShape } from '@/media/framing';
 import { toPersianDigits } from '@/server/numerals-fa';
@@ -98,9 +99,13 @@ function attachmentsFor(
 function AttachedImageList({
   attachments,
   csrfToken,
+  canPublishMedia,
+  returnTarget,
 }: {
   attachments: readonly AttachmentView[];
   csrfToken: string;
+  canPublishMedia: boolean;
+  returnTarget: { type: 'clinic-profile' };
 }) {
   if (attachments.length === 0) return null;
 
@@ -110,27 +115,36 @@ function AttachedImageList({
       {attachments.map(({ asset, attachment }) => (
         <div
           key={attachment.id}
-          className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3"
         >
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-semibold text-slate-900">{asset.altText}</span>
-            <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
-              {attachment.publishedAt === null ? 'عکس آمادهٔ انتشار' : 'عکس منتشرشده'}
-            </Badge>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-semibold text-slate-900">{asset.altText}</span>
+              <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
+                {attachment.publishedAt === null ? 'عکس آمادهٔ انتشار' : 'عکس منتشرشده'}
+              </Badge>
+            </div>
+            <form method="post" action="/api/media/publication">
+              <input type="hidden" name="csrfToken" value={csrfToken} />
+              <input type="hidden" name="attachmentId" value={attachment.id} />
+              <input type="hidden" name="clinicProfile" value="true" />
+              <input
+                type="hidden"
+                name="isPublished"
+                value={attachment.publishedAt === null ? 'true' : 'false'}
+              />
+              <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
+                {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
+              </SubmitButton>
+            </form>
           </div>
-          <form method="post" action="/api/media/publication">
-            <input type="hidden" name="csrfToken" value={csrfToken} />
-            <input type="hidden" name="attachmentId" value={attachment.id} />
-            <input type="hidden" name="clinicProfile" value="true" />
-            <input
-              type="hidden"
-              name="isPublished"
-              value={attachment.publishedAt === null ? 'true' : 'false'}
-            />
-            <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
-              {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
-            </SubmitButton>
-          </form>
+          <MediaAltTextEditor
+            asset={asset}
+            csrfToken={csrfToken}
+            canPublishMedia={canPublishMedia}
+            returnTarget={returnTarget}
+            instanceId={attachment.id}
+          />
         </div>
       ))}
     </div>
@@ -144,6 +158,7 @@ function EntryEditor({
   groupSize,
   media,
   csrfToken,
+  canPublishMedia,
 }: {
   entry: ClinicContentEntry;
   ordinal: number;
@@ -151,6 +166,7 @@ function EntryEditor({
   groupSize: number;
   media: readonly MediaAsset[];
   csrfToken: string;
+  canPublishMedia: boolean;
 }) {
   const presentation = SLOT_PRESENTATION[entry.slot];
   const formPrefix = `clinic-entry-${ordinal}`;
@@ -267,7 +283,12 @@ function EntryEditor({
                 position: 0,
               }}
             />
-            <AttachedImageList attachments={attachments} csrfToken={csrfToken} />
+            <AttachedImageList
+              attachments={attachments}
+              csrfToken={csrfToken}
+              canPublishMedia={canPublishMedia}
+              returnTarget={{ type: 'clinic-profile' }}
+            />
           </div>
         ) : null}
       </div>
@@ -279,11 +300,13 @@ export function ClinicContentEditor({
   entries,
   media,
   csrfToken,
+  canPublishMedia,
   mediaLoadError,
 }: {
   entries: readonly ClinicContentEntry[];
   media: readonly MediaAsset[];
   csrfToken: string;
+  canPublishMedia: boolean;
   mediaLoadError: string | null;
 }) {
   const groups: Array<{ slot: ClinicContentSlot; entries: ClinicContentEntry[] }> = [];
@@ -333,6 +356,7 @@ export function ClinicContentEditor({
                   groupSize={group.entries.length}
                   media={media}
                   csrfToken={csrfToken}
+                  canPublishMedia={canPublishMedia}
                 />
               ))}
             </div>
@@ -350,7 +374,12 @@ export function ClinicContentEditor({
           targetShapes={OPEN_GRAPH_SHAPES}
           attachmentTarget={{ ownerType: 'CLINIC_OPEN_GRAPH', ownerId: null, position: 0 }}
         />
-        <AttachedImageList attachments={openGraphAttachments} csrfToken={csrfToken} />
+        <AttachedImageList
+          attachments={openGraphAttachments}
+          csrfToken={csrfToken}
+          canPublishMedia={canPublishMedia}
+          returnTarget={{ type: 'clinic-profile' }}
+        />
       </Panel>
     </section>
   );

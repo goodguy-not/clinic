@@ -118,7 +118,8 @@ describe('service public-copy editor', () => {
     expect(receptionist).toContain('آماده؛ در انتظار انتشار مدیر');
     expect(receptionist).toContain('برای بررسی و انتشار مدیر آماده است');
     expect(receptionist).not.toContain('/api/media/publication');
-    expect(receptionist).not.toContain(media.id);
+    expect(receptionist).toContain('/api/media/alt-text');
+    expect(receptionist).toContain(media.id);
 
     const manager = renderToStaticMarkup(
       <ServiceCopyEditor
@@ -145,6 +146,7 @@ describe('therapist public-profile editor', () => {
         profile={null}
         media={[]}
         csrfToken={CSRF}
+        canPublishMedia={false}
         message={null}
       />,
     );
@@ -167,6 +169,7 @@ describe('therapist public-profile editor', () => {
         profile={PROFILE}
         media={[media]}
         csrfToken={CSRF}
+        canPublishMedia
         message={null}
       />,
     );
@@ -211,7 +214,13 @@ describe('clinic profile boundary', () => {
   it('renders A8 fixed slots in API order without row or ordering controls', () => {
     const entries = syntheticClinicEntries();
     const html = renderToStaticMarkup(
-      <ClinicContentEditor entries={entries} media={[]} csrfToken={CSRF} mediaLoadError={null} />,
+      <ClinicContentEditor
+        entries={entries}
+        media={[]}
+        csrfToken={CSRF}
+        canPublishMedia
+        mediaLoadError={null}
+      />,
     );
 
     expect(html.indexOf('معرفی آغاز صفحه')).toBeLessThan(html.indexOf('راهنمای شروع'));
@@ -233,6 +242,7 @@ describe('clinic profile boundary', () => {
         entries={entries}
         media={[contentImage, openGraphImage]}
         csrfToken={CSRF}
+        canPublishMedia
         mediaLoadError={null}
       />,
     );

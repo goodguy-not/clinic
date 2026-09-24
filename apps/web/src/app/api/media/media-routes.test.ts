@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createMediaAttachment: vi.fn(),
   getMedia: vi.fn(),
   updateMediaFraming: vi.fn(),
+  updateMediaAltText: vi.fn(),
   updateMediaPublication: vi.fn(),
 }));
 const invalidateMediaPublication = vi.hoisted(() => vi.fn());
@@ -17,6 +18,7 @@ vi.mock('@/server/public-cache-invalidation', () => ({ invalidateMediaPublicatio
 
 import { POST as attachDraft } from './draft-attachment/route';
 import { POST as saveFraming } from './framing/route';
+import { POST as updateAltText } from './alt-text/route';
 import { POST as setPublication } from './publication/route';
 import { POST as uploadMedia } from './upload/route';
 
@@ -79,6 +81,10 @@ beforeEach(() => {
   mocks.createMediaAttachment.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.getMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.updateMediaFraming.mockResolvedValue({ ok: true, data: { media: MEDIA } });
+  mocks.updateMediaAltText.mockResolvedValue({
+    ok: true,
+    data: { media: { ...MEDIA, altText: 'توضیح اصلاح‌شده' }, publications: [] },
+  });
   mocks.updateMediaPublication.mockResolvedValue({
     ok: true,
     data: {
@@ -463,5 +469,94 @@ describe('attachment and framing routes', () => {
     expect(response.headers.get('location')).toBe(
       `${ORIGIN}/content/testimonials/${testimonialId}/edit?success=testimonial-image-published`,
     );
+  });
+});
+
+describe('photo description correction route', () => {
+  it('lets the API accept a draft correction and returns to the exact editor', async () => {
+    const articleId = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a63';
+    const response = await updateAltText(
+      jsonRequest('/api/media/alt-text', {
+        mediaId: MEDIA_ID,
+        articleId,
+        altText: 'توضیح اصلاح‌شده',
+      }),
+    );
+
+    expect(mocks.updateMediaAltText).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { altText: 'توضیح اصلاح‌شده' },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/content/articles/${articleId}/edit?success=photo-description-corrected`,
+    );
+    expect(invalidateMediaPublication).not.toHaveBeenCalled();
+  });
+
+  it('invalidates every publication returned after a manager changes a public photo', async () => {
+    const first = {
+      attachmentId: ATTACHMENT_ID,
+      ownerType: 'THERAPIST_PROFILE',
+      ownerId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60',
+      publicSlug: 'synthetic-therapist',
+      ownerIsPublic: true,
+      renditionIds: ['0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d93'],
+    } as const;
+    const second = {
+      attachmentId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d94',
+      ownerType: 'PUBLIC_ARTICLE',
+      ownerId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d95',
+      publicSlug: 'shared-photo',
+      ownerIsPublic: true,
+      renditionIds: ['0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d93'],
+    } as const;
+    mocks.updateMediaAltText.mockResolvedValueOnce({
+      ok: true,
+      data: { media: MEDIA, publications: [first, second] },
+    });
+
+    await updateAltText(
+      jsonRequest('/api/media/alt-text', {
+        mediaId: MEDIA_ID,
+        therapistId: first.ownerId,
+        altText: 'توضیح تازه در همهٔ صفحه‌ها',
+      }),
+    );
+
+    expect(invalidateMediaPublication.mock.calls).toEqual([[first], [second]]);
+  });
+
+  it('turns an API authority refusal into a photo-specific Persian page message', async () => {
+    mocks.updateMediaAltText.mockResolvedValueOnce({
+      ok: false,
+      code: 'AUTH_FORBIDDEN',
+      status: 403,
+    });
+
+    const response = await updateAltText(
+      jsonRequest('/api/media/alt-text', {
+        mediaId: MEDIA_ID,
+        mediaLibrary: 'true',
+        altText: 'تغییر پذیرش روی عکس عمومی',
+      }),
+    );
+
+    expect(response.headers.get('location')).toBe(
+      `${ORIGIN}/media?error=MEDIA_ALT_TEXT_MANAGER_REQUIRED`,
+    );
+  });
+
+  it('refuses an invalid description before calling NestJS with photo-specific wording', async () => {
+    const response = await updateAltText(
+      jsonRequest('/api/media/alt-text', {
+        mediaId: MEDIA_ID,
+        mediaLibrary: 'true',
+        altText: '   ',
+      }),
+    );
+
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?error=MEDIA_ALT_TEXT_INVALID`);
+    expect(mocks.updateMediaAltText).not.toHaveBeenCalled();
   });
 });

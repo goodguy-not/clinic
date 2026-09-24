@@ -9,6 +9,7 @@ import {
   RecordList,
 } from '@/components/ui';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 
 function mediaStatus(media: MediaAsset) {
   if (media.status === 'ARCHIVED') return <Badge tone="neutral">از گردش خارج شده</Badge>;
@@ -20,10 +21,12 @@ function mediaStatus(media: MediaAsset) {
 export function MediaWorkspace({
   media,
   csrfToken,
+  canPublishMedia,
   loadError,
 }: {
   media: MediaAsset[];
   csrfToken: string;
+  canPublishMedia: boolean;
   loadError: string | null;
 }) {
   return (
@@ -52,7 +55,15 @@ export function MediaWorkspace({
                 key={item.id}
                 title={item.altText}
                 badge={mediaStatus(item)}
-                details={<span>توضیح عکس و وضعیت استفاده ثبت شده است.</span>}
+                details={
+                  <MediaAltTextEditor
+                    asset={item}
+                    csrfToken={csrfToken}
+                    canPublishMedia={canPublishMedia}
+                    returnTarget={{ type: 'media-library' }}
+                    instanceId={item.id}
+                  />
+                }
               />
             ))}
           </RecordList>

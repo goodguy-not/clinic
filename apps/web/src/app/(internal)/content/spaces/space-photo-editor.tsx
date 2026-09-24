@@ -1,5 +1,6 @@
 import type { MediaAsset, Space } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import { Badge, Panel, SubmitButton } from '@/components/ui';
 import { MEDIA_TARGET_SHAPE_PRESETS } from '@/media/framing';
 
@@ -64,38 +65,49 @@ export function SpacePhotoEditor({
             {photos.map(({ asset, attachment }, index) => (
               <div
                 key={attachment.id}
-                className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3"
               >
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-slate-900">
-                    عکس {index + 1}: {asset.altText}
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
-                      {attachment.publishedAt === null ? 'آماده؛ هنوز منتشر نشده' : 'عکس تأیید شده'}
-                    </Badge>
-                    {attachment.publishedAt !== null && !space.isPublic ? (
-                      <Badge tone="neutral">تا انتشار فضا قابل مشاهده نیست</Badge>
-                    ) : null}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-semibold text-slate-900">
+                      عکس {index + 1}: {asset.altText}
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
+                        {attachment.publishedAt === null
+                          ? 'آماده؛ هنوز منتشر نشده'
+                          : 'عکس تأیید شده'}
+                      </Badge>
+                      {attachment.publishedAt !== null && !space.isPublic ? (
+                        <Badge tone="neutral">تا انتشار فضا قابل مشاهده نیست</Badge>
+                      ) : null}
+                    </div>
                   </div>
+                  {canPublishMedia ? (
+                    <form method="post" action="/api/media/publication">
+                      <input type="hidden" name="csrfToken" value={csrfToken} />
+                      <input type="hidden" name="attachmentId" value={attachment.id} />
+                      <input type="hidden" name="spaceId" value={space.id} />
+                      <input
+                        type="hidden"
+                        name="isPublished"
+                        value={attachment.publishedAt === null ? 'true' : 'false'}
+                      />
+                      <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
+                        {attachment.publishedAt === null
+                          ? 'تأیید عکس برای سایت'
+                          : 'برداشتن عکس از سایت'}
+                      </SubmitButton>
+                    </form>
+                  ) : null}
                 </div>
-                {canPublishMedia ? (
-                  <form method="post" action="/api/media/publication">
-                    <input type="hidden" name="csrfToken" value={csrfToken} />
-                    <input type="hidden" name="attachmentId" value={attachment.id} />
-                    <input type="hidden" name="spaceId" value={space.id} />
-                    <input
-                      type="hidden"
-                      name="isPublished"
-                      value={attachment.publishedAt === null ? 'true' : 'false'}
-                    />
-                    <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
-                      {attachment.publishedAt === null
-                        ? 'تأیید عکس برای سایت'
-                        : 'برداشتن عکس از سایت'}
-                    </SubmitButton>
-                  </form>
-                ) : null}
+                <MediaAltTextEditor
+                  asset={asset}
+                  csrfToken={csrfToken}
+                  canPublishMedia={canPublishMedia}
+                  returnTarget={{ type: 'space', id: space.id }}
+                  instanceId={attachment.id}
+                />
               </div>
             ))}
           </div>

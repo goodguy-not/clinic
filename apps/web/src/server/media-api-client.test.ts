@@ -95,4 +95,28 @@ describe('named A5 media client', () => {
     });
     expect(JSON.parse(String(captured[1]?.init.body))).toEqual(FRAMING);
   });
+
+  it('uses the narrow asset-description correction route and response', async () => {
+    vi.mocked(fetch).mockImplementationOnce((url, init) => {
+      captured.push({ url: String(url), init: init ?? {} });
+      return Promise.resolve(
+        new Response(JSON.stringify({ media: MEDIA, publications: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    });
+    await api.updateMediaAltText(
+      MEDIA_ID,
+      { altText: 'توضیح اصلاح‌شدهٔ عکس' },
+      { sessionToken: 'synthetic-token' },
+    );
+
+    const request = captured[0]!;
+    expect([request.init.method, new URL(request.url).pathname]).toEqual([
+      'PATCH',
+      `/media/${MEDIA_ID}/alt-text`,
+    ]);
+    expect(JSON.parse(String(request.init.body))).toEqual({ altText: 'توضیح اصلاح‌شدهٔ عکس' });
+  });
 });

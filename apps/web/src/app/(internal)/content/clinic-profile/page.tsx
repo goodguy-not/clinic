@@ -20,7 +20,9 @@ export default async function ClinicProfilePage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireSession({ requirePermission: ['clinic_profile.read', 'clinic_profile.update'] });
+  const user = await requireSession({
+    requirePermission: ['clinic_profile.read', 'clinic_profile.update'],
+  });
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
   const [result, contentResult, mediaResult, query] = await Promise.all([
@@ -54,6 +56,7 @@ export default async function ClinicProfilePage({
         entries={contentResult.data.entries}
         media={mediaResult.ok ? mediaResult.data.media : []}
         csrfToken={csrfToken}
+        canPublishMedia={user.permissions.includes('media.publish')}
         mediaLoadError={mediaResult.ok ? null : persianMessage(mediaResult.code)}
       />
     </>

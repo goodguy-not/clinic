@@ -1,5 +1,6 @@
 import type { MediaAsset, ServicePublicCopy } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
+import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import { Alert, Badge, Panel, SubmitButton } from '@/components/ui';
 import { cropImageStyle, MEDIA_TARGET_SHAPE_PRESETS } from '@/media/framing';
 
@@ -111,6 +112,14 @@ export function ServiceImageEditor({
                 ) : null}
               </div>
             </div>
+
+            <MediaAltTextEditor
+              asset={image.asset}
+              csrfToken={csrfToken}
+              canPublishMedia={canPublishMedia}
+              returnTarget={{ type: 'service', id: copy.serviceId }}
+              instanceId={image.attachment.id}
+            />
 
             {canPublishMedia ? (
               <form method="post" action="/api/media/publication">
