@@ -2089,7 +2089,8 @@ read selects the published columns only. Schemas:
   opt-in (`therapist.publish_profile`) copies the prepared copy onto the
   published columns — there is no second route.
 - **Not draftable:** a service's `name` (it is the public name), a therapist's
-  slug, display order, `is_public`, and the legacy `public_photo_path`.
+  slug, display order and `is_public`. (The legacy `public_photo_path` was
+  dropped in the Milestone 9.5 stabilisation; a portrait is a media attachment.)
 - `hasUnpublishedChanges` is derived per read, never stored.
 
 The reasoning is in DECISION_LOG, 2026-09-09 (six entries, "Milestone 9.5

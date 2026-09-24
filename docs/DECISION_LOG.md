@@ -4867,7 +4867,7 @@ publication and the visibility opt-in.
 
 ## 2026-09-09 — The legacy therapist photograph path is not split, and not yet removed
 
-**Status:** Accepted — Milestone 9.5 checkpoint A6
+**Status:** Superseded 2026-09-25 — the path is dropped (Milestone 9.5 stabilisation)
 
 `therapist.public_photo_path` keeps its pre-media behaviour: manager-only under
 `therapist.publish_profile`, read by the public projection, and changing it
@@ -5360,10 +5360,73 @@ therefore about baseline + 290 MiB + N × 12 MiB**, instead of growing by up to
 
 ## 2026-09-23 — Follow-up: the legacy therapist photograph path is dropped after its last reader
 
-**Status:** Open follow-up — deliberately not done in this checkpoint
+**Status:** Done 2026-09-25 — see "The legacy therapist photograph path is dropped"
 
 `therapist.public_photo_path` still exists and is still selected by the public team
 projection (`PublicTherapistProfile.photoPath`). Agent B removes its last web reader
 next; the column, its contract field and the projection's selection then go in one
 reviewed, destructive migration owned by the backend lane. See the 2026-09-09 entry
 "The legacy therapist photograph path is not split, and not yet removed".
+
+## 2026-09-25 — A photograph's description is correctable, on the asset, behind the publication boundary
+
+**Status:** Accepted — Milestone 9.5 stabilisation
+
+`PATCH /media/:id/alt-text` (`{ altText }`, the upload's `mediaAltTextSchema`) corrects
+the description. It is gated by `media.attach`; if the asset is publicly served at that
+moment (`assetIsPubliclyServed`, read after a `FOR UPDATE` on the asset, in its own
+statement) the service additionally requires `media.publish`, otherwise
+`AUTH_FORBIDDEN` (403) — the in-service precedent is the scheduling override. An
+unchanged description writes nothing. A change writes `media.alt_text_updated`
+(before/after **lengths** and `metadata.isPubliclyServed`). The response is
+`{ media, publications }`, where `publications` is the `MediaPublicationIdentity` of every
+**live** attachment (read in the mutation transaction), empty when the asset is not
+served — so the Web tier invalidates with the existing `invalidateMediaPublication`, and
+a receptionist is never handed a draft owner's slug.
+
+- **The description belongs to the asset, not to each attachment.** It says what is in
+  the picture, which does not change with placement. Consequence: a photograph used in
+  several places has one description, and one correction reaches every page; once any
+  one of those uses is live, correcting it is a manager act for all of them.
+- **Alternatives:** a per-attachment description (context-specific wording, but a
+  second place to forget, and a migration plus a fallback rule for no gain the clinic
+  has asked for); requiring unpublish → edit → republish as framing does (three acts and
+  a visible gap on the live page, for a typo); letting a same-bytes re-upload overwrite
+  the description (a retry would then be a silent edit of public content by whoever
+  retried).
+- **Reason:** the rule the checkpoint states is exactly the publication boundary the
+  rest of the media subsystem already uses; the asset is where the description already
+  lives, so no schema change is needed.
+- **Trade-off:** the audit trail records that, when and by whom a description changed,
+  not the words (a description can name a child and `audit_log` is never pruned — the
+  `media.uploaded` rule). The upload retry still returns the existing asset unchanged;
+  the correction route is the way to change it. Making an OWNER public does not lock
+  the asset, so a receptionist's correction racing a manager publishing the page
+  serialises as "corrected, then published" — the ordinary draft-versus-publish race.
+- **Revisit when:** the clinic wants different wording for the same photograph in
+  different places (then an optional per-attachment override, falling back to the
+  asset's), or wants description history visible to staff.
+
+## 2026-09-25 — The legacy therapist photograph path is dropped
+
+**Status:** Accepted — Milestone 9.5 stabilisation
+
+Migration `20260925090000_m95_drop_therapist_public_photo_path` drops
+`therapist_public_photo_path_chk` and `therapist.public_photo_path`. **It is
+destructive:** any value still in the column is discarded, not migrated — it named a
+hand-placed file, not a media asset. `photoPath` is removed from
+`PublicTherapistProfile`, `TherapistPublicProfile` and
+`UpdateTherapistPublicProfileRequest`; all three are strict, so a stale client that still
+sends it is refused with `VALIDATION_FAILED`. No API or Web reader or writer remains
+(Web stopped reading it at 34536957; the minimal Web change stops sending it). With it
+gone, the manager profile write can no longer change a live page, so it no longer
+stamps `public_revised_at`.
+
+- **Alternatives:** keep the column unused (a dead manager-writable public field);
+  convert values into media assets (an upload nobody performed, of files not in the
+  library).
+- **Reason:** a portrait is a `THERAPIST_PROFILE` media attachment; the path was the
+  only public therapist field that moved without a publication act.
+- **Trade-off:** irreversible for any remaining value; restoring one means re-uploading
+  the portrait.
+- **Revisit when:** never expected.

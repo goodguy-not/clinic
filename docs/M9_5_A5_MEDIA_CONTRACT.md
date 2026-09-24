@@ -20,8 +20,8 @@ The API returns a **relative path**, never a URL, and names no host:
 media/<renditionId>          // PUBLIC_MEDIA_PATH_PREFIX + rendition id
 ```
 
-It satisfies the existing `publicMediaPathSchema`, so the web tier resolves it exactly
-as it already resolves a manager-typed `photoPath`.
+It satisfies the existing `publicMediaPathSchema`. (The manager-typed therapist
+`photoPath` it was once resolved beside was dropped in the Milestone 9.5 stabilisation.)
 
 Behind it, on the API:
 
@@ -118,8 +118,9 @@ changing one does not move the other. That is why `framing` arrives inside each
 
 ## 3. Where images appear in the public reads
 
-Three projections gained a media field, across five reads. All are **additive** —
-`photoPath` is untouched and still means what it meant.
+Three projections gained a media field, across five reads. All were **additive**; the
+legacy therapist `photoPath` they sat beside was removed in the Milestone 9.5
+stabilisation, so `photo` is now the only portrait field.
 
 | Read                         | New field                         |
 | ---------------------------- | --------------------------------- |
@@ -184,16 +185,17 @@ and required for the other three — sending the wrong shape is `VALIDATION_FAIL
 
 ## 5. Routes and permissions
 
-| Route                                      | Permission                      | Held by            |
-| ------------------------------------------ | ------------------------------- | ------------------ |
-| `GET /media`, `GET /media/:id`             | `media.read`                    | receptionist + mgr |
-| `POST /media` (multipart)                  | `media.upload`                  | receptionist + mgr |
-| `POST /media/:id/attachments`              | `media.attach`                  | receptionist + mgr |
-| `PATCH /media/attachments/:id/framing`     | `media.attach`                  | receptionist + mgr |
-| `DELETE /media/attachments/:id`            | `media.attach`                  | receptionist + mgr |
-| `PATCH /media/attachments/:id/publication` | `media.publish`                 | **manager only**   |
-| `PATCH /media/:id/archive`                 | `media.publish`                 | **manager only**   |
-| `GET /media/renditions/:id/preview`        | `media.read` + owner read (§10) | see §10            |
+| Route                                      | Permission                                     | Held by            |
+| ------------------------------------------ | ---------------------------------------------- | ------------------ |
+| `GET /media`, `GET /media/:id`             | `media.read`                                   | receptionist + mgr |
+| `POST /media` (multipart)                  | `media.upload`                                 | receptionist + mgr |
+| `POST /media/:id/attachments`              | `media.attach`                                 | receptionist + mgr |
+| `PATCH /media/attachments/:id/framing`     | `media.attach`                                 | receptionist + mgr |
+| `DELETE /media/attachments/:id`            | `media.attach`                                 | receptionist + mgr |
+| `PATCH /media/:id/alt-text`                | `media.attach` (+ `media.publish` once served) | see below          |
+| `PATCH /media/attachments/:id/publication` | `media.publish`                                | **manager only**   |
+| `PATCH /media/:id/archive`                 | `media.publish`                                | **manager only**   |
+| `GET /media/renditions/:id/preview`        | `media.read` + owner read (§10)                | see §10            |
 
 Attaching **always** creates an unpublished attachment; the request has no field that
 could ask otherwise. Detaching a **published** attachment is refused — unpublish first,
@@ -211,6 +213,15 @@ rather than retrying.
 else. It is a strict object: an extra `isPublished`, `ownerId` or `position` is
 `VALIDATION_FAILED`, not an ignored field. Out-of-range values, a crop that runs off the
 frame, a zero-area crop and a partially stated crop are all `VALIDATION_FAILED` too.
+
+**Correcting a description** (Milestone 9.5 stabilisation) — `PATCH /media/:id/alt-text`,
+body `{ altText }` with the upload's rules. The description is the **asset's**: one
+correction reaches every place the photograph is used. While the asset is not publicly
+served, a receptionist or manager may correct it; once it is served anywhere, only a
+manager may (`AUTH_FORBIDDEN`, 403, for a receptionist). Response
+`{ media: MediaAsset, publications: MediaPublicationIdentity[] }` — one identity per
+**live** attachment, empty when nothing changed or the asset is not served. Pass each to
+`invalidateMediaPublication`.
 
 **Upload request** — `multipart/form-data`:
 
