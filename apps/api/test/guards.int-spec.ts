@@ -583,7 +583,12 @@ describe('guard chain (real PostgreSQL)', () => {
       //                 route, not a public one: the public surface is still
       //                 twelve reads and one write, and still the only place a
       //                 stranger can reach a byte.
-      expect(routes).toBe(163);
+      //
+      // description:    The Milestone 9.5 stabilisation adds ONE route and NO
+      //                 PERMISSION. `PATCH /media/:id/alt-text` names
+      //                 `media.attach`, and the service additionally requires
+      //                 `media.publish` once the photograph is publicly served.
+      expect(routes).toBe(164);
     });
   });
 });
