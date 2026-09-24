@@ -196,9 +196,11 @@ describe('catalog schema objects', () => {
   });
 
   it('adds no table beyond the approved scope', async () => {
+    // `pg_tables`, not `information_schema.tables`: the latter lists only the
+    // tables the current role holds a privilege on, and the runtime role holds
+    // none on `_prisma_migrations`.
     const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
-      SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      SELECT tablename::text AS table_name FROM pg_tables WHERE schemaname = 'public'
     `;
     const tables = rows.map((row) => row.table_name).sort();
 

@@ -60,7 +60,7 @@ describe('the settlement reconciliation invariant (checkpoint C6)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedCloseClinic(harness);
   });
 

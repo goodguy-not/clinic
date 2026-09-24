@@ -75,7 +75,7 @@ describe('the family-accounts report (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     const manager = await signIn(harness, 'MANAGER');
     managerToken = manager.token;

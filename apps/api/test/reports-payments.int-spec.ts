@@ -52,7 +52,7 @@ describe('the payments report (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const payments = (token: string, query: Record<string, string | number>) =>

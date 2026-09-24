@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { CURRENT_PUBLIC_REQUEST_CONSENT_VERSION } from '@clinic/contracts';
-import { internalHeaders, seedUser, TEST_PASSWORD, type Harness } from './harness';
+import { internalHeaders, ownerPrisma, seedUser, TEST_PASSWORD, type Harness } from './harness';
 
 /**
  * Shared fixtures for the Milestone 9 public-website suites.
@@ -159,18 +159,19 @@ export async function submitRequest(
  *
  * Written with the triggers disabled, because `closed_at` is write-once by
  * design and moving it is exactly what a test must not be able to do through
- * any ordinary path. Nothing in the application can perform this statement.
+ * any ordinary path. Only the owner can, which is why this runs on the owner's
+ * connection; the runtime role the application uses cannot perform it.
  */
 export async function backdateClosure(harness: Harness, id: string, days: number): Promise<void> {
-  await harness.prisma.$executeRawUnsafe('ALTER TABLE website_request DISABLE TRIGGER USER');
+  await ownerPrisma().$executeRawUnsafe('ALTER TABLE website_request DISABLE TRIGGER USER');
   try {
-    await harness.prisma.$executeRaw`
+    await ownerPrisma().$executeRaw`
       UPDATE website_request
       SET closed_at = transaction_timestamp() - ${`${days} days`}::interval
       WHERE id = ${id}::uuid
     `;
   } finally {
-    await harness.prisma.$executeRawUnsafe('ALTER TABLE website_request ENABLE TRIGGER USER');
+    await ownerPrisma().$executeRawUnsafe('ALTER TABLE website_request ENABLE TRIGGER USER');
   }
 }
 

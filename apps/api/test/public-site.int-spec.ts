@@ -42,7 +42,7 @@ describe('public website reads (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     const actor = await seedUser(harness, { role: 'MANAGER' });
     actorId = actor.id;
 

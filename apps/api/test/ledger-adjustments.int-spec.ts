@@ -74,7 +74,7 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedPostedSession(harness);
   });
 

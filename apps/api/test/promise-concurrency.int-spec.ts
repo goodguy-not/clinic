@@ -62,7 +62,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
   let fixture: PaymentFixture;
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedPayingFamily(harness);
   });
 
@@ -132,7 +132,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
 
     it('keeps that true across repeated rounds', async () => {
       for (let round = 0; round < 5; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const open = await promise('250000');
@@ -180,7 +180,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
 
     it('never deadlocks, across repeated rounds', async () => {
       for (let round = 0; round < 5; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const paymentId = await payment('900000');
@@ -253,7 +253,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
       // Repeated, because a race that lands the same way every time proves only
       // one of the two branches.
       for (let round = 0; round < 6; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const open = await promise('250000');
@@ -303,7 +303,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
       'lets exactly one of %s and %s win',
       async (left, right) => {
         for (let round = 0; round < 3; round += 1) {
-          await resetDatabase(harness.prisma);
+          await resetDatabase();
           fixture = await seedPayingFamily(harness);
 
           const open = await promise('250000');
@@ -391,7 +391,7 @@ describe('promise concurrency (real PostgreSQL)', () => {
 
     it('keeps that true across repeated rounds, with no deadlock', async () => {
       for (let round = 0; round < 5; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const original = await promise('250000', 1);

@@ -2,7 +2,7 @@ import request from 'supertest';
 import { sessionSettlementResponseSchema, shareRuleResponseSchema } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import { asUser, signIn } from './appointments-support';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { adjustOverHttp, voidChargeOverHttp } from './ledger-support';
 import {
   correctRatingOverHttp,
@@ -40,7 +40,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const settlementOf = (body: unknown) => sessionSettlementResponseSchema.parse(body).settlement;
@@ -492,7 +492,7 @@ describe('session settlement ratings (real PostgreSQL)', () => {
       ).rejects.toThrow(/immutable/);
 
       await expect(
-        harness.prisma.$executeRaw`
+        ownerPrisma().$executeRaw`
           DELETE FROM session_settlement WHERE id = ${rating?.id}::uuid
         `,
       ).rejects.toThrow();

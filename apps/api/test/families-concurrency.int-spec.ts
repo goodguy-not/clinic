@@ -44,7 +44,7 @@ describe('family concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     token = (await signIn(harness, 'RECEPTIONIST')).token;
   });
 
@@ -357,7 +357,7 @@ describe('child and draft concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     token = (await signIn(harness, 'RECEPTIONIST')).token;
     familyId = await seedFamily(harness, token, familyPayload());
   });

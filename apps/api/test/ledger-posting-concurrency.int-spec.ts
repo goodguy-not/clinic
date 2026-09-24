@@ -39,7 +39,7 @@ describe('session charge posting concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedBookedSession(harness);
 
     await makeTariff(harness, session.managerToken, {

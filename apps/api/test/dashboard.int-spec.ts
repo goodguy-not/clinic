@@ -62,7 +62,7 @@ describe('the dashboard', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const dashboard = (token: string, query: Record<string, string> = {}) =>

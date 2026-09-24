@@ -1,6 +1,6 @@
 import { MEDIA_ATTACHMENT_OWNERS } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * The hand-written half of the checkpoint A9 migrations, pinned by name and
@@ -30,7 +30,7 @@ describe('service imagery schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     actorId = (await seedUser(harness, { role: 'MANAGER' })).id;
     serviceId = await insertService();
   });
@@ -244,7 +244,7 @@ describe('service imagery schema objects', () => {
       await insertAttachment(assetId, 'PUBLIC_SERVICE', { service: serviceId });
 
       await expect(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM service WHERE id = '${serviceId}'`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM service WHERE id = '${serviceId}'`),
       ).rejects.toThrow();
     });
   });

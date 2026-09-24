@@ -1,7 +1,7 @@
 import { AuditService } from '../src/audit/audit.service';
 import { AuditPayloadError } from '../src/audit/audit-payload';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 describe('audit runtime (real PostgreSQL)', () => {
   let harness: Harness;
@@ -17,7 +17,7 @@ describe('audit runtime (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const context = (userId?: string) => ({
@@ -173,16 +173,19 @@ describe('audit runtime (real PostgreSQL)', () => {
       return user.id;
     }
 
+    // As the OWNER, deliberately: the runtime role is refused all of these by
+    // privilege before any trigger fires (runtime-role.int-spec.ts). What is
+    // proved here is that the triggers hold even for a role that owns the table.
     it('rejects UPDATE on audit_log', async () => {
       await writeOneRow();
       await expect(
-        harness.prisma.$executeRawUnsafe(`UPDATE audit_log SET action = 'user.created'`),
+        ownerPrisma().$executeRawUnsafe(`UPDATE audit_log SET action = 'user.created'`),
       ).rejects.toThrow(/protected|not permitted/i);
     });
 
     it('rejects DELETE on audit_log', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('DELETE FROM audit_log')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('DELETE FROM audit_log')).rejects.toThrow(
         /protected|not permitted/i,
       );
       expect(await harness.prisma.auditLog.count()).toBe(1);
@@ -190,7 +193,7 @@ describe('audit runtime (real PostgreSQL)', () => {
 
     it('rejects TRUNCATE on audit_log, which bypasses row triggers', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE audit_log')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE audit_log')).rejects.toThrow(
         /protected|not permitted/i,
       );
       expect(await harness.prisma.auditLog.count()).toBe(1);
@@ -199,13 +202,13 @@ describe('audit runtime (real PostgreSQL)', () => {
     it('rejects DELETE on app_user', async () => {
       const id = await writeOneRow();
       await expect(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${id}'`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${id}'`),
       ).rejects.toThrow(/protected|not permitted/i);
     });
 
     it('rejects TRUNCATE on app_user', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE app_user CASCADE')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE app_user CASCADE')).rejects.toThrow(
         /protected|not permitted/i,
       );
     });
@@ -233,8 +236,9 @@ describe('audit runtime (real PostgreSQL)', () => {
       });
 
       // user_session carries no protective trigger: it is operational state a
-      // retention policy must be able to purge.
-      await harness.prisma.$executeRaw`
+      // retention policy must be able to purge. No such job exists yet, so the
+      // runtime role holds no DELETE on it and this runs as the owner.
+      await ownerPrisma().$executeRaw`
         DELETE FROM user_session WHERE id = ${issued.sessionId}::uuid
       `;
 

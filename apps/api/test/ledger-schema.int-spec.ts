@@ -1,5 +1,5 @@
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import {
   insertAdjustment,
   insertCharge,
@@ -317,7 +317,7 @@ describe('ledger schema objects', () => {
     let fixture: LedgerFixture;
 
     beforeEach(async () => {
-      await resetDatabase(harness.prisma);
+      await resetDatabase();
       fixture = await seedChargeableSession(harness);
     });
 
@@ -720,11 +720,10 @@ describe('ledger schema objects', () => {
         // Run WITHOUT the reset helper's trigger-disabling, which is the only
         // reason teardown can clear these tables at all.
         for (const statement of [
-          harness.prisma
-            .$executeRaw`DELETE FROM charge_adjustment WHERE id = ${adjustmentId}::uuid`,
-          harness.prisma.$executeRaw`DELETE FROM session_charge WHERE id = ${chargeId}::uuid`,
-          harness.prisma.$executeRawUnsafe('TRUNCATE charge_adjustment'),
-          harness.prisma.$executeRawUnsafe('TRUNCATE session_charge CASCADE'),
+          ownerPrisma().$executeRaw`DELETE FROM charge_adjustment WHERE id = ${adjustmentId}::uuid`,
+          ownerPrisma().$executeRaw`DELETE FROM session_charge WHERE id = ${chargeId}::uuid`,
+          ownerPrisma().$executeRawUnsafe('TRUNCATE charge_adjustment'),
+          ownerPrisma().$executeRawUnsafe('TRUNCATE session_charge CASCADE'),
         ]) {
           expect(await sqlStateOf(statement)).toBe('23001');
         }

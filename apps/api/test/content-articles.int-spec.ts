@@ -4,7 +4,13 @@ import {
   articleListResponseSchema,
   publicArticleDetailResponseSchema,
 } from '@clinic/contracts';
-import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
+import {
+  createHarness,
+  internalHeaders,
+  resetDatabase,
+  type Harness,
+  ownerPrisma,
+} from './harness';
 import { articleDraft, as, auditActionsFor, loginAs } from './website-support';
 
 /**
@@ -34,7 +40,7 @@ describe('article drafting and publication (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -491,7 +497,7 @@ describe('article drafting and publication (real PostgreSQL)', () => {
       const id = await createDraft(manager, 'undeletable');
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM public_article WHERE id = ${id}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM public_article WHERE id = ${id}::uuid`,
       ).rejects.toThrow();
     });
   });

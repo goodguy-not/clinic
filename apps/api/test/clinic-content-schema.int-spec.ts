@@ -3,7 +3,7 @@ import {
   CLINIC_CONTENT_SLOT_SIZES,
   MEDIA_ATTACHMENT_OWNERS,
 } from '@clinic/contracts';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 
 /**
  * The hand-written half of the checkpoint A8 migrations, pinned by name and
@@ -31,7 +31,7 @@ describe('clinic content schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   async function constraintNames(): Promise<string[]> {
@@ -60,7 +60,7 @@ describe('clinic content schema objects', () => {
     heading?: string | null;
     body?: string | null;
   }) {
-    return harness.prisma.$executeRawUnsafe(
+    return ownerPrisma().$executeRawUnsafe(
       `
         INSERT INTO clinic_content_entry (id, slot, "position", label, eyebrow, heading, body)
         VALUES (gen_random_uuid(), $1::clinic_content_slot, $2, $3, $4, $5, $6)
@@ -211,13 +211,13 @@ describe('clinic content schema objects', () => {
 
     it('refuses to delete or truncate a block', async () => {
       await expect(
-        harness.prisma.$executeRawUnsafe(
+        ownerPrisma().$executeRawUnsafe(
           `DELETE FROM clinic_content_entry WHERE slot = 'HOME_HERO'`,
         ),
       ).rejects.toThrow();
 
       await expect(
-        harness.prisma.$executeRawUnsafe(`TRUNCATE clinic_content_entry`),
+        ownerPrisma().$executeRawUnsafe(`TRUNCATE clinic_content_entry`),
       ).rejects.toThrow();
     });
 

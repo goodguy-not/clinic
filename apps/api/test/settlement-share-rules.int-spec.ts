@@ -14,6 +14,7 @@ import {
   seedUser,
   TEST_PASSWORD,
   type Harness,
+  ownerPrisma,
 } from './harness';
 
 /**
@@ -39,7 +40,7 @@ describe('therapist share rules (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const server = () => harness.app.getHttpServer();
@@ -977,7 +978,7 @@ describe('therapist share rules (real PostgreSQL)', () => {
       ).shareRule;
 
       await expect(
-        harness.prisma.$executeRawUnsafe(
+        ownerPrisma().$executeRawUnsafe(
           `DELETE FROM therapist_share_rule WHERE id = $1::uuid`,
           created.id,
         ),

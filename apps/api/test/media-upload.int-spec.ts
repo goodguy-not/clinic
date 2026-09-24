@@ -45,7 +45,7 @@ describe('media upload (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });

@@ -10,7 +10,7 @@ import {
   type MediaAsset,
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { articleDraft, as, asVisitor, loginAs, testimonialDraft } from './website-support';
 import {
   metadataFingerprintsIn,
@@ -46,7 +46,7 @@ describe('staff media preview (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -277,7 +277,7 @@ describe('staff media preview (real PostgreSQL)', () => {
     const { asset } = await preparedArticleImage();
     const renditionId = renditionOf(asset);
 
-    await harness.prisma.$executeRaw`
+    await ownerPrisma().$executeRaw`
       UPDATE media_rendition
       SET storage_key = NULL, bytes_purged_at = transaction_timestamp()
       WHERE id = ${renditionId}::uuid

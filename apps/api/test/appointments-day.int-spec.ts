@@ -65,7 +65,7 @@ describe('appointment day view (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await signIn(harness, 'MANAGER');
     receptionist = await signIn(harness, 'RECEPTIONIST');
     clinic = await seedClinic(harness, manager.token);

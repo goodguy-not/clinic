@@ -30,7 +30,7 @@ describe('public content schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     actorId = (await seedUser(harness, { role: 'MANAGER' })).id;
   });
 

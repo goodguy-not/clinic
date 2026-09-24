@@ -9,7 +9,13 @@ import {
   type ClinicContentEntry,
   type ClinicContentSlot,
 } from '@clinic/contracts';
-import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
+import {
+  createHarness,
+  internalHeaders,
+  resetDatabase,
+  type Harness,
+  ownerPrisma,
+} from './harness';
 import { uploadPhoto } from './media-support';
 import { as, asVisitor, auditActionsFor, loginAs } from './website-support';
 
@@ -40,7 +46,7 @@ describe('clinic public content (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -615,7 +621,7 @@ describe('clinic public content (real PostgreSQL)', () => {
       const entry = await entryIn('HOME_HERO');
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM clinic_content_entry WHERE id = ${entry.id}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM clinic_content_entry WHERE id = ${entry.id}::uuid`,
       ).rejects.toThrow();
     });
   });

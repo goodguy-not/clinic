@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { runCli } from '../src/cli/run-cli';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { familyPayload, seedFamily } from './families-support';
 import { as, backdateClosure, loginAs, readRequestRow, submitRequest } from './website-support';
 import type { CliIo } from '../src/cli/cli-io';
@@ -40,7 +40,7 @@ describe('website request retention (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -326,7 +326,7 @@ describe('website request retention (real PostgreSQL)', () => {
         .$executeRaw`UPDATE website_request SET contact_name = 'نام تازه' WHERE id = ${id}::uuid`,
       harness.prisma
         .$executeRaw`UPDATE website_request SET purged_at = NULL WHERE id = ${id}::uuid`,
-      harness.prisma.$executeRaw`DELETE FROM website_request WHERE id = ${id}::uuid`,
+      ownerPrisma().$executeRaw`DELETE FROM website_request WHERE id = ${id}::uuid`,
     ]) {
       await expect(statement).rejects.toThrow();
     }

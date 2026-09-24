@@ -4,7 +4,7 @@ import {
   websiteRequestDetailSchema,
   websiteRequestInboxResponseSchema,
 } from '@clinic/contracts';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { asUser, familyPayload, guardian, seedFamily, signIn } from './families-support';
 import {
   as,
@@ -48,7 +48,7 @@ describe('website request inbox (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -586,10 +586,10 @@ describe('website request inbox (real PostgreSQL)', () => {
     const id = await submitRequest(harness);
 
     await expect(
-      harness.prisma.$executeRaw`DELETE FROM website_request WHERE id = ${id}::uuid`,
+      ownerPrisma().$executeRaw`DELETE FROM website_request WHERE id = ${id}::uuid`,
     ).rejects.toThrow();
 
-    await expect(harness.prisma.$executeRawUnsafe('TRUNCATE website_request')).rejects.toThrow();
+    await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE website_request')).rejects.toThrow();
   });
 
   it('keeps the contract vocabulary and the PostgreSQL enum identical', async () => {

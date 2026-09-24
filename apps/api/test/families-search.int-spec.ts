@@ -35,7 +35,7 @@ describe('family search (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     const session = await signIn(harness, 'RECEPTIONIST');
     actorId = session.id;
     token = session.token;

@@ -1,5 +1,5 @@
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * The hand-written half of the checkpoint A5 migration, pinned by name and then
@@ -28,7 +28,7 @@ describe('media schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     actorId = (await seedUser(harness, { role: 'MANAGER' })).id;
   });
 
@@ -197,7 +197,7 @@ describe('media schema objects', () => {
       const id = await insertAsset();
 
       await expect(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM media_asset WHERE id = '${id}'`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM media_asset WHERE id = '${id}'`),
       ).rejects.toThrow();
     });
   });

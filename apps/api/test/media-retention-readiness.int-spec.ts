@@ -3,7 +3,13 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { mediaAssetResponseSchema } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, TEST_MEDIA_ROOT, type Harness } from './harness';
+import {
+  createHarness,
+  resetDatabase,
+  TEST_MEDIA_ROOT,
+  type Harness,
+  ownerPrisma,
+} from './harness';
 import { as, asVisitor, loginAs } from './website-support';
 import { uploadPhoto } from './media-support';
 
@@ -57,7 +63,7 @@ describe('media retention readiness (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
 
@@ -153,7 +159,10 @@ describe('media retention readiness (real PostgreSQL)', () => {
     // support. A real job would additionally write its own audit rows under a
     // SYSTEM actor, exactly as the website-request retention run does; that is
     // the retention checkpoint's work, not this one's.
-    await harness.prisma.$executeRaw`
+    //
+    // The rendition UPDATE runs as the owner: the runtime role holds no UPDATE
+    // on `media_rendition` until the retention checkpoint's migration grants it.
+    await ownerPrisma().$executeRaw`
       UPDATE media_rendition
       SET storage_key = NULL, bytes_purged_at = transaction_timestamp()
       WHERE media_asset_id = ${asset.id}::uuid
@@ -224,7 +233,7 @@ describe('media retention readiness (real PostgreSQL)', () => {
     ).rejects.toThrow(/media_asset_purge_chk/);
 
     await expect(
-      harness.prisma.$executeRaw`
+      ownerPrisma().$executeRaw`
         UPDATE media_rendition SET storage_key = NULL WHERE media_asset_id = ${asset.id}::uuid
       `,
     ).rejects.toThrow(/media_rendition_purge_chk/);
@@ -236,7 +245,7 @@ describe('media retention readiness (real PostgreSQL)', () => {
     // THE PROTECTION, WORKING. Nothing routine, and no stray statement, can
     // destroy the record that a photograph existed.
     await expect(
-      harness.prisma.$executeRaw`DELETE FROM media_asset WHERE id = ${asset.id}::uuid`,
+      ownerPrisma().$executeRaw`DELETE FROM media_asset WHERE id = ${asset.id}::uuid`,
     ).rejects.toThrow(/protected/);
 
     // AND THE PATH OUT, IF A POLICY EVER DEMANDS ROWS AS WELL AS BYTES. A future
@@ -250,20 +259,20 @@ describe('media retention readiness (real PostgreSQL)', () => {
     // disposable test database, precisely because no production code should be
     // able to.
     for (const table of ['media_attachment', 'media_rendition', 'media_asset']) {
-      await harness.prisma.$executeRawUnsafe(
+      await ownerPrisma().$executeRawUnsafe(
         `ALTER TABLE "${table}" DISABLE TRIGGER "${table}_no_delete"`,
       );
     }
 
     try {
-      await harness.prisma
+      await ownerPrisma()
         .$executeRaw`DELETE FROM media_attachment WHERE media_asset_id = ${asset.id}::uuid`;
-      await harness.prisma
+      await ownerPrisma()
         .$executeRaw`DELETE FROM media_rendition WHERE media_asset_id = ${asset.id}::uuid`;
-      await harness.prisma.$executeRaw`DELETE FROM media_asset WHERE id = ${asset.id}::uuid`;
+      await ownerPrisma().$executeRaw`DELETE FROM media_asset WHERE id = ${asset.id}::uuid`;
     } finally {
       for (const table of ['media_attachment', 'media_rendition', 'media_asset']) {
-        await harness.prisma.$executeRawUnsafe(
+        await ownerPrisma().$executeRawUnsafe(
           `ALTER TABLE "${table}" ENABLE TRIGGER "${table}_no_delete"`,
         );
       }

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { seedChargedSession, shareRuleId, type SettlementFixture } from './settlement-support';
 
 /**
@@ -25,7 +25,7 @@ describe('session settlement schema (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   /** An unrated charged session, so every row below is this suite's own. */
@@ -457,11 +457,11 @@ describe('session settlement schema (real PostgreSQL)', () => {
       const { id } = await seedRow();
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM session_settlement WHERE id = ${id}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM session_settlement WHERE id = ${id}::uuid`,
       ).rejects.toThrow();
 
       await expect(
-        harness.prisma.$executeRawUnsafe('TRUNCATE session_settlement'),
+        ownerPrisma().$executeRawUnsafe('TRUNCATE session_settlement'),
       ).rejects.toThrow();
 
       expect(await harness.prisma.sessionSettlement.count()).toBe(1);
@@ -475,7 +475,7 @@ describe('session settlement schema (real PostgreSQL)', () => {
       // The rule's own no-delete trigger answers first; either way, provenance
       // is history and history keeps its references.
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM therapist_share_rule WHERE id = ${ruleId}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM therapist_share_rule WHERE id = ${ruleId}::uuid`,
       ).rejects.toThrow();
     });
   });

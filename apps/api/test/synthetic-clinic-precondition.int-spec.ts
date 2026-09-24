@@ -23,7 +23,7 @@ describe('the synthetic clinic seed, with no manager to act as', () => {
     // against a populated `app_user`. A seeder that quietly created a second one
     // would be a permanent, shared, known-password account in whatever database
     // somebody pointed it at.
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     await expect(seedSyntheticClinic(harness.app, { runTag: 'nomgr', weeks: 1 })).rejects.toThrow(
       /No active manager exists/,

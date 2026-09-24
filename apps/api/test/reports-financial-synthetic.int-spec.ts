@@ -46,7 +46,7 @@ describe('the financial reports against a whole synthetic clinic', () => {
 
   beforeAll(async () => {
     harness = await createHarness();
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     // The seeder performs every act under a real manager and creates none.
     await seedUser(harness, { role: 'MANAGER', username: 'synthetic_financial_manager' });

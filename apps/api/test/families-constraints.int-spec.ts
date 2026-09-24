@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * What the database refuses, proved by asking it to do the thing.
@@ -29,7 +29,7 @@ describe('families constraints (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     actorId = (await seedUser(harness, { role: 'RECEPTIONIST' })).id;
   });
 
@@ -125,11 +125,11 @@ describe('families constraints (real PostgreSQL)', () => {
       const id = await insertFamily();
 
       await expectRejected(
-        () => harness.prisma.$executeRaw`DELETE FROM family WHERE id = ${id}::uuid`,
+        () => ownerPrisma().$executeRaw`DELETE FROM family WHERE id = ${id}::uuid`,
         RESTRICT_VIOLATION,
       );
       await expectRejected(
-        () => harness.prisma.$executeRawUnsafe('TRUNCATE family CASCADE'),
+        () => ownerPrisma().$executeRawUnsafe('TRUNCATE family CASCADE'),
         RESTRICT_VIOLATION,
       );
 
@@ -411,11 +411,11 @@ describe('families constraints (real PostgreSQL)', () => {
       const id = await insertChild(familyId);
 
       await expectRejected(
-        () => harness.prisma.$executeRaw`DELETE FROM child WHERE id = ${id}::uuid`,
+        () => ownerPrisma().$executeRaw`DELETE FROM child WHERE id = ${id}::uuid`,
         RESTRICT_VIOLATION,
       );
       await expectRejected(
-        () => harness.prisma.$executeRawUnsafe('TRUNCATE child CASCADE'),
+        () => ownerPrisma().$executeRawUnsafe('TRUNCATE child CASCADE'),
         RESTRICT_VIOLATION,
       );
     });
@@ -594,9 +594,11 @@ describe('families constraints (real PostgreSQL)', () => {
         harness.prisma.$executeRaw`DELETE FROM registration_draft WHERE id = ${id}::uuid`,
       ).resolves.toBe(1);
 
+      // TRUNCATE is the owner's alone — the runtime holds no TRUNCATE anywhere —
+      // so this proves only that no trigger stands in its way.
       await insertDraft();
       await expect(
-        harness.prisma.$executeRawUnsafe('TRUNCATE registration_draft'),
+        ownerPrisma().$executeRawUnsafe('TRUNCATE registration_draft'),
       ).resolves.toBeDefined();
 
       expect(await harness.prisma.registrationDraft.count()).toBe(0);

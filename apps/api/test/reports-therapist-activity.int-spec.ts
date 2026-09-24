@@ -55,7 +55,7 @@ describe('the therapist activity report (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const activity = (token: string, query: Record<string, string>) =>

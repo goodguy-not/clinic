@@ -39,7 +39,7 @@ describe('public copy schema objects (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     actorId = (await seedUser(harness, { role: 'MANAGER' })).id;
     serviceId = uuidv7();

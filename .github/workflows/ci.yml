@@ -19,11 +19,14 @@ jobs:
         env:
           POSTGRES_USER: clinic
           POSTGRES_PASSWORD: clinic_ci_only
-          POSTGRES_DB: clinic_ci
+          # Milestone 10, A1: NOT clinic_ci. The database is created by
+          # provision-roles.sql below, OWNED BY the non-superuser clinic_owner,
+          # exactly as a deployment creates it.
+          POSTGRES_DB: postgres
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U clinic -d clinic_ci"
+          --health-cmd "pg_isready -U clinic -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -98,33 +101,47 @@ jobs:
       # The service container is created fresh for every job, so `clinic_ci` is
       # an empty database and `migrate deploy` proves the migration applies from
       # nothing — the same thing a first production deploy will do.
+      #
+      # TWO ROLES, as in a deployment (README, Database roles). `clinic` is the
+      # container's superuser and does nothing but provision. `clinic_owner`
+      # owns the database and is the only role that migrates. `clinic_app` is
+      # the runtime login every test connects the API as; the harness refuses
+      # to run if it could own, create or become anything.
+      - name: Provision database roles
+        run: >-
+          docker exec -i ${{ job.services.postgres.id }}
+          psql -U clinic -d postgres
+          -v database=clinic_ci
+          -v owner_password=owner_ci_only
+          -v runtime_password=app_ci_only
+          -f - < apps/api/prisma/provision-roles.sql
+
       - name: Apply migrations to a fresh database
         run: pnpm --filter @clinic/api exec prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+          DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_ci?schema=public
 
       # `migrate status` catches an unapplied or failed migration. `migrate diff`
       # catches a schema.prisma edit with no matching migration; it exits 2 when
-      # they disagree. Neither sees the hand-written CHECKs, triggers or the
-      # protected-row function — those are pinned by name in the integration
+      # they disagree. Neither sees the hand-written CHECKs, triggers, grants or
+      # the protected-row function — those are pinned by name in the integration
       # suite's catalogue assertions instead.
       - name: Migration status and drift
         run: |
           pnpm --filter @clinic/api exec prisma migrate status
-          pnpm --filter @clinic/api exec prisma migrate diff \
-            --from-schema-datamodel prisma/schema.prisma \
-            --to-schema-datasource prisma/schema.prisma \
-            --exit-code
+          pnpm --filter @clinic/api exec prisma migrate diff             --from-schema-datamodel prisma/schema.prisma             --to-schema-datasource prisma/schema.prisma             --exit-code
         env:
-          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+          DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_ci?schema=public
 
-      # These truncate every table and temporarily disable the audit triggers,
-      # which is why the harness refuses any database whose name does not end in
-      # _test or _ci.
+      # The API connects as the runtime role. Only the between-test reset uses
+      # the owner, to truncate and to disable the audit triggers — which is why
+      # the harness also refuses any database whose name does not end in _test
+      # or _ci.
       - name: PostgreSQL integration tests
         run: pnpm test:int
         env:
-          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+          DATABASE_URL: postgresql://clinic_app:app_ci_only@localhost:5433/clinic_ci?schema=public
+          TEST_OWNER_DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_ci?schema=public
 
       # --- negative checks --------------------------------------------------
       #
@@ -163,4 +180,19 @@ jobs:
           grep -q "must end in _test or _ci" /tmp/int-guard.log
           echo "OK: harness refused clinic_dev"
         env:
-          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_dev?schema=public
+          DATABASE_URL: postgresql://clinic_app:app_ci_only@localhost:5433/clinic_dev?schema=public
+          TEST_OWNER_DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_dev?schema=public
+
+      # And it must refuse to run the API as anything but a least-privilege
+      # role: here the superuser, which could switch every protection off.
+      - name: Integration harness refuses a privileged API connection
+        run: |
+          if pnpm --filter @clinic/api exec jest --config jest.integration.config.js test/audit.int-spec.ts > /tmp/int-role.log 2>&1; then
+            echo "FAIL: integration tests ran the API as a privileged role"
+            exit 1
+          fi
+          grep -q "not a least-privilege runtime role" /tmp/int-role.log
+          echo "OK: harness refused a privileged API connection"
+        env:
+          DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
+          TEST_OWNER_DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_ci?schema=public

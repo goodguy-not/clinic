@@ -21,7 +21,7 @@ describe('operator CLI (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetDatabase();
   });
 
   function captureIo(stdin = ''): CliIo & { stdout: string[]; stderr: string[] } {

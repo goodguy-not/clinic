@@ -41,7 +41,7 @@ describe('promise creation (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedPayingFamily(harness);
   });
 

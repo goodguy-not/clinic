@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * What the Milestone 4 schema refuses, proved against a real PostgreSQL.
@@ -43,7 +43,7 @@ describe('appointment database constraints', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     const actor = await seedUser(harness, { role: 'MANAGER' });
     actorId = actor.id;
@@ -542,13 +542,13 @@ describe('appointment database constraints', () => {
       await addParticipant(appointmentId);
 
       await expectRejection(
-        harness.prisma.$executeRaw`DELETE FROM appointment_participant`,
+        ownerPrisma().$executeRaw`DELETE FROM appointment_participant`,
         RESTRICT_VIOLATION,
         /is protected; DELETE is not permitted/,
       );
 
       await expectRejection(
-        harness.prisma.$executeRaw`DELETE FROM appointment`,
+        ownerPrisma().$executeRaw`DELETE FROM appointment`,
         RESTRICT_VIOLATION,
         /is protected; DELETE is not permitted/,
       );
@@ -556,7 +556,7 @@ describe('appointment database constraints', () => {
 
     it('refuses TRUNCATE, which bypasses row-level triggers', async () => {
       await expectRejection(
-        harness.prisma.$executeRawUnsafe('TRUNCATE appointment CASCADE'),
+        ownerPrisma().$executeRawUnsafe('TRUNCATE appointment CASCADE'),
         RESTRICT_VIOLATION,
         /is protected; TRUNCATE is not permitted/,
       );

@@ -1,6 +1,12 @@
 import request from 'supertest';
 import { publicTestimonialListResponseSchema, testimonialResponseSchema } from '@clinic/contracts';
-import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
+import {
+  createHarness,
+  internalHeaders,
+  resetDatabase,
+  type Harness,
+  ownerPrisma,
+} from './harness';
 import { as, auditActionsFor, loginAs, testimonialDraft } from './website-support';
 
 /**
@@ -30,7 +36,7 @@ describe('testimonial approval and publication (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
   });
@@ -314,7 +320,7 @@ describe('testimonial approval and publication (real PostgreSQL)', () => {
       const id = await createDraft(manager);
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM public_testimonial WHERE id = ${id}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM public_testimonial WHERE id = ${id}::uuid`,
       ).rejects.toThrow();
     });
   });

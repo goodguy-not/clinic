@@ -26,7 +26,7 @@ describe('the synthetic clinic seed', () => {
 
   beforeAll(async () => {
     harness = await createHarness();
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     // The seeder performs every act under a real manager and creates none, so
     // the account bootstrap would create is the one precondition it has.

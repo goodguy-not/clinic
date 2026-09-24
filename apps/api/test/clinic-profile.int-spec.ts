@@ -1,6 +1,12 @@
 import request from 'supertest';
 import { publicClinicProfileResponseSchema } from '@clinic/contracts';
-import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
+import {
+  createHarness,
+  internalHeaders,
+  resetDatabase,
+  type Harness,
+  ownerPrisma,
+} from './harness';
 import { as, auditActionsFor, loginAs } from './website-support';
 
 /**
@@ -29,7 +35,7 @@ describe('clinic public profile (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     manager = await loginAs(harness, 'MANAGER');
     receptionist = await loginAs(harness, 'RECEPTIONIST');
 
@@ -217,7 +223,7 @@ describe('clinic public profile (real PostgreSQL)', () => {
 
     it('refuses to delete the profile row', async () => {
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM clinic_public_profile WHERE singleton_key = 1`,
+        ownerPrisma().$executeRaw`DELETE FROM clinic_public_profile WHERE singleton_key = 1`,
       ).rejects.toThrow();
     });
   });

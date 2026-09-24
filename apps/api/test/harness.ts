@@ -79,6 +79,125 @@ export function testDatabaseUrl(): string {
   return url;
 }
 
+/**
+ * The OWNER's connection string — test-only, and never read by the application.
+ *
+ * `DATABASE_URL` is what the API connects as, and in this suite it must be the
+ * runtime role (`clinic_app`), exactly as in a deployment. The reset below has
+ * to truncate protected tables and switch their triggers off, which by design
+ * only the owner can do, so it gets a second, separate connection. The API's
+ * environment schema does not know this variable exists, so nothing in
+ * `src/` can ever connect with it.
+ *
+ * Same server and same database as `DATABASE_URL`, different role — anything
+ * else is refused, so the reset can never land on a database the suite is not
+ * testing.
+ */
+export function testOwnerDatabaseUrl(): string {
+  const runtime = new URL(testDatabaseUrl());
+  const url = process.env['TEST_OWNER_DATABASE_URL'];
+
+  if (url === undefined || url === '') {
+    throw new Error(
+      'TEST_OWNER_DATABASE_URL must be set for integration tests: the schema owner, on the ' +
+        'same database as DATABASE_URL. DATABASE_URL itself must be the runtime role.',
+    );
+  }
+
+  let owner: URL;
+
+  try {
+    owner = new URL(url);
+  } catch {
+    throw new Error('TEST_OWNER_DATABASE_URL is not a valid connection string');
+  }
+
+  if (owner.host !== runtime.host || owner.pathname !== runtime.pathname) {
+    throw new Error(
+      'TEST_OWNER_DATABASE_URL must name the same server and database as DATABASE_URL',
+    );
+  }
+
+  if (owner.username === runtime.username) {
+    throw new Error(
+      'DATABASE_URL and TEST_OWNER_DATABASE_URL name the same role. The API must connect as ' +
+        'the runtime role, not as the owner.',
+    );
+  }
+
+  return url;
+}
+
+/**
+ * One owner connection per test file, opened on first use and closed when the
+ * file finishes. Jest gives every file its own module registry, so a client per
+ * reset would leave a connection behind for each of well over a hundred files.
+ */
+let ownerClient: PrismaClient | undefined;
+
+export function ownerPrisma(): PrismaClient {
+  ownerClient ??= new PrismaClient({ datasourceUrl: testOwnerDatabaseUrl() });
+  return ownerClient;
+}
+
+if (typeof afterAll === 'function') {
+  afterAll(async () => {
+    await ownerClient?.$disconnect();
+    ownerClient = undefined;
+  });
+}
+
+type RuntimeRoleFacts = {
+  role: string;
+  superuser: boolean;
+  owns: bigint;
+  memberOfOwner: boolean;
+  schemaCreate: boolean;
+  databaseCreate: boolean;
+};
+
+/**
+ * Refuses to run the suite unless the API's connection is a genuine runtime
+ * role: not a superuser, owning nothing, unable to become whoever does, and
+ * unable to create objects. This is what makes "the whole suite passes as the
+ * runtime role" a property of every run rather than of one careful setup.
+ */
+export async function assertRuntimeRole(prisma: PrismaClient | PrismaService): Promise<void> {
+  const [facts] = await prisma.$queryRaw<RuntimeRoleFacts[]>`
+    SELECT
+      current_user::text AS role,
+      r.rolsuper AS superuser,
+      (SELECT count(*) FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relowner = r.oid) AS owns,
+      EXISTS (
+        SELECT 1 FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND pg_has_role(r.oid, c.relowner, 'MEMBER')
+      ) AS "memberOfOwner",
+      has_schema_privilege('public', 'CREATE') AS "schemaCreate",
+      has_database_privilege(current_database(), 'CREATE') AS "databaseCreate"
+    FROM pg_roles r
+    WHERE r.rolname = current_user
+  `;
+
+  if (
+    facts === undefined ||
+    facts.superuser ||
+    facts.owns > 0n ||
+    facts.memberOfOwner ||
+    facts.schemaCreate ||
+    facts.databaseCreate
+  ) {
+    throw new Error(
+      `Refusing to run integration tests: DATABASE_URL connects as "${facts?.role ?? '?'}", ` +
+        'which is not a least-privilege runtime role (superuser, owner, member of the owner, or ' +
+        'able to create objects). Point DATABASE_URL at clinic_app and TEST_OWNER_DATABASE_URL ' +
+        'at the owner. See README, Integration tests.',
+    );
+  }
+}
+
 export type Harness = {
   app: INestApplication;
   prisma: PrismaService;
@@ -113,6 +232,8 @@ export function auditContext(): RequestContext {
 
 export async function createHarness(): Promise<Harness> {
   const url = testDatabaseUrl();
+  // Validated up front, so a misconfigured pair fails with its own message.
+  testOwnerDatabaseUrl();
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(API_ENV)
@@ -129,6 +250,7 @@ export async function createHarness(): Promise<Harness> {
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.init();
+  await assertRuntimeRole(app.get(PrismaService));
 
   return {
     app,
@@ -141,14 +263,16 @@ export async function createHarness(): Promise<Harness> {
 }
 
 /**
- * Truncates between tests.
+ * Truncates between tests, AS THE OWNER.
  *
- * `audit_log` and `app_user` carry BEFORE DELETE and BEFORE TRUNCATE triggers,
- * so ordinary teardown is refused — which is exactly the guarantee those
- * triggers exist to provide. Disabling them here is possible only because the
- * test connects as the table owner, and that is precisely the gap a production
- * deployment closes with a separate, non-owner runtime role. Tests that prove
- * the triggers work run WITHOUT this helper.
+ * `audit_log`, `app_user` and every historical table carry BEFORE DELETE and
+ * BEFORE TRUNCATE triggers, so ordinary teardown is refused — which is exactly
+ * the guarantee those triggers exist to provide. Disabling them is possible
+ * only for the table owner, so this runs on the separate owner connection. The
+ * API under test connects as the runtime role and could do none of it: it
+ * holds no TRUNCATE anywhere and owns nothing whose triggers it could switch
+ * off (`runtime-role.int-spec.ts` proves both). Tests that prove the triggers
+ * work run WITHOUT this helper.
  */
 const PROTECTED_TABLES = [
   'audit_log',
@@ -278,7 +402,9 @@ const TRUNCATED_TABLES = [
   'app_user',
 ];
 
-export async function resetDatabase(prisma: PrismaClient | PrismaService): Promise<void> {
+export async function resetDatabase(): Promise<void> {
+  const prisma = ownerPrisma();
+
   for (const table of PROTECTED_TABLES) {
     await prisma.$executeRawUnsafe(`ALTER TABLE ${table} DISABLE TRIGGER USER`);
   }

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * The Milestone 9 checkpoint A1 schema, proved against a real PostgreSQL.
@@ -44,7 +44,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     const actor = await seedUser(harness, { role: 'MANAGER' });
     actorId = actor.id;
@@ -163,7 +163,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
 
     it('refuses a second profile row and a key other than one', async () => {
       await expectRejection(
-        harness.prisma.$executeRaw`INSERT INTO clinic_public_profile (singleton_key) VALUES (1)`,
+        ownerPrisma().$executeRaw`INSERT INTO clinic_public_profile (singleton_key) VALUES (1)`,
         UNIQUE_VIOLATION,
         // PostgreSQL names the KEY in a unique violation, not the index, so the
         // assertion matches what the database actually says.
@@ -171,7 +171,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       );
 
       await expectRejection(
-        harness.prisma.$executeRaw`INSERT INTO clinic_public_profile (singleton_key) VALUES (2)`,
+        ownerPrisma().$executeRaw`INSERT INTO clinic_public_profile (singleton_key) VALUES (2)`,
         CHECK_VIOLATION,
         /clinic_public_profile_singleton_chk/,
       );
@@ -179,7 +179,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
 
     it('refuses to delete the profile', async () => {
       await expectRejection(
-        harness.prisma.$executeRaw`DELETE FROM clinic_public_profile WHERE singleton_key = 1`,
+        ownerPrisma().$executeRaw`DELETE FROM clinic_public_profile WHERE singleton_key = 1`,
         RESTRICT_VIOLATION,
         /clinic_public_profile/,
       );

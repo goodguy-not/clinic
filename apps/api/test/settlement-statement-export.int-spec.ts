@@ -117,7 +117,7 @@ describe('the settlement statement CSV export (checkpoint C8)', () => {
     let fixture: StatementFixture;
 
     beforeEach(async () => {
-      await resetDatabase(harness.prisma);
+      await resetDatabase();
       fixture = await seedStatementClinic(harness);
     });
 
@@ -594,7 +594,7 @@ describe('the settlement statement CSV export (checkpoint C8)', () => {
     let closeFixture: CloseFixture;
 
     beforeEach(async () => {
-      await resetDatabase(harness.prisma);
+      await resetDatabase();
       closeFixture = await seedCloseClinic(harness);
     });
 

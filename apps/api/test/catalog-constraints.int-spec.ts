@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * What the database refuses, proved against a real PostgreSQL.
@@ -41,7 +41,7 @@ describe('catalog database constraints', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
 
     const actor = await seedUser(harness, { role: 'MANAGER' });
     actorId = actor.id;
@@ -496,7 +496,7 @@ describe('catalog database constraints', () => {
       }
 
       await expectRejection(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM ${table}`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM ${table}`),
         RESTRICT_VIOLATION,
         /protected|not permitted/i,
       );
@@ -506,7 +506,7 @@ describe('catalog database constraints', () => {
       'refuses TRUNCATE on %s, which bypasses row triggers',
       async (table) => {
         await expectRejection(
-          harness.prisma.$executeRawUnsafe(`TRUNCATE ${table} CASCADE`),
+          ownerPrisma().$executeRawUnsafe(`TRUNCATE ${table} CASCADE`),
           RESTRICT_VIOLATION,
           /protected|not permitted/i,
         );
@@ -517,7 +517,7 @@ describe('catalog database constraints', () => {
       await insertTariff({});
 
       await expectRejection(
-        harness.prisma.$executeRawUnsafe('DELETE FROM tariff'),
+        ownerPrisma().$executeRawUnsafe('DELETE FROM tariff'),
         RESTRICT_VIOLATION,
         /protected|not permitted/i,
       );

@@ -57,7 +57,7 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedStatementClinic(harness);
   });
 

@@ -52,7 +52,7 @@ describe('payment concurrency (real PostgreSQL)', () => {
   let fixture: PaymentFixture;
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedPayingFamily(harness);
   });
 
@@ -189,7 +189,7 @@ describe('payment concurrency (real PostgreSQL)', () => {
     // `payment_promise -> payment`, rescheduling takes predecessor -> successor
     // within `payment_promise`. Run head-on, repeatedly, in both directions.
     for (let round = 0; round < 5; round += 1) {
-      await resetDatabase(harness.prisma);
+      await resetDatabase();
       fixture = await seedPayingFamily(harness);
 
       const paymentId = await insertPayment(harness, fixture, { amountToman: '400000' });

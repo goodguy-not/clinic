@@ -1,6 +1,6 @@
 import { CHILD_SEXES } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 
 /**
  * The hand-written half of the checkpoint A3 migration, pinned by name and then
@@ -33,7 +33,7 @@ describe('website request schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   async function constraintNames(): Promise<string[]> {
@@ -178,8 +178,7 @@ describe('website request schema objects', () => {
       await insert();
 
       await expect(
-        harness.prisma
-          .$executeRaw`DELETE FROM website_request WHERE contact_mobile = '09120000001'`,
+        ownerPrisma().$executeRaw`DELETE FROM website_request WHERE contact_mobile = '09120000001'`,
       ).rejects.toThrow();
 
       const rows = await harness.prisma.$queryRaw<{ live: bigint }[]>`
@@ -194,7 +193,7 @@ describe('website request schema objects', () => {
       // would be one statement away from gone.
       await insert();
 
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE website_request')).rejects.toThrow();
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE website_request')).rejects.toThrow();
     });
 
     it('uses the shared append-only function rather than a private one', async () => {

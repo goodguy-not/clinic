@@ -1,6 +1,6 @@
 import { TESTIMONIAL_KINDS } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 /**
  * The hand-written half of the checkpoint A7 migrations, pinned by name and
@@ -29,7 +29,7 @@ describe('public space schema objects', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     actorId = (await seedUser(harness, { role: 'MANAGER' })).id;
   });
 
@@ -235,10 +235,10 @@ describe('public space schema objects', () => {
       `;
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM public_space WHERE id = ${id}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM public_space WHERE id = ${id}::uuid`,
       ).rejects.toThrow();
       await expect(
-        harness.prisma.$executeRawUnsafe('TRUNCATE public_space CASCADE'),
+        ownerPrisma().$executeRawUnsafe('TRUNCATE public_space CASCADE'),
       ).rejects.toThrow();
     });
 

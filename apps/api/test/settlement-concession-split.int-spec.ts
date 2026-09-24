@@ -61,7 +61,7 @@ describe('therapist-borne concessions (checkpoint C4)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
   });
 

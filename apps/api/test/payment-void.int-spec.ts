@@ -47,7 +47,7 @@ describe('voiding a family payment', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedPayingFamily(harness);
   });
 
