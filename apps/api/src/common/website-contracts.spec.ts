@@ -29,9 +29,11 @@ import {
   serviceResponseSchema,
   serviceSchema,
   therapistProfileCopySchema,
+  therapistPublicProfileSchema,
   therapistSchema,
   updateServicePublicCopyRequestSchema,
   updateTherapistProfileCopyRequestSchema,
+  updateTherapistPublicProfileRequestSchema,
 } from '@clinic/contracts';
 
 /**
@@ -85,16 +87,30 @@ describe('public website contracts', () => {
       ]);
     });
 
-    it('states six facts about a published therapist', () => {
-      // `photo` is the sixth, added in Milestone 9.5 checkpoint A5. It sits
-      // BESIDE `photoPath` rather than replacing it because the two are
-      // different facts: a path a manager typed to a file a developer placed,
-      // and a photograph the clinic uploaded through the media subsystem.
+    it('has no legacy photograph path anywhere a therapist is written or read', () => {
+      // Removed with its column in the Milestone 9.5 stabilisation. Strict
+      // schemas, so a caller still sending it is refused rather than ignored.
+      expect(keysOf(therapistPublicProfileSchema)).not.toContain('photoPath');
+      expect(
+        updateTherapistPublicProfileRequestSchema.safeParse({
+          publicSlug: null,
+          displayName: null,
+          title: null,
+          bio: null,
+          displayOrder: 0,
+          photoPath: null,
+        }).success,
+      ).toBe(false);
+    });
+
+    it('states five facts about a published therapist', () => {
+      // `photo` was added in Milestone 9.5 checkpoint A5 beside the legacy
+      // manager-typed `photoPath`; the stabilisation removed `photoPath`, so
+      // the uploaded, metadata-free portrait is the only one.
       expect(keysOf(publicTherapistProfileSchema)).toEqual([
         'bio',
         'displayName',
         'photo',
-        'photoPath',
         'slug',
         'title',
       ]);
@@ -212,7 +228,6 @@ describe('public website contracts', () => {
         displayName: 'X',
         title: null,
         bio: null,
-        photoPath: null,
         photo: null,
       };
 
@@ -250,7 +265,6 @@ describe('public website contracts', () => {
             displayName: 'X',
             title: null,
             bio: null,
-            photoPath: null,
             photo: null,
             ...leak,
           }).success,

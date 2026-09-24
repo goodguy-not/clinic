@@ -123,7 +123,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
         displayName: 'Synthetic Display Name',
         title: 'Synthetic Public Title',
         bio: 'Synthetic biography written for a test.',
-        photoPath: null,
         displayOrder: 10,
       });
 
@@ -297,7 +296,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
           displayName: 'Synthetic Display Name',
           title: null,
           bio: null,
-          photoPath: null,
           displayOrder: 0,
         });
       await request(server())
@@ -504,7 +502,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
           displayName: 'Synthetic Display Name',
           title: null,
           bio: null,
-          photoPath: null,
           displayOrder: 0,
         });
       await request(server())

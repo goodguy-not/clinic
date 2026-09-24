@@ -710,12 +710,6 @@ model Therapist {
   publishedPublicDisplayName String?   @map("published_public_display_name")
   publishedPublicTitle       String?   @map("published_public_title")
   publishedPublicBio         String?   @map("published_public_bio")
-  /// The pre-media legacy path, deliberately NOT split into a draft and a
-  /// published copy: the accepted public site still reads it, the Web
-  /// checkpoint that finishes the A5 migration removes it, and splitting a
-  /// column in order to delete it would leave a backfill behind for nothing.
-  /// Manager-only; no editorial authority reaches it.
-  publicPhotoPath            String?   @map("public_photo_path")
   /// Ascending, ties broken by display name and then id, so the team page has
   /// one order rather than whatever PostgreSQL returns.
   publicDisplayOrder         Int       @default(0) @map("public_display_order")

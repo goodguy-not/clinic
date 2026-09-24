@@ -115,7 +115,6 @@ describe('public website reads (real PostgreSQL)', () => {
     displayName?: string | null;
     title?: string | null;
     bio?: string | null;
-    photoPath?: string | null;
     isPublic?: boolean;
     status?: 'ACTIVE' | 'INACTIVE';
     order?: number;
@@ -134,7 +133,7 @@ describe('public website reads (real PostgreSQL)', () => {
         -- fixtures describe a profile the clinic has published. The public
         -- reads select these three and never the drafts above.
         published_public_display_name, published_public_title, published_public_bio,
-        public_photo_path, public_display_order, created_by_user_id
+        public_display_order, created_by_user_id
       ) VALUES (
         ${id}::uuid,
         ${options.fullName ?? 'Synthetic Personnel Name'},
@@ -149,7 +148,6 @@ describe('public website reads (real PostgreSQL)', () => {
         ${options.displayName === undefined ? 'Synthetic Public Name' : options.displayName},
         ${options.title ?? null},
         ${options.bio ?? null},
-        ${options.photoPath ?? null},
         ${options.order ?? 0},
         ${actorId}::uuid
       )
@@ -340,7 +338,6 @@ describe('public website reads (real PostgreSQL)', () => {
         displayName: 'Approved Public Name',
         title: null,
         bio: null,
-        photoPath: null,
         // Milestone 9.5: no uploaded portrait, and null rather than absent. A
         // therapist with no published photograph is a therapist the media
         // subsystem has nothing to say about.
@@ -374,7 +371,6 @@ describe('public website reads (real PostgreSQL)', () => {
         slug: 'published-therapist',
         title: 'Approved Public Title',
         bio: 'Approved synthetic biography.',
-        photoPath: 'team/synthetic.jpg',
       });
       await seedTherapist({ slug: 'private-therapist', isPublic: false });
       await seedTherapist({ slug: 'departed-therapist', status: 'INACTIVE' });
@@ -388,7 +384,6 @@ describe('public website reads (real PostgreSQL)', () => {
         displayName: 'Synthetic Public Name',
         title: 'Approved Public Title',
         bio: 'Approved synthetic biography.',
-        photoPath: 'team/synthetic.jpg',
         photo: null,
       });
 

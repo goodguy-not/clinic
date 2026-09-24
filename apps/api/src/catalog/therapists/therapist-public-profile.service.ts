@@ -71,7 +71,6 @@ export type ProfileRow = {
   published_public_title: string | null;
   published_public_bio: string | null;
   has_unpublished_changes: boolean;
-  public_photo_path: string | null;
   public_display_order: number;
   public_first_published_at: Date | null;
   public_revised_at: Date | null;
@@ -100,7 +99,6 @@ export const PROFILE_COLUMNS = Prisma.sql`
           t.published_public_bio
         )
   ) AS has_unpublished_changes,
-  t.public_photo_path,
   t.public_display_order,
   t.public_first_published_at,
   t.public_revised_at
@@ -133,12 +131,10 @@ export class TherapistPublicProfileService {
    * leave a live page nameless is what `therapist_public_profile_chk` refuses,
    * as `THERAPIST_PUBLIC_PROFILE_INCOMPLETE`.
    *
-   * `public_photo_path` IS THE EXCEPTION AND IS STILL LIVE. It is the pre-media
-   * legacy path the accepted public site still reads, deliberately not split
-   * because the Web checkpoint that finishes the A5 migration removes it; a
-   * manager changing it changes the page at once, exactly as before. It is the
-   * only thing this method can still do that a visitor sees, which is why it is
-   * the only thing that stamps `public_revised_at`.
+   * IT NEVER STAMPS `public_revised_at`. Until the Milestone 9.5 stabilisation
+   * the legacy photograph path was the one live field on this form, and the
+   * only reason this method could; that path is gone, and a portrait is now a
+   * media attachment whose publication is its own manager act.
    */
   async update(
     therapistId: string,
@@ -149,7 +145,6 @@ export class TherapistPublicProfileService {
     const displayName = canonicalOptionalText(input.displayName);
     const title = canonicalOptionalText(input.title);
     const bio = canonicalOptionalText(input.bio);
-    const photoPath = canonicalOptionalText(input.photoPath);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, therapistId);
@@ -159,12 +154,6 @@ export class TherapistPublicProfileService {
         input.publicSlug,
       );
 
-      // The sitemap's last-modified is a statement about the PUBLISHED page, so
-      // from A6 it moves only when this write actually changes one. Every prose
-      // column here is a draft now; the legacy photograph path is not, and is
-      // the one thing left on this form that a visitor sees change.
-      const revisesPublishedPage = before.is_public && before.public_photo_path !== photoPath;
-
       try {
         await tx.$executeRaw`
           UPDATE therapist
@@ -172,12 +161,7 @@ export class TherapistPublicProfileService {
               public_display_name = ${displayName},
               public_title = ${title},
               public_bio = ${bio},
-              public_photo_path = ${photoPath},
-              public_display_order = ${input.displayOrder},
-              public_revised_at = CASE
-                WHEN ${revisesPublishedPage} THEN transaction_timestamp()
-                ELSE public_revised_at
-              END
+              public_display_order = ${input.displayOrder}
           WHERE id = ${therapistId}::uuid
         `;
       } catch (error) {
@@ -346,7 +330,6 @@ function profileAudit(row: ProfileRow): Record<string, string | number | boolean
     publicSlug: row.public_slug,
     displayName: row.public_display_name,
     title: row.public_title,
-    photoPath: row.public_photo_path,
     displayOrder: row.public_display_order,
     bioLength: row.public_bio === null ? 0 : row.public_bio.length,
     isPublic: row.is_public,
@@ -364,7 +347,6 @@ export function toProfile(row: ProfileRow): TherapistPublicProfile {
     publishedTitle: row.published_public_title,
     publishedBio: row.published_public_bio,
     hasUnpublishedChanges: row.has_unpublished_changes,
-    photoPath: row.public_photo_path,
     displayOrder: row.public_display_order,
     isPublic: row.is_public,
     firstPublishedAt:

@@ -128,7 +128,6 @@ describe('editorial public copy (real PostgreSQL)', () => {
         displayName: 'نام عمومی نمونه',
         title: 'عنوان عمومی نمونه',
         bio: 'زندگی‌نامهٔ نمونهٔ منتشرشده.',
-        photoPath: null,
         displayOrder: 1,
         ...overrides,
       });
@@ -491,7 +490,6 @@ describe('editorial public copy (real PostgreSQL)', () => {
       ).profile;
 
       expect(profile.publicSlug).toBe('synthetic-colleague');
-      expect(profile.photoPath).toBeNull();
       expect(profile.displayOrder).toBe(1);
       expect(profile.isPublic).toBe(true);
       // The refusal wrote nothing at all, the name included.
@@ -590,14 +588,17 @@ describe('editorial public copy (real PostgreSQL)', () => {
   // --- rollout --------------------------------------------------------------
 
   describe('rollout compatibility', () => {
-    it('still serves the legacy photograph path a manager set', async () => {
-      // The pre-media path is deliberately NOT split and is deliberately not
-      // removed: the accepted public site still reads it, and the Web
-      // checkpoint that finishes the A5 migration is what takes it away.
-      await writeProfile(manager, { photoPath: 'team/synthetic.jpg' });
-      await setVisibility(manager, true);
+    it('refuses the removed legacy photograph path, even from a manager', async () => {
+      // Dropped with its column in the Milestone 9.5 stabilisation. The request
+      // schema is strict, so a stale client sending it is refused whole rather
+      // than having the field silently ignored.
+      await publishColleague();
 
-      expect((await publicTeam())[0]).toMatchObject({ photoPath: 'team/synthetic.jpg' });
+      const refused = await writeProfile(manager, { photoPath: 'team/synthetic.jpg' });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error.code).toBe('VALIDATION_FAILED');
+
+      expect(Object.keys((await publicTeam())[0]!)).not.toContain('photoPath');
     });
 
     it('publishes a service and its prepared description in one manager act', async () => {

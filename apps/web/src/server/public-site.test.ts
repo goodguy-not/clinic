@@ -33,7 +33,6 @@ describe('public website reads', () => {
             displayName: 'درمانگر نمونه',
             title: null,
             bio: null,
-            photoPath: null,
             // Milestone 9.5: an uploaded portrait, or null. Never absent.
             photo: null,
           },
@@ -112,7 +111,6 @@ describe('public website reads', () => {
           displayName: 'درمانگر عمومی',
           title: null,
           bio: null,
-          photoPath: null,
           photo: null,
         },
       },

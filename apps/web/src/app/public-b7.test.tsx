@@ -111,7 +111,6 @@ describe('M9.5 B7 managed public rendering', () => {
             displayName: 'درمانگر نمونه',
             title: null,
             bio: null,
-            photoPath: 'legacy/full-size-portrait.jpg',
             photo: null,
           },
         ]}

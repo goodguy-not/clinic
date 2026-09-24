@@ -861,7 +861,6 @@ async function publishSyntheticPublicSite(
         displayName: `درمانگر نمونه ${index + 1} (${runTag})`,
         title: `عنوان عمومی نمونه ${index + 1}`,
         bio: `زندگی‌نامه نمونه و کاملاً ساختگی برای درمانگر ${index + 1} (${runTag}).`,
-        photoPath: null,
         displayOrder: index + 1,
       },
       manager,

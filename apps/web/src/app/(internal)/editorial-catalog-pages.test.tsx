@@ -50,7 +50,6 @@ const PROFILE: TherapistPublicProfile = {
   publishedTitle: COPY.publishedTitle,
   publishedBio: COPY.publishedBio,
   hasUnpublishedChanges: true,
-  photoPath: null,
   displayOrder: 2,
   isPublic: true,
   firstPublishedAt: '2026-09-01T00:00:00.000Z',

@@ -118,7 +118,6 @@ type PublicTherapistRow = {
   published_public_display_name: string;
   published_public_title: string | null;
   published_public_bio: string | null;
-  public_photo_path: string | null;
 };
 
 type PublicArticleRow = {
@@ -305,9 +304,9 @@ export class PublicSiteService {
    * EVERY PROSE COLUMN SELECTED HERE IS THE PUBLISHED ONE (Milestone 9.5,
    * checkpoint A6). The drafts beside them are what a manager, or a
    * receptionist holding the narrow editorial authority, is currently working
-   * on, and this query cannot return one. `public_photo_path` is the exception
-   * and is not split: it is the pre-media legacy path, manager-only, and the
-   * Web checkpoint that finishes the A5 migration removes it.
+   * on, and this query cannot return one. The portrait is a media attachment
+   * and nothing else; the legacy manager-typed path was removed in the
+   * Milestone 9.5 stabilisation.
    *
    * `status = 'ACTIVE'` is separate from all of that: a colleague who has left
    * stops appearing on the website without anybody having to remember to clear
@@ -320,7 +319,7 @@ export class PublicSiteService {
   async listTeam(): Promise<PublicTherapistProfile[]> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
       SELECT t.id AS internal_id, t.public_slug, t.published_public_display_name,
-             t.published_public_title, t.published_public_bio, t.public_photo_path
+             t.published_public_title, t.published_public_bio
       FROM therapist t
       WHERE ${therapistIsPublic('t')}
       ORDER BY t.public_display_order ASC, t.published_public_display_name ASC, t.id ASC
@@ -342,7 +341,7 @@ export class PublicSiteService {
   async getTherapist(slug: string): Promise<PublicTherapistProfile> {
     const rows = await this.prisma.$queryRaw<PublicTherapistRow[]>`
       SELECT t.id AS internal_id, t.public_slug, t.published_public_display_name,
-             t.published_public_title, t.published_public_bio, t.public_photo_path
+             t.published_public_title, t.published_public_bio
       FROM therapist t
       WHERE t.public_slug = ${slug}
         AND ${therapistIsPublic('t')}
@@ -720,7 +719,6 @@ function toPublicTherapistProfile(
     displayName: row.published_public_display_name,
     title: row.published_public_title,
     bio: row.published_public_bio,
-    photoPath: row.public_photo_path,
     photo,
   };
 }

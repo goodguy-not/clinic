@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicMediaPathSchema, publicProseSchema, publicSlugSchema } from './common';
+import { publicProseSchema, publicSlugSchema } from './common';
 import { publicHeadingSchema } from './common';
 
 /**
@@ -29,11 +29,9 @@ import { publicHeadingSchema } from './common';
  * longer moves a live page, whoever prepares it, and `hasUnpublishedChanges`
  * is how a manager is told there is something to decide.
  *
- * `photoPath` HAS NO PUBLISHED COUNTERPART AND KEEPS ITS OLD BEHAVIOUR. It is
- * the pre-media legacy path, still read by the public projection while the
- * accepted public site depends on it, and the checkpoint that removes that
- * dependency removes the column rather than splitting it. It is manager-only
- * and no drafting authority reaches it, so no editorial act can move it.
+ * THERE IS NO `photoPath`. The pre-media legacy path was removed, column and
+ * field, in the Milestone 9.5 stabilisation once the web tier stopped reading
+ * it; a portrait is a media attachment (`THERAPIST_PROFILE`) and nothing else.
  *
  * `publicSlug` HAS NO PUBLISHED COUNTERPART EITHER, for the reason an
  * article's has none: it is immutable from the first publication, so the two
@@ -49,7 +47,6 @@ export const therapistPublicProfileSchema = z.strictObject({
   publishedTitle: z.string().nullable(),
   publishedBio: z.string().nullable(),
   hasUnpublishedChanges: z.boolean(),
-  photoPath: publicMediaPathSchema.nullable(),
   displayOrder: z.number().int(),
   isPublic: z.boolean(),
   firstPublishedAt: z.iso.datetime().nullable(),
@@ -79,7 +76,6 @@ export const updateTherapistPublicProfileRequestSchema = z.strictObject({
   displayName: publicHeadingSchema.max(120).nullable(),
   title: publicHeadingSchema.max(120).nullable(),
   bio: publicProseSchema.max(4000).nullable(),
-  photoPath: publicMediaPathSchema.nullable(),
   displayOrder: z.number().int().min(-1000).max(1000),
 });
 

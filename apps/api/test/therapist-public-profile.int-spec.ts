@@ -60,7 +60,6 @@ describe('therapist public profile (real PostgreSQL)', () => {
     displayName: 'Synthetic Display Name',
     title: 'Synthetic Public Title',
     bio: 'Synthetic biography written for a test.',
-    photoPath: 'team/synthetic.jpg',
     displayOrder: 10,
     ...overrides,
   });

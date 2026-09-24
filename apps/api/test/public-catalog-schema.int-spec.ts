@@ -113,7 +113,6 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
           'therapist_public_display_name_chk',
           'therapist_public_title_chk',
           'therapist_public_bio_chk',
-          'therapist_public_photo_path_chk',
           'therapist_public_profile_chk',
           'service_public_first_published_chk',
           'therapist_public_first_published_chk',
@@ -481,21 +480,20 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       }
     });
 
-    it('refuses a photo path that could point somewhere else', async () => {
-      for (const invalid of [
-        '/team/photo.jpg',
-        '../secrets/photo.jpg',
-        'team/../photo.jpg',
-        'https://example.invalid/photo.jpg',
-        'Team/Photo.JPG',
-      ]) {
-        await expectRejection(
-          harness.prisma
-            .$executeRaw`UPDATE therapist SET public_photo_path = ${invalid} WHERE id = ${therapistId}::uuid`,
-          CHECK_VIOLATION,
-          /therapist_public_photo_path_chk/,
-        );
-      }
+    it('no longer has the legacy photograph path or its constraint', async () => {
+      // Dropped in the Milestone 9.5 stabilisation; a portrait is a media
+      // attachment and nothing else.
+      const columns = await harness.prisma.$queryRaw<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'therapist' AND column_name = 'public_photo_path'
+      `;
+
+      const constraints = await harness.prisma.$queryRaw<{ conname: string }[]>`
+        SELECT conname FROM pg_constraint WHERE conname = 'therapist_public_photo_path_chk'
+      `;
+
+      expect(columns).toEqual([]);
+      expect(constraints).toEqual([]);
     });
   });
 

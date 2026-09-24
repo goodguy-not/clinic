@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicMediaPathSchema, publicSlugSchema } from './common';
+import { publicSlugSchema } from './common';
 import { publicImageSchema } from '../media/common';
 
 /**
@@ -29,15 +29,12 @@ export const publicTherapistProfileSchema = z.strictObject({
   displayName: z.string(),
   title: z.string().nullable(),
   bio: z.string().nullable(),
-  photoPath: publicMediaPathSchema.nullable(),
   /**
    * The uploaded portrait, in every size the browser may choose between.
    *
-   * Milestone 9.5, checkpoint A5. It is a SIXTH field rather than a replacement
-   * for `photoPath`, and the two answer different questions: `photoPath` is a
-   * path a manager typed to a file a developer placed, and `photo` is a
-   * photograph the clinic uploaded, stripped of its metadata and derived into a
-   * responsive set. Both are nullable and a profile may carry neither.
+   * Milestone 9.5, checkpoint A5. Since the Milestone 9.5 stabilisation it is
+   * the ONLY portrait field: the manager-typed legacy `photoPath` was removed,
+   * column and field. A profile may have no portrait at all.
    *
    * IT IS PRESENT ONLY WHILE EVERY GATE IS OPEN. The asset is active, the
    * attachment to this therapist is undetached and published, and this

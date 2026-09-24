@@ -130,7 +130,6 @@ describe('owner revocation takes the photograph with it (real PostgreSQL)', () =
         displayName: 'Synthetic Display Name',
         title: 'Synthetic Public Title',
         bio: 'Synthetic biography written for a test.',
-        photoPath: null,
         displayOrder: 10,
       })
       .expect(200);

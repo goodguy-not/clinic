@@ -128,7 +128,6 @@ describe('M9 B5 public metadata policy', () => {
         displayName: 'درمانگر عمومی',
         title: 'عنوان عمومی',
         bio: 'زندگی‌نامهٔ عمومی تأییدشده',
-        photoPath: null,
       },
     });
     reads.article.mockResolvedValue({
