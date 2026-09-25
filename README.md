@@ -82,12 +82,13 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-| Endpoint                           | Purpose                                       |
-| ---------------------------------- | --------------------------------------------- |
-| `http://localhost:3001/health`     | API liveness; does not touch the database     |
-| `http://localhost:3001/health/db`  | Database reachability; needs the internal key |
-| `http://localhost:3000/api/health` | Web health, including API reachability        |
-| `http://localhost:3000/login`      | Sign in                                       |
+| Endpoint                             | Purpose                                         |
+| ------------------------------------ | ----------------------------------------------- |
+| `http://localhost:3001/health`       | API liveness; does not touch the database       |
+| `http://localhost:3001/health/ready` | Readiness: database and media directory; no key |
+| `http://localhost:3001/health/db`    | Database reachability; needs the internal key   |
+| `http://localhost:3000/api/health`   | Web health, including API reachability          |
+| `http://localhost:3000/login`        | Sign in                                         |
 
 The development database is published on host port **5433**, not 5432, so it does not
 collide with a locally installed PostgreSQL.
@@ -189,6 +190,7 @@ A second login — say a separately attributable one for the CLI — needs only
 | API server (`node dist/main.js`)                             | `clinic_app`         |
 | `cli bootstrap-manager`, `cli reset-password`                | `clinic_app`         |
 | `cli purge-website-requests` (the ninety-day erase-in-place) | `clinic_app`         |
+| `cli run-jobs` (the nightly jobs, Milestone 10 A3)           | `clinic_app`         |
 | Synthetic clinic seeder (development only)                   | `clinic_app`         |
 | Integration tests — the API under test                       | `clinic_app`         |
 | Integration tests — the reset (`TEST_OWNER_DATABASE_URL`)    | `clinic_owner`       |
@@ -196,25 +198,26 @@ A second login — say a separately attributable one for the CLI — needs only
 | `scripts/backup/restore.sh` into an empty database           | `clinic_owner`       |
 
 Every CLI command runs through the same NestJS services as the API and needs nothing the
-API does not. There is **no media orphan-ageing job**: media retention is an open owner
-decision (DECISION_LOG, 2026-09-08). When it lands, its erasure is an `UPDATE` of
-`media_asset` and `media_rendition`, and `media_rendition` holds no `UPDATE` today — its
-migration must grant it, reasoned, like any other widening.
+API does not. The nightly jobs (Milestone 10, checkpoint A3; [Scheduled jobs](#scheduled-jobs))
+added exactly two privileges, each narrowed by a trigger to the one act a job performs:
+`DELETE` on `user_session` (only sessions over for thirty days) and `UPDATE` on
+`media_rendition` (only the erasure of a photograph that is due).
 
 ### The privilege matrix
 
 Migration `20260925120000_m10_a1_runtime_role` grants, derived from the statements the
-application actually runs:
+application actually runs, as widened by `20260926090000_m10_a3_scheduled_jobs_and_erasure`
+for the nightly jobs:
 
-| Privileges                  | Tables                                                                                                                                                                                                                                                                                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SELECT, INSERT              | `audit_log`, `media_rendition`, `settlement_period`, `settlement_line` — append-only                                                                                                                                                                                                                                                                |
-| SELECT, UPDATE              | `clinic_public_profile`, `clinic_content_entry` — rows created by migrations                                                                                                                                                                                                                                                                        |
-| SELECT, INSERT, DELETE      | `therapist_service`, `room_service`, `service_duration`, `therapist_availability`, `therapist_availability_exception`, `guardian` — replaced by delete-and-insert                                                                                                                                                                                   |
-| SELECT, INSERT, UPDATE, DEL | `registration_draft` — transient, consumed and removed                                                                                                                                                                                                                                                                                              |
-| SELECT, INSERT, UPDATE      | every other table: users and sessions, catalog, families and children, appointments and series, charges, adjustments, payments, promises, share rules, ratings, public content, website requests, media assets and attachments. Their immutable columns stay guarded by their own triggers; `appointment_series` holds UPDATE only for `FOR UPDATE` |
-| USAGE                       | `child_file_number_seq` — `nextval`, never `setval`                                                                                                                                                                                                                                                                                                 |
-| nothing                     | `_prisma_migrations`; `TRUNCATE`, `REFERENCES` and `TRIGGER` on anything; `CREATE` on the schema or database; `TEMPORARY`                                                                                                                                                                                                                           |
+| Privileges                  | Tables                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SELECT, INSERT              | `audit_log`, `settlement_period`, `settlement_line` — append-only                                                                                                                                                                                                                                                                                                                                                                   |
+| SELECT, UPDATE              | `clinic_public_profile`, `clinic_content_entry`, `scheduled_job` — rows created by migrations                                                                                                                                                                                                                                                                                                                                       |
+| SELECT, INSERT, DELETE      | `therapist_service`, `room_service`, `service_duration`, `therapist_availability`, `therapist_availability_exception`, `guardian` — replaced by delete-and-insert                                                                                                                                                                                                                                                                   |
+| SELECT, INSERT, UPDATE, DEL | `registration_draft` — transient, consumed and removed; `user_session` — DELETE only of a session over for 30 days (trigger)                                                                                                                                                                                                                                                                                                        |
+| SELECT, INSERT, UPDATE      | every other table: users, catalog, families and children, appointments and series, charges, adjustments, payments, promises, share rules, ratings, public content, website requests, media assets and attachments; `media_rendition`, whose only permitted UPDATE is the erasure of a due photograph (trigger). Their immutable columns stay guarded by their own triggers; `appointment_series` holds UPDATE only for `FOR UPDATE` |
+| USAGE                       | `child_file_number_seq` — `nextval`, never `setval`                                                                                                                                                                                                                                                                                                                                                                                 |
+| nothing                     | `_prisma_migrations`; `TRUNCATE`, `REFERENCES` and `TRIGGER` on anything; `CREATE` on the schema or database; `TEMPORARY`                                                                                                                                                                                                                                                                                                           |
 
 So every historical table — money above all — refuses `DELETE` twice: by privilege for the
 runtime, and by its own trigger for anybody who does hold the privilege. Where the runtime
@@ -293,8 +296,11 @@ own key and encrypted to the owner's key**. Inside the encryption:
 **Why the pair is consistent.** One `REPEATABLE READ` snapshot is exported,
 `pg_dump --snapshot` reads it, and the manifest is computed in the same snapshot —
 so the file list is exactly what the dumped rows refer to. The API writes a file
-before the row naming it commits and never deletes a stored file, so each listed
-file already exists and still exists a moment later; the script then **checks**
+before the row naming it commits, so each listed file already exists; the one thing
+that deletes a stored file — the nightly media erasure — must first take an advisory
+lock the backup holds from before its snapshot until its last file is copied, so each
+listed file still exists when it is copied ([Media erasure never breaks a
+backup](#media-erasure-never-breaks-a-backup)); the script then **checks**
 that, copying each one and comparing its hash with its row. A missing or altered
 file stops the backup before anything is written. Files no committed row names
 (a failed or in-flight upload) are not archived: they are not part of any
@@ -496,15 +502,28 @@ overwrite a live system.
    target and start again from step 3.
 
 6. **Re-apply erasures that happened after the backup was taken** — the backup
-   still holds website requests the ninety-day rule has since erased:
+   still holds website requests, photographs and testimonials the nightly jobs have
+   since erased. Run every job once; each one is safe to run at any time:
 
    ```bash
-   pnpm --filter @clinic/api exec node dist/cli/main.js purge-website-requests
+   pnpm --filter @clinic/api exec node dist/cli/main.js run-jobs
    ```
 
-7. **Start the API, then build and start the web** against it. Public listing pages
+   It must print four `SUCCEEDED` lines. A testimonial withdrawal recorded after the
+   backup was taken is not in it: ask the manager to record it again.
+
+7. **Start the API**, and check it is ready — the database answers and the media
+   directory takes a write — with no credential:
+
+   ```bash
+   curl -fsS http://127.0.0.1:<API_PORT>/health/ready
+   ```
+
+   It must answer `{"status":"ok","checks":{"database":"ok","media":"ok"}}`. **Then
+   build and start the web** against it. Public listing pages
    are prerendered at build time and revalidated every fifteen minutes; a web built
    while the API was unreachable shows empty listings until then.
+
 8. **Check the live site** — every public page within two links of the home page
    answers, every image they reference is served, and a colleague can sign in, reach
    the dashboard and sign out (a real, audited sign-in; the password is read from
@@ -584,10 +603,12 @@ later erases:
   backup is removed: **30 days** on the server and the clinic computer, and **up to
   about a month** on the external drive, whose copy is replaced monthly. So a request's
   content can survive about **four months** after it was closed, not three.
-- The same holds for anything erased in future (media retention, when decided) and
-  for every correction's previous value.
-- A restore brings erased requests back until `purge-website-requests` runs again,
-  which is why the runbook runs it before the system is used.
+- The same holds for erased photographs (thirty days after upload if never attached,
+  thirty days after archiving) and erased testimonials (within seven days of a
+  withdrawal): each can survive in backups for up to 30 more days, about a month on the
+  external drive — and for every correction's previous value.
+- A restore brings erased content back until `run-jobs` runs again, which is why the
+  runbook runs it before the system is used.
 
 The owner has decided the privacy notice states the backup retention alongside the
 ninety days; the wording is the owner's.
@@ -624,6 +645,100 @@ Synthetic data only; every password and key is generated for the run.
   PostgreSQL holds only `ACCESS SHARE` locks, so the only thing it blocks is DDL —
   do not deploy a migration during a backup.
 - The external drive's copy is manual; nothing records whether it was made.
+
+## Scheduled jobs, health and logging (Milestone 10, checkpoint A3)
+
+### Scheduled jobs
+
+Four jobs keep promises nobody should have to remember. `cli run-jobs` runs them in this
+order, one line per job, counts only:
+
+| Job                     | What it does                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WEBSITE_REQUEST_PURGE` | the ninety-day erase-in-place of closed, never-linked website requests (Milestone 9, A4)                                                                               |
+| `SESSION_PRUNE`         | deletes staff sessions that ended (expired or revoked) more than 30 days ago                                                                                           |
+| `TESTIMONIAL_ERASURE`   | for each testimonial whose family withdrew consent: erases the words and attribution, and the bytes of every photograph ever attached to it (owner: within seven days) |
+| `MEDIA_ERASURE`         | erases the bytes of a photograph never attached for 30 days, or archived for 30 days (owner decision); then removes anything an interrupted erasure left on disk       |
+
+**Owner decisions** (DECISION_LOG, 2026-09-26): never attached — erased after 30 days;
+archived — restorable for 30 days, then erased; testimonial consent withdrawn — the
+manager takes it off the site at once (`POST /content/testimonials/:id/consent-withdrawal`),
+and the words and photographs are erased within seven days.
+
+**What erasure leaves.** The row, in the `website_request` pattern: the library still lists
+an erased photograph with `bytesPurgedAt`, and it can no longer be attached, published or
+restored (`MEDIA_NOT_FOUND`); a withdrawn testimonial is gone from every staff read, and
+`GET /content/testimonials/consent-withdrawals` lists withdrawals by date only. The audit
+trail has `media.bytes_erased` (with the rule), `public_testimonial.consent_withdrawn` and
+`public_testimonial.content_erased` — never the content. The database refuses an erasure that
+is not due, and makes erasure and withdrawal final.
+
+**Safe to run twice**, concurrently or after a crash: every job re-checks each row under a
+lock, and what it has done no longer matches. `--dry-run` prints how much each job would do
+and writes nothing; `--only <JOB>` runs one.
+
+**Least privilege.** The jobs run as the API's OS user and `clinic_app`, through the same
+services as the API. They added `DELETE` on `user_session` and `UPDATE` on
+`media_rendition` to `clinic_runtime`, each narrowed by a trigger (see [Database
+roles](#database-roles)), and `SELECT, UPDATE` on `scheduled_job`.
+
+**Setting up the server.** Install `scripts/ops/systemd/clinic-jobs.service` and
+`clinic-jobs.timer` in `/etc/systemd/system/`, adjust the user, paths and environment file
+to the API's, then `systemctl enable --now clinic-jobs.timer`. It runs at 04:15 Tehran
+time, after the 02:30 backup; `Persistent=true` runs a missed night at boot. Run it once by
+hand first (`systemctl start clinic-jobs` and `journalctl -u clinic-jobs`). A failed job
+exits non-zero.
+
+**The manager sees it.** Each job that finishes all of its work records when
+(`scheduled_job.last_succeeded_at`, and a `scheduled_job.succeeded` audit row). `GET
+/operations/job-status` (`user.read`, manager-only) reports each job as `OK`, `STALE` (no
+success for 48 hours) or `NEVER_RUN`, beside the backup status; the dashboard banner is the
+Web's (`docs/M10_A3_WEB_HANDOFF.md`).
+
+### Media erasure never breaks a backup
+
+`backup.sql` takes `pg_advisory_lock_shared(4919, 10)` before its snapshot and holds it until
+`copy-media.sh` — run inside the same session — has copied the last file. An erasure takes
+the same lock exclusively before changing a row and commits while holding it, then unlinks
+the files. So no erasure commits while a backup could need its files, and later backups never
+look for them. If a backup is running, the job waits up to 30 minutes, then leaves the rest
+for the next night — that run is `INCOMPLETE` and not a success, so a job that keeps
+colliding shows as `STALE`.
+
+### Health checks
+
+| Route               | Credential   | Answers                                                                                |
+| ------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| `GET /health`       | none         | liveness: the process is up (uptime only)                                              |
+| `GET /health/ready` | none         | `200` or `503`, `{"status","checks":{"database","media"}}`, each `ok` or `unavailable` |
+| `GET /health/db`    | internal key | database reachability with latency, for the Web tier                                   |
+
+Readiness runs `SELECT 1` (2-second timeout) and writes and removes one probe file in the
+media root, which it never creates; concurrent probes share one check, reused for 2 seconds.
+It reveals no path, version, latency or error text — a failure's kind goes to the log, once
+per change of state. The deployment and restore runbooks, and the drill, use it.
+
+### Logging
+
+**Production logs carry no personal data, no request bodies, no photo descriptions or file
+names and no session tokens.** What is logged today:
+
+| Where                                   | What                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ErrorEnvelopeFilter`, 5xx only         | request id, the error's class, driver code, SQLSTATE, constraint name; stack frames |
+| `SecurityLog` (rejections, not audited) | event, reason, request id — no username, no address                                 |
+| Readiness, DB health, backup status     | which check failed and the error's kind                                             |
+| Start-up                                | the port; an invalid environment names variables, never values                      |
+| CLI (`run-jobs` and the others)         | counts; an error's kind                                                             |
+
+**An unexpected error's message is never logged** (`describe-error.ts`): PostgreSQL puts
+row values in it, Prisma puts call arguments in it, a parse error quotes the body. Find a
+production error by its request id, which the user sees and the audit row carries.
+`log-hygiene.int-spec.ts` and `describe-error.spec.ts` pin this.
+
+**Rotation.** Every process runs under systemd and logs to the journal. Install
+`scripts/ops/systemd/journald-clinic.conf` as `/etc/systemd/journald.conf.d/clinic.conf`
+and restart `systemd-journald`: at most 1 GB, at most one month.
 
 ## Authentication and audit (Milestone 1)
 
@@ -720,7 +835,7 @@ Permission _names_ live in `@clinic/contracts` so the web tier can decide what t
 The authoritative role-to-permission map lives in `apps/api` and nowhere else.
 
 Four access classifications, one per route, deny-by-default: `PublicEndpoint` (`/health`
-only), `InternalOnly` (internal key, no session — `/health/db` and `/auth/login`),
+and `/health/ready` only), `InternalOnly` (internal key, no session — `/health/db` and `/auth/login`),
 `AuthenticatedOnly`, and `RequirePermissions`. A route carrying none is rejected by the
 first guard **and** fails a coverage test.
 

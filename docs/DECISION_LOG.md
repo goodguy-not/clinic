@@ -4705,7 +4705,8 @@ the web tier and are not part of this uploader.
 
 ## 2026-09-08 — Media retention is deliberately undecided, and nothing in the code assumes an answer
 
-**Status:** Open — Milestone 9.5 checkpoint A5 (owner decision required)
+**Status:** Superseded — resolved by "Owner: media and testimonial retention" (2026-09-26).
+Originally Open — Milestone 9.5 checkpoint A5 (owner decision required)
 
 Archiving a photograph stops it being served everywhere at once and is
 reversible. It does **not** remove bytes. There is no `deleted_at`, no purge
@@ -5722,3 +5723,226 @@ unreadable are warnings too. The screen is `docs/M10_A2_BACKUP_STATUS_WEB_HANDOF
   still could not touch a backup). No warning appears until the web half ships.
 - **Revisit when:** cloud storage is added (report the newest object there too), or a
   second collector exists.
+
+## 2026-09-26 — Owner: media and testimonial retention
+
+**Status:** Accepted — owner decision, Milestone 10 checkpoint A3. Resolves "Media
+retention is deliberately undecided" (2026-09-08).
+
+- **Uploaded, never attached anywhere:** the bytes are erased 30 days after upload.
+- **Archived by a manager:** restorable for 30 days, then the bytes are erased.
+- **A family withdraws testimonial consent:** the manager takes it off the site at once;
+  the photograph(s) and the testimonial's words are erased within 7 days. The audit
+  trail keeps that it happened, never the erased content.
+
+Implemented as the nightly `MEDIA_ERASURE` and `TESTIMONIAL_ERASURE` jobs (below). The
+constants are in `@clinic/contracts` (`MEDIA_UNATTACHED_ERASURE_DAYS`,
+`MEDIA_ARCHIVED_ERASURE_DAYS`, `TESTIMONIAL_CONSENT_ERASURE_DAYS`) and, independently, in
+the database's erasure guard.
+
+## 2026-09-26 — Erasure is of the bytes, in place, and the database refuses one that is not due
+
+**Status:** Accepted — Milestone 10 checkpoint A3
+
+A photograph's erasure clears `master_storage_key` and every rendition's `storage_key`,
+stamps `bytes_purged_at`, removes the files and writes `media.bytes_erased` (actor
+`SYSTEM`, `metadata.rule` only). The asset row stays in the library. A testimonial's
+erasure clears `body` and `author_label`, stamps `content_erased_at` and writes
+`public_testimonial.content_erased` with an empty payload; its photographs go in the same
+transaction. Migration `20260926090000_m10_a3_scheduled_jobs_and_erasure` adds
+`media_asset_erasure_is_due` (the owner's three rules in SQL), `media_asset_erasure_guard`,
+`media_rendition_erasure_only`, `public_testimonial_withdrawal_chk`,
+`public_testimonial_erasure_chk` and `public_testimonial_withdrawal_is_final`: an erasure
+the database does not consider due is refused, both acts are final, and an erased
+photograph cannot be restored, attached or published (`MEDIA_NOT_FOUND`).
+
+- **Alternatives:** delete the rows (lifting `no_delete`); erase text immediately in the
+  manager's transaction; erase only the photographs currently attached to a withdrawn
+  testimonial; a new `MEDIA_ERASED` error code.
+- **Reason:** the `website_request` precedent — the row says something existed and when
+  its content went, and nothing it contained. One nightly routine erases words and
+  photographs together, under the lock that keeps backups whole. "Ever attached" is the
+  privacy-safe reading: a photographed handwritten note detached last month is still the
+  family's. A new error code would fail the Web's translation test until Agent B adds the
+  Persian; the library already shows `bytesPurgedAt`, which says why.
+- **Trade-off:** a photograph that was ever attached to a withdrawn testimonial is erased
+  everywhere, including another page that uses it. **The description (`alt_text`) is kept**
+  after erasure: it was written for a public screen reader, but it can name a child, and
+  erasing it needs `altText` to become nullable in the media contract (a coordinated Web
+  change) — open, below. A withdrawal cannot be undone; the Web must confirm before sending
+  it. Withdrawals recorded after the newest backup are lost with the server, like any other
+  entry in the loss window, and must be recorded again after a restore.
+- **Revisit when:** the owner decides descriptions go with the bytes; or a policy needs rows
+  as well as bytes to go.
+
+## 2026-09-26 — Media erasure and the backup share one advisory lock
+
+**Status:** Accepted — Milestone 10 checkpoint A3. Resolves the A2 revisit trigger ("the
+purge must not unlink a file while a backup may be copying it").
+
+`backup.sql` takes `pg_advisory_lock_shared(4919, 10)` before its snapshot and holds it —
+session-level — until `copy-media.sh`, now run inside the same psql session, has copied the
+last file. Every erasure transaction first takes the same lock exclusively with
+`pg_try_advisory_xact_lock` and commits while holding it; the files are unlinked after the
+commit. So no erasure commits while a backup could still need its files, and every backup
+starting later reads a snapshot in which the keys are already gone. If a backup holds the
+lock, the job waits up to 30 minutes, then leaves the rest for the next night and does not
+count as a success. A crash between commit and unlink is repaired by the next run's sweep of
+erased assets' directories. `media-erasure.service.spec.ts` pins that both sides name the
+same keys; `scheduled-jobs.int-spec.ts` proves the deferral with a held lock.
+
+- **Alternatives:** stop the API during a backup; unlink first and commit after; a lock
+  file shared through the filesystem (`flock`); erase only files older than the longest
+  possible backup; a pending-unlink table.
+- **Reason:** both sides already talk to PostgreSQL, and an advisory lock needs no
+  privilege, works in the backup's read-only session and is released if either process
+  dies. Commit-then-unlink never leaves a row naming a missing file (which would fail the
+  next backup); the sweep covers the opposite crash. The two-key form is a lock space
+  nothing else in the application uses.
+- **Trade-off:** a backup can wait a few milliseconds for an erasure transaction; an erasure
+  can wait up to 30 minutes for a backup. The media copy now runs inside `psql`'s `\!`, so
+  its output interleaves with psql's.
+- **Revisit when:** backups move to filesystem or volume snapshots, or media move to object
+  storage (versioned buckets replace the lock).
+
+## 2026-09-26 — The nightly jobs run as the API's login, and two grants are narrowed by triggers
+
+**Status:** Accepted — Milestone 10 checkpoint A3. Answers the A1 revisit trigger ("a job
+needs a privilege the API must not have").
+
+`cli run-jobs` runs `WEBSITE_REQUEST_PURGE`, `SESSION_PRUNE`, `TESTIMONIAL_ERASURE` and
+`MEDIA_ERASURE` in that order from `scripts/ops/systemd/clinic-jobs.timer` (04:15 Tehran,
+`Persistent=true`), as the API's OS user and `clinic_app`. `clinic_runtime` gains `DELETE`
+on `user_session` — refused by `user_session_prune_only_ended` for any session not over for
+30 days — and `UPDATE` on `media_rendition` — refused by `media_rendition_erasure_only` for
+anything but the erasure of a due photograph — plus `SELECT, UPDATE` on the new
+`scheduled_job`. Each job re-checks eligibility under a row lock and is safe to run twice or
+concurrently. A job that completes all its work moves `scheduled_job.last_succeeded_at` and
+writes `scheduled_job.succeeded` (counts only) in one transaction; one that fails or leaves
+work for later writes neither. `GET /operations/job-status` (`user.read`) reports each job
+as `OK`, `STALE` (no success for 48 hours) or `NEVER_RUN`.
+
+- **Alternatives:** a separate `clinic_maintenance` role and login for the jobs; a
+  scheduler inside the API process; a job-run history table; reading the last success from
+  `audit_log`; per-session audit rows for pruning.
+- **Reason:** the A1 decision already runs every CLI command through the API's services as
+  the API's login; a second role would restate the whole matrix to add two lines, and a
+  trigger narrows each grant to exactly the job's act, for the owner as well. A scheduler in
+  the web-facing process would keep a destructive loop in the process that serves the
+  public; systemd already runs the backup. A four-row table is the fast read; the audit
+  trail is the history. A session's creation and revocation are already audited, so its
+  removal is a count.
+- **Trade-off:** the web-facing API also holds the two narrowed grants; a compromised API
+  could erase a photograph the owner's rules already make due, or remove a long-dead
+  session, and nothing else. A job that fails is visible to the manager after two days, not
+  at once.
+- **Revisit when:** a job needs something a trigger cannot narrow, or jobs need their own
+  alerting channel.
+
+## 2026-09-26 — Staff sessions are removed thirty days after they end
+
+**Status:** Accepted — Milestone 10 checkpoint A3 (technical)
+
+A session is over at the earliest of its absolute expiry, idle expiry and revocation; the
+nightly `SESSION_PRUNE` deletes it 30 days later (`SESSION_PRUNE_AFTER_DAYS`, and the same
+window in `user_session_prune_only_ended`).
+
+- **Alternatives:** delete as soon as it ends; keep for a year.
+- **Reason:** a month keeps "was this session live when X happened?" answerable during an
+  incident; the acts a session performed are in `audit_log`, which names it by UUID with no
+  foreign key, for ever.
+- **Revisit when:** an incident needs session metadata older than a month.
+
+## 2026-09-26 — A withdrawn testimonial leaves every staff read, and one dates-only read remains
+
+**Status:** Accepted — Milestone 10 checkpoint A3
+
+`POST /content/testimonials/:id/consent-withdrawal` (`testimonial.approve`, manager-only,
+no body, `204`, idempotent) revokes the approval, unpublishes and stamps the withdrawal.
+From then on the testimonial is `TESTIMONIAL_NOT_FOUND` to list, get, edit, approve,
+publish and attach. `GET /content/testimonials/consent-withdrawals` (`testimonial.read`)
+lists each withdrawal's id, when it was withdrawn, when its content was erased and the
+seven-day due date — never its words, attribution, kind or picture.
+
+- **Alternatives:** a discriminated union on the existing testimonial reads, as
+  `website_request` does for purged requests; a `reason` field.
+- **Reason:** the lifecycle record stays visible (the `website_request` argument), while the
+  existing `Testimonial` contract is untouched — changing it would break the Web's
+  typecheck and tests in Agent B's lane. The reason is the family's and is the act itself.
+- **Trade-off:** two reads for one table.
+- **Revisit when:** the Web's testimonial screens are next reworked; the union may then be
+  simpler.
+
+## 2026-09-26 — A testimonial's attribution is audited as a length, from now on
+
+**Status:** Accepted — Milestone 10 checkpoint A3. Supersedes the part of the Milestone 9
+A2 design that recorded `authorLabel` in full in `audit_log`.
+
+`public_testimonial.*` audit payloads now carry `authorLabelLength` instead of
+`authorLabel`, as they always carried `bodyLength` instead of `body`.
+
+- **Reason:** the owner's rule for a withdrawal is that the trail keeps that the content
+  was erased, never the content, and `audit_log` can never be changed. The erasure test
+  found the label surviving there.
+- **Trade-off:** a reviewer can no longer read, after the fact, which attribution was
+  approved; the row itself holds it, frozen from approval until erasure. **Rows written
+  before this change still hold labels.** If real testimonials were entered before this
+  deploys, removing those labels means rewriting append-only audit rows — an owner decision.
+- **Revisit when:** never, while consent can be withdrawn.
+
+## 2026-09-26 — Readiness is a public route that says two words per check
+
+**Status:** Accepted — Milestone 10 checkpoint A3
+
+`GET /health/ready`, public like `/health`, answers `200 {status: "ok", checks: {database:
+"ok", media: "ok"}}` or `503` with `unavailable` on the failing check, `no-store`. The
+database check is `SELECT 1` with a 2-second timeout; the media check is a real write and
+remove of one fixed probe file in the media root, which it never creates. Concurrent probes
+share one check and a result is reused for 2 seconds. A failure's kind is logged once per
+change of state. The deployment and restore runbooks and the drill use it.
+
+- **Alternatives:** make `/health/db` public; require the internal key; report latency and
+  versions.
+- **Reason:** the runbooks and an outside monitor must not hold a credential; two words per
+  check tell an operator where to look and tell an attacker nothing they could not learn
+  from a slow page. `access(W_OK)` misses a full disk or a read-only remount.
+- **Trade-off:** an anonymous caller can make the API do one query and one small write
+  every two seconds. The API is not public; the Web's `/api/health` should forward it
+  (Agent B).
+- **Revisit when:** the API is exposed beyond the private network.
+
+## 2026-09-26 — Logs carry an error's kind, never its message, and no username or address
+
+**Status:** Accepted — Milestone 10 checkpoint A3
+
+`describeError` logs an unexpected error's class, driver code, SQLSTATE, constraint name and
+errno, and `stackFrames` its stack without the message line; nothing logs an exception
+message except `AppError` (fixed developer text) and `EnvConfigError` (variable names). This
+covers the error filter, API start-up, the DB health check, the backup-status read and the
+CLI. The security log is `event`, `reason` and `requestId` only — the attempted username
+and client address are gone. Logs go to journald, bounded by
+`scripts/ops/systemd/journald-clinic.conf` (1 GB, one month). `log-hygiene.int-spec.ts`
+captures every line during a failed sign-in, a forged session, an upload, a public request
+and a failure full of a family's details, and finds none of them.
+
+- **Alternatives:** keep messages and extend `redactSecrets`; log a keyed pseudonym of the
+  address; logrotate on files.
+- **Reason:** PostgreSQL row details, Prisma call arguments and JSON parse errors put
+  personal data in messages, and no redaction can recognise a name. The request id joins a
+  log line to the audit row, which holds the facts under its own rules. journald is where
+  systemd already sends every process's output.
+- **Trade-off:** a production error is harder to diagnose without its message; reproduce it
+  with the request id and the constraint name. Repeated failed sign-ins from one address can
+  no longer be correlated from the API log.
+- **Revisit when:** a brute-force signal is needed (a keyed pseudonym, not the address).
+
+## 2026-09-26 — Open (owner): photo descriptions after erasure, and pre-existing audit labels
+
+**Status:** Open — Milestone 10 checkpoint A3
+
+1. **Descriptions.** An erased photograph keeps its `alt_text`. Recommendation: erase it
+   with the bytes (it can name a child). Needs `altText` nullable in the media contract and
+   the Web to handle it — a coordinated change with Agent B.
+2. **Audit labels written before A3.** If real testimonials exist before this deploys,
+   their audit rows hold the attribution in full. Leaving them is the default; removing them
+   is a reviewed rewrite of append-only rows.
