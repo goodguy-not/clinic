@@ -70,3 +70,4 @@ export * from './website/clinic-profile';
 export * from './website/clinic-content';
 export * from './media/common';
 export * from './media/media';
+export * from './operations/backup-status';

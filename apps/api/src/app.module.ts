@@ -8,6 +8,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { FamiliesModule } from './families/families.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { MediaModule } from './media/media.module';
+import { OperationsModule } from './operations/operations.module';
 import { PaymentsModule } from './payments/payments.module';
 import { InternalKeyGuard } from './auth/guards/internal-key.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
@@ -52,6 +53,7 @@ import { WebsiteModule } from './website/website.module';
     SettlementModule,
     MediaModule,
     WebsiteModule,
+    OperationsModule,
     HealthModule,
   ],
   providers: [

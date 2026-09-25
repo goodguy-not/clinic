@@ -588,7 +588,11 @@ describe('guard chain (real PostgreSQL)', () => {
       //                 PERMISSION. `PATCH /media/:id/alt-text` names
       //                 `media.attach`, and the service additionally requires
       //                 `media.publish` once the photograph is publicly served.
-      expect(routes).toBe(164);
+      //
+      // backup status:  Milestone 10 checkpoint A2 adds ONE route and NO
+      //                 PERMISSION. `GET /operations/backup-status` names
+      //                 `user.read`, manager-only, and reads one status file.
+      expect(routes).toBe(165);
     });
   });
 });

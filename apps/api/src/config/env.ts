@@ -63,6 +63,15 @@ const envSchema = z.object({
    * failure domain the clinic does not have yet.
    */
   MEDIA_STORAGE_DIR: z.string().min(1, 'is required'),
+  /**
+   * Where the backup collector's forced command records the newest backup the
+   * clinic computer confirmed it holds (Milestone 10, checkpoint A2; README,
+   * Backup and restore). READ ONLY, one small file, for the manager's
+   * off-site-copy warning. Optional: unset reads as `NOT_CONFIGURED`, which is
+   * itself a warning rather than a failure to start — a development machine has
+   * no collector, and a missing backup must not take the clinic offline.
+   */
+  BACKUP_STATUS_DIR: z.string().min(1).optional(),
 });
 
 export type ApiEnv = z.infer<typeof envSchema>;
