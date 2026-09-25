@@ -24,6 +24,9 @@ export function PublicTestimonialGrid({
   showDevelopmentExamples: boolean;
 }) {
   const [flipped, setFlipped] = useState<number | null>(null);
+  const firstImageIndex = testimonials.findIndex(
+    (testimonial) => testimonial.kind === 'HANDWRITTEN' && testimonial.image !== null,
+  );
 
   return (
     <div className="b2-stories__grid">
@@ -45,6 +48,7 @@ export function PublicTestimonialGrid({
                 <PublicMediaImage
                   image={testimonial.image}
                   sizes="(max-width: 48rem) 92vw, (max-width: 75rem) 44vw, 30vw"
+                  priority={index === firstImageIndex}
                 />
               </span>
             ) : null}

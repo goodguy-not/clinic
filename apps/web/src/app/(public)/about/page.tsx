@@ -116,6 +116,7 @@ export default async function AboutPage() {
           <PublicSpaceTeaser
             spaces={spaces.data}
             full
+            priorityFirst={intro?.image == null}
             showDevelopmentExamples={process.env.NODE_ENV !== 'production'}
           />
         </section>

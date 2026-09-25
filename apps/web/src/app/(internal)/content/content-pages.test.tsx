@@ -290,6 +290,7 @@ describe('article image editor', () => {
         images: imagesForArticle([ARTICLE_MEDIA], ARTICLE.id),
         csrfToken: CSRF,
         canPublishMedia: authority === 'manager',
+        canPublishArticle: authority === 'manager',
       }),
     );
   }

@@ -1,6 +1,12 @@
-import type { MediaAsset, TherapistProfileCopy, TherapistPublicProfile } from '@clinic/contracts';
+import type {
+  CatalogStatus,
+  MediaAsset,
+  TherapistProfileCopy,
+  TherapistPublicProfile,
+} from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
 import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
+import { PublicationReadiness } from '@/components/publication-readiness';
 import {
   Alert,
   Badge,
@@ -22,6 +28,7 @@ export function TherapistProfileEditor({
   csrfToken,
   canPublishMedia,
   message,
+  therapistStatus,
 }: {
   copy: TherapistProfileCopy;
   profile: TherapistPublicProfile | null;
@@ -29,6 +36,7 @@ export function TherapistProfileEditor({
   csrfToken: string;
   canPublishMedia: boolean;
   message: string | null;
+  therapistStatus: CatalogStatus;
 }) {
   const canPublish = profile !== null;
   const portraits = media.flatMap((asset) =>
@@ -38,6 +46,10 @@ export function TherapistProfileEditor({
           attachment.ownerType === 'THERAPIST_PROFILE' && attachment.ownerId === copy.therapistId,
       )
       .map((attachment) => ({ asset, attachment })),
+  );
+  const isActive = therapistStatus === 'ACTIVE';
+  const hasPublishedPortrait = portraits.some(
+    ({ asset, attachment }) => asset.status === 'ACTIVE' && attachment.publishedAt !== null,
   );
 
   return (
@@ -52,14 +64,60 @@ export function TherapistProfileEditor({
         ذخیرهٔ متن و آماده‌سازی عکس چیزی را عمومی نمی‌کند. نمایش عمومی و انتشار فقط با تصمیم مدیر
         انجام می‌شود.
       </Alert>
+      {!isActive ? (
+        <Alert>
+          این درمانگر غیرفعال است و اکنون روی سایت دیده نمی‌شود؛ حتی اگر متن نمایه و عکس قبلاً منتشر
+          شده باشند. برای بازگشت به سایت، ابتدا درمانگر را در فهرست درمانگران فعال کنید.
+        </Alert>
+      ) : null}
       {message !== null ? <Alert tone="info">{message}</Alert> : null}
 
       <div className="flex flex-wrap gap-2">
-        <Badge tone={copy.isPublic ? 'success' : 'neutral'}>
-          {copy.isPublic ? 'نسخهٔ منتشرشده' : 'هنوز منتشر نشده'}
+        <Badge tone={copy.isPublic && isActive ? 'success' : 'neutral'}>
+          {!isActive
+            ? 'روی سایت نیست؛ درمانگر غیرفعال است'
+            : copy.isPublic
+              ? 'نسخهٔ منتشرشده'
+              : 'هنوز منتشر نشده'}
         </Badge>
         {copy.hasUnpublishedChanges ? <Badge tone="warning">تغییرات آمادهٔ انتشار</Badge> : null}
       </div>
+
+      {profile !== null ? (
+        <PublicationReadiness
+          items={[
+            {
+              label: 'فعال‌بودن درمانگر',
+              ready: isActive,
+              detail: isActive
+                ? 'درمانگر در فهرست داخلی فعال است.'
+                : 'درمانگر غیرفعال است؛ هیچ نمایه یا عکسی از او روی سایت نمایش داده نمی‌شود.',
+            },
+            {
+              label: 'اجازهٔ نمایش عمومی نمایه',
+              ready: profile.isPublic,
+              detail: profile.isPublic
+                ? 'مدیر نمایش عمومی این نمایه را فعال کرده است.'
+                : 'مدیر هنوز نمایش عمومی این نمایه را فعال نکرده است.',
+            },
+            {
+              label: 'نام نمایشی منتشرشده',
+              ready: Boolean(copy.publishedDisplayName?.trim()),
+              detail: copy.publishedDisplayName?.trim()
+                ? 'نام عمومی در نسخهٔ منتشرشده وجود دارد.'
+                : 'نام نمایشی باید تکمیل و منتشر شود.',
+            },
+            {
+              label: 'عکس چهرهٔ منتشرشده',
+              ready: hasPublishedPortrait,
+              detail: hasPublishedPortrait
+                ? 'یک عکس فعال برای این نمایه منتشر شده است.'
+                : 'عکس چهره هنوز منتشر نشده است؛ نمایه می‌تواند بدون عکس دیده شود.',
+              optional: true,
+            },
+          ]}
+        />
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Panel title="متن آماده‌شده">
@@ -115,7 +173,11 @@ export function TherapistProfileEditor({
         </Panel>
 
         <Panel title="نسخهٔ منتشرشده">
-          {!copy.isPublic ? (
+          {!isActive ? (
+            <p className="text-sm text-slate-600">
+              این نسخه ذخیره شده است، اما چون درمانگر غیرفعال است روی سایت نمایش داده نمی‌شود.
+            </p>
+          ) : !copy.isPublic ? (
             <p className="text-sm text-slate-600">
               این درمانگر هنوز در وب‌سایت عمومی نمایش داده نمی‌شود.
             </p>

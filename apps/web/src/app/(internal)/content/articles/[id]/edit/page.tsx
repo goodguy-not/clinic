@@ -72,6 +72,7 @@ export default async function EditArticlePage({
           images={imagesForArticle(mediaResult.ok ? mediaResult.data.media : [], article.id)}
           csrfToken={csrfToken}
           canPublishMedia={user.permissions.includes('media.publish')}
+          canPublishArticle={user.permissions.includes('article.publish')}
         />
       </ArticleForm>
     </>

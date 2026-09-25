@@ -61,7 +61,7 @@ export function PublicConcernGuide({
             <div className="public-answer__media">
               {active.image ? (
                 <PublicMediaImage
-                  key={active.image.mediaId}
+                  key={active.image.renditions[0]?.path ?? active.image.alt}
                   image={active.image}
                   sizes="(max-width: 47.99rem) 100vw, 44vw"
                   priority

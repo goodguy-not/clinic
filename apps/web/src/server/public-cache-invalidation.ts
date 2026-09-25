@@ -1,5 +1,5 @@
 import 'server-only';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import {
   PUBLIC_ARTICLE_CACHE_TAG_PREFIX,
   PUBLIC_CACHE_TAGS,
@@ -61,6 +61,12 @@ export function invalidateSpacesPublication(): void {
 
 export function invalidateClinicPublication(): void {
   invalidate([PUBLIC_CACHE_TAGS.clinicProfile]);
+}
+
+/** Archive/restore is asset-wide, so every possible public owner is expired. */
+export function invalidateMediaArchive(): void {
+  invalidate(Object.values(PUBLIC_CACHE_TAGS));
+  revalidatePath('/', 'layout');
 }
 
 /**

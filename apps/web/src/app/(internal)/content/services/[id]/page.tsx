@@ -27,10 +27,15 @@ export default async function ServiceCopyPage({
   const { id } = await params;
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
-  const [result, mediaResult] = await Promise.all([
+  const [serviceResult, result, mediaResult] = await Promise.all([
+    api.getService(id, context),
     api.getServicePublicCopy(id, context),
     api.listMedia(context),
   ]);
+  if (!serviceResult.ok) {
+    if (serviceResult.code === 'SERVICE_NOT_FOUND') notFound();
+    throw new Error(`Failed to load service: ${serviceResult.code}`);
+  }
   if (!result.ok) {
     if (result.code === 'SERVICE_NOT_FOUND') notFound();
     throw new Error(`Failed to load service copy: ${result.code}`);
@@ -74,6 +79,7 @@ export default async function ServiceCopyPage({
         media={mediaResult.ok ? mediaResult.data.media : []}
         mediaLoadError={mediaResult.ok ? null : persianMessage(mediaResult.code)}
         message={message}
+        serviceStatus={serviceResult.data.service.status}
       />
     </>
   );

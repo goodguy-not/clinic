@@ -28,6 +28,7 @@ export default async function MediaPage({
     searchParams,
   ]);
   const rawError = Array.isArray(query['error']) ? query['error'][0] : query['error'];
+  const rawSuccess = Array.isArray(query['success']) ? query['success'][0] : query['success'];
   const loadError =
     rawError !== undefined && isKnownErrorCode(rawError)
       ? persianMessage(rawError)
@@ -43,6 +44,13 @@ export default async function MediaPage({
         csrfToken={(await readCsrfCookie()) ?? ''}
         canPublishMedia={user.permissions.includes('media.publish')}
         loadError={loadError}
+        notice={
+          rawSuccess === 'archived'
+            ? 'عکس از گردش خارج شد و دیگر به بازدیدکننده تحویل داده نمی‌شود.'
+            : rawSuccess === 'restored'
+              ? 'عکس به گردش بازگشت؛ انتشار هر جایگاه همچنان جداگانه کنترل می‌شود.'
+              : null
+        }
       />
     </>
   );

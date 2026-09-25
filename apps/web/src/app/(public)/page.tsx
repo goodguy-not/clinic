@@ -36,6 +36,8 @@ export default async function PublicHomePage() {
     home.content.data.entries.filter((item) => item.slot === slot);
   const hero = entry('HOME_HERO')[0];
   const firstVisit = entry('HOME_FIRST_VISIT')[0];
+  const concerns = entry('HOME_CONCERN');
+  const hasConcernImage = concerns[0]?.image != null;
   const publicConcern = ({
     label,
     eyebrow,
@@ -57,13 +59,21 @@ export default async function PublicHomePage() {
           clinicName={clinic.displayName}
           cityLabel={clinic.cityLabel}
           hero={publicConcern(hero)}
-          concerns={entry('HOME_CONCERN').map(publicConcern)}
+          concerns={concerns.map(publicConcern)}
         />
       ) : null}
       {firstVisit ? (
-        <FirstVisit intro={firstVisit} moments={entry('HOME_FIRST_VISIT_STEP')} />
+        <FirstVisit
+          intro={firstVisit}
+          moments={entry('HOME_FIRST_VISIT_STEP')}
+          priorityImage={!hasConcernImage}
+        />
       ) : null}
-      <Services read={home.services} clinicName={clinic.displayName} />
+      <Services
+        read={home.services}
+        clinicName={clinic.displayName}
+        priorityImage={!hasConcernImage && firstVisit?.image == null}
+      />
       <Team read={home.team} />
       <Spaces clinic={clinic} spaces={home.spaces} />
       <FamilyExperienceBoundary />
@@ -75,9 +85,11 @@ export default async function PublicHomePage() {
 function FirstVisit({
   intro,
   moments,
+  priorityImage,
 }: {
   intro: PublicClinicContentEntry;
   moments: PublicClinicContentEntry[];
+  priorityImage: boolean;
 }) {
   const persianMomentNumbers = ['۱', '۲', '۳'] as const;
 
@@ -102,7 +114,11 @@ function FirstVisit({
         </div>
         <figure className="public-first-visit__media">
           {intro.image ? (
-            <PublicMediaImage image={intro.image} sizes="(max-width: 47.99rem) 100vw, 31vw" />
+            <PublicMediaImage
+              image={intro.image}
+              sizes="(max-width: 47.99rem) 100vw, 31vw"
+              priority={priorityImage}
+            />
           ) : (
             <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
           )}
@@ -115,9 +131,11 @@ function FirstVisit({
 function Services({
   read,
   clinicName,
+  priorityImage,
 }: {
   read: PublicRead<PublicServiceSummary[]>;
   clinicName: string | null;
+  priorityImage: boolean;
 }) {
   const services = read.data.slice(0, 6);
 
@@ -135,7 +153,7 @@ function Services({
       </div>
 
       {services.length > 0 ? (
-        <PublicServiceExplorer services={services} />
+        <PublicServiceExplorer services={services} priorityImage={priorityImage} />
       ) : (
         <div className="public-shell">
           <PublicEmpty

@@ -57,7 +57,12 @@ export default async function TherapistPage({ params }: Props) {
   return (
     <main id="main-content">
       <article className="public-shell b2-profile">
-        <TherapistPhoto photo={person.photo} className="b2-profile__photo" priority />
+        <TherapistPhoto
+          photo={person.photo}
+          className="b2-profile__photo"
+          sizes="(max-width: 47.99rem) calc(100vw - 40px), (max-width: 75rem) 42vw, 520px"
+          priority
+        />
         <div className="b2-profile__copy">
           <div className="b2-profile__utility">
             <Link href="/team" className="public-focus public-text-link">
@@ -106,7 +111,11 @@ export default async function TherapistPage({ params }: Props) {
         <nav className="b2-profile-nav" aria-label="پروفایل‌های دیگر تیم درمان">
           <div className="public-shell b2-profile-nav__inner">
             <Link href={`/team/${previous.slug}`} className="public-focus b2-profile-nav__item">
-              <TherapistPhoto photo={previous.photo} className="b2-profile-nav__photo" />
+              <TherapistPhoto
+                photo={previous.photo}
+                className="b2-profile-nav__photo"
+                sizes="(max-width: 47.99rem) 56px, 67px"
+              />
               <span aria-hidden="true">→</span>
               <small>پروفایل قبلی</small>
               <strong>{previous.displayName}</strong>
@@ -115,7 +124,11 @@ export default async function TherapistPage({ params }: Props) {
               href={`/team/${next.slug}`}
               className="public-focus b2-profile-nav__item b2-profile-nav__item--next"
             >
-              <TherapistPhoto photo={next.photo} className="b2-profile-nav__photo" />
+              <TherapistPhoto
+                photo={next.photo}
+                className="b2-profile-nav__photo"
+                sizes="(max-width: 47.99rem) 56px, 67px"
+              />
               <small>پروفایل بعدی</small>
               <strong>{next.displayName}</strong>
               <span aria-hidden="true">←</span>

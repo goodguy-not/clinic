@@ -135,6 +135,7 @@ import {
   type ClinicContentResponse,
   type UpdateMediaFramingRequest,
   type UpdateMediaAltTextRequest,
+  type UpdateMediaArchiveRequest,
   type UpdateMediaPublicationRequest,
   type PublicClinicProfileResponse,
   type ServicePublicCopyListResponse,
@@ -582,6 +583,19 @@ export const api = {
       `/media/attachments/${encodeURIComponent(attachmentId)}/publication`,
       'PATCH',
       mediaPublicationResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaArchive: (
+    mediaId: string,
+    body: UpdateMediaArchiveRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/${encodeURIComponent(mediaId)}/archive`,
+      'PATCH',
+      mediaAssetResponseSchema,
       context,
       body,
     ),

@@ -1,4 +1,5 @@
-import type { MediaAsset, ServicePublicCopy } from '@clinic/contracts';
+import type { CatalogStatus, MediaAsset, ServicePublicCopy } from '@clinic/contracts';
+import { PublicationReadiness } from '@/components/publication-readiness';
 import {
   Alert,
   Badge,
@@ -20,6 +21,7 @@ export function ServiceCopyEditor({
   media,
   mediaLoadError,
   message,
+  serviceStatus,
 }: {
   copy: ServicePublicCopy;
   csrfToken: string;
@@ -28,7 +30,13 @@ export function ServiceCopyEditor({
   media: readonly MediaAsset[];
   mediaLoadError: string | null;
   message: string | null;
+  serviceStatus: CatalogStatus;
 }) {
+  const image = imageForService(media, copy.serviceId);
+  const imageIsPublished =
+    image !== null && image.asset.status === 'ACTIVE' && image.attachment.publishedAt !== null;
+  const serviceIsReachable = serviceStatus === 'ACTIVE' && copy.isPublic;
+
   return (
     <PageShell>
       <PageHeader title={`معرفی خدمت «${copy.name}»`} backHref="/content" backLabel="بازگشت" />
@@ -44,6 +52,47 @@ export function ServiceCopyEditor({
         </Badge>
         {copy.hasUnpublishedChanges ? <Badge tone="warning">تغییرات آمادهٔ انتشار</Badge> : null}
       </div>
+
+      {canPublish ? (
+        <PublicationReadiness
+          items={[
+            {
+              label: 'فعال‌بودن خدمت',
+              ready: serviceStatus === 'ACTIVE',
+              detail:
+                serviceStatus === 'ACTIVE'
+                  ? 'خدمت در فهرست داخلی فعال است.'
+                  : 'خدمت غیرفعال است و روی سایت نمایش داده نمی‌شود.',
+            },
+            {
+              label: 'نمایش عمومی خدمت',
+              ready: copy.isPublic,
+              detail: copy.isPublic
+                ? 'خدمت برای نمایش روی سایت علامت خورده است.'
+                : 'خدمت در تنظیمات کاتالوگ هنوز عمومی نشده است.',
+            },
+            {
+              label: 'توضیح منتشرشده',
+              ready: copy.publishedDescription !== null,
+              detail:
+                copy.publishedDescription !== null
+                  ? 'توضیح فعلی روی سایت منتشر شده است.'
+                  : serviceIsReachable
+                    ? 'توضیحی منتشر نشده است؛ نام و صفحهٔ خدمت همچنان روی سایت دیده می‌شود.'
+                    : 'توضیح عمومی هنوز منتشر نشده است؛ این بخش اختیاری است.',
+              optional: true,
+            },
+            {
+              label: 'عکس منتشرشده',
+              ready: imageIsPublished,
+              detail: imageIsPublished
+                ? 'عکس فعال این خدمت منتشر شده است.'
+                : 'عکس خدمت هنوز منتشر نشده است؛ صفحه می‌تواند بدون عکس نمایش داده شود.',
+              optional: true,
+            },
+          ]}
+        />
+      ) : null}
 
       <Panel title="متن آماده‌شده">
         <form
@@ -78,7 +127,7 @@ export function ServiceCopyEditor({
 
       <ServiceImageEditor
         copy={copy}
-        image={imageForService(media, copy.serviceId)}
+        image={image}
         csrfToken={csrfToken}
         canPublishMedia={canPublishMedia}
         loadError={mediaLoadError}

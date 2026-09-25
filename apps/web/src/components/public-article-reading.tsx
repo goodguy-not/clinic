@@ -45,7 +45,7 @@ export function PublicArticleReading({
         </div>
         {article.images.slice(1).map((image) => (
           <ArticlePhoto
-            key={image.mediaId}
+            key={image.renditions[0]?.path ?? image.alt}
             image={image}
             className="b2-reading__photo"
             sizes="(max-width: 47.99rem) 100vw, 960px"

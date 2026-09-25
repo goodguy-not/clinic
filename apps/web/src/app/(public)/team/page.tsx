@@ -55,6 +55,7 @@ export default async function TeamPage() {
               <TherapistPhoto
                 photo={person.photo}
                 className="b2-team-row__photo"
+                sizes="96px"
                 priority={index === 0}
               />
               <div className="b2-team-row__copy">

@@ -10,15 +10,23 @@ const mocks = vi.hoisted(() => ({
   getMedia: vi.fn(),
   updateMediaFraming: vi.fn(),
   updateMediaAltText: vi.fn(),
+  updateMediaArchive: vi.fn(),
   updateMediaPublication: vi.fn(),
 }));
-const invalidateMediaPublication = vi.hoisted(() => vi.fn());
+const { invalidateMediaPublication, invalidateMediaArchive } = vi.hoisted(() => ({
+  invalidateMediaPublication: vi.fn(),
+  invalidateMediaArchive: vi.fn(),
+}));
 vi.mock('@/server/api-client', () => ({ api: mocks }));
-vi.mock('@/server/public-cache-invalidation', () => ({ invalidateMediaPublication }));
+vi.mock('@/server/public-cache-invalidation', () => ({
+  invalidateMediaPublication,
+  invalidateMediaArchive,
+}));
 
 import { POST as attachDraft } from './draft-attachment/route';
 import { POST as saveFraming } from './framing/route';
 import { POST as updateAltText } from './alt-text/route';
+import { POST as updateArchive } from './archive/route';
 import { POST as setPublication } from './publication/route';
 import { POST as uploadMedia } from './upload/route';
 
@@ -77,6 +85,7 @@ function uploadRequest(): NextRequest {
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   invalidateMediaPublication.mockReset();
+  invalidateMediaArchive.mockReset();
   mocks.uploadMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.createMediaAttachment.mockResolvedValue({ ok: true, data: { media: MEDIA } });
   mocks.getMedia.mockResolvedValue({ ok: true, data: { media: MEDIA } });
@@ -98,6 +107,36 @@ beforeEach(() => {
         renditionIds: [],
       },
     },
+  });
+  mocks.updateMediaArchive.mockResolvedValue({ ok: true, data: { media: MEDIA } });
+});
+
+describe('media archive route', () => {
+  it('lets a manager archive an asset and expires every public owner view', async () => {
+    const response = await updateArchive(
+      jsonRequest('/api/media/archive', { mediaId: MEDIA_ID, archived: 'true' }),
+    );
+
+    expect(mocks.updateMediaArchive).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { archived: true },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(invalidateMediaArchive).toHaveBeenCalledOnce();
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?success=archived`);
+  });
+
+  it('restores an asset without implicitly publishing any attachment', async () => {
+    const response = await updateArchive(
+      jsonRequest('/api/media/archive', { mediaId: MEDIA_ID, archived: 'false' }),
+    );
+
+    expect(mocks.updateMediaArchive).toHaveBeenCalledWith(
+      MEDIA_ID,
+      { archived: false },
+      { sessionToken: SESSION_TOKEN },
+    );
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?success=restored`);
   });
 });
 

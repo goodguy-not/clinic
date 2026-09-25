@@ -37,10 +37,12 @@ export function PublicSpaceTeaser({
   spaces,
   full = false,
   showDevelopmentExamples = false,
+  priorityFirst = false,
 }: {
   spaces: PublicSpace[];
   full?: boolean;
   showDevelopmentExamples?: boolean;
+  priorityFirst?: boolean;
 }) {
   const displayed: SpaceView[] = spaces.length
     ? spaces.map((space) => ({
@@ -155,6 +157,7 @@ export function PublicSpaceTeaser({
                 <PublicMediaImage
                   image={space.image}
                   sizes="(max-width: 47.99rem) 82vw, (max-width: 63.99rem) 68vw, 46vw"
+                  priority={priorityFirst && index === 0}
                 />
               ) : space.developmentImage ? (
                 <Image

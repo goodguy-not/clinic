@@ -1,8 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  PUBLIC_MEDIA_CACHE_TAG_PREFIX,
-  PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS,
-} from '@clinic/contracts';
 import { z } from 'zod';
 import { loadServerEnv } from '@/env';
 
@@ -40,11 +36,7 @@ export async function GET(
       {
         method: 'GET',
         headers,
-        cache: 'force-cache',
-        next: {
-          revalidate: PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS,
-          tags: [`${PUBLIC_MEDIA_CACHE_TAG_PREFIX}${parsed.data}`],
-        },
+        cache: 'no-store',
         signal: AbortSignal.timeout(8_000),
       },
     );
@@ -55,11 +47,10 @@ export async function GET(
       const value = upstream.headers.get(name);
       if (value !== null) responseHeaders.set(name, value);
     }
-    // A5 pins this maximum. Never allow an intermediary default to lengthen it.
-    responseHeaders.set(
-      'cache-control',
-      `public, max-age=${PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS}, s-maxage=${PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS}, must-revalidate`,
-    );
+    // Authorization can change independently of this route. Revalidate every
+    // anonymous request with the API so a stale success can never extend a
+    // revoked rendition beyond the accepted window.
+    responseHeaders.set('cache-control', 'private, no-store, max-age=0, must-revalidate');
 
     if (upstream.status === 304) {
       return new NextResponse(null, { status: 304, headers: responseHeaders });

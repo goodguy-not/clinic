@@ -68,20 +68,18 @@ export function DevelopmentPhoto({
 export function TherapistPhoto({
   photo,
   className,
+  sizes,
   priority = false,
 }: {
   photo: PublicImage | null;
   className?: string;
+  sizes: string;
   priority?: boolean;
 }) {
   return (
     <figure className={className}>
       {photo !== null ? (
-        <PublicMediaImage
-          image={photo}
-          sizes="(max-width: 48rem) 100vw, 42vw"
-          priority={priority}
-        />
+        <PublicMediaImage image={photo} sizes={sizes} priority={priority} />
       ) : (
         <span className="public-media-empty">تصویر عمومی منتشر نشده است</span>
       )}

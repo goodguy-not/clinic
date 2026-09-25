@@ -67,6 +67,7 @@ describe('service public-copy editor', () => {
         media={[]}
         mediaLoadError={null}
         message={null}
+        serviceStatus="ACTIVE"
       />,
     );
     expect(html).toContain('تغییرات آمادهٔ انتشار');
@@ -93,6 +94,7 @@ describe('service public-copy editor', () => {
         media={[]}
         mediaLoadError={null}
         message={null}
+        serviceStatus="ACTIVE"
       />,
     );
     expect(html).toContain('/api/content/service-copy/publication');
@@ -112,6 +114,7 @@ describe('service public-copy editor', () => {
         media={[media]}
         mediaLoadError={null}
         message={null}
+        serviceStatus="ACTIVE"
       />,
     );
     expect(receptionist).toContain(`/api/media/renditions/${media.renditions[0]!.id}/preview`);
@@ -130,6 +133,7 @@ describe('service public-copy editor', () => {
         media={[media]}
         mediaLoadError={null}
         message={null}
+        serviceStatus="ACTIVE"
       />,
     );
     expect(manager).toContain('/api/media/publication');
@@ -148,6 +152,7 @@ describe('therapist public-profile editor', () => {
         csrfToken={CSRF}
         canPublishMedia={false}
         message={null}
+        therapistStatus="ACTIVE"
       />,
     );
     for (const field of ['displayName', 'title', 'bio']) expect(html).toContain(`name="${field}"`);
@@ -171,6 +176,7 @@ describe('therapist public-profile editor', () => {
         csrfToken={CSRF}
         canPublishMedia
         message={null}
+        therapistStatus="ACTIVE"
       />,
     );
     expect(html).toContain('/team/synthetic-therapist');

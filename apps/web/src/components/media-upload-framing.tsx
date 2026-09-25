@@ -248,6 +248,7 @@ export function MediaUploadFraming({
         if (persisted !== undefined) setFraming(persisted);
         setFramingSaved(true);
         setComplete(true);
+        window.location.reload();
       }
     } catch {
       setErrorMessage(

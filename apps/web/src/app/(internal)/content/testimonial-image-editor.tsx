@@ -1,6 +1,7 @@
 import type { MediaAsset, Testimonial } from '@clinic/contracts';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
 import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
+import { PublicationReadiness } from '@/components/publication-readiness';
 import { Badge, Panel, SubmitButton } from '@/components/ui';
 import { cropImageStyle, MEDIA_TARGET_SHAPE_PRESETS } from '@/media/framing';
 
@@ -52,9 +53,51 @@ export function TestimonialImageEditor({
   canPublishMedia: boolean;
 }) {
   const handwritten = testimonial.kind === 'HANDWRITTEN';
+  const hasPublishedImage = images.some(
+    ({ asset, attachment }) => asset.status === 'ACTIVE' && attachment.publishedAt !== null,
+  );
 
   return (
     <>
+      {canApprove ? (
+        <PublicationReadiness
+          items={[
+            {
+              label: 'رونویسی قابل خواندن',
+              ready: testimonial.body.trim().length > 0,
+              detail: testimonial.body.trim().length
+                ? 'رونویسی متنی برای HTML و صفحه‌خوان آماده است.'
+                : 'رونویسی باید پیش از بررسی تکمیل شود.',
+            },
+            {
+              label: 'تأیید حریم خصوصی',
+              ready: testimonial.status === 'APPROVED',
+              detail:
+                testimonial.status === 'APPROVED'
+                  ? 'مدیر این متن را بررسی و تأیید کرده است.'
+                  : 'نقل‌قول هنوز در انتظار بررسی مدیر است.',
+            },
+            ...(handwritten
+              ? [
+                  {
+                    label: 'عکس دست‌نوشتهٔ منتشرشده',
+                    ready: hasPublishedImage,
+                    detail: hasPublishedImage
+                      ? 'عکس دست‌نوشته تأیید و منتشر شده است.'
+                      : 'عکس دست‌نوشته هنوز منتشر نشده است.',
+                  },
+                ]
+              : []),
+            {
+              label: 'نمایش نقل‌قول روی سایت',
+              ready: testimonial.isPublic,
+              detail: testimonial.isPublic
+                ? 'این نقل‌قول اکنون روی سایت نمایش داده می‌شود.'
+                : 'نقل‌قول هنوز روی سایت قرار نگرفته است.',
+            },
+          ]}
+        />
+      ) : null}
       <Panel title="عکس دست‌نوشته">
         {!handwritten ? (
           <p className="text-sm leading-6 text-slate-600">

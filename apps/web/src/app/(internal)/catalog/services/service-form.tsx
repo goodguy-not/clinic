@@ -109,6 +109,12 @@ export function ServiceForm({
             />
           </ChoiceGroup>
 
+          <Alert tone="info">
+            انتخاب «در وب‌سایت عمومی معرفی شود» و زدن دکمهٔ ذخیره، خدمت را همان لحظه روی سایت
+            می‌گذارد. توضیح عمومی اختیاری است؛ اگر خالی باشد، نام و صفحهٔ خدمت بدون توضیح منتشر
+            می‌شود.
+          </Alert>
+
           {service?.publicFirstPublishedAt !== null &&
           service?.publicFirstPublishedAt !== undefined ? (
             <div className="flex flex-col gap-1.5">

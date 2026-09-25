@@ -1,21 +1,43 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const revalidateTag = vi.hoisted(() => vi.fn());
-vi.mock('next/cache', () => ({ revalidateTag }));
+const revalidatePath = vi.hoisted(() => vi.fn());
+vi.mock('next/cache', () => ({ revalidateTag, revalidatePath }));
 
 import {
   invalidateArticlePublication,
   invalidateClinicPublication,
   invalidateMediaPublication,
+  invalidateMediaArchive,
   invalidateServicePublication,
   invalidateSpacesPublication,
   invalidateTestimonialsPublication,
   invalidateTherapistPublication,
 } from './public-cache-invalidation';
 
-beforeEach(() => revalidateTag.mockReset());
+beforeEach(() => {
+  revalidateTag.mockReset();
+  revalidatePath.mockReset();
+});
 
 describe('public cache invalidation', () => {
+  it('expires every public projection when an asset is archived or restored', () => {
+    invalidateMediaArchive();
+
+    expect(new Set(revalidateTag.mock.calls.map(([tag]) => tag))).toEqual(
+      new Set([
+        'public-services',
+        'public-team',
+        'public-clinic-profile',
+        'public-spaces',
+        'public-articles',
+        'public-testimonials',
+        'public-sitemap',
+      ]),
+    );
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
+  });
+
   it('invalidates an article collection, exact detail and sitemap immediately', () => {
     invalidateArticlePublication('synthetic-guide');
 

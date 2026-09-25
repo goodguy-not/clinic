@@ -5,7 +5,13 @@ import type { PublicServiceSummary } from '@clinic/contracts';
 import Link from 'next/link';
 import { PublicMediaImage } from './public-media-image';
 
-export function PublicServiceExplorer({ services }: { services: PublicServiceSummary[] }) {
+export function PublicServiceExplorer({
+  services,
+  priorityImage = false,
+}: {
+  services: PublicServiceSummary[];
+  priorityImage?: boolean;
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
   const active = services[activeIndex] ?? services[0];
 
@@ -18,7 +24,7 @@ export function PublicServiceExplorer({ services }: { services: PublicServiceSum
       <article id="public-service-stage" className="public-service-stage" aria-live="polite">
         <div className="public-service-stage__image">
           {active.image ? (
-            <PublicMediaImage image={active.image} sizes="100vw" />
+            <PublicMediaImage image={active.image} sizes="100vw" priority={priorityImage} />
           ) : (
             <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
           )}

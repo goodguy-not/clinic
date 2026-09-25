@@ -7,6 +7,7 @@ import {
   Panel,
   RecordItem,
   RecordList,
+  SubmitButton,
 } from '@/components/ui';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
 import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
@@ -23,11 +24,13 @@ export function MediaWorkspace({
   csrfToken,
   canPublishMedia,
   loadError,
+  notice,
 }: {
   media: MediaAsset[];
   csrfToken: string;
   canPublishMedia: boolean;
   loadError: string | null;
+  notice: string | null;
 }) {
   return (
     <PageShell wide>
@@ -40,6 +43,7 @@ export function MediaWorkspace({
         انتشار یا برداشتن عکس از سایت همچنان با مدیر است.
       </Alert>
       {loadError !== null ? <Alert>{loadError}</Alert> : null}
+      {notice !== null ? <Alert tone="info">{notice}</Alert> : null}
 
       <Panel>
         <MediaUploadFraming csrfToken={csrfToken} />
@@ -50,19 +54,37 @@ export function MediaWorkspace({
           <p className="text-sm text-slate-600">هنوز عکسی آماده نشده است.</p>
         ) : (
           <RecordList>
-            {media.slice(0, 8).map((item) => (
+            {media.map((item) => (
               <RecordItem
                 key={item.id}
                 title={item.altText}
                 badge={mediaStatus(item)}
                 details={
-                  <MediaAltTextEditor
-                    asset={item}
-                    csrfToken={csrfToken}
-                    canPublishMedia={canPublishMedia}
-                    returnTarget={{ type: 'media-library' }}
-                    instanceId={item.id}
-                  />
+                  <div className="flex flex-col gap-4">
+                    <MediaAltTextEditor
+                      asset={item}
+                      csrfToken={csrfToken}
+                      canPublishMedia={canPublishMedia}
+                      returnTarget={{ type: 'media-library' }}
+                      instanceId={item.id}
+                    />
+                    {canPublishMedia ? (
+                      <form method="post" action="/api/media/archive">
+                        <input type="hidden" name="csrfToken" value={csrfToken} />
+                        <input type="hidden" name="mediaId" value={item.id} />
+                        <input
+                          type="hidden"
+                          name="archived"
+                          value={item.status === 'ARCHIVED' ? 'false' : 'true'}
+                        />
+                        <SubmitButton tone={item.status === 'ARCHIVED' ? 'secondary' : 'danger'}>
+                          {item.status === 'ARCHIVED'
+                            ? 'بازگرداندن عکس به گردش'
+                            : 'از گردش خارج کردن عکس'}
+                        </SubmitButton>
+                      </form>
+                    ) : null}
+                  </div>
                 }
               />
             ))}

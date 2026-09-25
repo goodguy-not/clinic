@@ -57,9 +57,9 @@ describe('route handler inventory', () => {
     // Guards this whole file against silently passing because it enumerated
     // nothing at all.
     // 84 accepted handlers include the session-bound media preview; description
-    // correction adds one explicitly guarded state-changing handler.
-    expect(handlers.length).toBe(85);
-    expect(stateChangingHandlers.length).toBe(83);
+    // correction and media archive/restore add guarded state-changing handlers.
+    expect(handlers.length).toBe(86);
+    expect(stateChangingHandlers.length).toBe(84);
   });
 
   it('exposes no catch-all route', () => {
@@ -149,6 +149,7 @@ describe('route handler inventory', () => {
       // Narrow media operations stay named, so correcting a description cannot
       // smuggle framing, attachment or publication changes.
       '/api/media/alt-text',
+      '/api/media/archive',
       '/api/media/draft-attachment',
       '/api/media/framing',
       '/api/media/publication',

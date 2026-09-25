@@ -28,12 +28,17 @@ export default async function TherapistProfilePage({
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
   const canPublish = user.permissions.includes('therapist.publish_profile');
-  const [copyResult, profileResult, mediaResult, query] = await Promise.all([
+  const [therapistResult, copyResult, profileResult, mediaResult, query] = await Promise.all([
+    api.getTherapist(id, context),
     api.getTherapistProfileCopy(id, context),
     canPublish ? api.getTherapistPublicProfile(id, context) : Promise.resolve(null),
     api.listMedia(context),
     searchParams,
   ]);
+  if (!therapistResult.ok) {
+    if (therapistResult.code === 'THERAPIST_NOT_FOUND') notFound();
+    throw new Error(`Failed to load therapist: ${therapistResult.code}`);
+  }
   if (!copyResult.ok) {
     if (copyResult.code === 'THERAPIST_NOT_FOUND') notFound();
     throw new Error(`Failed to load therapist copy: ${copyResult.code}`);
@@ -74,6 +79,7 @@ export default async function TherapistProfilePage({
         copy={copyResult.data.copy}
         profile={profileResult?.data.profile ?? null}
         media={mediaResult.ok ? mediaResult.data.media : []}
+        therapistStatus={therapistResult.data.therapist.status}
         csrfToken={(await readCsrfCookie()) ?? ''}
         canPublishMedia={user.permissions.includes('media.publish')}
         message={message}

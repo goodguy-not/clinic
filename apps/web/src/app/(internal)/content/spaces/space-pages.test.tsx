@@ -88,7 +88,10 @@ describe('receptionist public-space workspace', () => {
     expect(markup).toContain('/content/spaces/new');
     expect(markup).toContain(`/content/spaces/${SPACE_ID}/edit`);
     expect(photoMarkup).toContain('انتخاب از گوشی یا رایانه');
-    expect(photoMarkup).toContain('قاب پهن، شکل اصلی نمایش');
+    expect(photoMarkup).toContain('عکس اصلی پهن');
+    expect(photoMarkup).toContain('قاب پهن ۱۶:۹');
+    expect(photoMarkup).toContain('عکس جزئیات نزدیک');
+    expect(photoMarkup).toContain('قاب افقی ۳:۲');
     expect(photoMarkup).toContain('آماده؛ هنوز منتشر نشده');
   });
 
