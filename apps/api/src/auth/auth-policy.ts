@@ -95,6 +95,14 @@ export const SESSION_ABSOLUTE_MINUTES = 12 * 60;
 export const SESSION_TOUCH_MINUTES = 5;
 
 /**
+ * A session that has been over — expired or revoked — for this many days is
+ * removed by the nightly `SESSION_PRUNE` job (Milestone 10, checkpoint A3).
+ * Long enough to answer "was that session still live?" during an incident; the
+ * database trigger `user_session_prune_only_ended` states the same window.
+ */
+export const SESSION_PRUNE_AFTER_DAYS = 30;
+
+/**
  * Subtracted from the cookie lifetime PostgreSQL computes.
  *
  * A relative `Max-Age` starts counting when the browser receives the response,

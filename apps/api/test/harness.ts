@@ -316,8 +316,8 @@ const PROTECTED_TABLES = [
   // never a DELETE, so the row itself refuses both DELETE and TRUNCATE.
   'website_request',
   // Milestone 9.5, checkpoint A5. All three refuse DELETE and TRUNCATE: a
-  // photograph is unpublished, detached or archived, never erased, and the
-  // retention decision that would change that has not been taken.
+  // photograph is unpublished, detached or archived, and since Milestone 10 A3
+  // its BYTES may be erased in place — the rows are never deleted.
   'media_asset',
   'media_rendition',
   'media_attachment',
@@ -416,6 +416,10 @@ export async function resetDatabase(): Promise<void> {
       await prisma.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE TRIGGER USER`);
     }
   }
+
+  // Milestone 10, checkpoint A3. The four job rows are structure, like the
+  // profile below; only when each last succeeded is reset.
+  await prisma.$executeRawUnsafe(`UPDATE scheduled_job SET last_succeeded_at = NULL`);
 
   // THE ONE TABLE A TRUNCATE CANNOT RESET, CLEARED IN PLACE INSTEAD.
   //

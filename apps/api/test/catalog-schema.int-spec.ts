@@ -216,6 +216,8 @@ describe('catalog schema objects', () => {
         'audit_log',
         'room',
         'room_service',
+        // Milestone 10, checkpoint A3: one row per nightly job.
+        'scheduled_job',
         'service',
         'service_duration',
         'tariff',

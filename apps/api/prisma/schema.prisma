@@ -547,8 +547,12 @@ model AppUser {
   resolvedPaymentPromises PaymentPromise[] @relation("PaymentPromiseResolvedBy")
 
   createdArticles     PublicArticle[]
-  createdTestimonials PublicTestimonial[]
+  createdTestimonials PublicTestimonial[] @relation("PublicTestimonialCreatedBy")
   createdSpaces       PublicSpace[]
+
+  /// Milestone 10, checkpoint A3. The manager who recorded that a family
+  /// withdrew consent. A standing claim about the row, like `archivedMedia`.
+  withdrawnTestimonials PublicTestimonial[] @relation("PublicTestimonialConsentWithdrawnBy")
 
   /// Milestone 9, checkpoint A4. The colleague who tied a stranger's message to
   /// a family. It is the ONLY actor column on `website_request`: who moved a
@@ -2301,7 +2305,11 @@ model PublicTestimonial {
   /// THE AUTHORITATIVE WORDS, FOR BOTH KINDS. For a `HANDWRITTEN` testimonial
   /// this is the transcription a human read off the note and typed; the
   /// photograph beside it is an illustration of a meaning already stored here.
-  body                   String
+  ///
+  /// NULL ONLY ONCE ERASED (Milestone 10, checkpoint A3):
+  /// `public_testimonial_erasure_chk` ties it to `contentErasedAt` in both
+  /// directions, so the words are present exactly until they are erased.
+  body                   String?
   /// Milestone 9.5, checkpoint A7. How the words arrived — NOT who wrote them,
   /// not which child they concern, and nothing clinical. See `TestimonialKind`
   /// for why a handwritten note still requires the transcription above, and for
@@ -2318,7 +2326,25 @@ model PublicTestimonial {
   createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId        String            @map("created_by_user_id") @db.Uuid
 
-  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  /// --- consent withdrawn, and the content erased (Milestone 10, A3). ---
+  ///
+  /// THE ERASE-IN-PLACE PATTERN `website_request.purgedAt` ESTABLISHED. A
+  /// family withdrawing consent is recorded by a manager, which takes the
+  /// testimonial off the site in the same statement and hides it from every
+  /// staff read; the nightly erasure then clears `body` and `authorLabel` and
+  /// erases the bytes of every photograph ever attached to it. The ROW stays,
+  /// saying that a testimonial existed, when consent was withdrawn, by whose
+  /// record and when its content was erased — and nothing it said.
+  ///
+  /// BOTH ARE FINAL. `public_testimonial_withdrawal_is_final` refuses every
+  /// change to a withdrawn row except the erasure itself, and every change at
+  /// all once erased.
+  consentWithdrawnAt       DateTime? @map("consent_withdrawn_at") @db.Timestamptz
+  consentWithdrawnByUserId String?   @map("consent_withdrawn_by_user_id") @db.Uuid
+  contentErasedAt          DateTime? @map("content_erased_at") @db.Timestamptz
+
+  createdBy          AppUser  @relation("PublicTestimonialCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  consentWithdrawnBy AppUser? @relation("PublicTestimonialConsentWithdrawnBy", fields: [consentWithdrawnByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
   /// A row here is not a published picture: see `MediaAttachment`.
@@ -2662,8 +2688,8 @@ model MediaAsset {
   /// and confirmed by the decoder. The filename and the browser-supplied
   /// content type reach no column here: both are chosen by the caller, and a
   /// product that recorded either would be recording a claim as a fact.
-  sourceContentType String @map("source_content_type")
-  sourceByteSize    Int    @map("source_byte_size")
+  sourceContentType String  @map("source_content_type")
+  sourceByteSize    Int     @map("source_byte_size")
   /// SHA-256 of the bytes AS UPLOADED — a digest, never the photograph. The
   /// retry identity: a colleague re-sending the same photograph gets back the
   /// asset they already created (Milestone 9.5 stabilisation). NULL on assets
@@ -2687,9 +2713,12 @@ model MediaAsset {
   archivedAt       DateTime? @map("archived_at") @db.Timestamptz
   archivedByUserId String?   @map("archived_by_user_id") @db.Uuid
 
-  /// WHEN THE STORED BYTES WERE PHYSICALLY ERASED. NULL on every asset today.
+  /// WHEN THE STORED BYTES WERE PHYSICALLY ERASED.
   ///
-  /// NOTHING IN THIS CHECKPOINT WRITES IT. There is no schedule, no duration,
+  /// Written since Milestone 10, checkpoint A3 by the nightly erasure
+  /// (`MediaErasureService`), under the owner's retention rules and the
+  /// database's `media_asset_erasure_guard`. What follows is the A5 reasoning
+  /// that made it cheap. NOTHING IN THAT CHECKPOINT WROTE IT. There is no schedule, no duration,
   /// no route and no permission for erasure anywhere in Milestone 9.5, because
   /// the retention policy is an owner decision nobody has taken. What this
   /// column does is keep that decision cheap: when it is taken, an erasure is
@@ -2897,4 +2926,34 @@ model MediaAttachment {
   @@index([ownerType, position])
   @@index([mediaAssetId])
   @@map("media_attachment")
+}
+
+/// The unattended jobs, and when each last finished all of its work.
+///
+/// Milestone 10, checkpoint A3. One row per job, created by the migration and
+/// never inserted or deleted by the application; `lastSucceededAt` is the one
+/// value that moves. The manager's operational status reads it, and a job whose
+/// last success is too old is a warning — the same shape as the off-site backup
+/// age, for the same reason: a job that exists but never runs gives false
+/// safety.
+///
+/// Each success is also an audit row (`scheduled_job.succeeded`) naming this
+/// row, with what the run did as counts. This column is the fast read; the
+/// audit trail is the history.
+model ScheduledJob {
+  id              String           @id @db.Uuid
+  name            ScheduledJobName @unique
+  lastSucceededAt DateTime?        @map("last_succeeded_at") @db.Timestamptz
+
+  @@map("scheduled_job")
+}
+
+/// Milestone 10, checkpoint A3. A fifth job is a migration that adds its row.
+enum ScheduledJobName {
+  WEBSITE_REQUEST_PURGE
+  SESSION_PRUNE
+  MEDIA_ERASURE
+  TESTIMONIAL_ERASURE
+
+  @@map("scheduled_job_name")
 }

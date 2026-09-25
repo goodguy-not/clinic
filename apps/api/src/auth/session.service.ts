@@ -10,6 +10,7 @@ import {
   COOKIE_MAX_AGE_SAFETY_MARGIN_SECONDS,
   SESSION_ABSOLUTE_MINUTES,
   SESSION_IDLE_MINUTES,
+  SESSION_PRUNE_AFTER_DAYS,
   SESSION_TOKEN_BYTES,
   SESSION_TOUCH_MINUTES,
 } from './auth-policy';
@@ -222,6 +223,44 @@ export class SessionService {
         AND revoked_at IS NULL
         AND id <> ${except}::uuid
     `;
+  }
+
+  /**
+   * Removes every session that has been OVER for `SESSION_PRUNE_AFTER_DAYS`.
+   *
+   * Milestone 10, checkpoint A3 — the nightly `SESSION_PRUNE` job. A session is
+   * over at the earliest of its absolute expiry, its idle expiry and its
+   * revocation. A hash of a token nobody can present any more protects nothing
+   * and is only a growing table; the acts the session performed stay in
+   * `audit_log`, which names it by a plain UUID with no foreign key.
+   *
+   * The same window is `user_session_prune_only_ended`, so a mistake here is a
+   * refusal from the database, never the removal of a live session. Idempotent:
+   * a second run finds nothing.
+   */
+  pruneEnded(): Promise<number> {
+    return this.prisma.$executeRaw`
+      DELETE FROM user_session
+      WHERE LEAST(
+              absolute_expires_at,
+              idle_expires_at,
+              COALESCE(revoked_at, 'infinity'::timestamptz)
+            ) <= transaction_timestamp() - ${`${SESSION_PRUNE_AFTER_DAYS} days`}::interval
+    `;
+  }
+
+  /** What `pruneEnded` would remove now. Writes nothing. */
+  async countEnded(): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM user_session
+      WHERE LEAST(
+              absolute_expires_at,
+              idle_expires_at,
+              COALESCE(revoked_at, 'infinity'::timestamptz)
+            ) <= transaction_timestamp() - ${`${SESSION_PRUNE_AFTER_DAYS} days`}::interval
+    `;
+
+    return rows[0]?.count ?? 0;
   }
 }
 

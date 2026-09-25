@@ -235,13 +235,20 @@ describe('audit runtime (real PostgreSQL)', () => {
         return session;
       });
 
-      // user_session carries no protective trigger: it is operational state a
-      // retention policy must be able to purge. No such job exists yet, so the
-      // runtime role holds no DELETE on it and this runs as the owner.
+      // user_session is operational state the nightly SESSION_PRUNE job removes
+      // once it has been over for thirty days (Milestone 10, checkpoint A3).
+      // The session is aged past that as the owner — the only way a test can
+      // move time — and then pruned by the runtime, exactly as the job does.
       await ownerPrisma().$executeRaw`
-        DELETE FROM user_session WHERE id = ${issued.sessionId}::uuid
+        UPDATE user_session
+        SET created_at = created_at - interval '40 days',
+            last_seen_at = last_seen_at - interval '40 days',
+            idle_expires_at = idle_expires_at - interval '40 days',
+            absolute_expires_at = absolute_expires_at - interval '40 days'
+        WHERE id = ${issued.sessionId}::uuid
       `;
 
+      expect(await harness.sessions.pruneEnded()).toBe(1);
       expect(await harness.prisma.userSession.count()).toBe(0);
 
       const row = await harness.prisma.auditLog.findFirstOrThrow();

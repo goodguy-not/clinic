@@ -298,6 +298,11 @@ describe('handwritten testimonials (real PostgreSQL)', () => {
         'approved_at',
         'author_label',
         'body',
+        // Milestone 10, checkpoint A3: consent withdrawn and content erased —
+        // dates and an actor, none of which is text from a machine or a family.
+        'consent_withdrawn_at',
+        'consent_withdrawn_by_user_id',
+        'content_erased_at',
         'created_at',
         'created_by_user_id',
         'id',

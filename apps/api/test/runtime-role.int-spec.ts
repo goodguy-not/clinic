@@ -32,13 +32,15 @@ const SIUD: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 const EXPECTED_TABLE_PRIVILEGES: Record<string, Privilege[]> = {
   // Append-only: written once, never changed, never removed.
   audit_log: SI,
-  media_rendition: SI,
   settlement_period: SI,
   settlement_line: SI,
 
   // Structure created by migrations, edited in place, never inserted.
   clinic_public_profile: SU,
   clinic_content_entry: SU,
+  // Milestone 10, checkpoint A3. One row per nightly job, created by the
+  // migration; the runtime moves `last_succeeded_at` and nothing else.
+  scheduled_job: SU,
 
   // Current configuration, replaced by delete-and-insert.
   therapist_service: SID,
@@ -51,9 +53,12 @@ const EXPECTED_TABLE_PRIVILEGES: Record<string, Privilege[]> = {
   // Transient workflow state, consumed and physically removed.
   registration_draft: SIUD,
 
+  // Milestone 10, checkpoint A3. Prunable once long over — and ONLY then:
+  // `user_session_prune_only_ended` refuses any other DELETE.
+  user_session: SIUD,
+
   // Records with a lifecycle; historical columns guarded by their own triggers.
   app_user: SIU,
-  user_session: SIU,
   therapist: SIU,
   service: SIU,
   room: SIU,
@@ -76,6 +81,10 @@ const EXPECTED_TABLE_PRIVILEGES: Record<string, Privilege[]> = {
   website_request: SIU,
   media_asset: SIU,
   media_attachment: SIU,
+  // Milestone 10, checkpoint A3. Append-only but for the erasure of a
+  // photograph that is due: `media_rendition_erasure_only` refuses every other
+  // UPDATE, for the runtime and the owner alike.
+  media_rendition: SIU,
 };
 
 /** Every table whose rows are history: the runtime may never remove one. */
@@ -347,7 +356,7 @@ describe('runtime database role (real PostgreSQL)', () => {
       await expectRefused(harness, `DELETE FROM ${table}`);
     });
 
-    it.each(['audit_log', 'media_rendition', 'settlement_period', 'settlement_line'])(
+    it.each(['audit_log', 'settlement_period', 'settlement_line'])(
       'refuses UPDATE on append-only %s',
       async (table) => {
         await expectRefused(harness, `UPDATE ${table} SET id = id`);
@@ -388,6 +397,42 @@ describe('runtime database role (real PostgreSQL)', () => {
       await expect(ownerPrisma().$executeRaw(Prisma.sql`DELETE FROM app_user`)).rejects.toThrow(
         /protected|not permitted/i,
       );
+    });
+
+    // Milestone 10, checkpoint A3. The two privileges the nightly jobs added,
+    // each narrowed by a trigger to the one act the job performs.
+    it('refuses to DELETE a session that is still live, though DELETE is granted', async () => {
+      const user = await seedUser(harness);
+      const issued = await harness.prisma.$transaction((tx) =>
+        harness.sessions.createSession(tx, user.id),
+      );
+
+      await expect(
+        harness.prisma.$executeRaw`DELETE FROM user_session WHERE id = ${issued.sessionId}::uuid`,
+      ).rejects.toThrow(/has not been over for thirty days/);
+
+      const left = await harness.prisma.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM user_session
+      `;
+      expect(left[0]?.n).toBe(1);
+    });
+
+    it('refuses every UPDATE of a rendition but an erasure that is due', async () => {
+      // No rendition needs to exist for the trigger to be reached: a statement
+      // matching none is refused by nobody, so the matching one is built by the
+      // media suites. Here: the grant exists, and an ordinary rewrite of an
+      // existing row cannot pass the trigger (see media-erasure.int-spec.ts).
+      const granted = await harness.prisma.$queryRaw<{ ok: boolean }[]>`
+        SELECT has_table_privilege('clinic_runtime', 'media_rendition', 'UPDATE') AS ok
+      `;
+      expect(granted[0]?.ok).toBe(true);
+
+      const trigger = await harness.prisma.$queryRaw<{ enabled: string }[]>`
+        SELECT tgenabled::text AS enabled FROM pg_trigger
+        WHERE tgname = 'media_rendition_erasure_only'
+          AND tgrelid = 'media_rendition'::regclass
+      `;
+      expect(trigger[0]?.enabled).toBe('O');
     });
   });
 });

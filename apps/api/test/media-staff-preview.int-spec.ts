@@ -277,11 +277,24 @@ describe('staff media preview (real PostgreSQL)', () => {
     const { asset } = await preparedArticleImage();
     const renditionId = renditionOf(asset);
 
-    await ownerPrisma().$executeRaw`
-      UPDATE media_rendition
-      SET storage_key = NULL, bytes_purged_at = transaction_timestamp()
-      WHERE id = ${renditionId}::uuid
-    `;
+    // An erased rendition on a live, published asset is a state the owner's
+    // rules never produce (Milestone 10, A3) — `media_rendition_erasure_only`
+    // refuses it — so the owner switches that guard off for this one statement
+    // to prove the preview's own predicate in isolation.
+    await ownerPrisma().$executeRawUnsafe(
+      'ALTER TABLE media_rendition DISABLE TRIGGER media_rendition_erasure_only',
+    );
+    try {
+      await ownerPrisma().$executeRaw`
+        UPDATE media_rendition
+        SET storage_key = NULL, bytes_purged_at = transaction_timestamp()
+        WHERE id = ${renditionId}::uuid
+      `;
+    } finally {
+      await ownerPrisma().$executeRawUnsafe(
+        'ALTER TABLE media_rendition ENABLE TRIGGER media_rendition_erasure_only',
+      );
+    }
 
     expectNotFound(await preview(renditionId, as(manager)));
   });
