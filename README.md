@@ -259,20 +259,31 @@ work unchanged.
 ## Backup and restore
 
 Milestone 10, checkpoint A2. **The database and the media directory are backed up
-together or not at all, and a backup is only trusted once a restore of it has been
-verified.** `scripts/backup/drill.sh` proves the whole cycle on every CI run (the
-`restore-drill` job).
+together or not at all, a backup is only trusted once a restore of it has been
+verified, and a restore only accepts an archive this clinic's server produced.**
+`scripts/backup/drill.sh` proves the whole cycle on every CI run (the `restore-drill`
+job).
+
+**Owner decisions** (DECISION_LOG, 2026-09-26): a backup **every night**, kept **30
+days**, on the server and on a **clinic computer that collects them automatically**,
+plus a **monthly copy to an external drive** kept by the manager. Cloud object storage
+may be added before public launch, as configuration.
+
+**Assumed:** the server is Linux with systemd and OpenSSH; the clinic computer is
+Windows 10 or 11 with the built-in OpenSSH client. Neither is decided by the hosting
+choice yet.
 
 ### What one backup is
 
-`backup.sh` writes one file, `clinic-backup-<UTC time>.tar.gpg`, plus a
-`.sha256` beside it for checking a copy without the key. Inside the encryption:
+`backup.sh` writes one file, `clinic-backup-<UTC time>.tar.gpg`, plus a `.sha256`
+beside it for checking a copy without the key. The file is **signed by the server's
+own key and encrypted to the owner's key**. Inside the encryption:
 
 | Member                   | What it is                                                                                                                    |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
 | `FORMAT`                 | `clinic-backup/1`                                                                                                             |
 | `database.dump`          | `pg_dump --format=custom` of the whole database, including `_prisma_migrations`, every trigger, constraint and grant          |
-| `manifest/meta.txt`      | snapshot time, database, server and pg_dump versions, latest migration, backup login, encryption key fingerprint              |
+| `manifest/meta.txt`      | snapshot time, database, server and pg_dump versions, latest migration, backup login, encryption and signing key fingerprints |
 | `manifest/tables.txt`    | every table's row count and a row-order-independent checksum of its contents                                                  |
 | `manifest/sequences.txt` | every sequence's position                                                                                                     |
 | `manifest/schema.txt`    | every trigger (and whether it is enabled), constraint, index, function (body digest, pinned settings) and non-owner privilege |
@@ -289,46 +300,63 @@ file stops the backup before anything is written. Files no committed row names
 (a failed or in-flight upload) are not archived: they are not part of any
 restorable state.
 
-**Encryption.** The archive is encrypted to an OpenPGP **public** key. The server
-never holds the private key, so neither it nor anybody who copies the destination
-can read a backup. The private key is kept offline by the owner, in two places;
-losing it loses every backup.
+**Encryption.** To the owner's OpenPGP **public** key. The server never holds the
+private key, so neither it, the clinic computer, the external drive nor anybody who
+copies any of them can read a backup.
+
+**Authenticity.** Anybody with the owner's public key can encrypt a file to it, so
+encryption proves nothing about where an archive came from. Every archive is also
+**signed** with a key that exists only on the server, and `restore.sh` refuses any
+archive without a good signature from the key in `RESTORE_SIGNER_KEY_FILE` — the
+server's _public_ signing key, kept off-server with the decryption key. A file
+planted on the clinic computer or the external drive, even correctly encrypted, is
+refused before anything is restored.
 
 ### Configuration
 
-Environment only. Where, when and for how long are owner decisions not yet taken
-(see [Retention and privacy](#retention-and-privacy)); nothing in the code assumes an
-answer.
+Environment only, from a file only `root` and the backup user can read.
 
 | Variable                    | Required | Purpose                                                                                                                     |
 | --------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `BACKUP_DATABASE_URL`       | yes      | The `clinic_backup` login. The script refuses any login that could write, own, create or become another.                    |
 | `MEDIA_STORAGE_DIR`         | yes      | The API's media root, read only.                                                                                            |
-| `BACKUP_DESTINATION_DIR`    | yes      | An existing directory — a mounted off-server volume, for example. Never created by the script.                              |
-| `BACKUP_RECIPIENT_KEY_FILE` | yes      | The public key file. A file holding a private key is refused.                                                               |
-| `BACKUP_RETENTION_DAYS`     | yes      | After a successful backup, archives in the destination older than this are removed. No default.                             |
+| `BACKUP_DESTINATION_DIR`    | yes      | The server's local backup directory. Never created by the script.                                                           |
+| `BACKUP_RECIPIENT_KEY_FILE` | yes      | The owner's public key file. A file holding a private key is refused.                                                       |
+| `BACKUP_SIGNING_KEY_DIR`    | yes      | A GnuPG home holding exactly one secret key: the server's signing key.                                                      |
+| `BACKUP_RETENTION_DAYS`     | yes      | `30`. After a successful backup, archives in the destination older than this are removed.                                   |
 | `BACKUP_WORK_DIR`           | no       | Where the plaintext staging directory is made (default `$TMPDIR`). Removed on exit; needs room for one dump plus the media. |
 
 Requirements on the host: bash, PostgreSQL client tools **16 or later and at least the
-server's major version**, GnuPG 2.2+, GNU tar and coreutils. The media directory must
-be readable by the user the script runs as.
+server's major version**, GnuPG 2.2+, GNU tar and coreutils.
 
-### Setting it up
+### Setting up the server
 
-1. Provision the backup login (once; needs a superuser, or an administrator holding
-   `pg_read_all_data WITH ADMIN OPTION`). Re-running is how its password is rotated:
+Users and directories (names are the defaults the systemd units use):
+
+| What                                   | Owner : group                    | Mode   | Who can do what                                                      |
+| -------------------------------------- | -------------------------------- | ------ | -------------------------------------------------------------------- |
+| `clinic-backup` (system user)          | member of the API's group        | —      | runs `backup.sh`; reads the media; writes the backup directory       |
+| `clinic-collector` (system user)       | its own group, `clinic-collect`  | —      | key-only SSH login for the clinic computer; no password, no DB       |
+| `/var/backups/clinic`                  | `clinic-backup : clinic-collect` | `2750` | the archives (`0640`): the collector can read, never write or delete |
+| `/var/lib/clinic-backup/signing-gnupg` | `clinic-backup`                  | `0700` | the server's signing key                                             |
+| `/var/lib/clinic/backup-status`        | `clinic-collector : <API group>` | `2750` | the collector writes its acknowledgement; the API reads it           |
+
+The collector login has no database role, is not in the API's group (so it cannot
+read the media), and cannot write to the backup directory: even if it escaped its
+forced command it could not delete or alter a backup.
+
+1. **Provision the backup login** (once; needs a superuser, or an administrator
+   holding `pg_read_all_data WITH ADMIN OPTION`). Re-running rotates its password:
 
    ```bash
    psql -h <host> -U <administrator> -d postgres -v database=<database> -v runtime_password=<secret> -v backup_password=<secret> -f apps/api/prisma/provision-roles.sql
    ```
 
    `clinic_backup` is a member of `pg_read_all_data` only — `SELECT` and schema
-   `USAGE`, never a write — and its sessions are read-only by default. It
-   reads every table a later migration adds without anybody granting it.
+   `USAGE`, never a write — and its sessions are read-only by default.
 
-2. On a trusted machine that is **not** the server, the owner creates the key pair
-   with a passphrase, keeps the private key offline, and gives only the public key to
-   the server:
+2. **The owner's key pair** — on a trusted computer that is **not** the server, with
+   a passphrase. Only the public half goes to the server:
 
    ```bash
    gpg --quick-gen-key "Clinic backups" default default never
@@ -338,22 +366,102 @@ be readable by the user the script runs as.
    gpg --armor --export "Clinic backups" > clinic-backup-public.asc
    ```
 
-3. Run once by hand and keep the output:
+3. **The server's signing key** — on the server, as `clinic-backup`, with no
+   passphrase (it must sign unattended), then its **public** half is exported and
+   handed to the owner to keep with the decryption key:
 
    ```bash
-   scripts/backup/backup.sh
+   gpg --homedir /var/lib/clinic-backup/signing-gnupg --batch --passphrase '' --quick-gen-key "Clinic server backup signing" ed25519 sign never
    ```
 
-4. **Scheduling waits for the hosting decision.** Whatever runs it — cron, a
-   systemd timer, the host's scheduler — must run it as a user that can read the
-   media directory, supply the variables above from a file only that user can read,
-   and **alert on a non-zero exit**: every failure exits non-zero and says why on
-   stderr, and a backup that silently stopped is the failure that matters. For
-   example, with cron (times are the owner's to choose):
-
-   ```cron
-   <minute> <hour> * * * . /etc/clinic/backup.env && /srv/clinic/scripts/backup/backup.sh >> /var/log/clinic-backup.log 2>&1 || <alert command>
+   ```bash
+   gpg --homedir /var/lib/clinic-backup/signing-gnupg --armor --export > clinic-server-signing-public.asc
    ```
+
+4. **Run once by hand** and keep the output: `scripts/backup/backup.sh`.
+
+5. **Nightly.** Install `scripts/backup/systemd/clinic-backup.service` and
+   `clinic-backup.timer` in `/etc/systemd/system/`, adjust the paths, then
+   `systemctl enable --now clinic-backup.timer`. The timer runs at 02:30 Tehran time,
+   and `Persistent=true` runs a missed backup at the next boot. A failure exits
+   non-zero with the reason on stderr (`journalctl -u clinic-backup`); the manager
+   sees the consequence as a stale off-site copy within three days (below).
+
+### The clinic collector
+
+The clinic computer **pulls**: it is behind the clinic's router and is not always on,
+so the server cannot reach it, and a pull needs no inbound port at the clinic.
+
+**On the server**, once:
+
+1. Put the collector's public key (printed by the Windows install, below) in
+   `~clinic-collector/.ssh/authorized_keys`, exactly as one line:
+
+   ```text
+   restrict,command="env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh" ssh-ed25519 AAAA... clinic-collector@<computer>
+   ```
+
+2. Pin the same restriction in `sshd_config`, so a key added later without it is
+   still forced:
+
+   ```text
+   Match User clinic-collector
+       AuthenticationMethods publickey
+       DisableForwarding yes
+       PermitTTY no
+       ForceCommand env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh
+   ```
+
+`collector-serve.sh` answers exactly three requests — `list`, `get <archive>`, `ack
+<archive>` — and refuses everything else, including any name that is not a generated
+archive name.
+
+**On the clinic computer**, once, as Administrator (clinic staff do nothing,
+before or after). Read the server's host key fingerprint on the server first
+(`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`), then:
+
+```powershell
+.\scripts\backup\collector\install-collector.ps1 -Server <server address> -HostKeyFingerprint 'SHA256:<from the server>' -ManagerAccount '<manager Windows account>'
+```
+
+It creates the key and settings in `%ProgramData%\ClinicBackupCollector` (SYSTEM and
+Administrators only), pins the host key, and registers a scheduled task that runs as
+SYSTEM two minutes after every start-up and every hour while the computer is on —
+signed in or not — and catches up on missed runs. Each run downloads any backup it
+lacks to `<name>.partial`, checks its SHA-256, renames it into `C:\ClinicBackups`,
+tells the server the newest one it holds, and removes its own copies older than 30
+days (never the newest). Interrupted or repeated runs are harmless. Its log is
+`C:\ClinicBackups\collector.log`.
+
+**Monthly, the manager** copies the newest `clinic-backup-*.tar.gpg` from
+`C:\ClinicBackups` to the external drive, **replacing** last month's, and keeps the
+drive away from the clinic.
+
+### When the off-site copy is stale
+
+`GET /operations/backup-status` (manager-only, `user.read`; no new permission) reports
+how old the newest backup the clinic computer holds is, measured from when that backup
+was **taken** — so a server that stopped backing up and a computer that stopped
+collecting both show as the same warning. More than **72 hours** is `STALE`; no
+collector configured, nothing collected yet, or an unreadable status are warnings
+too. The API reads one file, `$BACKUP_STATUS_DIR/offsite-collection`, and nothing
+else. The dashboard banner is the web tier's
+(`docs/M10_A2_BACKUP_STATUS_WEB_HANDOFF.md`).
+
+### What must be kept off the server
+
+In plain words, for the owner:
+
+| What                                                                     | Who keeps it                   | Copies                                         | If it is lost                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **The backup key** (the private key file)                                | the owner                      | 2, in two different places (not at the clinic) | **Every backup becomes unreadable, forever.** Nobody — not the developers — can recover it. Make a new key and keep backing up; everything before is gone. If it is **stolen together with its passphrase**, anybody holding a backup can read it: make a new key at once.           |
+| **The key's passphrase**                                                 | the owner                      | 2, stored apart from the key                   | Same as losing the key.                                                                                                                                                                                                                                                              |
+| **The server's public signing key** (`clinic-server-signing-public.asc`) | the owner, with the backup key | 2, with the two copies of the key              | A restore refuses every archive, because it cannot confirm they came from the clinic's server. It is not secret: re-export it from the server if the server still exists; if the server is gone too, backups cannot be restored without a developer deliberately removing the check. |
+| **The clinic computer's backups** (`C:\ClinicBackups`)                   | automatic                      | the last 30 days                               | The server still has its own 30 days, and the drive has one monthly copy. The manager sees a stale warning within three days.                                                                                                                                                        |
+| **The external drive**                                                   | the manager                    | 1, replaced monthly                            | Only the monthly fallback is lost. It is encrypted: a lost or stolen drive reveals nothing without the backup key. Tell the owner.                                                                                                                                                   |
+
+Nothing else is needed to restore: database passwords, the internal API key and the
+cookie secret are created fresh on the new server.
 
 ### Restoring (runbook)
 
@@ -362,38 +470,42 @@ media directory beside the old ones. `restore.sh` refuses a database that holds
 anything and a media directory that is not empty, so it cannot merge into or
 overwrite a live system.
 
-1. **Use the release that took the backup.** `manifest/meta.txt` names its latest
+1. **Take the newest archive** from wherever it survives — the server, the clinic
+   computer, the external drive.
+2. **Use the release that took the backup.** `manifest/meta.txt` names its latest
    migration; `verify.sh` refuses when the checkout's migrations differ. Upgrade only
    after the restore is verified. Install dependencies (`pnpm install
 --frozen-lockfile`) and build as for a deployment.
-2. **Provision roles and an empty database**, exactly as for a new deployment, with
+3. **Provision roles and an empty database**, exactly as for a new deployment, with
    new passwords ([Provisioning a deployment](#provisioning-a-deployment)). Do
    **not** run `prisma migrate deploy` — the migration history comes from the backup.
-3. **Make the private key available** to the operator's GnuPG (import it, or point
-   `GNUPGHOME` at a keyring holding it). It is needed on this machine for this
-   step only; remove it afterwards.
-4. **Restore**, as the user the API will run as (so the media files are its own):
+4. **Make the two off-server keys available**: import the backup key into the
+   operator's GnuPG (or point `GNUPGHOME` at a keyring holding it) and copy the
+   server's public signing key file. Remove the private key from this machine
+   afterwards.
+5. **Restore**, as the user the API will run as (so the media files are its own):
 
    ```bash
-   RESTORE_OWNER_DATABASE_URL=<clinic_owner URL> RESTORE_RUNTIME_DATABASE_URL=<clinic_app URL> MEDIA_STORAGE_DIR=<new, empty media root> scripts/backup/restore.sh <archive>
+   RESTORE_OWNER_DATABASE_URL=<clinic_owner URL> RESTORE_RUNTIME_DATABASE_URL=<clinic_app URL> MEDIA_STORAGE_DIR=<new, empty media root> RESTORE_SIGNER_KEY_FILE=<clinic-server-signing-public.asc> scripts/backup/restore.sh <archive>
    ```
 
-   It checks the target is empty, decrypts and checks the whole archive, restores
-   the database **in one transaction** (complete or not at all) and copies the
-   media, then runs `verify.sh`. It must end with `RESTORE VERIFIED`. Any failure
-   after the database step means: discard this target and start again from step 2.
+   It checks the target is empty, decrypts the whole archive and checks its
+   signature and contents, restores the database **in one transaction** (complete
+   or not at all) and copies the media, then runs `verify.sh`. It must end with
+   `RESTORE VERIFIED`. Any failure after the database step means: discard this
+   target and start again from step 3.
 
-5. **Re-apply erasures that happened after the backup was taken** — the backup
+6. **Re-apply erasures that happened after the backup was taken** — the backup
    still holds website requests the ninety-day rule has since erased:
 
    ```bash
    pnpm --filter @clinic/api exec node dist/cli/main.js purge-website-requests
    ```
 
-6. **Start the API, then build and start the web** against it. Public listing pages
+7. **Start the API, then build and start the web** against it. Public listing pages
    are prerendered at build time and revalidated every fifteen minutes; a web built
    while the API was unreachable shows empty listings until then.
-7. **Check the live site** — every public page within two links of the home page
+8. **Check the live site** — every public page within two links of the home page
    answers, every image they reference is served, and a colleague can sign in, reach
    the dashboard and sign out (a real, audited sign-in; the password is read from
    stdin):
@@ -404,8 +516,12 @@ overwrite a live system.
 
    Set `VERIFY_MIN_PUBLIC_IMAGES=0` only for a clinic with no published photograph.
 
-8. Point traffic at the restored system. Record the archive, the time and both
-   verification outputs.
+9. **Set the new server up as in [Setting up the server](#setting-up-the-server)** —
+   with a new signing key, whose public half replaces the old one off-server (keep
+   the old one too, for older archives) — and re-point the clinic computer
+   (`install-collector.ps1` again, with the new host key).
+10. Point traffic at the restored system. Record the archive, the time and both
+    verification outputs.
 
 **What `verify.sh` proves** (it can be re-run against the same archive until the
 restored system takes its first request, because it compares records exactly):
@@ -418,55 +534,96 @@ or a charge, disabling a trigger, `session_replication_role`, `SET ROLE` to the 
 DDL and touching the migration history are all refused, while the owner's delete of an
 audit row is refused by its trigger.
 
+### How much can be lost
+
+- **Normally, one day.** The backup runs at 02:30 and the clinic computer collects it
+  when it is next on. Losing the server loses everything entered since the last
+  backup the clinic computer holds: up to about 24 hours, plus however long the
+  computer stayed off after that night.
+- **At most three days before somebody is told.** Past 72 hours the manager is warned.
+  Beyond that the window grows for as long as the warning is ignored.
+- **If the server and the clinic computer are lost together** (both on-site, a fire):
+  up to **one month**, from the external drive — longer if the monthly copy was missed.
+- **Mistakes, not disasters:** a wrong change noticed later can be recovered from any
+  of the last 30 nightly backups, into a separate environment.
+
+There is no point-in-time recovery (WAL archiving): nothing between two nightly
+backups can be recovered.
+
+### How big it gets
+
+Every nightly backup is a **full** copy, so its size is the whole database plus every
+stored photograph. Measured here (synthetic data, compressed as the backup stores it):
+
+- **Records:** about **0.45 KB per appointment** with its charges, payments and audit
+  rows, plus 0.26 MB of schema. A clinic with 30 appointments a day, six days a week,
+  adds about **4 MB a year** — say **10 MB** allowing for richer use than the
+  synthetic data.
+- **Photographs:** each upload is stored as a master and twelve renditions, about
+  **2.4 MB** for a telephone photograph (measured on a synthetic 12-megapixel image;
+  real photographs are usually smaller). These are publicity photographs — portraits,
+  rooms, articles — not clinical ones: perhaps **50–150 a year**, **125–375 MB**.
+
+| After                        | One nightly backup | Server, 30 days (+ one in staging) | Clinic computer, 30 days | Downloaded per night |
+| ---------------------------- | ------------------ | ---------------------------------- | ------------------------ | -------------------- |
+| launch (≈ 30 photographs)    | ~ 80 MB            | ~ 2.5 GB                           | ~ 2.4 GB                 | ~ 80 MB              |
+| one year (≈ 180 photographs) | ~ 450 MB           | ~ 14 GB                            | ~ 13.5 GB                | ~ 450 MB             |
+
+Provision **at least 25 GB** for backups on the server and on the clinic computer for
+the first year, and check again after it: the photographs are what grows. The nightly
+download is the whole backup; if the clinic's connection cannot carry it, that is the
+trigger to revisit (DECISION_LOG).
+
+### Retention and privacy
+
+A backup keeps everything as it was when it was taken, including what the system
+later erases:
+
+- A website request is erased in place ninety days after it is closed (unless it
+  became a family). Every backup taken before that erasure still holds it until the
+  backup is removed: **30 days** on the server and the clinic computer, and **up to
+  about a month** on the external drive, whose copy is replaced monthly. So a request's
+  content can survive about **four months** after it was closed, not three.
+- The same holds for anything erased in future (media retention, when decided) and
+  for every correction's previous value.
+- A restore brings erased requests back until `purge-website-requests` runs again,
+  which is why the runbook runs it before the system is used.
+
+The owner has decided the privacy notice states the backup retention alongside the
+ninety days; the wording is the owner's.
+
 ### The drill
 
 ```bash
 DRILL_SOURCE_ADMIN_URL=<superuser URL, throwaway cluster> DRILL_TARGET_ADMIN_URL=<superuser URL, a second throwaway cluster> DRILL_WORK_DIR=<empty scratch directory> scripts/backup/drill.sh
 ```
 
-After `pnpm build:contracts` and `pnpm --filter @clinic/api build`. It builds a
-synthetic clinic with uploaded images through the real API and CLI, backs it up,
-destroys the source database, roles and media, provisions the empty target as a new
-deployment, restores, verifies, and runs the site check against the restored system.
-It also proves eight failures are loud: a backup as the owner and as the runtime
-login, a backup while a referenced image is missing, the wrong private key, a
-damaged archive, an archive missing a referenced image, an image lost after restore,
-and a restore over a database that is not empty. Synthetic data only; every
-password and key is generated for the run.
-
-### Retention and privacy
-
-**An owner decision, and it has to be taken together with the privacy text.** A
-backup keeps everything as it was when it was taken, including what the system
-later erases:
-
-- A website request is erased in place ninety days after it is closed (unless it
-  became a family). Every backup taken before that erasure still holds it, so its
-  content survives **until the last such backup is removed**: up to _ninety days
-  after closing + the interval between purge runs + `BACKUP_RETENTION_DAYS`_. With a
-  thirty-day retention, roughly four months after closing, not three.
-- The same holds for anything erased in future (media retention, when decided) and
-  for every correction's previous value.
-- A restore brings erased requests back until `purge-website-requests` runs again,
-  which is why the runbook runs it before the system is used.
-
-So the privacy notice should state the backup retention period alongside the
-ninety days, or the retention period should be short enough that the ninety days
-remains a true statement. Nothing in the code chooses between them.
+After `pnpm build:contracts` and `pnpm --filter @clinic/api build`; needs PowerShell
+(`pwsh`, or Windows PowerShell) for the collector. It builds a synthetic clinic with
+uploaded images through the real API and CLI, backs it up, has the Windows collector
+fetch it through the real forced command (SSH itself is replaced by a local
+stand-in), **destroys the server** — database, roles, media and its own backups —
+provisions an empty target as a new deployment, restores **from the clinic
+computer's copy**, verifies, and runs the site check against the restored system.
+It also proves these are refused loudly: a backup as the owner or as the runtime
+login; a backup while a referenced image is missing; seven requests the collector key
+may not make, with the server's backups byte-for-byte unchanged; the wrong private
+key; a damaged archive; a **planted archive, correctly encrypted but unsigned**; a
+**planted archive signed by another key**; a signed archive missing a referenced
+image; an image lost after restore; and a restore over a database that is not empty.
+Synthetic data only; every password and key is generated for the run.
 
 ### Limits
 
-- **Encryption, not signature.** Anyone holding the public key can produce an
-  archive that decrypts. The manifest checks catch damage, not a deliberate forgery
-  by somebody who can write to the destination; protect the destination's write
-  access accordingly.
+- **The signing key is on the server.** An attacker who controls the server can sign
+  a forged archive; the signature proves an archive came from the clinic's server,
+  not that the server was healthy.
 - The staging directory holds one plaintext dump plus the referenced media while a
   backup runs, on the same server that already holds both.
 - The database is read while the clinic works; the snapshot is consistent, and
   PostgreSQL holds only `ACCESS SHARE` locks, so the only thing it blocks is DDL —
   do not deploy a migration during a backup.
-- Point-in-time recovery (WAL archiving) is not part of this: the most that can be
-  lost is everything since the last successful backup.
+- The external drive's copy is manual; nothing records whether it was made.
 
 ## Authentication and audit (Milestone 1)
 
@@ -2423,7 +2580,7 @@ them. There is no developer file placement and no redeploy in the loop.
 database bloats every dump, backup and replica for no query anybody makes — and
 not object storage, which is a dependency, a credential and a second failure
 domain a single-site clinic does not have yet. `MEDIA_STORAGE_DIR` is where they
-live, and `MediaStorageService` is the only class in `apps/api` that opens a
+live, and `MediaStorageService` is the only class in `apps/api` that opens a media
 file.
 
 **The uploaded photograph is never written.** It exists in memory for the length
@@ -2579,14 +2736,15 @@ Never commit a real value for any of these. `.env` and `.env.local` are ignored;
 
 ### `apps/api` — repository-root `.env`
 
-| Variable                 | Required | Purpose                                                                      |
-| ------------------------ | -------- | ---------------------------------------------------------------------------- |
-| `DATABASE_URL`           | yes      | The runtime role (`clinic_app`), never the owner. Never given to `apps/web`. |
-| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server.                    |
-| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.                               |
-| `API_PORT`               | no       | Defaults to 3001.                                                            |
-| `NODE_ENV`               | no       | Defaults to `development`.                                                   |
-| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.                     |
+| Variable                 | Required | Purpose                                                                                                   |
+| ------------------------ | -------- | --------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | yes      | The runtime role (`clinic_app`), never the owner. Never given to `apps/web`.                              |
+| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server.                                                 |
+| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.                                                            |
+| `API_PORT`               | no       | Defaults to 3001.                                                                                         |
+| `NODE_ENV`               | no       | Defaults to `development`.                                                                                |
+| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.                                                  |
+| `BACKUP_STATUS_DIR`      | no       | Where the backup collector records the newest off-site copy; read for the manager's stale-backup warning. |
 
 `MEDIA_STORAGE_DIR` has no default, and the reason is not the reason
 `INTERNAL_API_KEY` has none. A default here would not be a published credential —

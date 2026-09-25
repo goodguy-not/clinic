@@ -5615,3 +5615,110 @@ that can read the media, a root-only environment file, an alert on a non-zero ex
   erased requests back until the purge runs again, which the runbook does before the
   system is used. The privacy notice and the retention period have to be decided
   together.
+
+## 2026-09-26 — Owner: nightly backups kept 30 days, collected by a clinic computer, copied monthly to a drive
+
+**Status:** Accepted — owner decision, Milestone 10 checkpoint A2 revision. Resolves
+"Backup destination, schedule and retention wait for the owner" (2026-09-25).
+
+- **Retention:** 30 days (`BACKUP_RETENTION_DAYS=30` on the server; `RetentionDays: 30`
+  on the clinic computer).
+- **Schedule:** nightly (`scripts/backup/systemd/clinic-backup.timer`, 02:30 Tehran,
+  `Persistent=true`).
+- **Privacy:** the privacy notice will state the backup retention alongside the
+  ninety-day website-request retention. The wording is the owner's and legal's, not
+  the code's. Consequence to state: a request's content can survive about four months
+  after closing (90 days + the purge interval + 30 days, or up to about a month on the
+  external drive).
+- **Off-site copy for the pilot:** a clinic computer that collects backups
+  automatically, plus a monthly copy to an external drive kept by the manager. Cloud
+  object storage will likely be added before public launch, **as configuration only**.
+- **Open, and flagged:** the external drive is replaced monthly, so its copy can be a
+  little over 30 days old before it is replaced; the privacy wording should allow
+  "about a month" rather than exactly 30 days, or the manager should replace it more
+  often.
+
+## 2026-09-26 — Every archive is signed by the server, and restore refuses one it did not sign
+
+**Status:** Accepted — Milestone 10 checkpoint A2 revision
+
+`backup.sh` signs and encrypts in one OpenPGP message with a signing key that exists
+only on the server (`BACKUP_SIGNING_KEY_DIR`, no passphrase, `clinic-backup` only).
+`restore.sh` and `verify.sh` require `RESTORE_SIGNER_KEY_FILE` — the server's public
+signing key, kept off-server with the decryption key — and refuse an archive with no
+signature, a bad one, or a good one from any other key, before anything is restored.
+The drill proves both planted cases: the genuine content correctly encrypted to the
+owner, once unsigned and once signed by another key.
+
+- **Alternatives:** a detached signature or an HMAC beside each archive; signing with
+  the owner's offline key (impossible unattended); trusting the destination instead of
+  the archive; `age`, which has no signatures.
+- **Reason:** sign-then-encrypt is one standard operation in the tool already in use,
+  and the check is made by a key the attacker who plants a file does not hold. Keeping
+  the verification key off-server means a compromised destination or clinic computer
+  cannot swap it. A detached file could be separated from its archive; an HMAC needs
+  the same secret on both sides.
+- **Trade-off:** whoever controls the server can sign; the signature proves origin,
+  not the server's health. Losing the public signing key while the server is also lost
+  blocks every restore until a developer deliberately bypasses the check, so the owner
+  keeps two copies with the decryption key. A replacement server gets a new signing
+  key, and old archives need the old public key.
+- **Revisit when:** backups go to shared cloud storage (consider signing with a key held
+  in a hardware token), or the server is run by a third party.
+
+## 2026-09-26 — The clinic computer pulls backups over SSH through a forced command, on a Windows schedule
+
+**Status:** Accepted — Milestone 10 checkpoint A2 revision
+
+The server runs `collector-serve.sh` as the forced command of a key-only
+`clinic-collector` login (`restrict` in `authorized_keys`, and a `Match User` block
+with `ForceCommand` in `sshd_config`). It answers exactly `list`, `get <archive>` and
+`ack <archive>`, and refuses anything else, including any name that is not a generated
+archive name. The login has no database role, cannot read the media, and holds only
+group read on the archives: it cannot delete or alter one even outside its command.
+On the clinic computer — **assumed Windows 10 or 11**, with the built-in OpenSSH client —
+`install-collector.ps1` registers a scheduled task running `collect-backups.ps1` as
+SYSTEM at every start-up and hourly: download to `.partial`, SHA-256 check, rename,
+`ack` the newest held, expire its own copies after 30 days. Staff do nothing.
+
+- **Alternatives:** the server pushes to the computer (needs an inbound port at the
+  clinic and a computer that is on at night); a Windows file share the server writes
+  to; a cloud sync client; an HTTPS download route in the API; `rsync`/`sftp`, which
+  would need an SFTP subsystem the forced command cannot narrow as tightly.
+- **Reason:** a pull needs nothing open at the clinic and works whenever the computer
+  happens to be on. SSH is built into both systems and a forced command narrows the
+  credential to three verbs checked by one short script, with file permissions as a
+  second wall. Keeping downloads out of the API keeps backup bytes away from the
+  process that serves the public.
+- **Trade-off:** every night downloads a full backup (about 80 MB at launch, about
+  450 MB after a year of photographs). The drill exercises the forced command and the
+  PowerShell collector through a local stand-in for SSH; `sshd` configuration itself is
+  documented, not tested in CI. The installer was not run in this session (it changes
+  the machine's scheduled tasks).
+- **Revisit when:** the nightly download is too large for the clinic's connection
+  (collect media incrementally), or cloud storage is added (the server uploads, and the
+  collector may be retired or kept as a second copy).
+
+## 2026-09-26 — The manager sees a stale off-site copy through one read, with no new permission
+
+**Status:** Accepted — Milestone 10 checkpoint A2 revision (web half handed to Agent B)
+
+Each `ack` writes `offsite-collection` (archive, collected at, newest on the server) to
+`BACKUP_STATUS_DIR`. `GET /operations/backup-status`, under `user.read`, reads that one
+file and reports the age of the newest off-site copy, measured from when that backup
+was **taken**. Past 72 hours it is `STALE`; not configured, never collected and
+unreadable are warnings too. The screen is `docs/M10_A2_BACKUP_STATUS_WEB_HANDOFF.md`.
+
+- **Alternatives:** measure from the time of collection (misses a server that stopped
+  backing up while the computer keeps collecting the same old file); a Windows
+  notification on the clinic computer (silent exactly when the computer is off);
+  email or SMS (no such channel in the product); a new `backup.read` permission.
+- **Reason:** one age covers both silent failures. The dashboard is where the manager
+  already looks. `user.read` is the manager-only name for system oversight; a new
+  permission would be vocabulary for one read of two timestamps and would widen
+  nothing either way.
+- **Trade-off:** the API reads one file outside the media root; the collector can write
+  that file, so a compromised collector key could claim a copy it does not hold (it
+  still could not touch a backup). No warning appears until the web half ships.
+- **Revisit when:** cloud storage is added (report the newest object there too), or a
+  second collector exists.
