@@ -175,6 +175,7 @@ gone for anybody who could make the API run SQL.
 | `clinic_owner`   | yes   | the database and every object | `prisma migrate deploy` only — and, in tests, the between-test reset      |
 | `clinic_runtime` | no    | nothing                       | holds the grants; no password, cannot sign in                             |
 | `clinic_app`     | yes   | nothing                       | member of `clinic_runtime`: the API server and every operator CLI command |
+| `clinic_backup`  | yes   | nothing                       | member of `pg_read_all_data` only: `scripts/backup/backup.sh`             |
 
 `clinic_runtime` is referenced by name in migrations; the two login names are conventions.
 A second login — say a separately attributable one for the CLI — needs only
@@ -191,6 +192,8 @@ A second login — say a separately attributable one for the CLI — needs only
 | Synthetic clinic seeder (development only)                   | `clinic_app`         |
 | Integration tests — the API under test                       | `clinic_app`         |
 | Integration tests — the reset (`TEST_OWNER_DATABASE_URL`)    | `clinic_owner`       |
+| `scripts/backup/backup.sh` (`BACKUP_DATABASE_URL`)           | `clinic_backup`      |
+| `scripts/backup/restore.sh` into an empty database           | `clinic_owner`       |
 
 Every CLI command runs through the same NestJS services as the API and needs nothing the
 API does not. There is **no media orphan-ageing job**: media retention is an open owner
@@ -252,6 +255,218 @@ the database from `PUBLIC`. Re-running it is safe and is how a password is rotat
 A PostgreSQL 13 or later server is required (`btree_gist` must be a trusted extension so a
 non-superuser owner can create it). Managed services whose "admin" user is not a superuser
 work unchanged.
+
+## Backup and restore
+
+Milestone 10, checkpoint A2. **The database and the media directory are backed up
+together or not at all, and a backup is only trusted once a restore of it has been
+verified.** `scripts/backup/drill.sh` proves the whole cycle on every CI run (the
+`restore-drill` job).
+
+### What one backup is
+
+`backup.sh` writes one file, `clinic-backup-<UTC time>.tar.gpg`, plus a
+`.sha256` beside it for checking a copy without the key. Inside the encryption:
+
+| Member                   | What it is                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `FORMAT`                 | `clinic-backup/1`                                                                                                             |
+| `database.dump`          | `pg_dump --format=custom` of the whole database, including `_prisma_migrations`, every trigger, constraint and grant          |
+| `manifest/meta.txt`      | snapshot time, database, server and pg_dump versions, latest migration, backup login, encryption key fingerprint              |
+| `manifest/tables.txt`    | every table's row count and a row-order-independent checksum of its contents                                                  |
+| `manifest/sequences.txt` | every sequence's position                                                                                                     |
+| `manifest/schema.txt`    | every trigger (and whether it is enabled), constraint, index, function (body digest, pinned settings) and non-owner privilege |
+| `manifest/media.sha256`  | every stored file a row refers to, with the SHA-256 recorded in that row                                                      |
+| `media/`                 | exactly those files, at their storage keys                                                                                    |
+
+**Why the pair is consistent.** One `REPEATABLE READ` snapshot is exported,
+`pg_dump --snapshot` reads it, and the manifest is computed in the same snapshot —
+so the file list is exactly what the dumped rows refer to. The API writes a file
+before the row naming it commits and never deletes a stored file, so each listed
+file already exists and still exists a moment later; the script then **checks**
+that, copying each one and comparing its hash with its row. A missing or altered
+file stops the backup before anything is written. Files no committed row names
+(a failed or in-flight upload) are not archived: they are not part of any
+restorable state.
+
+**Encryption.** The archive is encrypted to an OpenPGP **public** key. The server
+never holds the private key, so neither it nor anybody who copies the destination
+can read a backup. The private key is kept offline by the owner, in two places;
+losing it loses every backup.
+
+### Configuration
+
+Environment only. Where, when and for how long are owner decisions not yet taken
+(see [Retention and privacy](#retention-and-privacy)); nothing in the code assumes an
+answer.
+
+| Variable                    | Required | Purpose                                                                                                                     |
+| --------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `BACKUP_DATABASE_URL`       | yes      | The `clinic_backup` login. The script refuses any login that could write, own, create or become another.                    |
+| `MEDIA_STORAGE_DIR`         | yes      | The API's media root, read only.                                                                                            |
+| `BACKUP_DESTINATION_DIR`    | yes      | An existing directory — a mounted off-server volume, for example. Never created by the script.                              |
+| `BACKUP_RECIPIENT_KEY_FILE` | yes      | The public key file. A file holding a private key is refused.                                                               |
+| `BACKUP_RETENTION_DAYS`     | yes      | After a successful backup, archives in the destination older than this are removed. No default.                             |
+| `BACKUP_WORK_DIR`           | no       | Where the plaintext staging directory is made (default `$TMPDIR`). Removed on exit; needs room for one dump plus the media. |
+
+Requirements on the host: bash, PostgreSQL client tools **16 or later and at least the
+server's major version**, GnuPG 2.2+, GNU tar and coreutils. The media directory must
+be readable by the user the script runs as.
+
+### Setting it up
+
+1. Provision the backup login (once; needs a superuser, or an administrator holding
+   `pg_read_all_data WITH ADMIN OPTION`). Re-running is how its password is rotated:
+
+   ```bash
+   psql -h <host> -U <administrator> -d postgres -v database=<database> -v runtime_password=<secret> -v backup_password=<secret> -f apps/api/prisma/provision-roles.sql
+   ```
+
+   `clinic_backup` is a member of `pg_read_all_data` only — `SELECT` and schema
+   `USAGE`, never a write — and its sessions are read-only by default. It
+   reads every table a later migration adds without anybody granting it.
+
+2. On a trusted machine that is **not** the server, the owner creates the key pair
+   with a passphrase, keeps the private key offline, and gives only the public key to
+   the server:
+
+   ```bash
+   gpg --quick-gen-key "Clinic backups" default default never
+   ```
+
+   ```bash
+   gpg --armor --export "Clinic backups" > clinic-backup-public.asc
+   ```
+
+3. Run once by hand and keep the output:
+
+   ```bash
+   scripts/backup/backup.sh
+   ```
+
+4. **Scheduling waits for the hosting decision.** Whatever runs it — cron, a
+   systemd timer, the host's scheduler — must run it as a user that can read the
+   media directory, supply the variables above from a file only that user can read,
+   and **alert on a non-zero exit**: every failure exits non-zero and says why on
+   stderr, and a backup that silently stopped is the failure that matters. For
+   example, with cron (times are the owner's to choose):
+
+   ```cron
+   <minute> <hour> * * * . /etc/clinic/backup.env && /srv/clinic/scripts/backup/backup.sh >> /var/log/clinic-backup.log 2>&1 || <alert command>
+   ```
+
+### Restoring (runbook)
+
+Into an **empty** environment only — a replacement server, or a fresh database and
+media directory beside the old ones. `restore.sh` refuses a database that holds
+anything and a media directory that is not empty, so it cannot merge into or
+overwrite a live system.
+
+1. **Use the release that took the backup.** `manifest/meta.txt` names its latest
+   migration; `verify.sh` refuses when the checkout's migrations differ. Upgrade only
+   after the restore is verified. Install dependencies (`pnpm install
+--frozen-lockfile`) and build as for a deployment.
+2. **Provision roles and an empty database**, exactly as for a new deployment, with
+   new passwords ([Provisioning a deployment](#provisioning-a-deployment)). Do
+   **not** run `prisma migrate deploy` — the migration history comes from the backup.
+3. **Make the private key available** to the operator's GnuPG (import it, or point
+   `GNUPGHOME` at a keyring holding it). It is needed on this machine for this
+   step only; remove it afterwards.
+4. **Restore**, as the user the API will run as (so the media files are its own):
+
+   ```bash
+   RESTORE_OWNER_DATABASE_URL=<clinic_owner URL> RESTORE_RUNTIME_DATABASE_URL=<clinic_app URL> MEDIA_STORAGE_DIR=<new, empty media root> scripts/backup/restore.sh <archive>
+   ```
+
+   It checks the target is empty, decrypts and checks the whole archive, restores
+   the database **in one transaction** (complete or not at all) and copies the
+   media, then runs `verify.sh`. It must end with `RESTORE VERIFIED`. Any failure
+   after the database step means: discard this target and start again from step 2.
+
+5. **Re-apply erasures that happened after the backup was taken** — the backup
+   still holds website requests the ninety-day rule has since erased:
+
+   ```bash
+   pnpm --filter @clinic/api exec node dist/cli/main.js purge-website-requests
+   ```
+
+6. **Start the API, then build and start the web** against it. Public listing pages
+   are prerendered at build time and revalidated every fifteen minutes; a web built
+   while the API was unreachable shows empty listings until then.
+7. **Check the live site** — every public page within two links of the home page
+   answers, every image they reference is served, and a colleague can sign in, reach
+   the dashboard and sign out (a real, audited sign-in; the password is read from
+   stdin):
+
+   ```bash
+   VERIFY_WEB_URL=<site origin> VERIFY_STAFF_USERNAME=<username> node scripts/backup/verify-site.mjs
+   ```
+
+   Set `VERIFY_MIN_PUBLIC_IMAGES=0` only for a clinic with no published photograph.
+
+8. Point traffic at the restored system. Record the archive, the time and both
+   verification outputs.
+
+**What `verify.sh` proves** (it can be re-run against the same archive until the
+restored system takes its first request, because it compares records exactly):
+`prisma migrate status` and `migrate diff` report the schema in sync; every table's
+count and checksum, every sequence, every trigger with its enabled state, every
+constraint, index, function and grant equal the backup's; every file the restored
+rows refer to is on disk with its recorded hash; every object is owned by the
+non-superuser owner; and, from the API's own login, `TRUNCATE`, deleting a payment
+or a charge, disabling a trigger, `session_replication_role`, `SET ROLE` to the owner,
+DDL and touching the migration history are all refused, while the owner's delete of an
+audit row is refused by its trigger.
+
+### The drill
+
+```bash
+DRILL_SOURCE_ADMIN_URL=<superuser URL, throwaway cluster> DRILL_TARGET_ADMIN_URL=<superuser URL, a second throwaway cluster> DRILL_WORK_DIR=<empty scratch directory> scripts/backup/drill.sh
+```
+
+After `pnpm build:contracts` and `pnpm --filter @clinic/api build`. It builds a
+synthetic clinic with uploaded images through the real API and CLI, backs it up,
+destroys the source database, roles and media, provisions the empty target as a new
+deployment, restores, verifies, and runs the site check against the restored system.
+It also proves eight failures are loud: a backup as the owner and as the runtime
+login, a backup while a referenced image is missing, the wrong private key, a
+damaged archive, an archive missing a referenced image, an image lost after restore,
+and a restore over a database that is not empty. Synthetic data only; every
+password and key is generated for the run.
+
+### Retention and privacy
+
+**An owner decision, and it has to be taken together with the privacy text.** A
+backup keeps everything as it was when it was taken, including what the system
+later erases:
+
+- A website request is erased in place ninety days after it is closed (unless it
+  became a family). Every backup taken before that erasure still holds it, so its
+  content survives **until the last such backup is removed**: up to _ninety days
+  after closing + the interval between purge runs + `BACKUP_RETENTION_DAYS`_. With a
+  thirty-day retention, roughly four months after closing, not three.
+- The same holds for anything erased in future (media retention, when decided) and
+  for every correction's previous value.
+- A restore brings erased requests back until `purge-website-requests` runs again,
+  which is why the runbook runs it before the system is used.
+
+So the privacy notice should state the backup retention period alongside the
+ninety days, or the retention period should be short enough that the ninety days
+remains a true statement. Nothing in the code chooses between them.
+
+### Limits
+
+- **Encryption, not signature.** Anyone holding the public key can produce an
+  archive that decrypts. The manifest checks catch damage, not a deliberate forgery
+  by somebody who can write to the destination; protect the destination's write
+  access accordingly.
+- The staging directory holds one plaintext dump plus the referenced media while a
+  backup runs, on the same server that already holds both.
+- The database is read while the clinic works; the snapshot is consistent, and
+  PostgreSQL holds only `ACCESS SHARE` locks, so the only thing it blocks is DDL —
+  do not deploy a migration during a backup.
+- Point-in-time recovery (WAL archiving) is not part of this: the most that can be
+  lost is everything since the last successful backup.
 
 ## Authentication and audit (Milestone 1)
 

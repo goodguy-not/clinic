@@ -5492,3 +5492,126 @@ PRIVILEGES` (every future table silently gets the widest shape); column-level UP
   pruning — each widens the matrix in its own migration, or gets its own role); a table's
   protection has to hold against a runtime that already holds UPDATE without a trigger;
   or row-level security is introduced.
+
+## 2026-09-25 — A backup is one encrypted archive of a snapshot-consistent dump and exactly the media its rows refer to
+
+**Status:** Accepted — Milestone 10 checkpoint A2
+
+`scripts/backup/backup.sh` exports one `REPEATABLE READ` snapshot, runs
+`pg_dump --snapshot` inside it, and in the same snapshot writes a manifest: every
+table's row count and order-independent checksum, every sequence, the catalogue
+facts that carry the protections (triggers with their enabled state, constraints,
+indexes, function digests, non-owner privileges), and every media storage key the
+rows refer to with the SHA-256 recorded in its row. It then copies exactly those
+files, checks each hash, and encrypts the lot to an OpenPGP public key as one
+`clinic-backup-<UTC>.tar.gpg`. `restore.sh` refuses a non-empty target, checks the
+whole archive before changing anything, restores in one transaction, and
+`verify.sh` recomputes the manifest on the restored system and exercises the
+Milestone 10 A1 refusals from the runtime login. README, Backup and restore, is the
+runbook; `drill.sh` runs the whole cycle and eight failure cases in CI.
+
+- **Alternatives:** stop the API (or lock uploads) while copying media; archive the
+  whole media directory; physical backups or WAL archiving (`pg_basebackup`,
+  pgBackRest) for point-in-time recovery; symmetric encryption with a passphrase on
+  the server (`openssl enc`, `gpg --symmetric`); age instead of OpenPGP; comparing
+  `pg_dump --schema-only` text instead of catalogue facts; a Node orchestrator
+  holding the snapshot through Prisma.
+- **Reason:** the API already writes a file before the row naming it commits and
+  never deletes one, so "database first, then the files that snapshot names" is
+  consistent without stopping anything, and the hash check turns that argument into
+  a check. Archiving only referenced files makes "no row refers to missing bytes"
+  true by construction. A logical dump restores across servers and minor versions
+  and is what a single-site clinic can operate; point-in-time recovery is a
+  hosting-stage decision. With public-key encryption the server cannot read its own
+  backups, so a compromised server or destination does not expose past ones. GnuPG
+  is installed almost everywhere age is not. `pg_dump` text comparison failed on the
+  first run: PostgreSQL re-parses a restored CHECK and prints different parentheses.
+  A single psql script (`\setenv`, `\!`, `\o`) holds the snapshot without a second
+  runtime; driving psql as a coprocess deadlocked on output buffering.
+- **Trade-off:** encryption without a signature — anyone with the public key can
+  forge an archive that decrypts, so write access to the destination is a trust
+  boundary. Unreferenced files (failed uploads) are not backed up. The staging
+  directory holds plaintext for the length of a run. The loss window is the backup
+  interval. The owner's private key is a single point of failure for every backup;
+  the runbook asks for two offline copies. After a restore the web must be built
+  against a running API, because public listings are prerendered.
+- **Revisit when:** media erasure lands (the purge must not unlink a file while a
+  backup may be copying it, or that backup fails — loudly, but it fails); the
+  hosting decision offers managed snapshots or object storage; the clinic needs a
+  loss window shorter than the backup interval; or the destination is shared with
+  anybody who should not be trusted to write to it (sign the archives).
+
+## 2026-09-25 — The backup login reads through `pg_read_all_data`, not per-table grants
+
+**Status:** Accepted — Milestone 10 checkpoint A2
+
+`clinic_backup` (created by `provision-roles.sql` when `backup_password` is given)
+is `LOGIN`, `NOSUPERUSER`, holds no other attribute, is a member of
+`pg_read_all_data` and nothing else, holds `CONNECT` on the clinic database, and has
+`default_transaction_read_only = on`. `backup.sh` refuses to run as any login that
+is a superuser, owns the database or anything in it, can become `clinic_owner` or
+`clinic_runtime`, may write to any table, or may create objects or temporary tables.
+
+- **Alternatives:** `GRANT SELECT` per table in each migration, like the runtime
+  matrix; `ALTER DEFAULT PRIVILEGES` for a backup role; running `pg_dump` as the
+  owner.
+- **Reason:** the runtime matrix is explicit so that a new table cannot silently get
+  write access. For a backup the safe default is the opposite: a table a later
+  migration forgot to grant would make `pg_dump` fail on the production server in
+  the night, not in CI. `pg_read_all_data` confers `SELECT` and schema `USAGE` only,
+  so reading every new table costs no write capability. The owner can drop,
+  truncate and disable triggers — exactly what M10 A1 took away from everything but
+  migrations.
+- **Trade-off:** `pg_read_all_data` is cluster-wide: the login can read any database
+  on the cluster it can connect to (`postgres` keeps `PUBLIC` `CONNECT`). Granting it
+  needs a superuser or an administrator holding it `WITH ADMIN OPTION`, which some
+  managed services do not offer. PostgreSQL 14 or later.
+- **Revisit when:** the cluster hosts another application's database, or the hosting
+  provider cannot grant predefined roles — then per-table grants in a migration,
+  pinned by the integration suite like the runtime matrix.
+
+## 2026-09-25 — `audit_identifiers_masked` pins its search_path, because no backup of this schema could be restored
+
+**Status:** Accepted — Milestone 10 checkpoint A2 (defect found by the restore drill)
+
+The first drill's restore failed on the first nested audit row:
+`audit_log_identifiers_masked_chk` calls `audit_identifiers_masked(jsonb)`, which
+calls itself by an unqualified name, and pg_restore loads data with an empty
+`search_path`. The CHECK raised, the single-transaction restore rolled back, and
+every backup this schema had produced would have failed the same way. Migration
+`20260925130000_m10_a2_restorable_audit_mask` sets the function's `search_path` to
+`pg_catalog, public`; `families-constraints.int-spec.ts` now evaluates it with an
+empty path.
+
+- **Alternatives:** rewrite the body with `public.`-qualified recursion; restore
+  with the constraint dropped and re-added, or with triggers disabled.
+- **Reason:** a one-line `ALTER` leaves the reviewed body untouched, and a restore
+  must load the data under the constraints that protect it, not around them.
+  `public` is writable only by the owner, so naming it cannot be used to substitute
+  a function. The only other function a CHECK calls, `fa_normalize`, uses
+  `pg_catalog` builtins alone.
+- **Trade-off:** a function with a `SET` clause cannot be inlined; it is PL/pgSQL and
+  never could be.
+- **Revisit when:** a new function is called from a CHECK, an index expression or an
+  exclusion constraint — it must resolve every name under an empty `search_path`.
+  The CI drill fails if one does not.
+
+## 2026-09-25 — Backup destination, schedule and retention wait for the owner, and retention decides how long erased data survives
+
+**Status:** Open — Milestone 10 checkpoint A2 (owner decision required)
+
+`backup.sh` takes the destination, the recipient key and a retention period in days
+from the environment, with no defaults, and prunes only after a successful backup.
+Scheduling waits for the hosting decision; README gives the requirements (a user
+that can read the media, a root-only environment file, an alert on a non-zero exit).
+
+- **Blocked on:** where archives are kept (off-server, and who can write there), how
+  often they are taken (the loss window), how long they are kept, and who holds the
+  private key.
+- **Privacy interaction:** a backup keeps website requests that the ninety-day rule
+  later erases, and any other erased or corrected value, until the backup itself is
+  removed. A request's content really lives for ninety days after closing, plus the
+  gap before the purge runs, plus the backup retention period; a restore brings
+  erased requests back until the purge runs again, which the runbook does before the
+  system is used. The privacy notice and the retention period have to be decided
+  together.
