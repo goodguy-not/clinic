@@ -85,7 +85,10 @@ start_api() { # label database-url media-dir
     node "$(native "$REPO_ROOT/apps/api/dist/main.js")" > "$work/logs/api-$label.log" 2>&1) &
   pids+=($!)
   wait_for "http://localhost:$API_PORT/health" "the API ($label)"
-  ok "API running against the $label environment"
+  # Milestone 10, A3: the runbooks' readiness check — database reachable, media
+  # directory writable — answered without a credential.
+  curl -sf "http://localhost:$API_PORT/health/ready" | grep -q '"status":"ok"'     || die "the API ($label) is up but /health/ready does not report ready."
+  ok "API running and ready against the $label environment"
 }
 
 # The web, built and started against the running API.
@@ -375,6 +378,11 @@ expect_failure 'verification with a restored image missing' 'restored media root
 mv "$work/tmp/lost-file" "$lost"
 
 step "10. The restored system, running"
+# Runbook step 6: re-apply every erasure the backup predates. The nightly jobs
+# are safe to run at any time, and must all succeed on a fresh restore.
+(cd "$work" && env DATABASE_URL="$dst_app" MEDIA_STORAGE_DIR="$(native "$dst_media")"   INTERNAL_API_KEY="$internal_key" NODE_ENV=production   node "$(native "$REPO_ROOT/apps/api/dist/cli/main.js")" run-jobs > "$work/logs/run-jobs.log" 2>&1)   || { cat "$work/logs/run-jobs.log"; die "the nightly jobs failed on the restored system."; }
+[[ "$(grep -c ' SUCCEEDED' "$work/logs/run-jobs.log")" == 4 ]]   || { cat "$work/logs/run-jobs.log"; die "not every nightly job succeeded on the restored system."; }
+ok "all four nightly jobs succeeded on the restored system"
 start_api restored "$dst_app" "$dst_media"
 start_web restored
 site_check

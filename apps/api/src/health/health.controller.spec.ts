@@ -2,6 +2,7 @@ import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { HealthController } from './health.controller';
 import { PrismaService } from '../prisma/prisma.service';
+import { ReadinessService } from './readiness.service';
 
 describe('HealthController', () => {
   const queryRaw = jest.fn();
@@ -9,7 +10,10 @@ describe('HealthController', () => {
   async function createController(): Promise<HealthController> {
     const moduleRef = await Test.createTestingModule({
       controllers: [HealthController],
-      providers: [{ provide: PrismaService, useValue: { $queryRaw: queryRaw } }],
+      providers: [
+        { provide: PrismaService, useValue: { $queryRaw: queryRaw } },
+        { provide: ReadinessService, useValue: { check: jest.fn() } },
+      ],
     }).compile();
 
     return moduleRef.get(HealthController);
@@ -51,8 +55,10 @@ describe('HealthController', () => {
     expect(JSON.stringify((error as ServiceUnavailableException).getResponse())).not.toContain(
       'sup3rs3cret',
     );
-    // The credential must not reach the server log either.
+    // Neither the credential nor anything else the driver said reaches the
+    // server log: it names the kind of failure only (Milestone 10, A3).
     expect(logged.join('\n')).not.toContain('sup3rs3cret');
-    expect(logged.join('\n')).toContain('Database health check failed');
+    expect(logged.join('\n')).not.toContain('ECONNREFUSED');
+    expect(logged.join('\n')).toContain('Database health check failed: Error');
   });
 });

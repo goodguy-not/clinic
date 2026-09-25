@@ -41,11 +41,19 @@ describe('guard chain (real PostgreSQL)', () => {
   }
 
   describe('internal key', () => {
-    it('exempts only /health', async () => {
+    it('exempts only /health and /health/ready', async () => {
       const response = await request(server()).get('/health');
 
       expect(response.status).toBe(200);
       expect(response.body.service).toBe('api');
+
+      // Milestone 10, checkpoint A3. Readiness is the second public route, and
+      // it answers with two words per check and nothing else.
+      const ready = await request(server()).get('/health/ready');
+
+      expect(ready.status).toBe(200);
+      expect(ready.body).toEqual({ status: 'ok', checks: { database: 'ok', media: 'ok' } });
+      expect(ready.headers['cache-control']).toBe('no-store');
     });
 
     it('requires the key on /health/db', async () => {
@@ -592,7 +600,19 @@ describe('guard chain (real PostgreSQL)', () => {
       // backup status:  Milestone 10 checkpoint A2 adds ONE route and NO
       //                 PERMISSION. `GET /operations/backup-status` names
       //                 `user.read`, manager-only, and reads one status file.
-      expect(routes).toBe(165);
+      //
+      // M10 A3:         FOUR routes and NO PERMISSION.
+      //                 `GET /health/ready` is PUBLIC like `/health` — the
+      //                 runbooks and a monitor need no credential — and says
+      //                 `ok`/`unavailable` per check and nothing else.
+      //                 `GET /operations/job-status` names `user.read`, beside
+      //                 the backup status. `POST /content/testimonials/:id/
+      //                 consent-withdrawal` names `testimonial.approve`, the
+      //                 manager's; `GET /content/testimonials/consent-withdrawals`
+      //                 names `testimonial.read` and carries dates only. The
+      //                 erasures themselves are the nightly job's — still no
+      //                 HTTP route in this product destroys anything.
+      expect(routes).toBe(169);
     });
   });
 });
