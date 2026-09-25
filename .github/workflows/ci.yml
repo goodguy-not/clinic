@@ -196,3 +196,81 @@ jobs:
         env:
           DATABASE_URL: postgresql://clinic:clinic_ci_only@localhost:5433/clinic_ci?schema=public
           TEST_OWNER_DATABASE_URL: postgresql://clinic_owner:owner_ci_only@localhost:5433/clinic_ci?schema=public
+
+  # Milestone 10, checkpoint A2 — THE RESTORE DRILL, ON EVERY RUN.
+  #
+  # A backup whose restore has not been tested is not a backup, and this schema
+  # has already produced one that could not be restored (DECISION_LOG,
+  # 2026-09-25). scripts/backup/drill.sh builds a synthetic clinic with uploaded
+  # images, backs it up with the real backup script, destroys it, restores into
+  # a second, empty cluster and verifies the database, the media, the public
+  # site and a staff sign-in — and that eight broken cases are refused.
+  #
+  # Two service clusters, neither shared with `verify`: the target must start
+  # with no clinic role and no clinic database, as a replacement server does.
+  # Every password and key is generated inside the drill and dies with it.
+  restore-drill:
+    runs-on: ubuntu-latest
+
+    services:
+      drill_source:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: drill_admin
+          POSTGRES_PASSWORD: drill_admin_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U drill_admin -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      drill_target:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: drill_admin
+          POSTGRES_PASSWORD: drill_admin_ci_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U drill_admin -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The runner ships an older PostgreSQL client; pg_dump must be at least
+      # the server's major version.
+      - name: PostgreSQL 17 client tools
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+
+      # The drill builds the web itself, against each running API, because the
+      # public pages are prerendered at build time.
+      - name: Build contracts and API
+        run: |
+          pnpm build:contracts
+          pnpm --filter @clinic/api build
+
+      - name: Backup, destroy, restore, verify
+        run: scripts/backup/drill.sh
+        env:
+          DRILL_SOURCE_ADMIN_URL: postgresql://drill_admin:drill_admin_ci_only@localhost:5434/postgres
+          DRILL_TARGET_ADMIN_URL: postgresql://drill_admin:drill_admin_ci_only@localhost:5435/postgres
+          DRILL_WORK_DIR: ${{ runner.temp }}/restore-drill

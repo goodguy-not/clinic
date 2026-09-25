@@ -29,6 +29,12 @@
 --                   grant it, and nothing else. No password, cannot sign in.
 --   clinic_app      LOGIN, member of clinic_runtime. What the API server and
 --                   the operator CLI connect as.
+--   clinic_backup   LOGIN, member of pg_read_all_data and nothing else; every
+--                   session read-only by default. What scripts/backup/backup.sh
+--                   connects as (Milestone 10, checkpoint A2). Created only when
+--                   `backup_password` is given. Granting a predefined role needs
+--                   a superuser, or an administrator holding pg_read_all_data
+--                   WITH ADMIN OPTION.
 
 \set ON_ERROR_STOP on
 
@@ -84,3 +90,24 @@ GRANT clinic_runtime TO clinic_app;
 -- `GRANT clinic_runtime`.
 SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'database') \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO clinic_runtime', :'database') \gexec
+
+-- Milestone 10, checkpoint A2 — the backup login. READS EVERYTHING, WRITES
+-- NOTHING, OWNS NOTHING. pg_read_all_data rather than per-table grants, so a
+-- table added by a later migration is in the next backup without anybody
+-- remembering to grant it; it confers SELECT and schema USAGE only, never
+-- INSERT, UPDATE, DELETE, TRUNCATE or DDL. CONNECT is granted on this database,
+-- whose PUBLIC CONNECT is revoked above. backup.sh refuses anything broader.
+\if :{?backup_password}
+  SELECT format('CREATE ROLE clinic_backup LOGIN PASSWORD %L', :'backup_password')
+  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clinic_backup') \gexec
+
+  SELECT format(
+    'ALTER ROLE clinic_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION '
+    'NOBYPASSRLS INHERIT PASSWORD %L',
+    :'backup_password'
+  ) \gexec
+
+  ALTER ROLE clinic_backup SET default_transaction_read_only = on;
+  GRANT pg_read_all_data TO clinic_backup;
+  SELECT format('GRANT CONNECT ON DATABASE %I TO clinic_backup', :'database') \gexec
+\endif
