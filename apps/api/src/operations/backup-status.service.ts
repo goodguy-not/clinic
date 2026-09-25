@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OFFSITE_BACKUP_WARNING_HOURS, type BackupStatusResponse } from '@clinic/contracts';
 import { API_ENV } from '../config/config.module';
+import { describeError } from '../common/describe-error';
 import type { ApiEnv } from '../config/env';
 
 /** Written by scripts/backup/collector-serve.sh on every acknowledged collection. */
@@ -52,7 +53,7 @@ export class BackupStatusService {
       text = await readFile(join(directory, OFFSITE_STATUS_FILE), 'utf8');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return warn('NEVER_COLLECTED');
-      this.logger.warn(`backup collection status unreadable: ${(error as Error).message}`);
+      this.logger.warn(`backup collection status unreadable: ${describeError(error)}`);
       return warn('UNKNOWN');
     }
 

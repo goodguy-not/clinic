@@ -6,10 +6,11 @@
  * error or a request must pass through here first (PROJECT_SPEC.md 13, "no
  * sensitive logs").
  *
- * This is applied structurally, not by convention: `ErrorEnvelopeFilter` routes
- * every logged error message and stack through `redactSecrets`, and
- * `security-log.ts` builds its lines from an allowlist of fields rather than
- * from arbitrary request data.
+ * This is applied structurally, not by convention: `security-log.ts` builds its
+ * lines from an allowlist of fields rather than from arbitrary request data,
+ * and since Milestone 10 checkpoint A3 no unexpected error's MESSAGE is logged
+ * at all — `describe-error.ts` logs its kind and its stack frames, and passes
+ * the frames through here as a last line of defence.
  */
 
 /** `postgresql://user:password@host` -> `postgresql://user:***@host` */
@@ -46,19 +47,4 @@ export function redactSecrets(text: string): string {
     .replace(NAMED_SECRET_ASSIGNMENT, (_match, name: string, sep: string, quote: string) => {
       return `${name}${sep}${quote}***${quote}`;
     });
-}
-
-/**
- * Redacts an unknown thrown value for logging. Returns message and stack
- * separately because the filter logs them separately.
- */
-export function redactError(error: unknown): { message: string; stack?: string } {
-  if (error instanceof Error) {
-    return {
-      message: redactSecrets(error.message),
-      ...(error.stack === undefined ? {} : { stack: redactSecrets(error.stack) }),
-    };
-  }
-
-  return { message: redactSecrets(String(error)) };
 }

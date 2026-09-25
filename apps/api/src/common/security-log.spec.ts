@@ -11,55 +11,35 @@ describe('logSecurityRejection', () => {
     });
   });
 
-  it('records the reason, request id and address', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('records exactly the event, the reason and the request id', () => {
     logSecurityRejection({
       event: 'auth.login.rejected',
       reason: 'UNKNOWN_USERNAME',
       requestId: '3f1b0f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f',
-      clientIp: '192.0.2.10',
-      usernameAttempted: 'someone',
+    });
+
+    expect(lines).toEqual([
+      'event=auth.login.rejected reason=UNKNOWN_USERNAME requestId=3f1b0f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f',
+    ]);
+  });
+
+  it('has no field through which a username or an address could reach the log', () => {
+    // Milestone 10, checkpoint A3. A caller handing over more than the type
+    // allows is ignored rather than written: the line is built from three
+    // named fields, never from the object it was given.
+    logSecurityRejection({
+      event: 'website.request.throttled',
+      reason: 'SUBMISSION_RATE_EXCEEDED',
+      requestId: 'r',
+      ...({ clientIp: '192.0.2.10', usernameAttempted: 'someone' } as object),
     });
 
     const line = lines.join('\n');
-    expect(line).toContain('reason=UNKNOWN_USERNAME');
-    expect(line).toContain('requestId=3f1b0f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f');
-    expect(line).toContain('ip=192.0.2.10');
-  });
-
-  it('truncates an attacker-supplied username', () => {
-    logSecurityRejection({
-      event: 'auth.login.rejected',
-      reason: 'UNKNOWN_USERNAME',
-      requestId: 'r',
-      usernameAttempted: 'u'.repeat(5000),
-    });
-
-    // The field is attacker-controlled; without a bound it is a way to write
-    // arbitrary volume into the operational log.
-    expect(lines.join('').length).toBeLessThan(300);
-  });
-
-  it('redacts a credential typed into the username box', () => {
-    logSecurityRejection({
-      event: 'auth.login.rejected',
-      reason: 'UNKNOWN_USERNAME',
-      requestId: 'r',
-      usernameAttempted: 'password=hunter2',
-    });
-
-    expect(lines.join('')).not.toContain('hunter2');
-  });
-
-  it('omits absent optional fields rather than logging empty ones', () => {
-    logSecurityRejection({
-      event: 'auth.session.rejected',
-      reason: 'SESSION_INVALID',
-      requestId: 'r',
-      clientIp: null,
-    });
-
-    const line = lines.join('');
-    expect(line).not.toContain('ip=');
-    expect(line).not.toContain('usernameAttempted=');
+    expect(line).not.toContain('192.0.2.10');
+    expect(line).not.toContain('someone');
   });
 });

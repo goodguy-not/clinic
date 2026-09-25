@@ -177,16 +177,13 @@ export class PublicRequestsService {
       // an append-only, unprunable table simply by asking is a caller who can
       // grow it without bound.
       //
-      // The line carries the raw address, exactly as every other rejection in
-      // `security-log.ts` does, and that is consistent rather than contradictory:
-      // the security log is a ROTATABLE, PRUNABLE operational artefact, which is
-      // the whole reason rejections go there. The rule this checkpoint adds is
-      // about `audit_log`, which is neither.
+      // No address in the line (Milestone 10, checkpoint A3): production logs
+      // carry no personal data, and a visitor's IP is personal data. The event,
+      // the reason and the request id are what an operator needs.
       logSecurityRejection({
         event: 'website.request.throttled',
         reason: 'SUBMISSION_RATE_EXCEEDED',
         requestId: context.requestId,
-        clientIp: context.clientIp,
       });
 
       throw new AppError('PUBLIC_REQUEST_THROTTLED');

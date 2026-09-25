@@ -77,6 +77,15 @@ const envSchema = z.object({
 export type ApiEnv = z.infer<typeof envSchema>;
 
 /**
+ * The one startup failure whose message an operator must read, and may: it is
+ * built from variable NAMES and schema messages, never from a value, so
+ * `describeError` passes it through where it withholds every other message.
+ */
+export class EnvConfigError extends Error {
+  override readonly name = 'EnvConfigError';
+}
+
+/**
  * Validates the environment and fails fast with a readable report.
  *
  * The error names the offending variables but never echoes their values, so an
@@ -89,7 +98,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     const issues = result.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
-    throw new Error(`Invalid API environment configuration:\n${issues}`);
+    throw new EnvConfigError(`Invalid API environment configuration:\n${issues}`);
   }
 
   return result.data;

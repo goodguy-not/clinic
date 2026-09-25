@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import type { ErrorEnvelope } from '@clinic/contracts';
 import { AppError, ERROR_STATUS } from './app-error';
 import { getRequestContext } from './request-context';
-import { redactError } from './redact';
+import { describeError, stackFrames } from './describe-error';
 
 /**
  * Turns every thrown value into the one contract error envelope.
@@ -14,7 +14,9 @@ import { redactError } from './redact';
  *     operator can join it to the audit row and the log line;
  *   - an unrecognised throw becomes a generic INTERNAL_ERROR with no detail,
  *     because a stack trace or driver message in a response body is a leak;
- *   - everything logged goes through `redactSecrets` first.
+ *   - what is logged is the error's KIND and its stack frames, never its
+ *     message (`describeError`): a driver or ORM message can carry a row's
+ *     values, a parse error quotes the body, and neither may reach a log.
  */
 @Catch()
 export class ErrorEnvelopeFilter implements ExceptionFilter {
@@ -36,8 +38,7 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
     const { status, envelope } = this.toEnvelope(exception, requestId);
 
     if (status >= 500) {
-      const { message, stack } = redactError(exception);
-      this.logger.error(`[${requestId}] ${message}`, stack);
+      this.logger.error(`[${requestId}] ${describeError(exception)}`, stackFrames(exception));
     }
 
     // Set here as well as in `NoStoreInterceptor`, because guards run *before*

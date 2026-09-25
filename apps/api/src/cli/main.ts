@@ -1,7 +1,7 @@
 import { loadDotEnvIfPresent } from '../config/env';
 import { processIo } from './cli-io';
 import { runCli } from './run-cli';
-import { redactSecrets } from '../common/redact';
+import { describeError } from '../common/describe-error';
 
 /**
  * Operator entry point.
@@ -16,8 +16,9 @@ runCli(process.argv.slice(2), processIo)
     process.exitCode = code;
   })
   .catch((error: unknown) => {
-    // Redacted: a failure here can be a driver error carrying the connection
-    // string, and this path runs next to a freshly generated password.
-    processIo.err(redactSecrets(error instanceof Error ? error.message : String(error)));
+    // The kind of failure, never its message: a driver error can carry the
+    // connection string or a row's values, and this path runs next to a freshly
+    // generated password and in the nightly jobs' journal.
+    processIo.err(describeError(error));
     process.exitCode = 1;
   });

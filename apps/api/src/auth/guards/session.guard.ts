@@ -56,7 +56,6 @@ export class SessionGuard implements CanActivate {
         event: 'auth.session.rejected',
         reason: 'SESSION_INVALID',
         requestId: requestContext.requestId,
-        clientIp: requestContext.clientIp,
       });
 
       throw new AppError('AUTH_SESSION_INVALID');

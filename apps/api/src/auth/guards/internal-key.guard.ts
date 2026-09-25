@@ -55,7 +55,6 @@ export class InternalKeyGuard implements CanActivate {
         event: 'auth.internal_key.rejected',
         reason: 'INTERNAL_KEY_INVALID',
         requestId: getRequestContext(request).requestId,
-        clientIp: getRequestContext(request).clientIp,
       });
 
       throw new AppError('AUTH_INTERNAL_KEY_INVALID');

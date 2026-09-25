@@ -1,5 +1,4 @@
 import { Logger } from '@nestjs/common';
-import { redactSecrets } from './redact';
 
 /**
  * Operational security logging for rejections that change no account state.
@@ -42,37 +41,25 @@ export type SecurityRejection = {
     | 'website.request.throttled';
   reason: SecurityRejectionReason;
   requestId: string;
-  clientIp?: string | null;
-  /** Truncated and redacted. Never a password, hash, token or cookie. */
-  usernameAttempted?: string | null;
 };
-
-const MAX_LOGGED_USERNAME_LENGTH = 64;
 
 const logger = new Logger('SecurityLog');
 
 /**
- * Fields are assembled from an allowlist rather than spread from a request, so
- * no caller can widen what reaches the log. The attempted username is
- * truncated — it is attacker-controlled and would otherwise be a way to write
- * arbitrary volume into the log — and passed through `redactSecrets` in case
- * someone types a credential into the username box.
+ * THREE FIELDS, ALL OURS. Milestone 10, checkpoint A3 took the attempted
+ * username and the client address out of this line: production logs carry no
+ * personal data, a username is a colleague's identifier (and is sometimes a
+ * password typed into the wrong box, which no redaction can recognise), and an
+ * address is personal data. What remains is enough to count and classify
+ * rejections, and the request id joins a line to everything else about that
+ * request — including, for an existing account, its audit row, which records
+ * the address under the audit trail's own rules.
+ *
+ * The type has no field for either, so no caller can put one back without a
+ * change here; `security-log.spec.ts` pins the exact shape of the line.
  */
 export function logSecurityRejection(rejection: SecurityRejection): void {
-  const parts = [
-    `event=${rejection.event}`,
-    `reason=${rejection.reason}`,
-    `requestId=${rejection.requestId}`,
-  ];
-
-  if (rejection.clientIp != null && rejection.clientIp !== '') {
-    parts.push(`ip=${rejection.clientIp}`);
-  }
-
-  if (rejection.usernameAttempted != null && rejection.usernameAttempted !== '') {
-    const truncated = rejection.usernameAttempted.slice(0, MAX_LOGGED_USERNAME_LENGTH);
-    parts.push(`usernameAttempted=${redactSecrets(truncated)}`);
-  }
-
-  logger.warn(parts.join(' '));
+  logger.warn(
+    `event=${rejection.event} reason=${rejection.reason} requestId=${rejection.requestId}`,
+  );
 }
