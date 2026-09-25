@@ -90,6 +90,7 @@ export class MediaAttachmentsService {
     await this.prisma.$transaction(async (tx) => {
       const asset = await lockAsset(tx, mediaId);
 
+      if (asset.erased) throw erasedAsset();
       if (asset.status === 'ARCHIVED') throw new AppError('MEDIA_ARCHIVED');
 
       await assertOwnerExists(tx, owner);
@@ -281,6 +282,7 @@ export class MediaAttachmentsService {
 
       if (isPublished) {
         const asset = await lockAsset(tx, attachment.media_asset_id);
+        if (asset.erased) throw erasedAsset();
         if (asset.status === 'ARCHIVED') throw new AppError('MEDIA_ARCHIVED');
       }
 
@@ -410,9 +412,13 @@ async function assertOwnerExists(
         return tx.$queryRaw<{ id: string }[]>`
           SELECT id FROM public_article WHERE id = ${owner.ownerId}::uuid
         `;
+      // A testimonial whose family withdrew consent is gone from every staff
+      // read (Milestone 10, checkpoint A3), so it is gone from here too: a new
+      // photograph of a family who asked for theirs to be erased is refused.
       case 'PUBLIC_TESTIMONIAL':
         return tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM public_testimonial WHERE id = ${owner.ownerId}::uuid
+          SELECT id FROM public_testimonial
+          WHERE id = ${owner.ownerId}::uuid AND consent_withdrawn_at IS NULL
         `;
       case 'PUBLIC_SPACE':
         return tx.$queryRaw<{ id: string }[]>`
@@ -463,14 +469,25 @@ async function assertOwnerExists(
 async function lockAsset(
   tx: Prisma.TransactionClient,
   id: string,
-): Promise<{ status: 'ACTIVE' | 'ARCHIVED' }> {
-  const rows = await tx.$queryRaw<{ status: 'ACTIVE' | 'ARCHIVED' }[]>`
-    SELECT status::text AS status FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
+): Promise<{ status: 'ACTIVE' | 'ARCHIVED'; erased: boolean }> {
+  const rows = await tx.$queryRaw<{ status: 'ACTIVE' | 'ARCHIVED'; erased: boolean }[]>`
+    SELECT status::text AS status, bytes_purged_at IS NOT NULL AS erased
+    FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
   `;
 
   const row = rows[0];
   if (row === undefined) throw new AppError('MEDIA_NOT_FOUND');
   return row;
+}
+
+/**
+ * A photograph whose bytes were erased (Milestone 10, checkpoint A3) cannot be
+ * put anywhere or published: there is nothing left to show. It answers
+ * `MEDIA_NOT_FOUND` — the photograph is not there — and the library still
+ * lists the asset with `bytesPurgedAt`, which is how a colleague sees why.
+ */
+function erasedAsset(): AppError {
+  return new AppError('MEDIA_NOT_FOUND', undefined, 'This photograph has been erased');
 }
 
 type LockedAttachment = {

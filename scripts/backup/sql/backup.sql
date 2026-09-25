@@ -1,6 +1,7 @@
 -- Milestone 10, checkpoint A2 — ONE SNAPSHOT, READ TWICE.
 --
--- Run by backup.sh, never by hand. It opens one REPEATABLE READ transaction,
+-- Run by backup.sh, never by hand. It takes the files lock, opens one
+-- REPEATABLE READ transaction,
 -- exports its snapshot, runs pg_dump INSIDE that snapshot (`\!`), then writes
 -- the manifest from the same snapshot. So the row counts, the checksums and the
 -- list of media files the rows refer to describe exactly the database that is
@@ -65,6 +66,17 @@ FROM (
 HAVING count(*) > 0
 \gexec
 
+-- --- the files lock (Milestone 10, checkpoint A3) ----------------------------
+--
+-- SHARED, SESSION-LEVEL, TAKEN BEFORE THE SNAPSHOT AND HELD UNTIL THIS SESSION
+-- ENDS — after copy-media.sh below has copied the last file. A media erasure
+-- takes the same lock EXCLUSIVELY before it changes a row
+-- (MEDIA_FILES_LOCK, apps/api/src/media/media-erasure.service.ts), so none can
+-- commit while this backup could still need the files its snapshot names. If
+-- an erasure is committing right now, this waits the few milliseconds it takes.
+-- The two-key form is a lock space nothing else in the application uses.
+SELECT pg_advisory_lock_shared(4919, 10) \gset
+
 -- --- the snapshot ------------------------------------------------------------
 BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;
 
@@ -91,3 +103,9 @@ UNION ALL SELECT 'latest_migration|' || coalesce(max(migration_name), '')
 \o
 
 COMMIT;
+
+-- --- the media, still under the files lock ----------------------------------
+\! bash "$CLINIC_BACKUP_COPY_MEDIA"
+\if :SHELL_ERROR
+  DO $$ BEGIN RAISE EXCEPTION 'the media could not be copied; see the message above. Nothing was written to the destination.'; END $$;
+\endif

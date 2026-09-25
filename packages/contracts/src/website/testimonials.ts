@@ -160,6 +160,51 @@ export type UpdateTestimonialPublicationRequest = z.infer<
   typeof updateTestimonialPublicationRequestSchema
 >;
 
+/**
+ * A family has withdrawn consent. Milestone 10, checkpoint A3 (owner decision).
+ *
+ * `POST /content/testimonials/:id/consent-withdrawal`, manager-only
+ * (`testimonial.approve`), NO BODY, answered with `204`. In one transaction it
+ * revokes the approval and takes the testimonial off the site, and from then on
+ * every staff read answers `TESTIMONIAL_NOT_FOUND`: a withdrawn testimonial is
+ * never shown, edited or approved again. It is final; repeating it is a no-op.
+ *
+ * Within this many days the words, the attribution and the bytes of every
+ * photograph ever attached to it are erased. The nightly job does it the same
+ * night; the margin is for a missed night, and the manager is warned when the
+ * job has not succeeded for two days. The audit trail keeps that it happened
+ * and when, never what was said.
+ */
+export const TESTIMONIAL_CONSENT_ERASURE_DAYS = 7;
+
+/**
+ * The record that a withdrawal happened, and nothing it concerned.
+ *
+ * `GET /content/testimonials/consent-withdrawals` (`testimonial.read`). A
+ * withdrawn testimonial has left every other read, but the fact that the clinic
+ * honoured the request must stay visible to the people who can check it — the
+ * reason `website_request` is erased in place rather than deleted. So this read
+ * carries dates and an id only: no words, no attribution, no kind, no picture.
+ */
+export const testimonialConsentWithdrawalSchema = z.strictObject({
+  id: z.uuid(),
+  consentWithdrawnAt: z.iso.datetime(),
+  /** When the words and photographs were erased; null until the nightly job has. */
+  contentErasedAt: z.iso.datetime().nullable(),
+  /** `consentWithdrawnAt` plus `TESTIMONIAL_CONSENT_ERASURE_DAYS`: the promise. */
+  erasureDueBy: z.iso.datetime(),
+});
+
+export type TestimonialConsentWithdrawal = z.infer<typeof testimonialConsentWithdrawalSchema>;
+
+export const testimonialConsentWithdrawalListResponseSchema = z.strictObject({
+  withdrawals: z.array(testimonialConsentWithdrawalSchema),
+});
+
+export type TestimonialConsentWithdrawalListResponse = z.infer<
+  typeof testimonialConsentWithdrawalListResponseSchema
+>;
+
 export const testimonialResponseSchema = z.strictObject({ testimonial: testimonialSchema });
 
 export type TestimonialResponse = z.infer<typeof testimonialResponseSchema>;

@@ -252,8 +252,9 @@ export class MediaService {
     context: RequestContext,
   ): Promise<MediaAsset> {
     await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ status: MediaAssetStatus }[]>`
-        SELECT status::text AS status FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
+      const locked = await tx.$queryRaw<{ status: MediaAssetStatus; erased: boolean }[]>`
+        SELECT status::text AS status, bytes_purged_at IS NOT NULL AS erased
+        FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
       `;
 
       const before = locked[0];
@@ -261,6 +262,13 @@ export class MediaService {
 
       const wasArchived = before.status === 'ARCHIVED';
       if (wasArchived === archived) return;
+
+      // Restorable for thirty days, then erased (Milestone 10, checkpoint A3).
+      // Once the bytes are gone there is no photograph to put back into
+      // circulation, and `media_asset_erasure_guard` refuses it as well.
+      if (!archived && before.erased) {
+        throw new AppError('MEDIA_NOT_FOUND', undefined, 'This photograph has been erased');
+      }
 
       await tx.$executeRaw`
         UPDATE media_asset

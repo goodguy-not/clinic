@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { MediaAttachmentsService } from './media-attachments.service';
+import { MediaErasureService } from './media-erasure.service';
 import { MediaPreviewService } from './media-preview.service';
 import { MediaStorageService } from './media-storage.service';
 import { MediaController } from './media.controller';
@@ -57,10 +58,11 @@ import { PublicMediaService } from './public-media.service';
   providers: [
     MediaService,
     MediaAttachmentsService,
+    MediaErasureService,
     MediaPreviewService,
     MediaStorageService,
     PublicMediaService,
   ],
-  exports: [PublicMediaService],
+  exports: [PublicMediaService, MediaErasureService, MediaStorageService],
 })
 export class MediaModule {}

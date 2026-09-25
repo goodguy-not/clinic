@@ -5,6 +5,7 @@ import {
   updateTestimonialPublicationRequestSchema,
   updateTestimonialRequestSchema,
   type CreateTestimonialRequest,
+  type TestimonialConsentWithdrawalListResponse,
   type TestimonialListResponse,
   type TestimonialResponse,
   type UpdateTestimonialApprovalRequest,
@@ -33,9 +34,10 @@ import { TestimonialsService } from './testimonials.service';
  *
  * NO DELETE ROUTE. A testimonial is unpublished and its approval withdrawn; the
  * row and its trail stay, and the table refuses a DELETE outright. A family
- * asking for their words to come off the website is served by unpublishing —
- * which is immediate — and anything beyond that is a data-retention decision
- * nobody has taken.
+ * asking for their words to come off the website is served at once by the
+ * consent-withdrawal route (Milestone 10, checkpoint A3, owner decision), and
+ * the erasure of the words and photographs that follows is the nightly job's,
+ * not an HTTP route's — no route in this product destroys anything.
  */
 @Controller('content/testimonials')
 export class TestimonialsController {
@@ -45,6 +47,16 @@ export class TestimonialsController {
   @RequirePermissions('testimonial.read')
   async list(): Promise<TestimonialListResponse> {
     return { testimonials: await this.testimonials.list() };
+  }
+
+  /**
+   * Milestone 10, checkpoint A3. Declared before `:id` so the path is not read
+   * as an id. Dates only — see `testimonialConsentWithdrawalSchema`.
+   */
+  @Get('consent-withdrawals')
+  @RequirePermissions('testimonial.read')
+  async consentWithdrawals(): Promise<TestimonialConsentWithdrawalListResponse> {
+    return { withdrawals: await this.testimonials.listConsentWithdrawals() };
   }
 
   @Get(':id')
@@ -88,6 +100,22 @@ export class TestimonialsController {
     return {
       testimonial: await this.testimonials.setApproval(id, body.approved, session, context),
     };
+  }
+
+  /**
+   * A family has withdrawn consent (Milestone 10, checkpoint A3). Manager-only,
+   * under `testimonial.approve` like the other two acts that decide whether a
+   * family's words may be shown. No body; `204`. Final.
+   */
+  @Post(':id/consent-withdrawal')
+  @HttpCode(204)
+  @RequirePermissions('testimonial.approve')
+  async withdrawConsent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentSession() session: ResolvedSession,
+    @Ctx() context: RequestContext,
+  ): Promise<void> {
+    await this.testimonials.withdrawConsent(id, session, context);
   }
 
   /** Placement on a page. Refused on anything the review has not passed. */

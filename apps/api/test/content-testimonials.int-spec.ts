@@ -294,7 +294,7 @@ describe('testimonial approval and publication (real PostgreSQL)', () => {
   });
 
   describe('the audit trail', () => {
-    it("records the family's words as a length, and the attribution in full", async () => {
+    it("records the family's words and the attribution as lengths", async () => {
       const id = await createDraft(receptionist);
 
       const rows = await harness.prisma.$queryRaw<{ after: Record<string, unknown> }[]>`
@@ -303,17 +303,17 @@ describe('testimonial approval and publication (real PostgreSQL)', () => {
       `;
 
       // The quotation is somebody else's account of their child's therapy, and
-      // `audit_log` is the one table that can never be pruned. The attribution
-      // IS recorded in full: it is short, and it is the field an identifying
-      // name would appear in if one ever did — which is exactly what a reviewer
-      // has to be able to check after the fact.
+      // `audit_log` is the one table that can never be pruned. Since Milestone
+      // 10 A3 the attribution is a length as well: a family may withdraw
+      // consent, both are then erased, and a copy here could never be.
       expect(rows[0]!.after).toMatchObject({
-        authorLabel: 'Synthetic parent label',
+        authorLabelLength: 'Synthetic parent label'.length,
         bodyLength: expect.any(Number),
         status: 'DRAFT',
         isPublic: false,
       });
       expect(JSON.stringify(rows[0]!.after)).not.toContain('Synthetic testimonial text');
+      expect(JSON.stringify(rows[0]!.after)).not.toContain('Synthetic parent label');
     });
 
     it('refuses to delete a testimonial outright', async () => {

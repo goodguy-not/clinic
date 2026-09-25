@@ -11,6 +11,7 @@ import { PublicSiteController } from './public-site.controller';
 import { PublicSiteService } from './public-site.service';
 import { SpacesController } from './spaces.controller';
 import { SpacesService } from './spaces.service';
+import { TestimonialErasureService } from './testimonial-erasure.service';
 import { TestimonialsController } from './testimonials.controller';
 import { TestimonialsService } from './testimonials.service';
 import { WebsiteRequestRetentionService } from './website-request-retention.service';
@@ -125,12 +126,18 @@ import { WebsiteRequestsService } from './website-requests.service';
     PublicRequestsService,
     ArticlesService,
     TestimonialsService,
+    TestimonialErasureService,
     SpacesService,
     ClinicProfileService,
     ClinicContentService,
     WebsiteRequestsService,
     WebsiteRequestRetentionService,
   ],
-  exports: [PublicSiteService, WebsiteRequestsService, WebsiteRequestRetentionService],
+  exports: [
+    PublicSiteService,
+    WebsiteRequestsService,
+    WebsiteRequestRetentionService,
+    TestimonialErasureService,
+  ],
 })
 export class WebsiteModule {}

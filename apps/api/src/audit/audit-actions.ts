@@ -307,6 +307,15 @@ export const AUDIT_ACTIONS = [
   'public_testimonial.approval_revoked',
   'public_testimonial.published',
   'public_testimonial.unpublished',
+  // Milestone 10, checkpoint A3. `consent_withdrawn` is the MANAGER's record
+  // that a family withdrew consent: it revokes the approval and takes the
+  // testimonial off the site in the same transaction (an `unpublished` row
+  // follows when it was public), and its payload is status and placement only.
+  // `content_erased` is the nightly job's SYSTEM act that cleared the words and
+  // the attribution, with an EMPTY payload for the `website_request.purged`
+  // reason — a list of what was erased is a description of what was there.
+  'public_testimonial.consent_withdrawn',
+  'public_testimonial.content_erased',
 
   // Public spaces (Milestone 9.5, checkpoint A7). FOUR ACTIONS, AND THE SPLIT
   // BETWEEN THE SECOND AND THE THIRD IS THE AUTHORITY BOUNDARY: `updated` is a
@@ -404,6 +413,11 @@ export const AUDIT_ACTIONS = [
   'media.alt_text_updated',
   'media.published',
   'media.unpublished',
+  // Milestone 10, checkpoint A3. The bytes of a photograph were erased by the
+  // nightly job, actor SYSTEM. `metadata.rule` names which of the owner's
+  // rules applied — UNATTACHED, ARCHIVED or TESTIMONIAL_CONSENT_WITHDRAWN —
+  // and nothing about what the photograph showed.
+  'media.bytes_erased',
   'clinic_public_profile.updated',
   // Milestone 9.5, checkpoint A8. ONE ACTION FOR ONE BLOCK, and no publication
   // act to separate from it for the reason `clinic_public_profile.updated` has
@@ -498,6 +512,14 @@ export const AUDIT_ACTIONS = [
   'website_request.status_changed',
   'website_request.linked_to_family',
   'website_request.purged',
+
+  // Milestone 10, checkpoint A3. One unattended job finished ALL of its work;
+  // the same transaction moves `scheduled_job.last_succeeded_at`. Actor
+  // SYSTEM, `metadata` is what the run did as counts (never ids, never
+  // content), and the request id is the run's own. A run that failed or left
+  // work for later writes nothing here, which is exactly what the manager's
+  // job status then reports.
+  'scheduled_job.succeeded',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -615,6 +637,9 @@ export const AUDIT_ENTITY_TYPES = [
   // above — and unlike `clinic_public_profile` beside it, its rows have UUID
   // primary keys, so an audit row for one NAMES it in `entity_id`.
   'clinic_content_entry',
+  // Milestone 10, checkpoint A3. It IS a table — one row per unattended job —
+  // so it satisfies the assertion above, and its rows have UUID keys.
+  'scheduled_job',
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];

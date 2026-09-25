@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_ENV } from '../config/config.module';
@@ -36,12 +36,18 @@ import { uuidv7 } from '../common/uuid';
  * serving route would go on offering forever with a `Content-Length` that
  * matches a row.
  *
- * NOTHING HERE DELETES. There is no `remove`, no `purge` and no unlink of a
- * stored file anywhere in this checkpoint, and the absence is the point: how
- * long the clinic keeps a photograph nobody publishes any more is a retention
- * decision the owner has not taken. Adding the capability before the policy
- * would be adding the risk before the reason.
+ * DELETION ARRIVED WITH THE POLICY, AND ONLY FOR IT (Milestone 10, checkpoint
+ * A3). `remove` and `removeAssetDirectory` exist for `MediaErasureService` and
+ * nothing else calls them. Both go through the same containment check as every
+ * read, and the directory form takes an asset id — a UUID from a `uuid` column
+ * — never a caller's path, so the widest thing it can remove is one
+ * photograph's own directory.
  */
+/** Starts with a dot, so it can never collide with a generated key's fan-out. */
+const READINESS_PROBE = '.readiness-probe';
+
+const ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 @Injectable()
 export class MediaStorageService {
   private readonly root: string;
@@ -94,6 +100,47 @@ export class MediaStorageService {
     } catch {
       throw new AppError('MEDIA_NOT_FOUND');
     }
+  }
+
+  /**
+   * Does the root exist, and can this process write to it? For readiness only.
+   *
+   * A real write, not a permission check: `access(W_OK)` says nothing about a
+   * full disk or a mount that went read-only underneath the process. The probe
+   * has one fixed name, so however often it runs it leaves at most one small
+   * file behind, and no row ever names it, so no backup ever carries it. The
+   * root is never CREATED here — a missing volume must read as missing.
+   */
+  async probeWritable(): Promise<void> {
+    const root = await stat(this.root);
+    if (!root.isDirectory()) throw new Error('media root is not a directory');
+
+    const probe = join(this.root, READINESS_PROBE);
+    await writeFile(probe, 'ok');
+    await rm(probe, { force: true });
+  }
+
+  /**
+   * Erase one stored file. Missing is success: erasure is re-run until it has
+   * nothing left to do, and a file already gone is the state it is aiming for.
+   */
+  async remove(key: string): Promise<void> {
+    await rm(this.resolveKey(key), { force: true });
+  }
+
+  /**
+   * Erase everything under one asset's directory, and the directory itself.
+   *
+   * Every file `keyFor` generates for an asset lives here, so this is what makes
+   * an erasure complete even when a process died between committing the row
+   * and unlinking the files, or when a write-then-rename left a `.part` file
+   * behind. The id is checked as a UUID before it becomes a path.
+   */
+  async removeAssetDirectory(assetId: string): Promise<void> {
+    if (!ASSET_ID.test(assetId)) throw new AppError('MEDIA_NOT_FOUND');
+
+    const directory = this.resolveKey(this.keyFor(assetId, '').replace(/\/$/, ''));
+    await rm(directory, { recursive: true, force: true });
   }
 
   /**

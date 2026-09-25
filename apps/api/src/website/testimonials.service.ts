@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { TESTIMONIAL_CONSENT_ERASURE_DAYS } from '@clinic/contracts';
 import type {
   CreateTestimonialRequest,
   Testimonial,
+  TestimonialConsentWithdrawal,
   TestimonialKind,
   TestimonialStatus,
   UpdateTestimonialRequest,
@@ -61,6 +63,18 @@ import { actorContext, canonicalOptionalText, canonicalText } from '../catalog/c
  * family's words is obtained, recorded, versioned or withdrawn is an owner and
  * legal decision (PROJECT_SPEC.md 17), and nothing in this file guesses at it.
  *
+ * A FAMILY WITHDRAWING CONSENT IS A FOURTH RULE (Milestone 10, checkpoint A3,
+ * owner decision). The manager records it with `withdrawConsent`: in one
+ * transaction the approval is revoked and the quotation leaves the site, and
+ * from then on the testimonial is ABSENT from every read here — list, get,
+ * edit, approve, publish, and attaching a photograph — because a family who
+ * asked for their words to be erased is not asking for them to be edited.
+ * Within `TESTIMONIAL_CONSENT_ERASURE_DAYS` the nightly job erases the words,
+ * the attribution and every photograph ever attached
+ * (`TestimonialErasureService`). `listConsentWithdrawals` is the one read that
+ * still names the row, and it carries dates only. The database makes both
+ * acts final (`public_testimonial_withdrawal_is_final`).
+ *
  * WITHDRAWING APPROVAL WRITES TWO AUDIT ROWS WHEN IT UNPUBLISHES. Two things
  * genuinely happened — the review was withdrawn and the page changed — and they
  * share a request id, so a reader sees one act with two consequences rather
@@ -103,7 +117,9 @@ export class TestimonialsService {
   /** Everything, including unapproved drafts. Behind `testimonial.read`. */
   async list(): Promise<Testimonial[]> {
     const rows = await this.prisma.$queryRaw<TestimonialRow[]>`
-      SELECT ${TESTIMONIAL_COLUMNS} FROM public_testimonial t ORDER BY t.id DESC
+      SELECT ${TESTIMONIAL_COLUMNS} FROM public_testimonial t
+      WHERE t.consent_withdrawn_at IS NULL
+      ORDER BY t.id DESC
     `;
 
     return rows.map(toTestimonial);
@@ -111,7 +127,8 @@ export class TestimonialsService {
 
   async get(id: string): Promise<Testimonial> {
     const rows = await this.prisma.$queryRaw<TestimonialRow[]>`
-      SELECT ${TESTIMONIAL_COLUMNS} FROM public_testimonial t WHERE t.id = ${id}::uuid
+      SELECT ${TESTIMONIAL_COLUMNS} FROM public_testimonial t
+      WHERE t.id = ${id}::uuid AND t.consent_withdrawn_at IS NULL
     `;
 
     const row = rows[0];
@@ -306,9 +323,93 @@ export class TestimonialsService {
     return toTestimonial(updated);
   }
 
+  /**
+   * A family has withdrawn consent. Manager-only (`testimonial.approve`).
+   *
+   * One transaction: approval revoked, taken off the site, the withdrawal
+   * stamped with who recorded it. Repeating it is a no-op rather than a
+   * `404`, so a retried request after a dropped connection is not an error.
+   * It cannot be undone — the database refuses — and it needs no reason: the
+   * reason is the family's, and it is the act itself.
+   */
+  async withdrawConsent(
+    id: string,
+    actor: ResolvedSession,
+    context: RequestContext,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ withdrawn: boolean }[]>`
+        SELECT consent_withdrawn_at IS NOT NULL AS withdrawn
+        FROM public_testimonial WHERE id = ${id}::uuid FOR UPDATE
+      `;
+
+      if (locked[0] === undefined) throw new AppError('TESTIMONIAL_NOT_FOUND');
+      if (locked[0].withdrawn) return;
+
+      const before = await this.readLocked(tx, id);
+
+      await tx.$executeRaw`
+        UPDATE public_testimonial
+        SET status = 'DRAFT'::testimonial_status,
+            approved_at = NULL,
+            is_public = FALSE,
+            consent_withdrawn_at = transaction_timestamp(),
+            consent_withdrawn_by_user_id = ${actor.userId}::uuid
+        WHERE id = ${id}::uuid
+      `;
+
+      // Status and placement only: the words are about to be erased, and an
+      // audit row is the one place they could never be erased from.
+      await this.audit.record(tx, actorContext(actor, context), {
+        action: 'public_testimonial.consent_withdrawn',
+        entityType: 'public_testimonial',
+        entityId: id,
+        before: { status: before.status, isPublic: before.is_public },
+        after: { status: 'DRAFT', isPublic: false },
+      });
+
+      // The second fact, as `setApproval` records it: the page changed.
+      if (before.is_public) {
+        await this.audit.record(tx, actorContext(actor, context), {
+          action: 'public_testimonial.unpublished',
+          entityType: 'public_testimonial',
+          entityId: id,
+          before: { isPublic: true },
+          after: { isPublic: false },
+          metadata: { cause: 'consent_withdrawn' },
+        });
+      }
+    });
+  }
+
+  /** Every withdrawal, newest first: dates and an id, never content. */
+  async listConsentWithdrawals(): Promise<TestimonialConsentWithdrawal[]> {
+    const rows = await this.prisma.$queryRaw<
+      { id: string; consent_withdrawn_at: Date; content_erased_at: Date | null; due: Date }[]
+    >`
+      SELECT id, consent_withdrawn_at, content_erased_at,
+             consent_withdrawn_at
+               + ${`${TESTIMONIAL_CONSENT_ERASURE_DAYS} days`}::interval AS due
+      FROM public_testimonial
+      WHERE consent_withdrawn_at IS NOT NULL
+      ORDER BY consent_withdrawn_at DESC, id DESC
+    `;
+
+    return rows.map((row) => ({
+      id: row.id,
+      consentWithdrawnAt: row.consent_withdrawn_at.toISOString(),
+      contentErasedAt: row.content_erased_at === null ? null : row.content_erased_at.toISOString(),
+      erasureDueBy: row.due.toISOString(),
+    }));
+  }
+
   private async lock(tx: Prisma.TransactionClient, id: string): Promise<TestimonialRow> {
+    // A withdrawn testimonial is not found: nothing may edit, approve or
+    // publish it again (and the database would refuse each of them).
     const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM public_testimonial WHERE id = ${id}::uuid FOR UPDATE
+      SELECT id FROM public_testimonial
+      WHERE id = ${id}::uuid AND consent_withdrawn_at IS NULL
+      FOR UPDATE
     `;
 
     if (locked[0] === undefined) throw new AppError('TESTIMONIAL_NOT_FOUND');
@@ -338,13 +439,18 @@ export class TestimonialsService {
  * anybody sees it. The trail records that the text changed, when, and who
  * changed it; the text lives in the one row that can be corrected.
  *
- * `authorLabel` IS recorded in full, and deliberately: it is short, it is the
- * attribution a reviewer has to be able to check after the fact, and it is the
- * field where an identifying name would appear if one ever did.
+ * THE ATTRIBUTION IS NOW A LENGTH TOO (Milestone 10, checkpoint A3). Until
+ * then it was recorded in full, so a reviewer could check it after the fact —
+ * but a family may now withdraw consent, and the owner's rule is that the
+ * trail keeps THAT the words and the attribution were erased, never what they
+ * were. A value copied into `audit_log` can never be erased, so the only way to
+ * honour that rule is never to copy it. The reviewer checks the attribution on
+ * the row itself, where it is frozen from approval until it is erased. Rows
+ * written before this change still carry the label (DECISION_LOG, 2026-09-26).
  */
 function testimonialAudit(row: TestimonialRow): Record<string, string | number | boolean | null> {
   return {
-    authorLabel: row.author_label,
+    authorLabelLength: row.author_label === null ? null : row.author_label.length,
     bodyLength: row.body.length,
     // Recorded in full: it is one of two words, it is not identifying, and it
     // is the fact a reviewer needs in order to tell whether the words they are

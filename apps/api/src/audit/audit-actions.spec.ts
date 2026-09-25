@@ -235,7 +235,7 @@ describe('audit vocabulary', () => {
       ),
     );
 
-    it('adds exactly the fourteen approved checkpoint A2 actions, plus A6 drafting', () => {
+    it('adds exactly the fourteen approved checkpoint A2 actions, plus A6 drafting and M10 A3 withdrawal', () => {
       expect([...websiteActions].sort()).toEqual(
         [
           'public_article.created',
@@ -256,6 +256,10 @@ describe('audit vocabulary', () => {
           // under the drafting authority, which is a different act by a
           // different role from the manager's `.updated`, and publishes nobody.
           'therapist.public_profile_drafted',
+          // Milestone 10, checkpoint A3. A family withdrawing consent (the
+          // manager's record) and the erasure that follows (the nightly job's).
+          'public_testimonial.consent_withdrawn',
+          'public_testimonial.content_erased',
         ].sort(),
       );
     });
@@ -335,6 +339,15 @@ describe('audit vocabulary', () => {
       ] as const) {
         expect(AUDIT_ENTITY_TYPES).toContain(entityType);
       }
+    });
+  });
+
+  describe('Milestone 10, checkpoint A3', () => {
+    it('adds exactly the erasure and job actions, and one entity type', () => {
+      expect(AUDIT_ACTIONS.filter((action) => /bytes_erased|scheduled_job\./.test(action))).toEqual(
+        ['media.bytes_erased', 'scheduled_job.succeeded'],
+      );
+      expect(AUDIT_ENTITY_TYPES).toContain('scheduled_job');
     });
   });
 });

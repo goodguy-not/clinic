@@ -21,10 +21,13 @@
 #
 # WHY THE PAIR IS CONSISTENT. The database is read first, in one snapshot, and
 # the manifest lists every media file the snapshot's rows refer to. The API
-# writes a file (write-then-rename) BEFORE the row that names it commits, and
-# nothing in the application deletes a stored file, so every file the snapshot
-# refers to already existed when the snapshot was taken and still exists when it
-# is copied a moment later. That is then CHECKED, not assumed: each referenced
+# writes a file (write-then-rename) BEFORE the row that names it commits, so
+# every file the snapshot refers to already existed when it was taken. The only
+# code that deletes a stored file — the nightly media erasure (Milestone 10,
+# A3) — must first take an advisory lock this backup holds SHARED from before
+# the snapshot until the last file is copied (backup.sql, copy-media.sh), so
+# nothing the snapshot names can disappear while it is being copied, and an
+# erasure never breaks a backup. That is then CHECKED, not assumed: each referenced
 # file is copied and its SHA-256 compared with the hash in its row, and a
 # missing or altered file stops the backup before anything is written.
 # Only referenced files are archived; a file no committed row names (a failed or
@@ -83,32 +86,22 @@ step "Database snapshot"
 check_client_version "$BACKUP_DATABASE_URL"
 export BACKUP_DATABASE_URL
 export CLINIC_BACKUP_DUMP_FILE="$stage/database.dump"
+# The media copy runs INSIDE the psql session below (copy-media.sh), because
+# that session holds the files lock a media erasure must take first.
+export CLINIC_BACKUP_STAGE="$stage"
+export CLINIC_BACKUP_COPY_MEDIA="$BACKUP_LIB_DIR/copy-media.sh"
+export MEDIA_STORAGE_DIR
 psql_run -d "$BACKUP_DATABASE_URL" \
   -v meta_file="$stage/manifest/meta.txt" \
   -v tables_file="$stage/manifest/tables.txt" \
   -v sequences_file="$stage/manifest/sequences.txt" \
   -v schema_file="$stage/manifest/schema.txt" \
   -v media_file="$stage/manifest/media.sha256" \
-  -f "$BACKUP_SQL_DIR/backup.sql" || die "the database could not be read (see above). Nothing was written."
+  -f "$BACKUP_SQL_DIR/backup.sql" || die "the database or its media could not be read (see above). Nothing was written."
 [[ -s "$CLINIC_BACKUP_DUMP_FILE" ]] || die "pg_dump produced no output. Nothing was written."
 ok "dumped $(meta_value "$stage" database) as $(meta_value "$stage" backup_role) at $(meta_value "$stage" snapshot_taken_at)"
 ok "$(wc -l < "$stage/manifest/tables.txt" | tr -d ' ') tables, $(awk -F'|' '{s += $2} END {print s + 0}' "$stage/manifest/tables.txt") rows, latest migration $(meta_value "$stage" latest_migration)"
 
-step "Media referenced by the snapshot"
-assert_media_keys_safe "$stage/manifest/media.sha256"
-missing="$(awk '{print $2}' "$stage/manifest/media.sha256" | while IFS= read -r key; do
-  [[ -f "$MEDIA_STORAGE_DIR/$key" ]] || printf '%s\n' "$key"
-done)"
-if [[ -n "$missing" ]]; then
-  printf '%s\n' "$missing" | head -20 >&2
-  die "$(wc -l <<< "$missing" | tr -d ' ') media file(s) the database refers to are missing from MEDIA_STORAGE_DIR (first 20 above). This backup would restore rows whose images are gone, so it was not written."
-fi
-if [[ -s "$stage/manifest/media.sha256" ]]; then
-  awk '{print $2}' "$stage/manifest/media.sha256" > "$stage/media.list"
-  tar -C "$MEDIA_STORAGE_DIR" -cf - -T "$stage/media.list" | tar -C "$stage/media" -xf -
-  rm -f "$stage/media.list"
-fi
-check_media_against "$stage/media" "$stage/manifest/media.sha256" "copied media"
 media_bytes="$(du -sk "$stage/media" | awk '{print $1}')"
 
 {

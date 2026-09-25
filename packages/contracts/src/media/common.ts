@@ -112,6 +112,22 @@ export const MEDIA_RENDITION_CONTENT_TYPE: Record<MediaRenditionFormat, MediaCon
 };
 
 /**
+ * How long a photograph's bytes are kept once nothing needs them. Milestone 10,
+ * checkpoint A3 (owner decision).
+ *
+ * - Uploaded and NEVER attached anywhere: erased this many days after upload.
+ * - ARCHIVED by a manager: restorable for this many days, then erased.
+ *
+ * ERASURE IS OF THE BYTES — the master and every rendition. The asset stays in
+ * the library with `bytesPurgedAt` set, saying that a photograph existed and
+ * where it was used; it can no longer be attached, published or restored, and
+ * those requests answer `MEDIA_NOT_FOUND`, because there is no photograph left
+ * to act on. The same numbers are in the database's own erasure guard.
+ */
+export const MEDIA_UNATTACHED_ERASURE_DAYS = 30;
+export const MEDIA_ARCHIVED_ERASURE_DAYS = 30;
+
+/**
  * The path a rendition is served from, relative to wherever the web tier
  * publishes media: `media/` followed by the rendition id.
  *

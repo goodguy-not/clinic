@@ -1,8 +1,9 @@
-import { access, readFile, rm } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import request from 'supertest';
 import { mediaAssetResponseSchema } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
+import { MediaErasureService } from '../src/media/media-erasure.service';
 import {
   createHarness,
   resetDatabase,
@@ -27,12 +28,13 @@ import { uploadPhoto } from './media-support';
  * as a migration altering nullability on a live table full of a clinic's
  * photographs.
  *
- * NOTHING IN THIS APPLICATION PERFORMS AN ERASURE. There is no schedule, no
- * duration, no route, no permission and no operator command for it anywhere in
- * Milestone 9.5, and this suite deliberately adds none. It reaches PAST the
- * application — straight to SQL and the filesystem — and does by hand what a
- * future privileged, explicit, audited retention job would do, in order to show
- * that every piece it will need is already there.
+ * THE POLICY HAS SINCE BEEN DECIDED (Milestone 10, checkpoint A3): the nightly
+ * `MEDIA_ERASURE` job erases the bytes of a photograph never attached for thirty
+ * days or archived for thirty days — `media-erasure.int-spec.ts` is its suite.
+ * What stays here is what this suite always proved about the SCHEMA: an erasure
+ * is two UPDATEs and an unlink, the record survives it, and a half-erased row is
+ * refused. The erasure below is now the real service, on an asset made due by
+ * ageing its archiving, because `media_asset_erasure_guard` refuses any other.
  *
  * IT ASSERTS FOUR THINGS, IN THE TWO SHAPES A POLICY MIGHT TAKE:
  *
@@ -152,29 +154,13 @@ describe('media retention readiness (real PostgreSQL)', () => {
       `
     )[0]!.master_storage_key;
 
-    // ---- what a future retention job would do, and nothing more -------------
-    //
-    // Two UPDATEs and an unlink. No new table, no schema change, no rewriting of
-    // anything already stored — which is the whole claim this suite exists to
-    // support. A real job would additionally write its own audit rows under a
-    // SYSTEM actor, exactly as the website-request retention run does; that is
-    // the retention checkpoint's work, not this one's.
-    //
-    // The rendition UPDATE runs as the owner: the runtime role holds no UPDATE
-    // on `media_rendition` until the retention checkpoint's migration grants it.
-    await ownerPrisma().$executeRaw`
-      UPDATE media_rendition
-      SET storage_key = NULL, bytes_purged_at = transaction_timestamp()
-      WHERE media_asset_id = ${asset.id}::uuid
-    `;
-    await harness.prisma.$executeRaw`
-      UPDATE media_asset
-      SET master_storage_key = NULL, bytes_purged_at = transaction_timestamp()
-      WHERE id = ${asset.id}::uuid
-    `;
+    // ---- the retention job, on a photograph archived thirty days ago -------
+    await makeDue(asset.id);
+    const result = await harness.app.get(MediaErasureService).run({ backupWaitMs: 0, pollMs: 0 });
+    expect(result).toEqual({ eligible: 1, erased: 1, deferred: 0 });
 
     for (const key of [master, ...renditions.map((r) => r.storage_key)]) {
-      await rm(join(TEST_MEDIA_ROOT, ...key.split('/')), { force: true });
+      await expect(access(join(TEST_MEDIA_ROOT, ...key.split('/')))).rejects.toThrow();
     }
 
     // ---- what the product then says -----------------------------------------
@@ -212,12 +198,28 @@ describe('media retention readiness (real PostgreSQL)', () => {
     expect(team.body.therapist.photo).toBeNull();
   });
 
+  /** Archived thirty-one days ago: the owner's ARCHIVED rule makes it due. */
+  const makeDue = async (assetId: string) => {
+    const archived = await request(harness.app.getHttpServer())
+      .patch(`/media/${assetId}/archive`)
+      .set(as(manager))
+      .send({ archived: true });
+    expect(archived.status).toBe(200);
+
+    await ownerPrisma().$executeRaw`
+      UPDATE media_asset SET archived_at = archived_at - interval '31 days'
+      WHERE id = ${assetId}::uuid
+    `;
+  };
+
   it('refuses a half-erased row in both directions', async () => {
     // The CHECK is what stops a future job leaving a row that claims to have
     // been erased while still naming a file, or one that has lost its file with
     // nothing to say why. Both are refused by PostgreSQL rather than by the job
     // remembering to do both halves.
     const { asset } = await publishedPhoto();
+    // Due, so that the erasure guard lets the statement reach the CHECK.
+    await makeDue(asset.id);
 
     await expect(
       harness.prisma.$executeRaw`
@@ -232,11 +234,13 @@ describe('media retention readiness (real PostgreSQL)', () => {
       `,
     ).rejects.toThrow(/media_asset_purge_chk/);
 
+    // A rendition is refused one step earlier, by `media_rendition_erasure_only`,
+    // which admits only the complete erasure transition.
     await expect(
       ownerPrisma().$executeRaw`
         UPDATE media_rendition SET storage_key = NULL WHERE media_asset_id = ${asset.id}::uuid
       `,
-    ).rejects.toThrow(/media_rendition_purge_chk/);
+    ).rejects.toThrow(/the only permitted change is its erasure/);
   });
 
   it('refuses row deletion by default, and permits it to a policy that lifts the guard explicitly', async () => {
