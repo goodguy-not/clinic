@@ -5938,7 +5938,8 @@ and a failure full of a family's details, and finds none of them.
 
 ## 2026-09-26 — Open (owner): photo descriptions after erasure, and pre-existing audit labels
 
-**Status:** Open — Milestone 10 checkpoint A3
+**Status:** Resolved — both answered by the owner at the A3 close-out (entries below).
+Originally Open — Milestone 10 checkpoint A3
 
 1. **Descriptions.** An erased photograph keeps its `alt_text`. Recommendation: erase it
    with the bytes (it can name a child). Needs `altText` nullable in the media contract and
@@ -5946,3 +5947,88 @@ and a failure full of a family's details, and finds none of them.
 2. **Audit labels written before A3.** If real testimonials exist before this deploys,
    their audit rows hold the attribution in full. Leaving them is the default; removing them
    is a reviewed rewrite of append-only rows.
+
+## 2026-09-26 — Owner: GitHub CI is not a gate; local full runs are the evidence
+
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out
+
+GitHub Actions results do not gate a checkpoint and old failed runs are not repaired. The
+required evidence is a local full run — the check set, the full integration suite and, for
+backup changes, the restore drill — with its output pasted in the report. CI keeps running
+and stays useful as a second opinion.
+
+## 2026-09-26 — Owner: the restore drill runs locally, in a throwaway Linux container
+
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out
+
+The owner approved the official PostgreSQL 17 client tools for the drill and chose a
+throwaway Docker container over the WSL distribution for everything else it needs. The drill
+cannot run on Windows itself: `backup.sql` uses psql's `\!`, which Windows psql runs through
+`cmd.exe`, where `$VARIABLE` is not expanded — production and CI are Linux. The runner is
+`node:24-bookworm` plus `postgresql-client-17` from the PGDG apt repository and PowerShell 7,
+on a private Docker network with two empty `postgres:17-alpine` clusters, running
+`scripts/backup/drill.sh` as the unprivileged `node` user on an export of the commit under
+test (`git archive`). All of it is removed afterwards.
+
+## 2026-09-26 — Owner: a photograph's description is erased with its bytes (queued)
+
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out. Queued after Agent B's
+current checkpoint; not started. Resolves item 1 of "Open (owner): photo descriptions
+after erasure".
+
+When a photograph's bytes are erased, `alt_text` is erased too. It needs `altText` nullable
+in the media contract and every Web surface that renders it to handle `null` — a
+coordinated change with Agent B.
+
+## 2026-09-26 — Owner: testimonial audit rows written before A3 keep their attribution
+
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out. Resolves item 2 of
+"Open (owner): photo descriptions after erasure".
+
+They exist only in synthetic development databases; production starts from an empty
+database, so every production audit row is written by code that records the attribution as a
+length. No append-only row is rewritten.
+
+## 2026-09-26 — Owner: the server runs in UTC, and business time is Asia/Tehran, explicitly
+
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out
+
+The production server runs in UTC. Every business-date decision — appointment day, charge and
+payment dates, day and month boundaries in reports, settlement periods and their close, the
+retention clocks, the backup and job schedules — is made in Asia/Tehran explicitly and never
+by relying on the host, process or database-session timezone.
+
+**Verified at the close-out.** It already holds; no application defect was found:
+
+- Business dates are decided in SQL by four functions that name `Asia/Tehran` themselves —
+  `clinic_date`, `clinic_day_start`, `clinic_moment`, `clinic_clock_time` — and every other
+  date in SQL is a `DATE` column or a `'YYYY-MM-DD'` cast. No `CURRENT_DATE`, no
+  `timestamptz::date`, no `date_trunc`, `EXTRACT` or `to_char` on a `timestamptz` exists in
+  the application's SQL or the migrations.
+- The Node side never takes a business date from the process clock; `DATE` values cross it as
+  digits (`iso-date.ts`, pinned under several zones by `iso-date.spec.ts`).
+- The retention clocks (90 and 30 days) and session expiry are intervals between instants,
+  which no zone changes. The timers name `Asia/Tehran` in `OnCalendar`.
+- The full integration suite passes with the process in UTC and the database session in UTC
+  (a cluster started without `TZ`), and in local Tehran time, on the same commit.
+
+**The regression guard** is `clinic-time-boundaries.int-spec.ts`: the database session is
+forced to `Pacific/Kiritimati` (UTC+14) for every connection the API opens, and sessions at
+23:00 and 00:15 Tehran — on the last night of Jalali 1404 and at a Gregorian month end, where
+00:15 Tehran is still the previous day in UTC — are followed through the diary, the charge
+the completion posts and the session report. Replacing `clinic_date` with a session-zone cast
+makes it fail (checked). README, Checks, asks for the suite in both zones before a milestone
+closes.
+
+**The M4–M8 CI failure is not reproduced, and is not this.** `main` at M8 (`27d9a37`), run
+exactly as its CI job ran — `postgres:17-alpine` with no `TZ`, the superuser connection,
+`TZ=UTC`, Node 24 — passes 1760 of 1760 integration tests, run between 22:39 and 22:58 UTC,
+inside the daily window when UTC's date and Tehran's differ. The failed runs' logs are not
+readable from this machine (private repository, no token), so the cause is unknown; a pasted
+log of one failed run would settle it.
+
+- **Alternatives:** pin `TZ=Asia/Tehran` for the process (forbidden by the owner, and it
+  would hide the class of defect rather than prevent it); set the database's timezone to
+  Tehran in provisioning (the same, one layer down).
+- **Revisit when:** any business date is computed outside those four functions, or the
+  clinic ever operates in a second timezone.

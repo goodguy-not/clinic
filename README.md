@@ -115,7 +115,19 @@ pnpm test:int
 
 It requires `DATABASE_URL` pointing at a disposable database — see
 [Integration tests](#integration-tests). CI runs both
-(see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+(see [.github/workflows/ci.yml](.github/workflows/ci.yml)), but **CI is not a gate for this
+project** (owner decision, 2026-09-26): the required evidence is a local full run with its
+output.
+
+**Run the integration suite in two timezones before a milestone closes.** The production
+server runs in UTC; the clinic's business time is Asia/Tehran, and every business date is
+decided in Tehran explicitly in SQL (`clinic_date`, `clinic_day_start`, `clinic_moment`,
+`clinic_clock_time`). So the suite must pass both with the process and the database session
+in UTC — `TZ=UTC`, against a PostgreSQL whose `timezone` setting is its default `UTC` (a
+container started without `TZ`) — and in local Tehran time. `clinic-time-boundaries.int-spec.ts`
+additionally forces the database session into `Pacific/Kiritimati` and follows sessions
+either side of Tehran midnight, at a Gregorian month end and at the Jalali new year, through
+the diary, the posted charge and the session report.
 
 ## Architecture boundary
 
