@@ -11,13 +11,18 @@
 # backed up and then destroyed; the target starts with no clinic role and no
 # clinic database, as a replacement server would. Requires `pnpm build` first.
 #
-#   build a clinic → back it up → destroy it → restore into the fresh cluster →
-#   verify the database, the media, the public site and a staff sign-in
+#   build a clinic → back it up → the Windows collector fetches it → destroy the
+#   server, its own backups included → restore the clinic computer's copy into
+#   the fresh cluster → verify the database, the media, the public site and a
+#   staff sign-in
 #
 # and, along the way, that each of these is refused loudly: a privileged backup
-# login, a referenced image missing at backup time, the wrong private key, a
-# tampered archive, an archive missing a referenced image, an image lost after
-# restore, and a restore over a database that is not empty.
+# login, a referenced image missing at backup time, every request the
+# collector's key may not make, the wrong private key, a tampered archive, a
+# PLANTED archive (correctly encrypted, unsigned or signed by another key), an
+# archive missing a referenced image, an image lost after restore, and a
+# restore over a database that is not empty. Needs PowerShell (pwsh or Windows
+# PowerShell) for the collector.
 #
 # Every password and key here is generated for this run and discarded with
 # DRILL_WORK_DIR. No real clinic data is used, or may be.
@@ -122,7 +127,9 @@ expect_failure() { # label pattern command...
   fi
   grep -Eq "$pattern" "$log" || { cat "$log"; die "$label failed, but not for the expected reason."; }
   ok "detected: $label"
-  say "         $(grep -E '^\[[a-z-]+\] FAILED|ERROR:' "$log" | head -1)"
+  local reason
+  reason="$(grep -E '^\[[a-z-]+\] FAILED|ERROR:' "$log" | head -1 || true)"
+  say "         ${reason:-$(head -1 "$log")}"
 }
 
 prisma="$REPO_ROOT/apps/api/node_modules/.bin/prisma"
@@ -184,13 +191,29 @@ gpg_new_key() { # homedir name
   gpg --homedir "$1" --batch --quiet --pinentry-mode loopback --passphrase '' \
     --quick-gen-key "$2 (synthetic drill key) <drill@example.invalid>" default default never
 }
+primary_fpr() { # homedir
+  gpg --homedir "$1" --batch --with-colons --list-secret-keys \
+    | awk -F: '$1 == "sec" {p = 1; next} $1 == "fpr" && p {print $10; exit}'
+}
 # Keyrings live under a SHORT path: gpg-agent's socket path has a hard length
 # limit that a deep scratch directory can exceed.
 keyrings="$(mktemp -d /tmp/clinic-drill-gpg.XXXXXX)"
-trap 'stop_apps; gpgconf --homedir "$keyrings/operator" --kill all 2> /dev/null; gpgconf --homedir "$keyrings/stranger" --kill all 2> /dev/null; rm -rf "$keyrings"' EXIT
+kill_agents() {
+  local home
+  for home in "$keyrings"/*; do gpgconf --homedir "$home" --kill all 2> /dev/null || true; done
+  rm -rf "$keyrings"
+}
+trap 'stop_apps; kill_agents' EXIT
+# The owner's key pair: the private half stays off the server.
 operator_keys="$keyrings/operator"
 gpg_new_key "$operator_keys" 'Clinic backup'
 gpg --homedir "$operator_keys" --armor --export > "$work/keys/recipient.asc"
+# The server's signing key: the private half stays ON the server, the public
+# half goes off-server with the decryption key.
+server_keys="$keyrings/server"
+gpg_new_key "$server_keys" 'Clinic server signing'
+gpg --homedir "$server_keys" --armor --export > "$work/keys/server-signing.asc"
+# Somebody who is neither.
 wrong_keys="$keyrings/stranger"
 gpg_new_key "$wrong_keys" 'Somebody else'
 
@@ -198,7 +221,7 @@ gpg_new_key "$wrong_keys" 'Somebody else'
 touch "$work/destination/clinic-backup-20200101T000000Z.tar.gpg"
 backup_env=(env BACKUP_DATABASE_URL="$src_backup" MEDIA_STORAGE_DIR="$src_media"
   BACKUP_DESTINATION_DIR="$work/destination" BACKUP_RECIPIENT_KEY_FILE="$work/keys/recipient.asc"
-  BACKUP_RETENTION_DAYS=30 BACKUP_WORK_DIR="$work/tmp")
+  BACKUP_SIGNING_KEY_DIR="$server_keys" BACKUP_RETENTION_DAYS=30 BACKUP_WORK_DIR="$work/tmp")
 
 expect_failure 'backup as the owner (not least privilege)' 'not a least-privilege backup role' \
   "${backup_env[@]}" BACKUP_DATABASE_URL="$src_owner" "$BACKUP/backup.sh"
@@ -214,34 +237,81 @@ mv "$victim.away" "$victim"
 ok "no archive was written by any refused backup"
 
 "${backup_env[@]}" "$BACKUP/backup.sh"
-archive="$(find "$work/destination" -name 'clinic-backup-*.tar.gpg' -newer "$work/keys/recipient.asc" | head -1)"
-[[ -n "$archive" ]] || die "no archive was produced."
+archive_name="$(cd "$work/destination" && ls clinic-backup-*.tar.gpg | tail -1)"
+[[ -n "$archive_name" && "$archive_name" != clinic-backup-2020* ]] || die "no archive was produced."
 [[ ! -e "$work/destination/clinic-backup-20200101T000000Z.tar.gpg" ]] || die "retention did not prune."
-if tar -tf "$archive" > /dev/null 2>&1 || grep -aq 'PGDMP' "$archive"; then
+if tar -tf "$work/destination/$archive_name" > /dev/null 2>&1 || grep -aq 'PGDMP' "$work/destination/$archive_name"; then
   die "the archive is readable without the key."
 fi
 ok "the archive is not a readable tar and carries no plaintext dump header"
 
 # ---------------------------------------------------------------------------
-step "4. Destroy the source"
+step "4. The clinic computer collects it"
+# The server end is the real forced command. The transport is a stand-in for
+# ssh that runs it locally: what sshd adds — the key, `restrict`, the forced
+# command itself — is configuration, and README says exactly what to install.
+status_dir="$work/status"
+clinic_pc="$work/clinic-pc"
+mkdir -p "$status_dir" "$clinic_pc"
+cat > "$work/fake-ssh.sh" << SHIM
+#!/usr/bin/env bash
+export SSH_ORIGINAL_COMMAND="\${*: -1}" BACKUP_DESTINATION_DIR="$work/destination" BACKUP_STATUS_DIR="$status_dir"
+exec bash "$BACKUP/collector-serve.sh"
+SHIM
+serve() { SSH_ORIGINAL_COMMAND="$1" BACKUP_DESTINATION_DIR="$work/destination" \
+  BACKUP_STATUS_DIR="$status_dir" bash "$BACKUP/collector-serve.sh"; }
+
+server_state() { (cd "$work/destination" && ls -la --time-style=+%s . && sha256sum -- *) | sha256sum; }
+before="$(server_state)"
+for request in 'rm -f *' 'get ../../etc/passwd' "get $archive_name; rm $archive_name" 'bash -i' \
+  'get clinic-backup-20990101T000000Z.tar.gpg' 'ack' 'scp -f x'; do
+  expect_failure "collector key asking for: $request" '^refused:' serve "$request"
+done
+[[ "$(server_state)" == "$before" ]] || die "a collector request changed the server's backups."
+ok "the server's backups are byte-for-byte unchanged by every collector request"
+
+if command -v pwsh > /dev/null; then powershell=pwsh; else powershell=powershell.exe; fi
+command -v "$powershell" > /dev/null || die "PowerShell (pwsh) is required to run the Windows collector."
+printf '{ "Destination": "%s", "RetentionDays": 30, "SshCommand": ["%s", "%s"] }\n' \
+  "$(native "$clinic_pc")" "$(native "$(command -v bash)")" "$(native "$work/fake-ssh.sh")" > "$work/collector.json"
+collect() {
+  "$powershell" -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(native "$BACKUP/collector/collect-backups.ps1")" -ConfigPath "$(native "$work/collector.json")"
+}
+# A copy past retention on the clinic computer, and an interrupted download.
+touch "$clinic_pc/clinic-backup-20200101T000000Z.tar.gpg"
+head -c 777 /dev/urandom > "$clinic_pc/$archive_name.partial"
+collect
+collect
+[[ ! -e "$clinic_pc/clinic-backup-20200101T000000Z.tar.gpg" ]] || die "the collector did not expire its own old copy."
+[[ ! -e "$clinic_pc/$archive_name.partial" ]] || die "the collector left a partial download."
+cmp -s "$clinic_pc/$archive_name" "$work/destination/$archive_name" || die "the collected copy differs from the server's."
+grep -qx "archive=$archive_name" "$status_dir/offsite-collection" || die "the collection was not acknowledged."
+ok "collected once, idempotent on the second run, interrupted download replaced, old copy expired"
+say "  $(tr '\n' ' ' < "$status_dir/offsite-collection")"
+
+# ---------------------------------------------------------------------------
+step "5. Lose the server: database, roles, media AND its own backups"
 stop_apps
 psql_run -d "$DRILL_SOURCE_ADMIN_URL" -c "DROP DATABASE $DB WITH (FORCE)" \
   -c 'DROP ROLE clinic_app' -c 'DROP ROLE clinic_backup' -c 'DROP ROLE clinic_runtime' -c 'DROP ROLE clinic_owner'
-rm -rf "$src_media"
-ok "source database, roles and media directory are gone"
+rm -rf "$src_media" "$work/destination" "$server_keys"
+archive="$clinic_pc/$archive_name"
+ok "only the clinic computer's copy is left; restoring from it"
 
 # ---------------------------------------------------------------------------
-step "5. Fresh target: provisioned exactly as a new deployment"
+step "6. Fresh target: provisioned exactly as a new deployment"
 dst_owner_pw="$(secret)"; dst_app_pw="$(secret)"; dst_backup_pw="$(secret)"
 provision "$DRILL_TARGET_ADMIN_URL" "$dst_owner_pw" "$dst_app_pw" "$dst_backup_pw"
 dst_owner="$(url_on "$DRILL_TARGET_ADMIN_URL" clinic_owner "$dst_owner_pw")"
 dst_app="$(url_on "$DRILL_TARGET_ADMIN_URL" clinic_app "$dst_app_pw")"
 dst_media="$work/restored-media"
 restore_env=(env RESTORE_OWNER_DATABASE_URL="$dst_owner" RESTORE_RUNTIME_DATABASE_URL="$dst_app"
-  MEDIA_STORAGE_DIR="$dst_media" RESTORE_WORK_DIR="$work/tmp" GNUPGHOME="$operator_keys")
+  MEDIA_STORAGE_DIR="$dst_media" RESTORE_WORK_DIR="$work/tmp" GNUPGHOME="$operator_keys"
+  RESTORE_SIGNER_KEY_FILE="$work/keys/server-signing.asc")
 ok "new roles with new passwords, empty $DB"
 
-step "6. Broken restores are refused before anything changes"
+step "7. Broken and planted archives are refused before anything changes"
 expect_failure 'restore with the wrong private key' 'could not decrypt' \
   "${restore_env[@]}" GNUPGHOME="$wrong_keys" "$BACKUP/restore.sh" "$archive"
 
@@ -252,16 +322,38 @@ printf '\xff\x00\xff\x00' | dd of="$tampered" bs=1 seek=$((size / 2)) conv=notru
 expect_failure 'restore of a damaged archive' 'could not decrypt' \
   "${restore_env[@]}" "$BACKUP/restore.sh" "$tampered"
 
-holed="$work/tmp/holed"
-mkdir -p "$holed"
-gpg --homedir "$operator_keys" --batch --quiet --decrypt "$archive" | tar -C "$holed" -xf -
-rm -f "$(find "$holed/media" -name 'master.*' -type f | head -1)"
-tar -C "$holed" -cf - FORMAT manifest database.dump media \
-  | gpg --homedir "$operator_keys" --batch --quiet --trust-model always \
-    --recipient-file "$work/keys/recipient.asc" --encrypt --output "$work/tmp/holed.tar.gpg"
-rm -rf "$holed"
-expect_failure 'restore of an archive missing a referenced image' 'archived media: 1 of [0-9]+ referenced media file' \
-  "${restore_env[@]}" "$BACKUP/restore.sh" "$work/tmp/holed.tar.gpg"
+# Planted archives: the real content, correctly encrypted to the owner's key,
+# but not produced by the clinic's server.
+genuine="$work/tmp/genuine"
+mkdir -p "$genuine"
+# gpg exits non-zero here only because the operator's keyring cannot check the
+# server's signature; the content is checked by its FORMAT file instead.
+gpg --homedir "$operator_keys" --batch --quiet --decrypt "$archive" 2> /dev/null \
+  | tar -C "$genuine" -xf - || true
+[[ -f "$genuine/FORMAT" ]] || die "could not unpack the genuine archive to build planted ones."
+repack() { # output [signing homedir]
+  local signing=(--homedir "$wrong_keys")
+  [[ $# -eq 2 ]] && signing=(--homedir "$2" --local-user "$(primary_fpr "$2")" --sign)
+  tar -C "$genuine" -cf - FORMAT manifest database.dump media \
+    | gpg --batch --quiet --no-auto-check-trustdb --trust-model always "${signing[@]}" \
+      --recipient-file "$work/keys/recipient.asc" --encrypt --output "$1"
+}
+repack "$work/tmp/planted-unsigned.tar.gpg"
+expect_failure 'restore of a planted archive: encrypted to the owner, unsigned' 'not produced by the clinic.s server' \
+  "${restore_env[@]}" "$BACKUP/restore.sh" "$work/tmp/planted-unsigned.tar.gpg"
+repack "$work/tmp/planted-stranger.tar.gpg" "$wrong_keys"
+expect_failure 'restore of a planted archive: encrypted to the owner, signed by another key' 'not produced by the clinic.s server' \
+  "${restore_env[@]}" "$BACKUP/restore.sh" "$work/tmp/planted-stranger.tar.gpg"
+
+# A server-signed archive that lost an image — signed here with a stand-in
+# server key the restore is told to trust, since the real one died with the server.
+gpg_new_key "$keyrings/server2" 'Clinic server signing'
+gpg --homedir "$keyrings/server2" --armor --export > "$work/keys/server2-signing.asc"
+rm -f "$(find "$genuine/media" -name 'master.*' -type f | head -1)"
+repack "$work/tmp/holed.tar.gpg" "$keyrings/server2"
+expect_failure 'restore of a signed archive missing a referenced image' 'archived media: 1 of [0-9]+ referenced media file' \
+  "${restore_env[@]}" RESTORE_SIGNER_KEY_FILE="$work/keys/server2-signing.asc" "$BACKUP/restore.sh" "$work/tmp/holed.tar.gpg"
+rm -rf "$genuine"
 
 [[ "$(psql_value "$dst_owner" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'")" == 0 ]] \
   || die "a refused restore changed the target database."
@@ -269,10 +361,10 @@ expect_failure 'restore of an archive missing a referenced image' 'archived medi
 ok "target database still empty, media directory never created"
 
 # ---------------------------------------------------------------------------
-step "7. Restore"
+step "8. Restore, from the clinic computer's copy"
 "${restore_env[@]}" "$BACKUP/restore.sh" "$archive"
 
-step "8. Damage after restore is detected"
+step "9. Damage after restore is detected"
 # Before the restored system takes any traffic: verify.sh compares records
 # exactly, and the site check below signs in, which writes audit and session
 # rows.
@@ -282,16 +374,16 @@ expect_failure 'verification with a restored image missing' 'restored media root
   "${restore_env[@]}" "$BACKUP/verify.sh" "$archive"
 mv "$work/tmp/lost-file" "$lost"
 
-step "9. The restored system, running"
+step "10. The restored system, running"
 start_api restored "$dst_app" "$dst_media"
 start_web restored
 site_check
 
 # ---------------------------------------------------------------------------
-step "10. A restore never merges into a live database"
+step "11. A restore never merges into a live database"
 expect_failure 'restore over a database that is not empty' 'the database is not empty' \
   "${restore_env[@]}" MEDIA_STORAGE_DIR="$work/tmp/unused-media" "$BACKUP/restore.sh" "$archive"
 
 stop_apps
 say ""
-say "DRILL PASSED: backed up, destroyed, restored into a fresh cluster and verified; every broken case was refused."
+say "DRILL PASSED: backed up, collected off-site, lost the server, restored from the off-site copy into a fresh cluster and verified; every broken or planted case was refused."

@@ -202,9 +202,12 @@ jobs:
   # A backup whose restore has not been tested is not a backup, and this schema
   # has already produced one that could not be restored (DECISION_LOG,
   # 2026-09-25). scripts/backup/drill.sh builds a synthetic clinic with uploaded
-  # images, backs it up with the real backup script, destroys it, restores into
-  # a second, empty cluster and verifies the database, the media, the public
-  # site and a staff sign-in — and that eight broken cases are refused.
+  # images, backs it up with the real backup script, has the Windows collector
+  # (under pwsh, which the runner ships) fetch it through the real forced
+  # command, destroys the server and its own backups, restores the collected
+  # copy into a second, empty cluster and verifies the database, the media, the
+  # public site and a staff sign-in — and that every broken, forbidden or
+  # planted case is refused.
   #
   # Two service clusters, neither shared with `verify`: the target must start
   # with no clinic role and no clinic database, as a replacement server does.
