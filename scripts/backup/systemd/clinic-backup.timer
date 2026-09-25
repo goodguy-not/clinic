@@ -1,0 +1,13 @@
+# Milestone 10, checkpoint A2 — NIGHTLY (owner decision). Persistent=true runs a
+# backup at boot if the server was off when one was due, so a night is never
+# skipped silently.
+[Unit]
+Description=Nightly clinic backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Tehran
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
