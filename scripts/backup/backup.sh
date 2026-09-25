@@ -10,6 +10,9 @@
 #   MEDIA_STORAGE_DIR          the API's media root. Required.
 #   BACKUP_DESTINATION_DIR     an existing directory the archive is written to.
 #   BACKUP_RECIPIENT_KEY_FILE  the OpenPGP PUBLIC key archives are encrypted to.
+#   BACKUP_SIGNING_KEY_DIR     a GnuPG home holding exactly one secret key: this
+#                              server's SIGNING key. Every archive is signed with
+#                              it, and restore refuses one that is not.
 #   BACKUP_RETENTION_DAYS      archives in the destination older than this are
 #                              removed after a successful backup. Required, no
 #                              default: the owner decides it.
@@ -27,16 +30,18 @@
 # Only referenced files are archived; a file no committed row names (a failed or
 # in-flight upload) is not part of any restorable state.
 #
-# WHAT LEAVES THE SERVER is one file, encrypted to a public key. The server
-# holds no private key, so it cannot read its own backups — nor can anyone who
-# takes them from the destination.
+# WHAT LEAVES THE SERVER is one file, signed by this server and encrypted to
+# the owner's public key. The server holds no DECRYPTION key, so it cannot read
+# its own backups — nor can anyone who takes them from the destination. It does
+# hold its own signing key, and restore refuses any archive that key did not
+# sign: a correctly encrypted file planted among the backups is not a backup.
 
 SCRIPT_NAME=backup
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_env BACKUP_DATABASE_URL MEDIA_STORAGE_DIR BACKUP_DESTINATION_DIR \
-  BACKUP_RECIPIENT_KEY_FILE BACKUP_RETENTION_DAYS
+  BACKUP_RECIPIENT_KEY_FILE BACKUP_RETENTION_DAYS BACKUP_SIGNING_KEY_DIR
 require_cmd psql pg_dump gpg tar sha256sum awk
 
 [[ "$BACKUP_RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] \
@@ -47,6 +52,7 @@ require_cmd psql pg_dump gpg tar sha256sum awk
 [[ -d "$BACKUP_DESTINATION_DIR" && -w "$BACKUP_DESTINATION_DIR" ]] \
   || die "BACKUP_DESTINATION_DIR must be an existing, writable directory."
 [[ -r "$BACKUP_RECIPIENT_KEY_FILE" ]] || die "BACKUP_RECIPIENT_KEY_FILE is not readable."
+[[ -d "$BACKUP_SIGNING_KEY_DIR" ]] || die "BACKUP_SIGNING_KEY_DIR is not a directory."
 
 stage="$(mktemp -d "${BACKUP_WORK_DIR:-${TMPDIR:-/tmp}}/clinic-backup.XXXXXX")"
 partial=''
@@ -67,6 +73,11 @@ gpg --homedir "$stage/gnupg" --batch --with-colons --show-keys "$BACKUP_RECIPIEN
   2> /dev/null | awk -F: '$1 == "sec" || $1 == "ssb" {found = 1} END {exit !found}' \
   && die "BACKUP_RECIPIENT_KEY_FILE contains a PRIVATE key. Only the public key belongs on the server."
 ok "archives are encrypted to key $fingerprints"
+signer="$(gpg --homedir "$BACKUP_SIGNING_KEY_DIR" --batch --with-colons --list-secret-keys 2> /dev/null \
+  | awk -F: '$1 == "sec" {primary = 1; next} $1 == "fpr" && primary {print $10; primary = 0}')"
+signers="$(wc -w <<< "$signer" | tr -d ' ')"
+[[ "$signers" == 1 ]] || die "BACKUP_SIGNING_KEY_DIR must hold exactly one secret key (found $signers)."
+ok "archives are signed by this server's key $signer"
 
 step "Database snapshot"
 check_client_version "$BACKUP_DATABASE_URL"
@@ -103,6 +114,7 @@ media_bytes="$(du -sk "$stage/media" | awk '{print $1}')"
 {
   printf 'pg_dump_version|%s\n' "$(pg_dump --version)"
   printf 'recipient_key|%s\n' "$fingerprints"
+  printf 'signing_key|%s\n' "$signer"
   printf 'media_files|%s\n' "$(wc -l < "$stage/manifest/media.sha256" | tr -d ' ')"
 } >> "$stage/manifest/meta.txt"
 printf '%s\n' "$BACKUP_FORMAT" > "$stage/FORMAT"
@@ -113,13 +125,18 @@ target="$BACKUP_DESTINATION_DIR/$name"
 [[ ! -e "$target" ]] || die "$target already exists."
 partial="$target.partial"
 tar -C "$stage" -cf - FORMAT manifest database.dump media \
-  | gpg --homedir "$stage/gnupg" --batch --yes --quiet --trust-model always \
-    --recipient-file "$BACKUP_RECIPIENT_KEY_FILE" --compress-algo none \
-    --encrypt --output "$partial" \
-  || die "encryption failed. Nothing was written."
+  | gpg --homedir "$BACKUP_SIGNING_KEY_DIR" --batch --yes --quiet --trust-model always \
+    --local-user "$signer" --recipient-file "$BACKUP_RECIPIENT_KEY_FILE" --compress-algo none \
+    --sign --encrypt --output "$partial" \
+  || die "signing or encryption failed. Nothing was written."
+# Group-readable, so the collector's login (whose group owns the directory) can
+# read — never write — what it collects. The checksum is in place before the
+# archive appears under its final name, so a collector listing mid-write sees
+# either nothing or both.
+printf '%s  %s\n' "$(sha256sum < "$partial" | awk '{print $1}')" "$name" > "$target.sha256"
+chmod 0640 "$partial" "$target.sha256"
 mv "$partial" "$target"
 partial=''
-(cd "$BACKUP_DESTINATION_DIR" && sha256sum "$name" > "$name.sha256")
 ok "$target ($(du -k "$target" | awk '{print $1}') KiB; media ${media_bytes} KiB before encryption)"
 
 step "Retention: removing archives older than $BACKUP_RETENTION_DAYS day(s)"

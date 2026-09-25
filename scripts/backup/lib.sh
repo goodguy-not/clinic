@@ -144,15 +144,50 @@ meta_value() {
 # Decrypts and unpacks an archive into a staging directory. Nothing outside the
 # staging directory is touched, so a wrong key, a truncated file or a tampered
 # archive fails here, before any database or media directory is changed.
+#
+# AUTHENTICITY. Encryption alone proves nothing about who made an archive:
+# anybody with the owner's public key can encrypt a file to it. So every archive
+# is also signed by the server that took it, and this refuses one without a good
+# signature from a key in RESTORE_SIGNER_KEY_FILE — the server's public signing
+# key, kept off-server with the decryption key, so a compromised destination
+# cannot swap it. The signature is checked only once the whole stream has been
+# read, which is why unpacking goes to the staging directory and nothing else.
 unpack_archive() {
   local archive="$1" stage="$2"
   [[ -f "$archive" ]] || die "no such archive: $archive"
-  mkdir -p "$stage/content"
-  if ! gpg --batch --quiet --decrypt "$archive" 2> "$stage/gpg.err" \
+  require_env RESTORE_SIGNER_KEY_FILE
+  [[ -r "$RESTORE_SIGNER_KEY_FILE" ]] || die "RESTORE_SIGNER_KEY_FILE is not readable."
+  mkdir -p "$stage/content" "$stage/signer"
+  chmod 700 "$stage/signer"
+
+  # Primary fingerprints only: VALIDSIG reports the primary key of whatever
+  # subkey made the signature.
+  local allowed
+  allowed="$(gpg --homedir "$stage/signer" --batch --with-colons --show-keys \
+    "$RESTORE_SIGNER_KEY_FILE" 2> /dev/null \
+    | awk -F: '$1 == "pub" {primary = 1; next} $1 == "fpr" && primary {print $10; primary = 0}')"
+  [[ -n "$allowed" ]] || die "RESTORE_SIGNER_KEY_FILE holds no OpenPGP public key."
+  gpg --batch --quiet --no-default-keyring --keyring "$stage/signer/pubring.kbx" \
+    --import "$RESTORE_SIGNER_KEY_FILE" 2> /dev/null \
+    || die "RESTORE_SIGNER_KEY_FILE could not be read as OpenPGP public keys."
+
+  if ! gpg --batch --quiet --trust-model always --keyring "$stage/signer/pubring.kbx" \
+    --status-file "$stage/gpg.status" --decrypt "$archive" 2> "$stage/gpg.err" \
     | tar -C "$stage/content" --no-same-owner -xf - 2> "$stage/tar.err"; then
     cat "$stage/gpg.err" "$stage/tar.err" >&2
+    if grep -q '^\[GNUPG:\] DECRYPTION_OKAY' "$stage/gpg.status" 2> /dev/null; then
+      die "$archive decrypts but its signature is not from the clinic server's key (RESTORE_SIGNER_KEY_FILE): it was not produced by the clinic's server. Nothing was restored."
+    fi
     die "could not decrypt and unpack $archive: wrong or missing private key, or a damaged or altered archive. Nothing was restored."
   fi
+
+  local signed_by
+  signed_by="$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" {print $12}' "$stage/gpg.status")"
+  if [[ -z "$signed_by" ]] || grep -Eq '^\[GNUPG:\] (BADSIG|ERRSIG|EXPKEYSIG|REVKEYSIG)' "$stage/gpg.status" \
+    || ! grep -Fxq "$signed_by" <<< "$allowed"; then
+    die "$archive is not signed by the clinic server's key (RESTORE_SIGNER_KEY_FILE)${signed_by:+; it is signed by $signed_by}: it was not produced by the clinic's server. Nothing was restored."
+  fi
+  ok "signed by the clinic server's key $signed_by"
   [[ "$(cat "$stage/content/FORMAT" 2> /dev/null)" == "$BACKUP_FORMAT" ]] \
     || die "$archive is not a $BACKUP_FORMAT archive."
   local file

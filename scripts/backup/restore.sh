@@ -9,6 +9,8 @@
 #   RESTORE_OWNER_DATABASE_URL    clinic_owner on the new, EMPTY database.
 #   RESTORE_RUNTIME_DATABASE_URL  clinic_app on the same database.
 #   MEDIA_STORAGE_DIR             the new media root: absent or empty.
+#   RESTORE_SIGNER_KEY_FILE       the clinic server's PUBLIC signing key, kept
+#                                 off-server; an archive it did not sign is refused.
 #   GNUPGHOME                     optional; the keyring holding the private key.
 #   RESTORE_WORK_DIR              optional; where the plaintext staging
 #                                 directory is made. Removed on exit.
@@ -26,7 +28,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 [[ $# -eq 1 ]] || die "usage: restore.sh <archive>"
 archive="$1"
-require_env RESTORE_OWNER_DATABASE_URL RESTORE_RUNTIME_DATABASE_URL MEDIA_STORAGE_DIR
+require_env RESTORE_OWNER_DATABASE_URL RESTORE_RUNTIME_DATABASE_URL MEDIA_STORAGE_DIR RESTORE_SIGNER_KEY_FILE
 require_cmd psql pg_dump pg_restore gpg tar sha256sum
 
 owner_url="$RESTORE_OWNER_DATABASE_URL"

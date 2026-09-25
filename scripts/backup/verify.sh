@@ -12,6 +12,8 @@
 #   RESTORE_OWNER_DATABASE_URL    clinic_owner on the restored database.
 #   RESTORE_RUNTIME_DATABASE_URL  clinic_app on the restored database.
 #   MEDIA_STORAGE_DIR             the restored media root.
+#   RESTORE_SIGNER_KEY_FILE       the clinic server's PUBLIC signing key, kept
+#                                 off-server; an archive it did not sign is refused.
 #   GNUPGHOME                     optional; the keyring holding the private key.
 #
 # The live-site half — published images render, a colleague can sign in — needs
