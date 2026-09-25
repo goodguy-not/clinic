@@ -761,6 +761,22 @@ describe('families constraints (real PostgreSQL)', () => {
       expect(await accepts(payload)).toBe(expected);
     });
 
+    it('still walks nested payloads with an empty search_path, as pg_restore evaluates it', async () => {
+      // Milestone 10, checkpoint A2: pg_restore loads rows with search_path ''.
+      // The function's recursive call must resolve anyway, or the CHECK raises
+      // and no backup of this schema can be restored.
+      const results = await harness.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL search_path TO ''`);
+        return tx.$queryRaw<{ nested_raw: boolean; nested_masked: boolean }[]>`
+          SELECT
+            public.audit_identifiers_masked('{"a":{"b":[{"mobile":"09121234567"}]}}'::jsonb) AS nested_raw,
+            public.audit_identifiers_masked('{"a":{"b":[{"mobile":"*******4567"}]}}'::jsonb) AS nested_masked
+        `;
+      });
+
+      expect(results[0]).toEqual({ nested_raw: false, nested_masked: true });
+    });
+
     it('leaves unrelated numeric facts alone', async () => {
       // `priceToman` reaches ten digits under the Milestone 2 tariff ceiling.
       // A rule keyed on value shape rather than field name would break it.
