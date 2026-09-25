@@ -71,3 +71,4 @@ export * from './website/clinic-content';
 export * from './media/common';
 export * from './media/media';
 export * from './operations/backup-status';
+export * from './operations/job-status';

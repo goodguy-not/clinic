@@ -1,0 +1,27 @@
+# Milestone 10, checkpoint A3 — the nightly jobs (README, Scheduled jobs).
+# Installed to /etc/systemd/system/ with clinic-jobs.timer. Paths and the user
+# below are the documented defaults; change them to match the deployment.
+[Unit]
+Description=Clinic nightly jobs (retention erasures and session pruning)
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+# The API's own OS user and the API's own environment: the jobs connect as
+# clinic_app and erase media files the API wrote, and need nothing it does not.
+User=clinic-api
+Group=clinic-api
+EnvironmentFile=/etc/clinic/api.env
+WorkingDirectory=/srv/clinic/apps/api
+ExecStart=/usr/bin/node dist/cli/main.js run-jobs
+Nice=10
+IOSchedulingClass=idle
+# Writes nothing but the media directory (erasure) — the database is over the
+# network socket. Everything else is read-only to it.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/clinic/media
+PrivateTmp=true
+NoNewPrivileges=true
+# One line per job, counts only; see apps/api/src/cli/run-jobs.ts.
+SyslogIdentifier=clinic-jobs

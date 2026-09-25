@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '../config/config.module';
+import { JobsModule } from '../jobs/jobs.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { WebsiteModule } from '../website/website.module';
 
@@ -23,8 +24,11 @@ import { WebsiteModule } from '../website/website.module';
  * eligibility predicate is exactly the drift that destroys the wrong rows.
  * Importing the module also brings its controllers into the container, which is
  * inert here: an application context registers no HTTP server and no route.
+ *
+ * `JobsModule` (Milestone 10, checkpoint A3) is the nightly runner, for the
+ * same reason again: every job is the owning module's own service.
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, WebsiteModule],
+  imports: [ConfigModule, PrismaModule, AuditModule, AuthModule, WebsiteModule, JobsModule],
 })
 export class CliModule {}
