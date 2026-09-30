@@ -130,7 +130,7 @@ export function ArticleImageEditor({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={`/api/media/renditions/${rendition.id}/preview`}
-                        alt={asset.altText}
+                        alt={asset.altText ?? ''}
                         width={rendition.width}
                         height={rendition.height}
                         loading="lazy"

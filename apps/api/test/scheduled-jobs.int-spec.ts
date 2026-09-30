@@ -252,6 +252,54 @@ describe('scheduled jobs and erasure (real PostgreSQL)', () => {
       ]);
     });
 
+    it('erases the description with the bytes, and nothing can describe it again', async () => {
+      // Owner decision, checkpoint A10: a description can name a child, so it
+      // goes with the photograph. What remains is the audit fact.
+      const description = 'توضیح مصنوعی که باید با عکس پاک شود';
+      const due = await uploadPhoto(harness, receptionist, { altText: description });
+      await age('media_asset', 'created_at', due.id, 31);
+
+      await run('MEDIA_ERASURE');
+
+      const record = await library(due.id);
+      expect(record.bytesPurgedAt).not.toBeNull();
+      expect(record.altText).toBeNull();
+      const everywhere = await harness.prisma.$queryRaw<{ text: string }[]>`
+        SELECT concat_ws(' ',
+          (SELECT string_agg(row_to_json(m)::text, ' ') FROM media_asset m),
+          (SELECT string_agg(row_to_json(a)::text, ' ') FROM audit_log a)) AS text
+      `;
+      expect(everywhere[0]!.text).not.toContain(description);
+      expect(
+        await harness.prisma.$queryRaw`
+          SELECT action FROM audit_log
+          WHERE entity_id = ${due.id}::uuid AND action = 'media.bytes_erased'
+        `,
+      ).toHaveLength(1);
+
+      // No route writes a new one: the answer every act on an erased photograph gets.
+      const redescribe = await request(server())
+        .patch(`/media/${due.id}/alt-text`)
+        .set(as(manager))
+        .send({ altText: 'توضیح تازه' });
+      expect(redescribe.status).toBe(404);
+      expect(redescribe.body.error.code).toBe('MEDIA_NOT_FOUND');
+
+      // And the database refuses it whatever the caller: the description is
+      // present exactly while the bytes are.
+      await expect(
+        ownerPrisma().$executeRaw`
+          UPDATE media_asset SET alt_text = 'توضیح تازه' WHERE id = ${due.id}::uuid
+        `,
+      ).rejects.toThrow(/media_asset_description_erasure_chk/);
+      const live = await uploadPhoto(harness, receptionist, { altText: 'عکس زنده آزمون' });
+      await expect(
+        ownerPrisma().$executeRaw`
+          UPDATE media_asset SET alt_text = NULL WHERE id = ${live.id}::uuid
+        `,
+      ).rejects.toThrow(/media_asset_description_erasure_chk/);
+    });
+
     it('keeps a photograph that was once attached, however old', async () => {
       const asset = await uploadPhoto(harness, receptionist);
       const created = await request(server())
@@ -493,6 +541,7 @@ describe('scheduled jobs and erasure (real PostgreSQL)', () => {
       expect(row).toEqual([{ body: null, author_label: null, erased: true, withdrawn: true }]);
       for (const key of keys) expect(await onDisk(key)).toBe(false);
       expect((await library(photo.id)).bytesPurgedAt).not.toBeNull();
+      expect((await library(photo.id)).altText).toBeNull();
 
       // The trail has the acts and never the content.
       const trail = await harness.prisma.$queryRaw<{ action: string; text: string }[]>`

@@ -1,12 +1,13 @@
 import request from 'supertest';
 import {
+  mediaAssetResponseSchema,
   publicServiceDetailResponseSchema,
   publicServiceListResponseSchema,
   serviceResponseSchema,
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import { createHarness, resetDatabase, type Harness } from './harness';
-import { uploadPhoto } from './media-support';
+import { renditionPathsOf, uploadPhoto } from './media-support';
 import { as, asVisitor, loginAs } from './website-support';
 
 /**
@@ -399,7 +400,6 @@ describe('public service imagery (real PostgreSQL)', () => {
         'alt',
         'framing',
         'height',
-        'mediaId',
         'renditions',
         'width',
       ]);
@@ -420,8 +420,22 @@ describe('public service imagery (real PostgreSQL)', () => {
       expect(services).toHaveLength(2);
 
       const bySlug = new Map(services.map((service) => [service.slug, service]));
-      expect(bySlug.get(first.slug as string)?.image?.mediaId).toBe(a.mediaId);
-      expect(bySlug.get(second.slug as string)?.image?.mediaId).toBe(b.mediaId);
+      // Told apart by rendition paths: the public image carries no asset id
+      // (checkpoint A10).
+      const pathsOf = async (mediaId: string) =>
+        renditionPathsOf(
+          mediaAssetResponseSchema.parse(
+            (await request(server()).get(`/media/${mediaId}`).set(as(manager))).body,
+          ).media,
+        );
+      expect(renditionPathsOf(bySlug.get(first.slug as string)!.image!)).toEqual(
+        await pathsOf(a.mediaId),
+      );
+      expect(renditionPathsOf(bySlug.get(second.slug as string)!.image!)).toEqual(
+        await pathsOf(b.mediaId),
+      );
+      expect(JSON.stringify(response.body)).not.toContain(a.mediaId);
+      expect(JSON.stringify(response.body)).not.toContain(b.mediaId);
     });
   });
 });

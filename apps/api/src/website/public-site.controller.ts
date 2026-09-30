@@ -14,7 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import {
   MEDIA_RENDITION_CONTENT_TYPE,
-  PUBLIC_MEDIA_MAX_AGE_SECONDS,
+  PUBLIC_MEDIA_CACHE_CONTROL,
   publicRequestSubmissionSchema,
   publicSlugSchema,
   type PublicArticleDetailResponse,
@@ -142,28 +142,28 @@ export class PublicSiteController {
    * a stranger walk the identifier space and learn which photographs the clinic
    * is holding back.
    *
-   * THIS IS THE ONE ROUTE WHOSE RESPONSE IS CACHEABLE, AND THE ONLY PLACE
+   * THIS IS THE ONE ROUTE WHOSE RESPONSE MAY BE STORED, AND THE ONLY PLACE
    * `NoStoreInterceptor`'S DEFAULT IS DELIBERATELY OVERRIDDEN. The interceptor
-   * sets `no-store` before the handler runs; the handler sets `public,
-   * max-age=..., s-maxage=...` afterwards, with exactly
-   * `PUBLIC_MEDIA_MAX_AGE_SECONDS`. That number is the STATED REVOCATION
-   * WINDOW: five minutes, for every cache Vala controls between this origin and
-   * the reader. The ORIGIN itself is immediate — the predicate is re-evaluated
-   * per request against live rows, with nothing cached inside this process — and
-   * a copy that has already reached a browser, a scraper or a search index is
-   * bounded by nothing at all. See `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`,
-   * which says all of that in one place and is where the reasoning belongs.
+   * sets `no-store` before the handler runs; the handler sets
+   * `PUBLIC_MEDIA_CACHE_CONTROL` (`private, no-cache`) afterwards: a visitor's
+   * browser may keep the bytes but must revalidate before every reuse, and no
+   * shared cache may keep them at all. The web tier forwards it unchanged and
+   * re-asks this route on every request, so revocation is immediate at the
+   * clinic's own domain as well as here. A copy that has already reached a
+   * browser, a scraper or a search index is bounded by nothing at all. See
+   * `PUBLIC_MEDIA_CACHE_CONTROL`, where the reasoning belongs.
    *
    * THE REFUSAL PATH IS NOT CACHEABLE. `ErrorEnvelopeFilter` sets `no-store` on
    * every error response, so the 404 that follows an unpublish is never itself
    * stored — which matters, because a cached 404 would outlive a manager
    * changing their mind.
    *
-   * `ETag` AND `304`. The tag is the SHA-256 of exactly these bytes, so a cache
-   * revalidating after the window costs a round trip and not a re-download, and
-   * a replaced photograph is unmistakably a different resource. Revalidation is
-   * a REVOCATION CHECK as much as a freshness check: the 304 is only reached
-   * after the publication predicate has already said yes on this request.
+   * `ETag` AND `304`. The tag is the SHA-256 of exactly these bytes, so a
+   * repeat view costs a round trip and not a re-download, and a replaced
+   * photograph is unmistakably a different resource. Revalidation is a
+   * REVOCATION CHECK as much as a freshness check: the 304 is only reached
+   * after the publication predicate has already said yes on this request, and
+   * it is answered without reading the file.
    *
    * `nosniff` BECAUSE THE BODY IS UPLOADED CONTENT. The type is the one this
    * product encoded, not the one the uploader claimed, and the browser is told
@@ -182,19 +182,20 @@ export class PublicSiteController {
   ): Promise<StreamableFile | undefined> {
     const rendition = await this.media.findServableRendition(renditionId);
     const etag = `"${rendition.contentHash}"`;
+    const notModified = matchesEtag(request.headers['if-none-match'], etag);
+    // Read before any success header is set, so a missing file is a plain
+    // refusal rather than a 404 carrying this rendition's ETag.
+    const bytes = notModified ? undefined : await rendition.readBytes();
 
     response.setHeader('etag', etag);
-    response.setHeader(
-      'cache-control',
-      `public, max-age=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, s-maxage=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, must-revalidate`,
-    );
+    response.setHeader('cache-control', PUBLIC_MEDIA_CACHE_CONTROL);
 
-    if (matchesEtag(request.headers['if-none-match'], etag)) {
+    if (bytes === undefined) {
       response.status(304);
       return undefined;
     }
 
-    return new StreamableFile(rendition.bytes, {
+    return new StreamableFile(bytes, {
       type: MEDIA_RENDITION_CONTENT_TYPE[rendition.format],
       length: rendition.byteSize,
     });

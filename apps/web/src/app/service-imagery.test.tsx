@@ -17,7 +17,6 @@ vi.mock('@/server/public-site', async (importOriginal) => {
 import ServiceDetailPage from './(public)/services/[slug]/page';
 
 const IMAGE: PublicImage = {
-  mediaId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a71',
   alt: 'اتاق روشن گفتاردرمانی با میز و صندلی',
   width: 1200,
   height: 800,
@@ -63,7 +62,7 @@ describe('A9 public service image rendering', () => {
     expect(html).toContain(IMAGE.renditions[0]!.path);
     expect(html).toContain('sizes="100vw"');
     expect(html).not.toContain('تصویر عمومی برای این خدمت منتشر نشده است');
-    expect(html).not.toContain(IMAGE.mediaId);
+    expect(html).not.toContain('mediaId');
   });
 
   it('keeps the Persian empty state when the public projection has no image', () => {
@@ -85,7 +84,7 @@ describe('A9 public service image rendering', () => {
     expect(html).toContain(IMAGE.renditions[1]!.path);
     expect(html).toContain('fetchPriority="high"');
     expect(html).not.toContain('تصویر عمومی برای این خدمت منتشر نشده است');
-    expect(html).not.toContain(IMAGE.mediaId);
+    expect(html).not.toContain('mediaId');
   });
 
   it('keeps the detail hero empty when the image is unpublished from the projection', async () => {

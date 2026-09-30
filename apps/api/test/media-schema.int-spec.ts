@@ -162,6 +162,8 @@ describe('media schema objects', () => {
         'media_attachment_crop_chk',
         'media_asset_purge_chk',
         'media_rendition_purge_chk',
+        // Checkpoint A10: the description is present exactly while the bytes are.
+        'media_asset_description_erasure_chk',
       ]) {
         expect(names).toContain(expected);
       }

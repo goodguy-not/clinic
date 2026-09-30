@@ -2678,8 +2678,11 @@ model WebsiteRequest {
 model MediaAsset {
   id      String           @id @default(uuid(7)) @db.Uuid
   /// The Persian text a screen reader says instead of the photograph. Required,
-  /// plain, and markup-free — see `mediaAltTextSchema`.
-  altText String           @map("alt_text")
+  /// plain, and markup-free — see `mediaAltTextSchema` — for as long as the
+  /// photograph exists. NULL EXACTLY WHEN ERASED: it can name a child, so it
+  /// goes with the bytes (Milestone 9.5 A10); `media_asset_description_erasure_chk`
+  /// ties it to `bytesPurgedAt` in both directions.
+  altText String?          @map("alt_text")
   status  MediaAssetStatus @default(ACTIVE)
 
   /// --- what arrived. DESCRIBED, NEVER STORED. ---
@@ -2703,7 +2706,7 @@ model MediaAsset {
   masterStorageKey  String? @unique @map("master_storage_key")
   /// SHA-256 of the master bytes. Content IDENTITY — what makes a replaced
   /// photograph unmistakably a different photograph — and NOT a revocation
-  /// mechanism; see `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
+  /// mechanism; see `PUBLIC_MEDIA_CACHE_CONTROL`.
   masterContentHash String  @map("master_content_hash")
   masterByteSize    Int     @map("master_byte_size")
   /// POST-ORIENTATION dimensions, which are the dimensions a page will occupy.
@@ -2728,8 +2731,8 @@ model MediaAsset {
   /// photographs.
   ///
   /// IT IS THE `website_request.purgedAt` PATTERN. The row that remains says a
-  /// photograph existed and where it was used; the bytes it described are gone.
-  /// `audit_log` keeps the acts and never held the content.
+  /// photograph existed and where it was used; the bytes and, since A10, the
+  /// description are gone. `audit_log` keeps the acts and never held the content.
   bytesPurgedAt DateTime? @map("bytes_purged_at") @db.Timestamptz
 
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz

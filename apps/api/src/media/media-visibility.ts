@@ -23,9 +23,8 @@ import {
  * INSIDE THIS APPLICATION. That is what makes the frozen rule true at the
  * origin: unpublishing, detaching, archiving, or unpublishing the article or
  * profile the photograph hangs off makes the very next anonymous request a
- * refusal, with no interval and no warm-up. What happens in caches BEYOND this
- * origin is bounded separately and stated in
- * `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
+ * refusal, with no interval and no warm-up. What caches BEYOND this origin may
+ * do is stated in `PUBLIC_MEDIA_CACHE_CONTROL`.
  *
  * FOUR CONDITIONS, ALL REQUIRED:
  *

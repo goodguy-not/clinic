@@ -88,7 +88,7 @@ export function MediaAltTextEditor({
         <textarea
           id={inputId}
           name="altText"
-          defaultValue={asset.altText}
+          defaultValue={asset.altText ?? ''}
           maxLength={200}
           required
           rows={3}

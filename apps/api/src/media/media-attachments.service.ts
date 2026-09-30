@@ -266,10 +266,10 @@ export class MediaAttachmentsService {
    * UNPUBLISHING IS IMMEDIATE AT THE ORIGIN. The next anonymous request for any
    * rendition of this asset through this attachment is refused, with no
    * interval — the predicate is re-evaluated per request against this row.
-   * Caches beyond the origin are bounded by
-   * `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`; copies that have already left are
-   * bounded by nothing, and nothing in this product should be described as if
-   * they were.
+   * The web tier re-asks on every request (`PUBLIC_MEDIA_CACHE_CONTROL`), so
+   * the clinic's own domain refuses at once too; copies that have already left
+   * are bounded by nothing, and nothing in this product should be described as
+   * if they were.
    */
   async setPublished(
     attachmentId: string,

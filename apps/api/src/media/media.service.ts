@@ -241,9 +241,8 @@ export class MediaService {
    *
    * IT IS IMMEDIATE AT THE ORIGIN. The next anonymous request for any rendition
    * of this asset is refused, because the predicate is evaluated per request
-   * against this row. Caches beyond the origin are bounded by
-   * `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`, and copies that have already left
-   * are bounded by nothing — see that constant.
+   * against this row, and the web tier re-asks on every request; copies that
+   * have already left are bounded by nothing — see `PUBLIC_MEDIA_CACHE_CONTROL`.
    */
   async setArchived(
     id: string,
@@ -307,6 +306,11 @@ export class MediaService {
    * committed while this transaction waited. A manager making the OWNER public
    * at the same instant does not lock the asset; that race is the ordinary
    * draft-versus-publish one, and serialises as "corrected, then published".
+   *
+   * AN ERASED PHOTOGRAPH HAS NO DESCRIPTION TO CORRECT (checkpoint A10). Its
+   * description went with its bytes, and writing a new one would store words
+   * about a picture that no longer exists — `MEDIA_NOT_FOUND`, the answer every
+   * other act on an erased photograph gets.
    */
   async updateAltText(
     id: string,
@@ -317,12 +321,17 @@ export class MediaService {
     const alt = canonicalText(altText);
 
     const publications = await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ alt_text: string }[]>`
+      const locked = await tx.$queryRaw<{ alt_text: string | null }[]>`
         SELECT alt_text FROM media_asset WHERE id = ${id}::uuid FOR UPDATE
       `;
 
+      // A null description is exactly an erased photograph
+      // (`media_asset_description_erasure_chk`).
       const before = locked[0];
-      if (before === undefined) throw new AppError('MEDIA_NOT_FOUND');
+      if (before === undefined || before.alt_text === null) {
+        throw new AppError('MEDIA_NOT_FOUND');
+      }
+      const beforeAlt = before.alt_text;
 
       const served = await tx.$queryRaw<{ is_publicly_served: boolean }[]>`
         SELECT (${assetIsPubliclyServed('a')}) AS is_publicly_served
@@ -338,7 +347,7 @@ export class MediaService {
         );
       }
 
-      if (before.alt_text === alt) return [];
+      if (beforeAlt === alt) return [];
 
       await tx.$executeRaw`
         UPDATE media_asset SET alt_text = ${alt} WHERE id = ${id}::uuid
@@ -350,7 +359,7 @@ export class MediaService {
         action: 'media.alt_text_updated',
         entityType: 'media_asset',
         entityId: id,
-        before: { altTextLength: before.alt_text.length },
+        before: { altTextLength: beforeAlt.length },
         after: { altTextLength: alt.length },
         metadata: { isPubliclyServed },
       });
@@ -449,7 +458,8 @@ const ASSET_COLUMNS = Prisma.sql`
 
 type AssetRow = {
   id: string;
-  alt_text: string;
+  /** Null exactly when erased. */
+  alt_text: string | null;
   status: MediaAssetStatus;
   source_content_type: MediaContentType;
   source_byte_size: number;

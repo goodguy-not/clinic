@@ -32,9 +32,15 @@ const SYNTHETIC_CAMERA_MODEL = 'SyntheticPhoneModel';
  * the asset it already has, so two calls that meant "two photographs" must not
  * produce identical bytes. One channel steps per call; a test that wants the
  * same photograph twice keeps the buffer and sends it twice.
+ *
+ * THE STEP IS THREE, NOT ONE (Milestone 9.5 A10). A flat colour is converted
+ * to integer luma and chroma before JPEG encoding, and one step of green moves
+ * luma by 0.587 — so two adjacent shades could round to the same bytes, the
+ * second upload came back as a retry of the first, and a test holding "two
+ * photographs" held one. Three steps always move luma by at least one level.
  */
 let shade = 0;
-const nextShade = (): number => 40 + (shade++ % 180);
+const nextShade = (): number => 40 + ((shade++ * 3) % 180);
 
 /**
  * A synthetic "telephone photograph".
@@ -135,6 +141,36 @@ export async function storedMasterBytes(harness: Harness, assetId: string): Prom
   if (key === undefined) throw new Error(`no asset ${assetId}`);
 
   return readUnderRoot(key);
+}
+
+/**
+ * Move one rendition's file out of the way, and return the function that puts
+ * it back. For proving what a route does WITHOUT touching the disk.
+ */
+export async function hideStoredRendition(
+  harness: Harness,
+  renditionId: string,
+): Promise<() => Promise<void>> {
+  const rows = await harness.prisma.$queryRaw<{ storage_key: string }[]>`
+    SELECT storage_key FROM media_rendition WHERE id = ${renditionId}::uuid
+  `;
+
+  const key = rows[0]?.storage_key;
+  if (key === undefined) throw new Error(`no rendition ${renditionId}`);
+
+  const { rename } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { TEST_MEDIA_ROOT } = await import('./harness');
+  const path = join(TEST_MEDIA_ROOT, ...key.split('/'));
+
+  await rename(path, `${path}.hidden`);
+
+  return () => rename(`${path}.hidden`, path);
+}
+
+/** The rendition paths of an image or an asset, in a stable order. */
+export function renditionPathsOf(image: { renditions: readonly { path: string }[] }): string[] {
+  return image.renditions.map((rendition) => rendition.path).sort();
 }
 
 async function readUnderRoot(key: string): Promise<Buffer> {

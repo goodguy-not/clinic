@@ -146,11 +146,9 @@ export function isOwnerlessMediaAttachment(
  * `ACTIVE` and `ARCHIVED`, and archiving is NOT deletion.
  *
  * An archived asset stops being servable immediately and everywhere, keeps its
- * row, its renditions and its trail, and can be restored. NOTHING IN THIS
- * CHECKPOINT REMOVES BYTES FROM DISK: how long the clinic keeps a photograph
- * nobody publishes any more is a retention decision the owner has not taken,
- * and a product that guessed either way — erasing on archive, or promising to
- * keep forever — would be pre-empting it.
+ * row, its renditions and its trail, and can be restored — for
+ * `MEDIA_ARCHIVED_ERASURE_DAYS`, after which its bytes and its description are
+ * erased (Milestone 10 A3, Milestone 9.5 A10) and it cannot come back.
  */
 export const MEDIA_ASSET_STATUSES = ['ACTIVE', 'ARCHIVED'] as const;
 
@@ -170,7 +168,7 @@ export const mediaRenditionSchema = z.strictObject({
    * It is content IDENTITY: two renditions with the same hash are the same
    * picture, and a rendition whose hash changed is a different picture that
    * cannot be confused with the one a cache already holds. It is not a
-   * revocation mechanism — see `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`.
+   * revocation mechanism — see `PUBLIC_MEDIA_CACHE_CONTROL`.
    */
   contentHash: z.string(),
 });
@@ -241,7 +239,15 @@ export type MediaAttachment = z.infer<typeof mediaAttachmentSchema>;
  */
 export const mediaAssetSchema = z.strictObject({
   id: z.uuid(),
-  altText: z.string(),
+  /**
+   * The description, or NULL EXACTLY WHEN THE PHOTOGRAPH HAS BEEN ERASED
+   * (`bytesPurgedAt` set). Owner decision, Milestone 9.5 A10: a description can
+   * name a child, so it goes with the bytes; what remains is the audit fact
+   * that erasure happened (`media.bytes_erased`). The database ties the two
+   * together (`media_asset_description_erasure_chk`), so a null description on
+   * a photograph that still has its bytes cannot exist.
+   */
+  altText: z.string().nullable(),
   status: z.enum(MEDIA_ASSET_STATUSES),
   width: z.int().positive(),
   height: z.int().positive(),
@@ -254,25 +260,15 @@ export const mediaAssetSchema = z.strictObject({
   createdAt: z.iso.datetime(),
   archivedAt: z.iso.datetime().nullable(),
   /**
-   * When the stored bytes were physically erased, and NULL for as long as they
-   * are still held — which is every asset today.
+   * When the photograph was erased, and NULL for as long as its bytes are held.
    *
-   * NOTHING IN THIS PRODUCT SETS IT YET, AND THAT IS THE POINT. The retention
-   * policy — how long the clinic keeps a photograph nobody publishes any more,
-   * and what starts the clock — is an owner decision nobody has taken, so there
-   * is no schedule, no duration, no route and no permission for erasure
-   * anywhere in this checkpoint.
-   *
-   * WHAT THIS FIELD BUYS IS THAT THE DECISION STAYS CHEAP. When it is taken, an
-   * erasure is an UPDATE that sets this and clears the storage keys, plus an
-   * unlink of the files — with no change to the media model, no new table and
-   * no rewriting of what is already stored. The alternative, discovered later,
-   * is a migration that makes a NOT NULL column nullable on a live table full
-   * of a clinic's photographs.
-   *
-   * IT IS THE `website_request.purgedAt` PATTERN, DELIBERATELY. The row that
-   * remains says a photograph existed and where it was used; the bytes it
-   * described are gone. `audit_log` keeps the acts and never held the content.
+   * Set by the nightly erasure (`MEDIA_UNATTACHED_ERASURE_DAYS`,
+   * `MEDIA_ARCHIVED_ERASURE_DAYS`, a testimonial's withdrawn consent). It is
+   * the `website_request.purgedAt` pattern: the row that remains says a
+   * photograph existed and where it was used; its bytes and its description
+   * (`altText`, now null) are gone, and `audit_log` keeps only the fact that
+   * the erasure happened. An erased asset's renditions are still listed, and
+   * none of them can be fetched.
    */
   bytesPurgedAt: z.iso.datetime().nullable(),
 });

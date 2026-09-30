@@ -57,7 +57,7 @@ export function MediaWorkspace({
             {media.map((item) => (
               <RecordItem
                 key={item.id}
-                title={item.altText}
+                title={item.altText ?? ''}
                 badge={mediaStatus(item)}
                 details={
                   <div className="flex flex-col gap-4">

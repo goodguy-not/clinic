@@ -21,11 +21,15 @@ import { MediaStorageService } from './media-storage.service';
  * ============================ WHAT IT ERASES ================================
  *
  * THE BYTES: the master and every rendition, on disk, and the storage keys that
- * named them. The ROW stays — the erase-in-place pattern `website_request`
- * established: the asset still says a photograph existed, when it arrived, who
- * uploaded it and where it was used, with `bytes_purged_at` saying when its
- * content went. Its description stays too; it was written for a public screen
- * reader and describes, it does not contain.
+ * named them. AND THE DESCRIPTION (owner decision, Milestone 9.5 A10): the alt
+ * text can name a child, so it is cleared in the same statement that stamps
+ * `bytes_purged_at`. The ROW stays — the erase-in-place pattern
+ * `website_request` established: the asset still says a photograph existed,
+ * when it arrived, who uploaded it and where it was used, with
+ * `bytes_purged_at` saying when its content went. `audit_log` never held the
+ * words (`media.uploaded` and `media.alt_text_updated` record lengths), so the
+ * erasure's own audit row is the only trace, and it records only that it
+ * happened.
  *
  * ================= IT NEVER BREAKS A BACKUP RUNNING AT THE SAME TIME =========
  *
@@ -205,7 +209,7 @@ export class MediaErasureService {
     `;
     await tx.$executeRaw`
       UPDATE media_asset
-      SET master_storage_key = NULL, bytes_purged_at = transaction_timestamp()
+      SET master_storage_key = NULL, alt_text = NULL, bytes_purged_at = transaction_timestamp()
       WHERE id = ${assetId}::uuid AND bytes_purged_at IS NULL
     `;
 

@@ -57,6 +57,14 @@ export class PublicMediaService {
    * one, deliberately: an implementation that read the file first and checked
    * afterwards would have the bytes in memory at the moment it decided not to
    * send them, and that is one mistaken `return` away from sending them.
+   *
+   * AND ONLY IF THE CALLER NEEDS THEM (Milestone 9.5, checkpoint A10). The
+   * result carries `readBytes` rather than the bytes, so a revalidation whose
+   * `If-None-Match` matches is answered `304` after the predicate and before any
+   * disk read: a repeat view costs one indexed query and no file I/O. A file
+   * missing behind a live row is then noticed on the next full fetch rather than
+   * on a revalidation, which is harmless — the visitor already holds exactly
+   * the bytes the hash names.
    */
   async findServableRendition(renditionId: string): Promise<ServableRendition> {
     const rows = await this.prisma.$queryRaw<ServableRenditionRow[]>`
@@ -69,9 +77,9 @@ export class PublicMediaService {
       JOIN media_asset a ON a.id = r.media_asset_id
       WHERE r.id = ${renditionId}::uuid
         AND a.status = 'ACTIVE'
-        -- Erased bytes are refused here rather than at the file read, so a
-        -- future retention policy takes effect through the SAME predicate
-        -- everything else does. Nothing writes these markers today.
+        -- Erased bytes are refused here rather than at the file read, so the
+        -- retention erasure takes effect through the SAME predicate everything
+        -- else does.
         AND a.bytes_purged_at IS NULL
         AND r.bytes_purged_at IS NULL
         AND r.storage_key IS NOT NULL
@@ -86,13 +94,15 @@ export class PublicMediaService {
     const row = rows[0];
     if (row === undefined) throw new AppError('MEDIA_NOT_FOUND');
 
+    // Non-null by the predicate above: a NULL key means erased, and an erased
+    // rendition never reaches this line.
+    const storageKey = row.storage_key as string;
+
     return {
       format: row.format,
       byteSize: row.byte_size,
       contentHash: row.content_hash,
-      // Non-null by the predicate above: a NULL key means erased, and an erased
-      // rendition never reaches this line.
-      bytes: await this.storage.read(row.storage_key as string),
+      readBytes: () => this.storage.read(storageKey),
     };
   }
 
@@ -186,10 +196,14 @@ export class PublicMediaService {
     `;
 
     const byOwner = new Map<string, PublicImage[]>();
+    // Grouping key only. The asset id never enters a `PublicImage` (checkpoint
+    // A10): a visitor identifies a photograph by its rendition paths alone.
+    const byUse = new Map<string, PublicImage>();
 
     for (const row of rows) {
       const images = byOwner.get(row.owner_key) ?? [];
-      const existing = images.find((image) => image.mediaId === row.media_id);
+      const use = `${row.owner_key}:${row.media_id}`;
+      const existing = byUse.get(use);
       const rendition = {
         path: `${PUBLIC_MEDIA_PATH_PREFIX}${row.rendition_id}`,
         format: row.format,
@@ -199,8 +213,7 @@ export class PublicMediaService {
       };
 
       if (existing === undefined) {
-        images.push({
-          mediaId: row.media_id,
+        const image: PublicImage = {
           alt: row.alt_text,
           // Filled in below from the widest rendition: the ORDER BY delivers
           // renditions ascending, so the last one seen is the largest.
@@ -211,7 +224,9 @@ export class PublicMediaService {
           // it. The same master under a different attachment carries different
           // numbers, and the renditions are identical in both.
           framing: toFraming(row),
-        });
+        };
+        images.push(image);
+        byUse.set(use, image);
         byOwner.set(row.owner_key, images);
         continue;
       }
@@ -254,7 +269,8 @@ export type ServableRendition = {
   readonly format: MediaRenditionFormat;
   readonly byteSize: number;
   readonly contentHash: string;
-  readonly bytes: Buffer;
+  /** Reads the file. Called only once the caller knows it must send a body. */
+  readonly readBytes: () => Promise<Buffer>;
 };
 
 type ServableRenditionRow = {
@@ -275,6 +291,7 @@ type OwnerImageRow = {
   crop_width: number | null;
   crop_height: number | null;
   media_id: string;
+  /** Never null here: an erased asset fails `a.bytes_purged_at IS NULL` above. */
   alt_text: string;
   rendition_id: string;
   format: MediaRenditionFormat;

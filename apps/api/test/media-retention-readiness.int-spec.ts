@@ -223,7 +223,7 @@ describe('media retention readiness (real PostgreSQL)', () => {
 
     await expect(
       harness.prisma.$executeRaw`
-        UPDATE media_asset SET bytes_purged_at = transaction_timestamp()
+        UPDATE media_asset SET bytes_purged_at = transaction_timestamp(), alt_text = NULL
         WHERE id = ${asset.id}::uuid
       `,
     ).rejects.toThrow(/media_asset_purge_chk/);

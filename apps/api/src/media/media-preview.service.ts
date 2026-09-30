@@ -10,6 +10,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MediaStorageService } from './media-storage.service';
 import type { ServableRendition } from './public-media.service';
 
+/** The preview always sends a body (it has no `ETag`), so it reads the file eagerly. */
+export type PreviewRendition = Omit<ServableRendition, 'readBytes'> & { readonly bytes: Buffer };
+
 /**
  * WHICH READ AUTHORITY SEES A PHOTOGRAPH IN WHICH PLACE, BEFORE IT IS PUBLIC.
  *
@@ -109,7 +112,7 @@ export class MediaPreviewService {
   async findPreviewableRendition(
     renditionId: string,
     permissions: readonly Permission[],
-  ): Promise<ServableRendition> {
+  ): Promise<PreviewRendition> {
     const owners = previewableOwnerTypes(permissions);
     if (owners.length === 0) throw new AppError('MEDIA_NOT_FOUND');
 

@@ -118,11 +118,13 @@ export const MEDIA_RENDITION_CONTENT_TYPE: Record<MediaRenditionFormat, MediaCon
  * - Uploaded and NEVER attached anywhere: erased this many days after upload.
  * - ARCHIVED by a manager: restorable for this many days, then erased.
  *
- * ERASURE IS OF THE BYTES — the master and every rendition. The asset stays in
- * the library with `bytesPurgedAt` set, saying that a photograph existed and
- * where it was used; it can no longer be attached, published or restored, and
- * those requests answer `MEDIA_NOT_FOUND`, because there is no photograph left
- * to act on. The same numbers are in the database's own erasure guard.
+ * ERASURE IS OF THE BYTES AND THE DESCRIPTION — the master, every rendition and
+ * the alt text, which can name a child (owner decision, Milestone 9.5 A10). The
+ * asset stays in the library with `bytesPurgedAt` set and `altText` null,
+ * saying that a photograph existed and where it was used; it can no longer be
+ * attached, published, restored or re-described, and those requests answer
+ * `MEDIA_NOT_FOUND`, because there is no photograph left to act on. The same
+ * numbers are in the database's own erasure guard.
  */
 export const MEDIA_UNATTACHED_ERASURE_DAYS = 30;
 export const MEDIA_ARCHIVED_ERASURE_DAYS = 30;
@@ -141,53 +143,53 @@ export const MEDIA_ARCHIVED_ERASURE_DAYS = 30;
 export const PUBLIC_MEDIA_PATH_PREFIX = 'media/';
 
 /**
- * HOW LONG A COPY OF A PUBLISHED IMAGE MAY OUTLIVE ITS PUBLICATION, IN SECONDS,
- * IN ANY CACHE VALA CONTROLS.
+ * THE `Cache-Control` ON A PUBLISHED RENDITION, AT BOTH TIERS. Milestone 9.5,
+ * checkpoint A10, replacing A5's five-minute window.
  *
- * Five minutes, and this number is a promise rather than a tuning parameter.
+ * REVOCATION IS IMMEDIATE AT VALA'S WEB ORIGIN, NOT MERELY AT THE API. The
+ * serving route re-derives publication from live rows on every request, and the
+ * web tier re-asks it on every request (it holds no copy of the bytes it may
+ * serve without asking). Unpublishing an image, unpublishing the page it hangs
+ * off, detaching it, archiving it or erasing it makes the very next visitor
+ * request a 404 at `/media/<id>` on the clinic's own domain.
  *
- * THE ORIGIN IS IMMEDIATE. Unpublishing an image, unpublishing the article or
- * profile it hangs off, detaching it, or archiving it makes the very next
- * anonymous request to NestJS a refusal — the serving route re-derives
- * publication from live rows on every request and holds no cached answer of its
- * own.
+ * WHAT A VISITOR'S BROWSER MAY KEEP: the bytes, for as long as its own cache
+ * keeps anything, and it may NEVER USE THEM WITHOUT ASKING FIRST. `no-cache`
+ * means exactly that — store, but revalidate before every reuse. A repeat view
+ * therefore costs one conditional request per image (`If-None-Match` with the
+ * content-hash `ETag`), answered `304` with no body while the image is still
+ * public, and `404` the moment it is not; a browser does not show a stored copy
+ * over a 404. The 304 is itself a revocation check: it is reached only after
+ * the same servability predicate a 200 is.
  *
- * WHAT THIS WINDOW BOUNDS IS EVERYTHING BETWEEN THAT ORIGIN AND THE READER.
- * Bytes are served with `max-age` and `s-maxage` of exactly this value, so the
- * Next.js tier, a reverse proxy in front of it, and any CDN the clinic later
- * puts in front of THAT will each re-ask within five minutes and be refused. A
- * publication change also drops the relevant cache tags immediately, so in
- * practice a Vala-controlled cache stops within one request; the window is what
- * remains guaranteed when tag invalidation has not reached a layer.
+ * `private` KEEPS EVERY SHARED CACHE OUT. The one copy outside Vala is the one
+ * in the browser the photograph was shown to; a corporate or ISP proxy gets
+ * nothing to hold. Revisit if the clinic ever puts a CDN in front of the site —
+ * that would be `public, no-cache` plus a CDN that honours it, decided then.
  *
- * IT DOES NOT AND CANNOT BOUND A COPY THAT HAS ALREADY LEFT. A browser cache, a
- * scraper, a search engine index, a corporate proxy, a screenshot: those hold
- * bytes Vala never controlled, and no header, hash or identifier retrieves
- * them. Content identity solves REPLACEMENT — a changed photograph gets new
- * rendition ids, and no cache can serve the old bytes in their place — and it
- * does not solve REVOCATION. Anybody telling a family that an image can be
- * recalled from the internet is promising something this system does not do.
+ * WHAT NO HEADER CAN DO. A copy that has already left — the bytes sitting in a
+ * browser's cache, a screenshot, a scraper, a search index — is bounded by
+ * nothing. Content identity solves REPLACEMENT (a changed photograph gets new
+ * rendition ids, so no cache can serve the old bytes in their place); it does
+ * not solve REVOCATION. Do not write copy that promises a family an image can
+ * be recalled from the internet.
  *
- * WHY NOT ZERO. `no-store` on image bytes would make the origin re-serve every
- * photograph on every page view of a Persian site whose visitors are largely on
- * mobile networks, in exchange for a revocation guarantee that is already
- * unenforceable one hop further out. Five minutes is short enough that a
- * manager who has just taken something down does not have to wonder, and long
- * enough that a page is not paying for it on every visit.
+ * WHY NOT `no-store`: every page view would re-download every photograph on a
+ * Persian site whose visitors are largely on mobile data, to buy nothing the
+ * revalidation above does not already buy. WHY NOT A `max-age`: any freshness
+ * lifetime is a window during which a revoked image is shown from the browser
+ * without asking, and the conditional request that replaces it is cheap.
  */
-export const PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS = 300;
-
-/** The `max-age` and `s-maxage` NestJS sets on a served rendition. One number, one meaning. */
-export const PUBLIC_MEDIA_MAX_AGE_SECONDS = PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS;
+export const PUBLIC_MEDIA_CACHE_CONTROL = 'private, no-cache';
 
 /**
  * `public-media:` followed by the rendition id.
  *
- * The tag a web-tier cache entry for one rendition's BYTES carries, so a
- * publication change can drop exactly that entry. It is a separate name from
- * the page tags in `PUBLIC_CACHE_TAGS` because the two have different
- * lifetimes: a page's data goes stale when its copy changes, and a rendition's
- * bytes go stale only when it stops being public.
+ * The tag a web-tier cache entry for one rendition's BYTES would carry, so a
+ * publication change can drop exactly that entry. Since A10 the web tier keeps
+ * no such entry (see `PUBLIC_MEDIA_CACHE_CONTROL`), so invalidating it is a
+ * harmless no-op kept for defence in depth; the web lane may retire it. It is a
+ * separate name from the page tags in `PUBLIC_CACHE_TAGS`, which still matter.
  *
  * A MEDIA PUBLICATION CHANGE ALSO AFFECTS THE OWNER'S PAGE TAGS, because the
  * projection listing the image is part of that page's data. Publishing a
@@ -208,8 +210,9 @@ export const PUBLIC_MEDIA_CACHE_TAG_PREFIX = 'public-media:';
  * permission) is the end of seeing it: there is no copy for a later, logged-out
  * visit to find.
  *
- * DELIBERATELY NOT `PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`. That window is a
- * tolerance granted to PUBLISHED bytes; nothing unpublished is granted any.
+ * DELIBERATELY NOT `PUBLIC_MEDIA_CACHE_CONTROL`. A published image may sit in
+ * a visitor's browser cache and be revalidated; nothing unpublished may be
+ * stored anywhere at all.
  * The web tier must forward this value unchanged and must not cache the
  * upstream response (`cache: 'no-store'`, no tag).
  */
@@ -323,10 +326,11 @@ export type PublicImageRendition = z.infer<typeof publicImageRenditionSchema>;
 /**
  * A published photograph, as the website states it.
  *
- * `mediaId` IS AN OPAQUE HANDLE AND NOT AN ADDRESS. Nothing is served from it;
- * the servable things are the renditions. It is here so the web tier can key a
- * list and recognise the same photograph appearing in two projections without
- * comparing paths.
+ * NO INTERNAL IDENTIFIER OF ANY KIND (Milestone 9.5, checkpoint A10). A visitor
+ * identifies a photograph only by its rendition paths, which are the addresses
+ * its bytes come from and nothing more. The asset id it once carried was never
+ * an address, but it was a stable key shared with every staff surface, and a
+ * public page has no use for one: key a list by the first rendition's `path`.
  *
  * `width` AND `height` ARE THE INTRINSIC SIZE OF THE LARGEST RENDITION, which
  * is what a layout needs in order to reserve space before any byte arrives.
@@ -341,7 +345,6 @@ export type PublicImageRendition = z.infer<typeof publicImageRenditionSchema>;
  * state that decided this is public at all.
  */
 export const publicImageSchema = z.strictObject({
-  mediaId: z.uuid(),
   alt: z.string(),
   width: z.int().positive(),
   height: z.int().positive(),

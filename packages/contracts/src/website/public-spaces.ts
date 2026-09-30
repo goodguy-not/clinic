@@ -18,9 +18,8 @@ import { publicImageSchema } from '../media/common';
  *
  * NO ID OF ANY KIND. A published space is content, not a resource an anonymous
  * caller addresses: the gallery is one read and the entries are ordered by the
- * clinic's own published ordering. The photographs carry a `mediaId`, which is
- * the media subsystem's opaque handle and is not an address (see
- * `publicImageSchema`).
+ * clinic's own published ordering. The photographs carry no id either, only
+ * their rendition paths (see `publicImageSchema`).
  *
  * NO SLUG AND NO URL, for the reason `publicTestimonialSchema` has none.
  *

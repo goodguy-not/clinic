@@ -89,7 +89,7 @@ export function ServiceImageEditor({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`/api/media/renditions/${rendition.id}/preview`}
-                alt={image.asset.altText}
+                alt={image.asset.altText ?? ''}
                 width={rendition.width}
                 height={rendition.height}
                 loading="lazy"

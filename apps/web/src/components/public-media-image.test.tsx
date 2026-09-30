@@ -8,7 +8,6 @@ describe('A5 public image rendering', () => {
       <PublicMediaImage
         sizes="50vw"
         image={{
-          mediaId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d71',
           alt: 'درمانگر در اتاق روشن درمانگاه',
           width: 777,
           height: 583,

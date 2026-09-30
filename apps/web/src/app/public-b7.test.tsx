@@ -8,7 +8,6 @@ import { PublicSpaceTeaser } from '@/components/public-space-teaser';
 import { PublicTestimonialGrid } from '@/components/public-testimonial-grid';
 
 const IMAGE: PublicImage = {
-  mediaId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d71',
   alt: 'عکس عمومی تأییدشده',
   width: 960,
   height: 640,

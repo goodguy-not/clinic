@@ -1,7 +1,6 @@
 import request from 'supertest';
 import {
-  PUBLIC_MEDIA_MAX_AGE_SECONDS,
-  PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS,
+  PUBLIC_MEDIA_CACHE_CONTROL,
   articleResponseSchema,
   mediaAssetResponseSchema,
   mediaPublicationResponseSchema,
@@ -23,7 +22,12 @@ import {
   loginAs,
   testimonialDraft,
 } from './website-support';
-import { metadataFingerprintsIn, uploadPhoto } from './media-support';
+import {
+  hideStoredRendition,
+  metadataFingerprintsIn,
+  renditionPathsOf,
+  uploadPhoto,
+} from './media-support';
 
 /**
  * THE REFUSAL MATRIX. What a stranger can and cannot fetch, and how quickly a
@@ -203,30 +207,17 @@ describe('anonymous media access (real PostgreSQL)', () => {
       expect(metadataFingerprintsIn(response.body as Buffer)).toEqual([]);
     }, 60_000);
 
-    it('is served with the stated revocation window and nothing longer', async () => {
-      // THE CACHE PROMISE, ASSERTED. One number governs both the header and the
-      // window the product states, so a future edit that lengthened the cache
-      // without re-stating the promise fails here.
+    it('may be kept by the browser only on condition that every reuse is revalidated', async () => {
+      // THE CACHE PROMISE, ASSERTED (checkpoint A10). `no-cache`: a browser may
+      // store the bytes but must ask before showing them again; `private`: no
+      // shared cache may store them at all. No freshness lifetime exists, so no
+      // revoked photograph can be shown from a cache without asking.
       const { asset } = await publishedTherapistPortrait();
 
       const response = await fetchMedia(firstRenditionOf(asset));
-      const cacheControl = String(response.headers['cache-control']);
 
-      expect(PUBLIC_MEDIA_MAX_AGE_SECONDS).toBe(PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS);
-      expect(cacheControl).toContain('public');
-      expect(cacheControl).toContain(`max-age=${PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS}`);
-      expect(cacheControl).toContain(`s-maxage=${PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS}`);
-      expect(cacheControl).toContain('must-revalidate');
-      expect(cacheControl).not.toContain('immutable');
-
-      // Anything longer than the stated window would be a promise the product
-      // cannot keep.
-      for (const directive of cacheControl.split(',')) {
-        const match = /(?:s-)?max-age=(\d+)/.exec(directive.trim());
-        if (match !== null) {
-          expect(Number(match[1])).toBeLessThanOrEqual(PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS);
-        }
-      }
+      expect(response.headers['cache-control']).toBe(PUBLIC_MEDIA_CACHE_CONTROL);
+      expect(PUBLIC_MEDIA_CACHE_CONTROL).toBe('private, no-cache');
     }, 60_000);
 
     it('is served as an inline image the browser may not re-sniff', async () => {
@@ -255,11 +246,60 @@ describe('anonymous media access (real PostgreSQL)', () => {
         .set('if-none-match', etag);
 
       expect(second.status).toBe(304);
-      // The revalidation is a REVOCATION check as much as a freshness one: the
-      // 304 is reached only after the publication predicate has said yes.
-      expect(second.headers['cache-control']).toContain(
-        `max-age=${PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS}`,
-      );
+      expect(second.headers['cache-control']).toBe(PUBLIC_MEDIA_CACHE_CONTROL);
+      expect(second.headers.etag).toBe(etag);
+    }, 60_000);
+
+    it('answers a matching revalidation without reading the file', async () => {
+      // A repeat view costs one indexed query and no disk read (checkpoint
+      // A10). Proven by taking the file away: the conditional request still
+      // gets its 304, and only a request that needs the body notices.
+      const { asset } = await publishedTherapistPortrait();
+      const rendition = asset.renditions[0]!;
+      const etag = `"${rendition.contentHash}"`;
+
+      const restore = await hideStoredRendition(harness, rendition.id);
+      try {
+        const revalidated = await request(server())
+          .get(`/public/media/${rendition.id}`)
+          .set(asVisitor())
+          .set('if-none-match', etag);
+        expect(revalidated.status).toBe(304);
+
+        const full = await fetchMedia(rendition.id);
+        expect(full.status).toBe(404);
+        expect(full.body.error.code).toBe('MEDIA_NOT_FOUND');
+        // Refused before any success header was set: whatever ETag the error
+        // body carries, it is not this rendition's.
+        expect(full.headers.etag).not.toBe(etag);
+        expect(full.headers['cache-control']).toBe('no-store');
+      } finally {
+        await restore();
+      }
+    }, 60_000);
+
+    it('refuses a revalidation the moment the photograph stops being public', async () => {
+      // THE REVALIDATION IS THE REVOCATION CHECK. A browser holding the bytes
+      // and their ETag asks again on its next view; once the manager has
+      // unpublished, the answer is a 404, never a 304 that would let the
+      // stored copy be shown.
+      const { asset, attachmentId } = await publishedTherapistPortrait();
+      const rendition = asset.renditions[0]!;
+      const etag = `"${rendition.contentHash}"`;
+
+      const conditional = () =>
+        request(server())
+          .get(`/public/media/${rendition.id}`)
+          .set(asVisitor())
+          .set('if-none-match', etag);
+
+      expect((await conditional()).status).toBe(304);
+      expect((await setPublished(attachmentId, false)).status).toBe(200);
+
+      const refused = await conditional();
+      expect(refused.status).toBe(404);
+      expect(refused.body.error.code).toBe('MEDIA_NOT_FOUND');
+      expect(refused.headers['cache-control']).toBe('no-store');
     }, 60_000);
   });
 
@@ -484,9 +524,12 @@ describe('anonymous media access (real PostgreSQL)', () => {
         (await request(server()).get('/public/team/synthetic-colleague').set(asVisitor())).body,
       );
 
-      expect(team.therapists[0]?.photo?.mediaId).toBe(asset.id);
-      expect(profile.therapist.photo?.mediaId).toBe(asset.id);
-      expect(profile.therapist.photo?.renditions.length).toBe(asset.renditions.length);
+      // A visitor identifies the photograph by its rendition paths alone; the
+      // asset id appears nowhere in either response (checkpoint A10).
+      expect(renditionPathsOf(team.therapists[0]!.photo!)).toEqual(renditionPathsOf(asset));
+      expect(renditionPathsOf(profile.therapist.photo!)).toEqual(renditionPathsOf(asset));
+      expect(JSON.stringify(team)).not.toContain(asset.id);
+      expect(JSON.stringify(profile)).not.toContain(asset.id);
       // The intrinsic size is the widest rendition's, which is what a layout
       // needs in order to reserve space.
       expect(profile.therapist.photo?.width).toBe(asset.width);
@@ -542,7 +585,12 @@ describe('anonymous media access (real PostgreSQL)', () => {
         (await request(server()).get('/public/articles/illustrated-article').set(asVisitor())).body,
       );
 
-      expect(article.article.images.map((image) => image.mediaId)).toEqual([second.id, first.id]);
+      expect(article.article.images.map(renditionPathsOf)).toEqual([
+        renditionPathsOf(second),
+        renditionPathsOf(first),
+      ]);
+      expect(JSON.stringify(article)).not.toContain(second.id);
+      expect(JSON.stringify(article)).not.toContain(first.id);
     }, 60_000);
 
     /**
@@ -595,7 +643,10 @@ describe('anonymous media access (real PostgreSQL)', () => {
         (await request(server()).get('/public/testimonials').set(asVisitor())).body,
       );
 
-      expect(testimonials.testimonials[0]?.image?.mediaId).toBe(asset.id);
+      expect(renditionPathsOf(testimonials.testimonials[0]!.image!)).toEqual(
+        renditionPathsOf(asset),
+      );
+      expect(JSON.stringify(testimonials)).not.toContain(asset.id);
       // The projection is still four fields: no id, no date, no status.
       // `kind` is Milestone 9.5 checkpoint A7's only addition, and it says how
       // the words arrived rather than anything about who wrote them.

@@ -27,7 +27,7 @@ export function previewImagesForOwner(
   ownerId: string,
 ): PublicImage[] {
   return media
-    .filter((asset) => asset.status === 'ACTIVE')
+    .filter((asset) => asset.status === 'ACTIVE' && asset.bytesPurgedAt === null)
     .flatMap((asset) =>
       asset.attachments
         .filter(
@@ -41,8 +41,8 @@ export function previewImagesForOwner(
         left.attachment.id.localeCompare(right.attachment.id),
     )
     .map(({ asset, attachment }) => ({
-      mediaId: asset.id,
-      alt: asset.altText,
+      // Never null here: only an erased asset lacks a description.
+      alt: asset.altText ?? '',
       width: asset.width,
       height: asset.height,
       framing: attachment.framing,

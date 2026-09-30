@@ -2,7 +2,7 @@ import request from 'supertest';
 import {
   MEDIA_PREVIEW_CACHE_CONTROL,
   MEDIA_RENDITION_CONTENT_TYPE,
-  PUBLIC_MEDIA_MAX_AGE_SECONDS,
+  PUBLIC_MEDIA_CACHE_CONTROL,
   articleResponseSchema,
   mediaAssetResponseSchema,
   serviceResponseSchema,
@@ -381,9 +381,7 @@ describe('staff media preview (real PostgreSQL)', () => {
 
     const live = await fetchPublic(renditionId);
     expect(live.status).toBe(200);
-    expect(live.headers['cache-control']).toBe(
-      `public, max-age=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, s-maxage=${PUBLIC_MEDIA_MAX_AGE_SECONDS}, must-revalidate`,
-    );
+    expect(live.headers['cache-control']).toBe(PUBLIC_MEDIA_CACHE_CONTROL);
     expect(live.headers['etag']).toBe(`"${asset.renditions[0]!.contentHash}"`);
 
     // The preview of a live image is still private, and still the same bytes.

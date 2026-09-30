@@ -14,10 +14,9 @@ import {
   MEDIA_SOURCE_MAX_BYTES,
   MEDIA_SOURCE_MAX_PIXELS,
   MEDIA_SOURCE_MIN_DIMENSION,
+  PUBLIC_MEDIA_CACHE_CONTROL,
   PUBLIC_MEDIA_CACHE_TAG_PREFIX,
-  PUBLIC_MEDIA_MAX_AGE_SECONDS,
   PUBLIC_MEDIA_PATH_PREFIX,
-  PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS,
   createMediaAttachmentRequestSchema,
   mediaAltTextSchema,
   mediaAssetSchema,
@@ -53,7 +52,6 @@ describe('media contracts', () => {
         'alt',
         'framing',
         'height',
-        'mediaId',
         'renditions',
         'width',
       ]);
@@ -63,7 +61,6 @@ describe('media contracts', () => {
       // Strict objects, so each of these is a parse failure rather than a field
       // that rides along and is quietly serialised to a visitor.
       const image = {
-        mediaId: '0199a0f9-0000-7000-8000-000000000000',
         alt: 'یک عکس',
         width: 640,
         height: 960,
@@ -76,9 +73,18 @@ describe('media contracts', () => {
             byteSize: 1,
           },
         ],
+        framing: DEFAULT_MEDIA_FRAMING,
       };
 
+      // The base shape is valid, so each refusal below is the leak's alone.
+      expect(publicImageSchema.safeParse(image).success).toBe(true);
+
       for (const leak of [
+        // The asset id (checkpoint A10): a visitor identifies a photograph by
+        // its rendition paths and by nothing internal.
+        { mediaId: '0199a0f9-0000-7000-8000-000000000000' },
+        { id: '0199a0f9-0000-7000-8000-000000000000' },
+        { attachmentId: '0199a0f9-0000-7000-8000-000000000000' },
         { storageKey: 'aa/bb/x/master.jpg' },
         { masterStorageKey: 'aa/bb/x/master.jpg' },
         { status: 'ACTIVE' },
@@ -112,11 +118,11 @@ describe('media contracts', () => {
     it('requires at least one rendition, because an image with none is not renderable', () => {
       expect(
         publicImageSchema.safeParse({
-          mediaId: '0199a0f9-0000-7000-8000-000000000000',
           alt: 'یک عکس',
           width: 640,
           height: 960,
           renditions: [],
+          framing: DEFAULT_MEDIA_FRAMING,
         }).success,
       ).toBe(false);
     });
@@ -371,13 +377,12 @@ describe('media contracts', () => {
   });
 
   describe('the cache and revocation vocabulary', () => {
-    it('serves media for exactly the stated revocation window', () => {
-      // ONE NUMBER, ONE MEANING. The `max-age` NestJS sets and the window Vala
-      // promises are the same value by construction, so a future edit that
-      // lengthened the cache without re-stating the promise cannot happen
-      // quietly.
-      expect(PUBLIC_MEDIA_MAX_AGE_SECONDS).toBe(PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS);
-      expect(PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS).toBe(300);
+    it('lets a browser keep published media only if it revalidates every reuse', () => {
+      // Checkpoint A10. `no-cache` is "store, but ask first"; `private` keeps
+      // shared caches out. A freshness lifetime of any length would be a window
+      // in which a revoked photograph is shown without asking, so there is none.
+      expect(PUBLIC_MEDIA_CACHE_CONTROL).toBe('private, no-cache');
+      expect(PUBLIC_MEDIA_CACHE_CONTROL).not.toMatch(/max-age|immutable|public|no-store/);
     });
 
     it('freezes the two prefixes both tiers concatenate', () => {
