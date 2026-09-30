@@ -19,7 +19,7 @@ describe('same-origin public media route', () => {
             headers: {
               'content-type': 'image/webp',
               etag: '"synthetic"',
-              'cache-control': 'public, max-age=300, s-maxage=300, must-revalidate',
+              'cache-control': 'private, no-cache',
               'x-content-type-options': 'nosniff',
               'content-disposition': 'inline',
             },
@@ -34,9 +34,7 @@ describe('same-origin public media route', () => {
 
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
-    expect(response.headers.get('cache-control')).toBe(
-      'private, no-store, max-age=0, must-revalidate',
-    );
+    expect(response.headers.get('cache-control')).toBe('private, no-cache');
     expect(response.headers.get('etag')).toBe('"synthetic"');
     expect(new URL(captured!.url).pathname).toBe(`/public/media/${ID}`);
     expect(captured!.init.cache).toBe('no-store');
@@ -49,7 +47,11 @@ describe('same-origin public media route', () => {
       .mockResolvedValueOnce(
         new Response(new Uint8Array([1, 2, 3]), {
           status: 200,
-          headers: { 'content-type': 'image/webp' },
+          headers: {
+            'content-type': 'image/webp',
+            'cache-control': 'private, no-cache',
+            etag: '"synthetic"',
+          },
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 404 }));
@@ -58,14 +60,41 @@ describe('same-origin public media route', () => {
     const first = await GET(new NextRequest(`http://localhost:3000/media/${ID}`), {
       params: Promise.resolve({ renditionId: ID }),
     });
-    const revoked = await GET(new NextRequest(`http://localhost:3000/media/${ID}`), {
-      params: Promise.resolve({ renditionId: ID }),
-    });
+    const revoked = await GET(
+      new NextRequest(`http://localhost:3000/media/${ID}`, {
+        headers: { 'if-none-match': '"synthetic"' },
+      }),
+      {
+        params: Promise.resolve({ renditionId: ID }),
+      },
+    );
 
     expect(first.status).toBe(200);
     expect(revoked.status).toBe(404);
     expect(revoked.headers.get('cache-control')).toBe('no-store');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers.get('if-none-match')).toBe('"synthetic"');
+  });
+
+  it('passes a conditional repeat through as a bodyless 304', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 304,
+        headers: { etag: '"synthetic"', 'cache-control': 'private, no-cache' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await GET(
+      new NextRequest(`http://localhost:3000/media/${ID}`, {
+        headers: { 'if-none-match': '"synthetic"' },
+      }),
+      { params: Promise.resolve({ renditionId: ID }) },
+    );
+    expect(response.status).toBe(304);
+    expect(await response.arrayBuffer()).toHaveProperty('byteLength', 0);
+    expect(response.headers.get('etag')).toBe('"synthetic"');
+    expect(response.headers.get('cache-control')).toBe('private, no-cache');
+    expect(fetchMock.mock.calls[0]?.[1]?.headers.get('if-none-match')).toBe('"synthetic"');
   });
 
   it('turns every invalid or upstream refusal into the same non-cacheable 404', async () => {

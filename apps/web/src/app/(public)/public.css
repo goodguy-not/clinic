@@ -985,7 +985,7 @@
 .public-space-panel__detail {
   position: absolute;
   width: 112px;
-  height: 82px;
+  height: 112px;
   inset-inline-end: 1.25rem;
   inset-block-end: 1.25rem;
   overflow: hidden;

@@ -73,11 +73,18 @@ const SLOT_PRESENTATION: Record<ClinicContentSlot, SlotPresentation> = {
 const CONTENT_IMAGE_SHAPE: Partial<Record<ClinicContentSlot, MediaTargetShape>> = {
   HOME_CONCERN: MEDIA_TARGET_SHAPE_PRESETS.wide,
   HOME_FIRST_VISIT: MEDIA_TARGET_SHAPE_PRESETS.landscape,
-  ABOUT_INTRO: MEDIA_TARGET_SHAPE_PRESETS.landscape,
+  ABOUT_INTRO: MEDIA_TARGET_SHAPE_PRESETS.wide,
   ABOUT_SPACE_NOTE: MEDIA_TARGET_SHAPE_PRESETS.landscape,
 };
 
 const OPEN_GRAPH_SHAPES = [MEDIA_TARGET_SHAPE_PRESETS.wide] as const;
+
+const CONTENT_IMAGE_GUIDE: Partial<Record<ClinicContentSlot, string>> = {
+  HOME_CONCERN: 'در پاسخ صفحهٔ خانه، عکس به‌صورت پهن کنار متن دیده می‌شود.',
+  HOME_FIRST_VISIT: 'در معرفی نخستین مراجعه، عکس در قاب افقی کنار متن دیده می‌شود.',
+  ABOUT_INTRO: 'در آغاز صفحهٔ دربارهٔ کلینیک، عکس به‌صورت پهن پشت متن دیده می‌شود.',
+  ABOUT_SPACE_NOTE: 'در توضیح طراحی فضا، عکس در قاب افقی کنار متن دیده می‌شود.',
+};
 
 type AttachmentView = {
   asset: MediaAsset;
@@ -90,9 +97,13 @@ function attachmentsFor(
   ownerId: string | null,
 ): AttachmentView[] {
   return media.flatMap((asset) =>
-    asset.attachments
-      .filter((attachment) => attachment.ownerType === ownerType && attachment.ownerId === ownerId)
-      .map((attachment) => ({ asset, attachment })),
+    asset.bytesPurgedAt === null
+      ? asset.attachments
+          .filter(
+            (attachment) => attachment.ownerType === ownerType && attachment.ownerId === ownerId,
+          )
+          .map((attachment) => ({ asset, attachment }))
+      : [],
   );
 }
 
@@ -271,7 +282,9 @@ function EntryEditor({
             <div>
               <h4 className="font-semibold text-slate-900">عکس این بخش</h4>
               <p className="mt-1 text-sm text-slate-600">
-                عکس پس از تنظیم قاب، آماده می‌شود و فقط با دکمهٔ انتشار مدیر روی سایت دیده خواهد شد.
+                {CONTENT_IMAGE_GUIDE[entry.slot]} در گوشی ممکن است بخش‌های کناری عکس کمتر دیده شوند؛
+                سوژهٔ مهم را نزدیک مرکز نگه دارید. عکس پس از تنظیم قاب، آماده می‌شود و فقط با دکمهٔ
+                انتشار مدیر روی سایت دیده خواهد شد.
               </p>
             </div>
             <MediaUploadFraming
@@ -367,7 +380,7 @@ export function ClinicContentEditor({
       <Panel title="عکس هنگام اشتراک‌گذاری سایت">
         <p className="text-sm leading-6 text-slate-600">
           وقتی پیوند سایت در پیام‌رسان‌ها یا شبکه‌های اجتماعی فرستاده می‌شود، این عکس کنار معرفی
-          سایت دیده می‌شود. این عکس لوگو نیست.
+          سایت در قاب پهن دیده می‌شود. این عکس لوگو نیست.
         </p>
         <MediaUploadFraming
           csrfToken={csrfToken}

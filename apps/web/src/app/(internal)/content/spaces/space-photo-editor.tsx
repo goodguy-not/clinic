@@ -13,11 +13,14 @@ type AttachedPhoto = {
 export function photosForSpace(media: readonly MediaAsset[], spaceId: string): AttachedPhoto[] {
   return media
     .flatMap((asset) =>
-      asset.attachments
-        .filter(
-          (attachment) => attachment.ownerType === 'PUBLIC_SPACE' && attachment.ownerId === spaceId,
-        )
-        .map((attachment) => ({ asset, attachment })),
+      asset.bytesPurgedAt === null
+        ? asset.attachments
+            .filter(
+              (attachment) =>
+                attachment.ownerType === 'PUBLIC_SPACE' && attachment.ownerId === spaceId,
+            )
+            .map((attachment) => ({ asset, attachment }))
+        : [],
     )
     .sort(
       (left, right) =>
@@ -43,14 +46,15 @@ export function SpacePhotoEditor({
     {
       position: 0,
       title: 'عکس اصلی پهن',
-      guide: 'نمای کلی فضا؛ برای قاب پهن ۱۶:۹ عکس بگیرید و سوژهٔ اصلی را نزدیک مرکز نگه دارید.',
+      guide:
+        'نمای کلی فضا؛ برای قاب پهن ۱۶:۹ عکس بگیرید. پنل بسته باریک‌تر دیده می‌شود؛ سوژهٔ اصلی را نزدیک مرکز نگه دارید.',
       shape: MEDIA_TARGET_SHAPE_PRESETS.wide,
     },
     {
       position: 1,
       title: 'عکس جزئیات نزدیک',
-      guide: 'یک جزئیات نزدیک و قابل فهم از فضا؛ برای قاب افقی ۳:۲ عکس بگیرید.',
-      shape: MEDIA_TARGET_SHAPE_PRESETS.landscape,
+      guide: 'یک نمای نزدیک از جزئیات فضا؛ برای قاب تقریباً مربع ۱:۱ عکس بگیرید.',
+      shape: MEDIA_TARGET_SHAPE_PRESETS.square,
     },
   ] as const;
   const publishedAtPosition = (position: number) =>

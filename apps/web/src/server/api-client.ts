@@ -59,6 +59,9 @@ import {
   therapistResponseSchema,
   testimonialListResponseSchema,
   testimonialResponseSchema,
+  testimonialConsentWithdrawalListResponseSchema,
+  backupStatusResponseSchema,
+  jobStatusResponseSchema,
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
@@ -184,6 +187,9 @@ import {
   type TherapistResponse,
   type TestimonialListResponse,
   type TestimonialResponse,
+  type TestimonialConsentWithdrawalListResponse,
+  type BackupStatusResponse,
+  type JobStatusResponse,
   type UpdateChildRequest,
   type UpdateFamilyRequest,
   type UpdateAppointmentSeriesFromRequest,
@@ -405,7 +411,12 @@ async function call<T>(
   // Parsed against the strict contract. An unexpected field in a NestJS
   // response — a serialised password hash above all — fails here rather than
   // reaching a page.
-  return { ok: true, data: schema.parse(payload), requestId };
+  try {
+    return { ok: true, data: schema.parse(payload), requestId };
+  } catch {
+    // A schema error can contain upstream field values. Do not let Next log it.
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
 }
 
 /**
@@ -448,7 +459,11 @@ async function callMultipart<T>(
     };
   }
 
-  return { ok: true, data: schema.parse(payload), requestId };
+  try {
+    return { ok: true, data: schema.parse(payload), requestId };
+  } catch {
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
 }
 
 /** Frozen report filters only: dates, closed enums, opaque ids, and paging. */
@@ -514,6 +529,12 @@ async function exportReportCsv(
 }
 
 export const api = {
+  backupStatus: (context: CallerContext): Promise<ApiResult<BackupStatusResponse>> =>
+    call('/operations/backup-status', 'GET', backupStatusResponseSchema, context),
+
+  jobStatus: (context: CallerContext): Promise<ApiResult<JobStatusResponse>> =>
+    call('/operations/job-status', 'GET', jobStatusResponseSchema, context),
+
   exportReportCsv,
 
   // --- reusable media workspace -------------------------------------------
@@ -1080,6 +1101,24 @@ export const api = {
 
   listTestimonials: (context: CallerContext): Promise<ApiResult<TestimonialListResponse>> =>
     call('/content/testimonials', 'GET', testimonialListResponseSchema, context),
+
+  listTestimonialConsentWithdrawals: (
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialConsentWithdrawalListResponse>> =>
+    call(
+      '/content/testimonials/consent-withdrawals',
+      'GET',
+      testimonialConsentWithdrawalListResponseSchema,
+      context,
+    ),
+
+  withdrawTestimonialConsent: (id: string, context: CallerContext): Promise<ApiResult<void>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/consent-withdrawal`,
+      'POST',
+      { parse: () => undefined },
+      context,
+    ),
 
   getTestimonial: (id: string, context: CallerContext): Promise<ApiResult<TestimonialResponse>> =>
     call(
@@ -1817,30 +1856,19 @@ export const api = {
     call('/registration-drafts/discard', 'POST', { parse: () => undefined }, context),
 };
 
-export type ApiLiveness = {
-  status: string;
-  service: string;
-  uptimeSeconds: number;
-  timestamp: string;
-};
-
-/** Liveness only; `/health` is the one route NestJS exposes without the key. */
-export async function fetchApiLiveness(): Promise<
-  { ok: true; data: ApiLiveness } | { ok: false; reason: 'unreachable' | 'unhealthy' }
-> {
+/** Readiness is deliberately reduced to a single public boolean. */
+export async function fetchApiReadiness(): Promise<boolean> {
   const { API_BASE_URL } = loadServerEnv();
 
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetch(`${API_BASE_URL}/health/ready`, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(3000),
       cache: 'no-store',
     });
 
-    if (!response.ok) return { ok: false, reason: 'unhealthy' };
-
-    return { ok: true, data: (await response.json()) as ApiLiveness };
+    return response.ok;
   } catch {
-    return { ok: false, reason: 'unreachable' };
+    return false;
   }
 }

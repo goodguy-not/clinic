@@ -26,6 +26,9 @@ export default async function ContentPage({
   });
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
+  const withdrawalResult = user.permissions.includes('testimonial.approve')
+    ? await api.listTestimonialConsentWithdrawals(context)
+    : null;
   const [
     articleResult,
     testimonialResult,
@@ -61,6 +64,7 @@ export default async function ContentPage({
       <EditorialWorkspace
         articles={articleResult.ok ? articleResult.data.articles : []}
         testimonials={testimonialResult.ok ? testimonialResult.data.testimonials : []}
+        withdrawals={withdrawalResult?.ok ? withdrawalResult.data.withdrawals : []}
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={isKnownErrorCode(errorCode) ? persianMessage(errorCode) : loadError}
         successMessage={

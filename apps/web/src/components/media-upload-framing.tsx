@@ -248,7 +248,6 @@ export function MediaUploadFraming({
         if (persisted !== undefined) setFraming(persisted);
         setFramingSaved(true);
         setComplete(true);
-        window.location.reload();
       }
     } catch {
       setErrorMessage(
@@ -262,8 +261,9 @@ export function MediaUploadFraming({
   }
 
   const busy = busyStep !== null;
-  const buttonLabel =
-    busyStep === 'upload'
+  const buttonLabel = complete
+    ? 'عکس و قاب ذخیره شد'
+    : busyStep === 'upload'
       ? 'در حال فرستادن عکس…'
       : busyStep === 'attach'
         ? 'در حال آماده‌سازی…'
@@ -487,7 +487,7 @@ export function MediaUploadFraming({
 
       <button
         type="button"
-        disabled={file === null || altText.trim() === '' || busy}
+        disabled={file === null || altText.trim() === '' || busy || complete}
         onClick={runWorkflow}
         className={`inline-flex min-h-11 items-center justify-center rounded-lg bg-brand-700 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-slate-400 sm:self-start ${FOCUS_RING}`}
       >

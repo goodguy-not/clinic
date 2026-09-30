@@ -6,6 +6,7 @@ const ASSET = {
   id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d81',
   altText: 'توضیح کنونی عکس',
   isPubliclyServed: false,
+  bytesPurgedAt: null,
 };
 
 function render(canPublishMedia: boolean, isPubliclyServed: boolean) {
@@ -51,5 +52,20 @@ describe('photo description correction control', () => {
     expect(html).toContain('action="/api/media/alt-text"');
     expect(html).toContain('در همهٔ جاهایی که این عکس در سایت استفاده شده است');
     expect(html).toContain('name="altText"');
+  });
+
+  it('shows an erased photo without an editor or refused action', () => {
+    const html = renderToStaticMarkup(
+      <MediaAltTextEditor
+        asset={{ ...ASSET, altText: null, bytesPurgedAt: '2026-09-30T00:00:00.000Z' }}
+        csrfToken="synthetic-csrf"
+        canPublishMedia
+        returnTarget={{ type: 'media-library' }}
+        instanceId="erased"
+      />,
+    );
+    expect(html).toContain('برای همیشه پاک شده است');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('<form');
   });
 });

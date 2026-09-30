@@ -1696,7 +1696,7 @@
   min-height: 13rem;
   overflow: hidden;
   border: 1px solid var(--vala-rule);
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4 / 5;
 }
 .b2-story-card--handwritten {
   padding: 0;

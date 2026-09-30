@@ -91,7 +91,7 @@ describe('receptionist public-space workspace', () => {
     expect(photoMarkup).toContain('عکس اصلی پهن');
     expect(photoMarkup).toContain('قاب پهن ۱۶:۹');
     expect(photoMarkup).toContain('عکس جزئیات نزدیک');
-    expect(photoMarkup).toContain('قاب افقی ۳:۲');
+    expect(photoMarkup).toContain('قاب تقریباً مربع ۱:۱');
     expect(photoMarkup).toContain('آماده؛ هنوز منتشر نشده');
   });
 

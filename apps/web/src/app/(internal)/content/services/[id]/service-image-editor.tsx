@@ -16,12 +16,14 @@ export function imageForService(
   return (
     media
       .flatMap((asset) =>
-        asset.attachments
-          .filter(
-            (attachment) =>
-              attachment.ownerType === 'PUBLIC_SERVICE' && attachment.ownerId === serviceId,
-          )
-          .map((attachment) => ({ asset, attachment })),
+        asset.bytesPurgedAt === null
+          ? asset.attachments
+              .filter(
+                (attachment) =>
+                  attachment.ownerType === 'PUBLIC_SERVICE' && attachment.ownerId === serviceId,
+              )
+              .map((attachment) => ({ asset, attachment }))
+          : [],
       )
       .sort(
         (left, right) =>
@@ -58,8 +60,9 @@ export function ServiceImageEditor({
   return (
     <Panel title="عکس این خدمت">
       <p className="text-sm leading-6 text-slate-600">
-        یک عکس روشن و مرتبط با خود خدمت انتخاب کنید، بخش مهم آن را داخل قاب نگه دارید و برای کسانی
-        که عکس را نمی‌بینند توضیح روشنی بنویسید. ذخیرهٔ عکس آن را روی سایت منتشر نمی‌کند.
+        یک عکس روشن و مرتبط با خود خدمت انتخاب کنید. همان عکس در فهرست خدمات به‌صورت ایستاده‌تر و در
+        بالای صفحهٔ خدمت به‌صورت پهن بریده می‌شود؛ سوژهٔ مهم را نزدیک مرکز نگه دارید. برای کسانی که
+        عکس را نمی‌بینند توضیح روشنی بنویسید. ذخیرهٔ عکس آن را روی سایت منتشر نمی‌کند.
       </p>
 
       {loadError !== null ? (

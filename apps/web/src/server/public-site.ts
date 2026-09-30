@@ -36,23 +36,6 @@ import { loadServerEnv } from '@/env';
 const PUBLIC_REVALIDATE_SECONDS = 15 * 60;
 const PUBLIC_REQUEST_TIMEOUT_MS = 5_000;
 
-/**
- * The current API projection still carries mediaId for staff-side bookkeeping.
- * Strip it at the Web public boundary so React cannot serialize it into visitor
- * HTML while the contract is narrowed independently by the API lane.
- */
-export function stripPublicInternalIds<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(stripPublicInternalIds) as T;
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).flatMap(([key, child]) =>
-        key === 'mediaId' ? [] : [[key, stripPublicInternalIds(child)]],
-      ),
-    ) as T;
-  }
-  return value;
-}
-
 export type PublicRequestWriteResult =
   { ok: true } | { ok: false; reason: 'invalid' | 'service-context' | 'throttled' | 'unavailable' };
 
@@ -130,7 +113,7 @@ async function readPublic<T>(
     if (!response.ok) return { status: 'unavailable', data: fallback };
 
     const payload: unknown = await response.json();
-    return { status: 'ready', data: stripPublicInternalIds(schema.parse(payload)) };
+    return { status: 'ready', data: schema.parse(payload) };
   } catch {
     // A transport failure or widened/malformed success is the same public
     // state: the page stays useful and says no clinic fact it did not receive.
@@ -161,7 +144,7 @@ async function readPublicDetail<T>(
     if (!response.ok) return { status: 'unavailable', data: null };
 
     const payload: unknown = await response.json();
-    return { status: 'ready', data: stripPublicInternalIds(schema.parse(payload)) };
+    return { status: 'ready', data: schema.parse(payload) };
   } catch {
     return { status: 'unavailable', data: null };
   }

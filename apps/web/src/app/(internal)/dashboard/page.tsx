@@ -6,6 +6,7 @@ import { callerContext, readSessionToken, requireSession } from '@/server/auth-s
 import { COPY } from '@/server/copy-fa';
 import { AppHeader } from '@/components/app-header';
 import { DashboardView } from './dashboard-view';
+import { OperationsWarnings } from './operations-warnings';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -20,12 +21,16 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
  * variant is returned; this page does not infer authority from the user role.
  */
 export default async function Home() {
-  await requireSession({ requirePermission: DASHBOARD_READ_PERMISSIONS });
+  const user = await requireSession({ requirePermission: DASHBOARD_READ_PERMISSIONS });
   const token = await readSessionToken();
+  const context = await callerContext(token ?? undefined);
+  const operations = user.permissions.includes('user.read')
+    ? await Promise.all([api.backupStatus(context), api.jobStatus(context)])
+    : null;
   let dashboard: DashboardResponse | null = null;
 
   try {
-    const result = await api.dashboard({}, await callerContext(token ?? undefined));
+    const result = await api.dashboard({}, context);
     dashboard = result.ok ? result.data : null;
   } catch {
     // A malformed success must fail closed just like an unavailable endpoint:
@@ -35,6 +40,14 @@ export default async function Home() {
   return (
     <>
       <AppHeader />
+      {operations !== null ? (
+        <div className="mx-auto max-w-6xl px-4 pt-4 sm:px-6">
+          <OperationsWarnings
+            backup={operations[0].ok ? operations[0].data : null}
+            jobs={operations[1].ok ? operations[1].data : null}
+          />
+        </div>
+      ) : null}
       {dashboard !== null ? (
         <DashboardView dashboard={dashboard} />
       ) : (

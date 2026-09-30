@@ -373,13 +373,18 @@ describe('response handling', () => {
 
   it('rejects a response carrying an unexpected field', async () => {
     // A serialised password hash is the case that matters. The strict schema
-    // turns it into a thrown error rather than something rendered.
+    // turns it into a safe failure rather than something rendered or logged.
     mockFetch(200, {
       ...LOGIN_RESPONSE,
       user: { ...LOGIN_RESPONSE.user, passwordHash: '$argon2id$leaked' },
     });
 
-    await expect(api.login({ username: 'a', password: 'b' }, {})).rejects.toThrow();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const result = await api.login({ username: 'a', password: 'b' }, {});
+    expect(result).toMatchObject({ ok: false, code: 'API_UNREACHABLE' });
+    expect(JSON.stringify(result)).not.toContain('$argon2id$leaked');
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 
   it('surfaces a contract error code', async () => {
@@ -473,7 +478,10 @@ describe('frozen dashboard endpoint', () => {
   it('rejects an own-scoped response that leaks a clinic financial key', async () => {
     mockFetch(200, { ...ownDashboard, clinicFinancial: null });
 
-    await expect(api.dashboard({}, { sessionToken: 'verified-token' })).rejects.toThrow();
+    expect(await api.dashboard({}, { sessionToken: 'verified-token' })).toMatchObject({
+      ok: false,
+      code: 'API_UNREACHABLE',
+    });
   });
 });
 
@@ -884,12 +892,12 @@ describe('frozen payment and promise endpoints', () => {
     ]);
 
     mockFetch(200, { payment: { ...payment, status: 'VOIDED' } });
-    await expect(
-      api.createPayment(
+    expect(
+      await api.createPayment(
         familyId,
         { amountToman: '1', method: 'CASH', receivedOn: '2026-08-15' },
         {},
       ),
-    ).rejects.toThrow();
+    ).toMatchObject({ ok: false, code: 'API_UNREACHABLE' });
   });
 });

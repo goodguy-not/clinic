@@ -58,8 +58,8 @@ describe('route handler inventory', () => {
     // nothing at all.
     // 84 accepted handlers include the session-bound media preview; description
     // correction and media archive/restore add guarded state-changing handlers.
-    expect(handlers.length).toBe(86);
-    expect(stateChangingHandlers.length).toBe(84);
+    expect(handlers.length).toBe(87);
+    expect(stateChangingHandlers.length).toBe(85);
   });
 
   it('exposes no catch-all route', () => {
@@ -128,6 +128,7 @@ describe('route handler inventory', () => {
       '/api/content/spaces/publication',
       '/api/content/spaces/update',
       '/api/content/testimonials/approval',
+      '/api/content/testimonials/consent-withdrawal',
       '/api/content/testimonials/create',
       '/api/content/testimonials/publication',
       '/api/content/testimonials/update',

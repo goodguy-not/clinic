@@ -1,4 +1,4 @@
-import type { Article, Testimonial } from '@clinic/contracts';
+import type { Article, Testimonial, TestimonialConsentWithdrawal } from '@clinic/contracts';
 import {
   Alert,
   Badge,
@@ -12,10 +12,12 @@ import {
   SubmitButton,
 } from '@/components/ui';
 import { formatContentDate, TESTIMONIAL_STATUS_LABEL } from './presentation';
+import { ConsentWithdrawalForm } from './consent-withdrawal-form';
 
 type WorkspaceProps = {
   articles: Article[];
   testimonials: Testimonial[];
+  withdrawals?: TestimonialConsentWithdrawal[];
   csrfToken: string;
   errorMessage: string | null;
   successMessage: string | null;
@@ -231,6 +233,10 @@ export function EditorialWorkspace(props: WorkspaceProps) {
                                 </SubmitButton>
                               </form>
                             ) : null}
+                            <ConsentWithdrawalForm
+                              id={testimonial.id}
+                              csrfToken={props.csrfToken}
+                            />
                           </>
                         ) : null}
                       </>
@@ -239,6 +245,21 @@ export function EditorialWorkspace(props: WorkspaceProps) {
                 ))}
               </RecordList>
             )}
+            {props.canApproveTestimonials && (props.withdrawals?.length ?? 0) > 0 ? (
+              <section aria-label="سوابق پس‌گرفتن رضایت" className="border-t border-slate-200 pt-4">
+                <h3 className="font-semibold text-slate-900">سوابق پس‌گرفتن رضایت</h3>
+                <ul className="mt-2 list-disc space-y-1 pe-5 text-sm text-slate-700">
+                  {props.withdrawals?.map((record) => (
+                    <li key={record.id}>
+                      رضایت در {formatContentDate(record.consentWithdrawnAt)} پس گرفته شد؛{' '}
+                      {record.contentErasedAt === null
+                        ? `پاک‌سازی تا ${formatContentDate(record.erasureDueBy)}`
+                        : `پاک‌شده در ${formatContentDate(record.contentErasedAt)}`}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </section>
         </Panel>
       </div>

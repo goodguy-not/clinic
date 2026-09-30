@@ -41,17 +41,13 @@ export async function GET(
       },
     );
     if (upstream.status !== 200 && upstream.status !== 304) return notFound();
+    if (upstream.headers.get('cache-control') !== 'private, no-cache') return notFound();
 
     const responseHeaders = new Headers();
     for (const name of PASSTHROUGH_HEADERS) {
       const value = upstream.headers.get(name);
       if (value !== null) responseHeaders.set(name, value);
     }
-    // Authorization can change independently of this route. Revalidate every
-    // anonymous request with the API so a stale success can never extend a
-    // revoked rendition beyond the accepted window.
-    responseHeaders.set('cache-control', 'private, no-store, max-age=0, must-revalidate');
-
     if (upstream.status === 304) {
       return new NextResponse(null, { status: 304, headers: responseHeaders });
     }

@@ -40,12 +40,15 @@ export function TherapistProfileEditor({
 }) {
   const canPublish = profile !== null;
   const portraits = media.flatMap((asset) =>
-    asset.attachments
-      .filter(
-        (attachment) =>
-          attachment.ownerType === 'THERAPIST_PROFILE' && attachment.ownerId === copy.therapistId,
-      )
-      .map((attachment) => ({ asset, attachment })),
+    asset.bytesPurgedAt === null
+      ? asset.attachments
+          .filter(
+            (attachment) =>
+              attachment.ownerType === 'THERAPIST_PROFILE' &&
+              attachment.ownerId === copy.therapistId,
+          )
+          .map((attachment) => ({ asset, attachment }))
+      : [],
   );
   const isActive = therapistStatus === 'ACTIVE';
   const hasPublishedPortrait = portraits.some(
@@ -209,7 +212,8 @@ export function TherapistProfileEditor({
 
       <Panel title="عکس چهره">
         <p className="text-sm text-slate-600">
-          عکس را در قاب عمودی واقعی تنظیم کنید. نام فایل، اندازه و جزئیات فنی لازم نیست.
+          عکس چهره را در قاب عمودی تنظیم کنید؛ در کارت‌های کوچک‌تر اطراف آن بریده می‌شود، پس چهره را
+          نزدیک مرکز نگه دارید. نام فایل، اندازه و جزئیات فنی لازم نیست.
         </p>
         <MediaUploadFraming
           csrfToken={csrfToken}

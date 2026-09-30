@@ -11,7 +11,6 @@ import {
   getPublicTestimonials,
   getPublicTherapist,
   submitPublicRequest,
-  stripPublicInternalIds,
 } from './public-site';
 
 afterEach(() => {
@@ -19,22 +18,6 @@ afterEach(() => {
 });
 
 describe('public website reads', () => {
-  it('removes internal media ids recursively before React can serialize public data', () => {
-    const value = {
-      mediaId: 'top-secret-id',
-      image: {
-        alt: 'عکس ساختگی',
-        mediaId: 'nested-secret-id',
-        renditions: [{ path: 'media/public-id', mediaId: 'deep-secret-id' }],
-      },
-    };
-
-    expect(stripPublicInternalIds(value)).toEqual({
-      image: { alt: 'عکس ساختگی', renditions: [{ path: 'media/public-id' }] },
-    });
-    expect(JSON.stringify(stripPublicInternalIds(value))).not.toContain('mediaId');
-  });
-
   it('uses only the A1 public routes, strict projections, and frozen cache tags', async () => {
     const responses: Record<string, unknown> = {
       '/public/clinic-profile': { clinic: emptyClinic() },

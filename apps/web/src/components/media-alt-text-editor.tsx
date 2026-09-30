@@ -45,7 +45,7 @@ export function MediaAltTextEditor({
   returnTarget,
   instanceId,
 }: {
-  asset: Pick<MediaAsset, 'id' | 'altText' | 'isPubliclyServed'>;
+  asset: Pick<MediaAsset, 'id' | 'altText' | 'isPubliclyServed' | 'bytesPurgedAt'>;
   csrfToken: string;
   canPublishMedia: boolean;
   returnTarget: MediaAltTextReturnTarget;
@@ -53,6 +53,10 @@ export function MediaAltTextEditor({
 }) {
   const canCorrect = !asset.isPubliclyServed || canPublishMedia;
   const inputId = `media-alt-text-${instanceId}`;
+
+  if (asset.bytesPurgedAt !== null) {
+    return <p className="text-sm font-semibold text-slate-700">این عکس برای همیشه پاک شده است.</p>;
+  }
 
   if (!canCorrect) {
     return (

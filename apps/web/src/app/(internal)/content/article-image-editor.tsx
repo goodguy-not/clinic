@@ -16,12 +16,14 @@ export function imagesForArticle(
 ): AttachedArticleImage[] {
   return media
     .flatMap((asset) =>
-      asset.attachments
-        .filter(
-          (attachment) =>
-            attachment.ownerType === 'PUBLIC_ARTICLE' && attachment.ownerId === articleId,
-        )
-        .map((attachment) => ({ asset, attachment })),
+      asset.bytesPurgedAt === null
+        ? asset.attachments
+            .filter(
+              (attachment) =>
+                attachment.ownerType === 'PUBLIC_ARTICLE' && attachment.ownerId === articleId,
+            )
+            .map((attachment) => ({ asset, attachment }))
+        : [],
     )
     .sort(
       (left, right) =>
@@ -84,8 +86,9 @@ export function ArticleImageEditor({
       ) : null}
       <Panel title="عکس‌های این مطلب">
         <p className="text-sm leading-6 text-slate-600">
-          عکس و قاب آن را اینجا آماده کنید. ذخیرهٔ عکس چیزی را روی سایت نشان نمی‌دهد و انتشار آن فقط
-          پس از بررسی مدیر انجام می‌شود.
+          عکس و قاب آن را اینجا آماده کنید. عکس اصلی در کارت معرفی مطلب ایستاده‌تر و در صفحهٔ مطلب
+          پهن‌تر دیده می‌شود؛ نوشته یا سوژهٔ مهم را نزدیک مرکز نگه دارید. ذخیرهٔ عکس چیزی را روی
+          سایت نشان نمی‌دهد و انتشار آن فقط پس از بررسی مدیر انجام می‌شود.
         </p>
         <MediaUploadFraming
           csrfToken={csrfToken}

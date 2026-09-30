@@ -8,6 +8,7 @@ import { ArticleForm } from './article-form';
 import { EditorialWorkspace } from './editorial-workspace';
 import { TestimonialForm } from './testimonial-form';
 import { imagesForTestimonial, TestimonialImageEditor } from './testimonial-image-editor';
+import { WITHDRAWAL_CONFIRMATION } from './consent-withdrawal-form';
 
 const CSRF = 'synthetic-content-csrf';
 
@@ -124,6 +125,22 @@ function workspace(authority: 'receptionist' | 'manager'): string {
     createElement(EditorialWorkspace, {
       articles: [ARTICLE],
       testimonials: [TESTIMONIAL_DRAFT, TESTIMONIAL_APPROVED],
+      withdrawals: manager
+        ? [
+            {
+              id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d99',
+              consentWithdrawnAt: '2026-09-01T08:00:00.000Z',
+              contentErasedAt: null,
+              erasureDueBy: '2026-09-08T08:00:00.000Z',
+            },
+            {
+              id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d98',
+              consentWithdrawnAt: '2026-08-01T08:00:00.000Z',
+              contentErasedAt: '2026-08-02T08:00:00.000Z',
+              erasureDueBy: '2026-08-08T08:00:00.000Z',
+            },
+          ]
+        : [],
       csrfToken: CSRF,
       errorMessage: null,
       successMessage: null,
@@ -151,6 +168,7 @@ describe('receptionist editorial workspace', () => {
     expect(markup).not.toContain('/api/content/articles/publication');
     expect(markup).not.toContain('/api/content/testimonials/approval');
     expect(markup).not.toContain('/api/content/testimonials/publication');
+    expect(markup).not.toContain('/api/content/testimonials/consent-withdrawal');
     expect(markup).not.toContain('انتشار تغییرات');
     expect(markup).not.toContain('تأیید پس از بررسی');
     expect(markup).not.toContain('برداشتن تأیید');
@@ -172,14 +190,20 @@ describe('manager editorial workspace', () => {
     expect(markup).toContain('تأیید پس از بررسی');
     expect(markup).toContain('برداشتن تأیید');
     expect(markup).toContain('action="/api/content/testimonials/publication"');
+    expect(markup).toContain('action="/api/content/testimonials/consent-withdrawal"');
+    expect(markup).toContain(WITHDRAWAL_CONFIRMATION);
+    expect(markup).toContain('required="" name="confirmed" value="yes"');
     expect(markup).toContain('برداشتن از سایت');
     expect(markup).not.toContain('href="/api/content/');
+    expect(markup).toContain('سوابق پس‌گرفتن رضایت');
+    expect(markup).toContain('پاک‌سازی تا');
+    expect(markup).toContain('پاک‌شده در');
   });
 
   it('carries one CSRF token in every authority form', () => {
     const authorityForms =
       markup.match(
-        /action="\/api\/content\/(?:articles\/publication|testimonials\/(?:approval|publication))"/g,
+        /action="\/api\/content\/(?:articles\/publication|testimonials\/(?:approval|publication|consent-withdrawal))"/g,
       )?.length ?? 0;
     const tokens = markup.match(new RegExp(`value="${CSRF}"`, 'g'))?.length ?? 0;
     expect(tokens).toBe(authorityForms);

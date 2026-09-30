@@ -256,7 +256,8 @@ describe('clinic profile boundary', () => {
     expect(html).toContain('عکس هنگام اشتراک‌گذاری سایت');
     expect(html).toContain('این عکس لوگو نیست');
     expect(html).toContain('قاب پهن');
-    expect(html).toContain('قاب افقی');
+    expect(html).toContain('عکس به‌صورت پهن پشت متن دیده می‌شود');
+    expect(html).toContain('در گوشی ممکن است بخش‌های کناری عکس کمتر دیده');
     expect(html).toContain('عکس آمادهٔ انتشار');
     expect(html).toContain('عکس منتشرشده');
     expect(html).toContain('action="/api/media/publication"');

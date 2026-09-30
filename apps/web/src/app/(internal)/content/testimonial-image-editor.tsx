@@ -16,12 +16,15 @@ export function imagesForTestimonial(
 ): AttachedTestimonialImage[] {
   return media
     .flatMap((asset) =>
-      asset.attachments
-        .filter(
-          (attachment) =>
-            attachment.ownerType === 'PUBLIC_TESTIMONIAL' && attachment.ownerId === testimonialId,
-        )
-        .map((attachment) => ({ asset, attachment })),
+      asset.bytesPurgedAt === null
+        ? asset.attachments
+            .filter(
+              (attachment) =>
+                attachment.ownerType === 'PUBLIC_TESTIMONIAL' &&
+                attachment.ownerId === testimonialId,
+            )
+            .map((attachment) => ({ asset, attachment }))
+        : [],
     )
     .sort(
       (left, right) =>
@@ -107,8 +110,9 @@ export function TestimonialImageEditor({
         ) : (
           <>
             <p className="text-sm leading-6 text-slate-600">
-              عکس فقط همراه رونویسی نمایش داده می‌شود و جای متن را نمی‌گیرد. نوشته را کامل داخل قاب
-              نگه دارید و برای کسانی که عکس را نمی‌بینند، توضیح روشن بنویسید.
+              عکس دست‌نوشته در کارت عمودی ۴:۵ و فقط همراه رونویسی نمایش داده می‌شود و جای متن را
+              نمی‌گیرد. نوشته را کامل داخل قاب نگه دارید و برای کسانی که عکس را نمی‌بینند، توضیح
+              روشن بنویسید.
             </p>
             {testimonial.status === 'DRAFT' && images.length === 0 ? (
               <MediaUploadFraming

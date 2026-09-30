@@ -16,6 +16,7 @@ export const MEDIA_TARGET_SHAPE_PRESETS = {
   portrait: { id: 'portrait', label: 'قاب عمودی', aspectRatio: 4 / 5 },
   landscape: { id: 'landscape', label: 'قاب افقی', aspectRatio: 3 / 2 },
   wide: { id: 'wide', label: 'قاب پهن', aspectRatio: 16 / 9 },
+  square: { id: 'square', label: 'قاب تقریباً مربع', aspectRatio: 1 },
 } as const satisfies Record<string, MediaTargetShape>;
 
 export const DEFAULT_MEDIA_TARGET_SHAPES: readonly [MediaTargetShape, ...MediaTargetShape[]] = [
