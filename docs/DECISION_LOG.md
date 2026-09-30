@@ -4625,7 +4625,9 @@ attachment is the whole of the control.
 
 ## 2026-09-08 — The media revocation window is five minutes, and it bounds only Vala's own caches
 
-**Status:** Accepted — Milestone 9.5 checkpoint A5 (technical decision)
+**Status:** Superseded 2026-09-30 — by "Published media is `private, no-cache`: immediate
+revocation at the Web origin, cheap revalidation" (Milestone 9.5 checkpoint A10).
+Originally Accepted — Milestone 9.5 checkpoint A5 (technical decision)
 
 Published renditions are served with `Cache-Control: public, max-age=300,
 s-maxage=300, must-revalidate` and a strong `ETag` equal to the SHA-256 of the
@@ -5972,9 +5974,9 @@ test (`git archive`). All of it is removed afterwards.
 
 ## 2026-09-26 — Owner: a photograph's description is erased with its bytes (queued)
 
-**Status:** Accepted — owner decision, Milestone 10 A3 close-out. Queued after Agent B's
-current checkpoint; not started. Resolves item 1 of "Open (owner): photo descriptions
-after erasure".
+**Status:** Accepted — owner decision, Milestone 10 A3 close-out. Implemented 2026-09-30 in
+Milestone 9.5 checkpoint A10 (entry below). Resolves item 1 of "Open (owner): photo
+descriptions after erasure".
 
 When a photograph's bytes are erased, `alt_text` is erased too. It needs `altText` nullable
 in the media contract and every Web surface that renders it to handle `null` — a
@@ -6032,3 +6034,106 @@ log of one failed run would settle it.
   Tehran in provisioning (the same, one layer down).
 - **Revisit when:** any business date is computed outside those four functions, or the
   clinic ever operates in a second timezone.
+
+## 2026-09-30 — No public projection carries an internal identifier
+
+**Status:** Accepted — Milestone 9.5 checkpoint A10 (coordinator D2, defence in depth)
+
+`PublicImage.mediaId` is removed from `@clinic/contracts` and from the API projection. A
+visitor-facing response identifies a photograph only by its rendition paths
+(`media/<renditionId>`), which are the addresses of its bytes. Every public read was
+checked — services, team, articles, testimonials, spaces, clinic content, clinic profile,
+sitemap and the request submission: apart from slugs, a content-slot enum and
+`received: true`, nothing in them identifies anything, and no other internal id was found.
+The error envelope's `requestId` stays: it is a per-request correlation id for support,
+not a record id. The API groups renditions by asset internally and never emits the key.
+
+- **Alternatives:** keep `mediaId` in the contract and rely on the Web tier stripping it
+  (B9's `stripPublicInternalIds`); a separate opaque public handle.
+- **Reason:** a strict schema is where "the public never sees this" is enforced; a strip at
+  one consumer protects only that consumer. No public page needs a stable key the paths
+  do not already give.
+- **Trade-off:** a public list is keyed by a rendition path, which changes when the
+  photograph is replaced — the right behaviour for a key over rendered bytes.
+- **Revisit when:** a public feature genuinely needs to recognise one photograph across
+  replacements (none planned).
+
+## 2026-09-30 — A photograph's description is erased with it (implementation)
+
+**Status:** Accepted — Milestone 9.5 checkpoint A10. Implements the owner decision of
+2026-09-26.
+
+The erasure (`MediaErasureService.eraseLocked`, used by the nightly retention rules and by
+testimonial consent withdrawal) clears `alt_text` in the statement that stamps
+`bytes_purged_at`. Migration `20260930090000_m95_a10_erase_media_description` makes
+`alt_text` nullable, lets `media_asset_erasure_guard` accept the description as the third
+column an erasure changes, clears the description of every photograph already erased
+(**destructive for those rows**; production has not yet run an erasure), and adds
+`media_asset_description_erasure_chk` — `alt_text IS NULL` exactly when
+`bytes_purged_at IS NOT NULL`. `MediaAsset.altText` is `string | null`. Correcting the
+description of an erased photograph is `MEDIA_NOT_FOUND`, like attaching, publishing or
+restoring it. The audit trail keeps only `media.bytes_erased` with its rule; it never held
+the words (`media.uploaded` and `media.alt_text_updated` record lengths).
+
+- **Alternatives:** replace the description with a fixed placeholder (keeps the column
+  NOT NULL, but a placeholder is a fake description a screen reader would read); keep it
+  (rejected by the owner).
+- **Reason:** null is the honest state, and a CHECK in both directions makes an erased
+  photograph with words, or a live one without, impossible whatever the caller.
+- **Trade-off:** staff can no longer tell what an erased photograph showed; they still see
+  that it existed, when it arrived and went, and where it was used. Backups taken before
+  the erasure still hold the words until they age out.
+- **Revisit when:** a policy needs the asset row itself removed.
+
+## 2026-09-30 — Published media is `private, no-cache`: immediate revocation at the Web origin, cheap revalidation
+
+**Status:** Accepted — Milestone 9.5 checkpoint A10 (media contract owner). Supersedes the
+2026-09-08 five-minute revocation window.
+
+`PUBLIC_MEDIA_CACHE_CONTROL = 'private, no-cache'` replaces
+`PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS` and `PUBLIC_MEDIA_MAX_AGE_SECONDS`. The API sets
+it on `200` and `304`; the Web media route forwards it unchanged and re-asks the API on
+every request (B9's D1 fix already does the latter). A visitor's browser may store the
+bytes but must revalidate every reuse; no shared cache may store them. A revalidation
+carries the content-hash `ETag`, runs the full servability check, and a match answers
+`304` without reading the file (the API now reads bytes only when it must send them). A
+revoked image answers `404 no-store`.
+
+- **Alternatives:** A5's `max-age=300` (a revoked image stays visible from the browser
+  cache, and from any Web cache, for up to five minutes); B9's interim `no-store` (every
+  view re-downloads every image); `public, no-cache` (would let a shared cache hold a copy).
+- **Reason:** the target is immediate revocation at the clinic's own domain and cheap
+  repeat views; `no-cache` plus a strong `ETag` gives both, at one indexed query and a few
+  hundred bytes per image per view.
+- **Trade-off:** every image view is a round trip, even when unchanged; on a slow mobile
+  link that is latency a `max-age` would have avoided. Copies that have already left are
+  still bounded by nothing.
+- **Revisit when:** a CDN is put in front of the site (then `public, no-cache` with a CDN
+  that honours it), or pilot measurements show revalidation latency hurts LCP.
+
+## 2026-09-30 — The team-card thumbnail uses the smallest rendition
+
+**Status:** Accepted — coordinator, Milestone 9.5 A10
+
+The 96 px team-card portrait slot is served from the smallest rendition (320 px wide,
+about 14 KB). No smaller rung is added to `MEDIA_RENDITION_WIDTHS`.
+
+- **Alternatives:** a 96/192 px rendition rung.
+- **Reason:** the saving is a few kilobytes per card; a new rung is derived for every
+  photograph, stored on disk and carried in every backup.
+- **Trade-off:** a team page downloads somewhat more than the slot strictly needs.
+- **Revisit when:** a page shows enough thumbnails that the difference is measurable.
+
+## 2026-09-30 — Gate steps 10–11 and the D4 first-image check move to the pilot server
+
+**Status:** Accepted — coordinator, Milestone 9.5 A10
+
+The Milestone 9.5 gate's CLS/LCP measurement (step 10), the mobile visual check (step 11)
+and the D4 first-image check are deferred to the pilot server, measured there with a real
+phone and a public measurement tool. A development machine's numbers do not describe the
+clinic's visitors' network or devices.
+
+- **Alternatives:** measure locally with throttling (not representative); skip them.
+- **Trade-off:** those checks cannot pass before the pilot server exists; the milestone
+  gate records them as deferred, not passed.
+- **Revisit when:** the pilot server is up — they are then the first measurements taken.

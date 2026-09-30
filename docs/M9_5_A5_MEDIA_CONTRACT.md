@@ -8,11 +8,14 @@ frozen in `@clinic/contracts` and pinned by tests in `apps/api`.
 
 There are two identifiers, and only one of them is an address.
 
-| Thing       | Identifier   | Addressable?                                |
-| ----------- | ------------ | ------------------------------------------- |
-| media asset | `mediaId`    | **No.** An opaque handle for keying a list. |
-| rendition   | rendition id | **Yes.** This is what bytes come from.      |
-| master      | —            | **No row, no id, no route.** See §7.        |
+| Thing       | Identifier   | Addressable?                                               |
+| ----------- | ------------ | ---------------------------------------------------------- |
+| media asset | asset `id`   | **No.** Staff surfaces only; never in a public projection. |
+| rendition   | rendition id | **Yes.** This is what bytes come from.                     |
+| master      | —            | **No row, no id, no route.** See §7.                       |
+
+Since A10 a visitor-facing response identifies a photograph **only by its rendition
+paths**. Key a public list by the first rendition's `path`.
 
 The API returns a **relative path**, never a URL, and names no host:
 
@@ -40,11 +43,12 @@ boundary.
 | `content-type`           | `image/webp` or `image/jpeg`                         |
 | `content-length`         | exact byte size, matching the rendition's `byteSize` |
 | `etag`                   | `"<sha256 of these exact bytes>"` (strong)           |
-| `cache-control`          | `public, max-age=300, s-maxage=300, must-revalidate` |
+| `cache-control`          | `private, no-cache` (`PUBLIC_MEDIA_CACHE_CONTROL`)   |
 | `x-content-type-options` | `nosniff`                                            |
 | `content-disposition`    | `inline` (no filename — see §7)                      |
 
-`If-None-Match` is honoured and returns `304` with the same cache headers.
+`If-None-Match` is honoured and returns `304` with the same `etag` and `cache-control`,
+**after** the servability check and **without** reading the file (A10). See §8.
 
 **Response on refusal (404)** — `{ error: { code: "MEDIA_NOT_FOUND", ... } }`, with
 `cache-control: no-store`. A refusal is never cacheable, because a stored 404 would
@@ -56,7 +60,6 @@ Every published photograph arrives as a `PublicImage`:
 
 ```text
 PublicImage {
-  mediaId: string;
   alt: string; // Persian, required, plain text — render it, never a placeholder
   width: number; // intrinsic width of the LARGEST rendition
   height: number; // and its height. Use these to reserve layout space.
@@ -114,7 +117,7 @@ what a browser does to an image nobody has framed.
 **Framing belongs to the ATTACHMENT — to this use of the photograph — not to the asset
 and not to the master.** One master attached in two places carries two framings, and
 changing one does not move the other. That is why `framing` arrives inside each
-`PublicImage` rather than once per media id.
+`PublicImage` rather than once per photograph.
 
 ## 3. Where images appear in the public reads
 
@@ -156,14 +159,15 @@ B's.
 
 ```text
 MediaAsset {
-  id, altText, status: 'ACTIVE' | 'ARCHIVED',
+  id, status: 'ACTIVE' | 'ARCHIVED',
+  altText: string | null,             // null EXACTLY when erased (A10) — see §9
   width, height, byteSize,            // the master
   sourceContentType, sourceByteSize,  // what arrived; the bytes were never stored
   isPubliclyServed: boolean,          // <- can a stranger fetch this right now?
   renditions: MediaRendition[],       // id, path, format, width, height, byteSize, contentHash
   attachments: MediaAttachment[],
   createdAt, archivedAt,
-  bytesPurgedAt: string | null, // always null today — see section 9
+  bytesPurgedAt: string | null, // set by the nightly erasure — see section 9
 }
 
 MediaAttachment {
@@ -214,7 +218,9 @@ else. It is a strict object: an extra `isPublished`, `ownerId` or `position` is
 `VALIDATION_FAILED`, not an ignored field. Out-of-range values, a crop that runs off the
 frame, a zero-area crop and a partially stated crop are all `VALIDATION_FAILED` too.
 
-**Correcting a description** (Milestone 9.5 stabilisation) — `PATCH /media/:id/alt-text`,
+**Correcting a description** (Milestone 9.5 stabilisation; erased photographs refused
+since A10 with `MEDIA_NOT_FOUND`, because there is nothing left to describe) —
+`PATCH /media/:id/alt-text`,
 body `{ altText }` with the upload's rules. The description is the **asset's**: one
 correction reaches every place the photograph is used. While the asset is not publicly
 served, a receptionist or manager may correct it; once it is served anywhere, only a
@@ -259,29 +265,55 @@ All nine are in `ERROR_CODES` and all nine already have Persian messages in
   does either.
 - **The master.** It has no row in the table the serving route selects from and no
   identifier anybody could send.
-- **A storage key, an uploader, a publication instant, an attachment id or a filename**,
-  in any public projection. `publicImageSchema` is a strict object and a test pins its
-  six keys.
+- **Any internal identifier** — an asset id, an attachment id, an owner id — or a storage
+  key, an uploader, a publication instant or a filename, in any public projection.
+  `publicImageSchema` is a strict object and a test pins its five keys (`alt`, `width`,
+  `height`, `renditions`, `framing`). The only id a visitor ever sees is the rendition id
+  inside a rendition `path`, which is the address of the bytes and nothing else.
 
-## 8. Caching and revocation — the numbers, and the honest limits
+## 8. Caching and revocation — the target (A10), and the honest limits
 
-`PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS = 300` (five minutes). It is the same constant
-behind the `max-age`, the `s-maxage`, and the promise.
+`PUBLIC_MEDIA_CACHE_CONTROL = 'private, no-cache'`. It replaces A5's five-minute window;
+`PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS` and `PUBLIC_MEDIA_MAX_AGE_SECONDS` are gone.
 
-- **At the API origin, revocation is immediate.** The four-condition predicate is
-  re-evaluated from live rows on every request, with nothing cached in the process. The
-  next anonymous request after an unpublish, detach, archive or owner-unpublish is a 404.
-- **In any cache Vala controls — the Next.js tier included — it is bounded by five
-  minutes.** Web must not cache media bytes for longer than the `Cache-Control` the origin
-  sets, and must tag its entries so a publication change purges them.
-- **A copy that has already left is bounded by nothing.** A browser cache, a scraper, a
-  search index, a proxy, a screenshot. Do not write UI copy that promises a family a
+- **Revocation is immediate at Vala's Web origin.** The API re-evaluates the servability
+  predicate from live rows on every request, and the Web route asks the API on every
+  request (upstream `cache: 'no-store'`, no Data Cache entry, as B9 already does). The next
+  visitor request after an unpublish, detach, archive, owner-unpublish or erasure is a 404
+  at `/media/<id>` on the clinic's domain. The Web tier must never answer a media request
+  from anything it stored without an API `200` or `304` **on that request**.
+- **What a visitor's browser may keep, and for how long.** The bytes, for as long as the
+  browser's own cache keeps anything — but it may **never reuse them without asking**.
+  `no-cache` means store-and-revalidate; there is no `max-age`, so there is no window in
+  which a revoked photograph is shown from cache without a check. `private` means no shared
+  cache (ISP or corporate proxy, a CDN) may store them at all.
+- **A repeat view revalidates cheaply.** The browser sends `If-None-Match: "<sha256>"`; the
+  Web route forwards it; the API runs the servability check and, if the tag matches,
+  answers `304` with no body and **no file read** — one indexed query per image. A
+  revoked image answers `404` (`no-store`), which the browser will not replace with its
+  stored copy.
+- **A copy that has already left is bounded by nothing.** The bytes in a browser cache, a
+  screenshot, a scraper, a search index. Do not write UI copy that promises a family a
   photograph can be recalled from the internet. Content identity solves **replacement** —
   new bytes get new rendition ids — not **revocation**.
 
-**Cache tags.** Bytes carry `PUBLIC_MEDIA_CACHE_TAG_PREFIX` + rendition id
-(`public-media:<id>`). A media publication change also invalidates the **owner's** page
-tags, because the projection listing the photograph is part of that page's data:
+**What the Web route must do (Agent B, next checkpoint):**
+
+| Upstream | Web answers the browser with                                                |
+| -------- | --------------------------------------------------------------------------- |
+| `200`    | `200`, the bytes, and the upstream `etag` and `cache-control` **unchanged** |
+| `304`    | `304`, no body, the upstream `etag` and `cache-control` unchanged           |
+| anything | `404 MEDIA_NOT_FOUND`, `cache-control: no-store`, no `etag`                 |
+
+Forward the browser's `If-None-Match` upstream (B9 already does). Stop overriding
+`cache-control` with `private, no-store, …`: that override is what makes every view a
+full download. Do not weaken it to anything carrying a `max-age`, `s-maxage` or `public`.
+
+**Cache tags.** `PUBLIC_MEDIA_CACHE_TAG_PREFIX` (`public-media:<renditionId>`) named Web
+cache entries for bytes; since B9 there are none, so dropping those tags is a harmless
+no-op the Web lane may retire. A media publication change still invalidates the
+**owner's** page tags, because the projection listing the photograph is part of that page's
+data:
 
 | Act                              | Tags to drop                                 |
 | -------------------------------- | -------------------------------------------- |
@@ -290,9 +322,11 @@ tags, because the projection listing the photograph is part of that page's data:
 | attachment detached              | the owner's tags                             |
 
 **Every refusal is `404 MEDIA_NOT_FOUND`** — unknown id, unattached, draft-attached,
-unpublished, owner unpublished, detached, archived, missing file. Do not build UI that
-tries to distinguish them from the public side; two answers would let a stranger
-enumerate the clinic's unpublished photographs.
+unpublished, owner unpublished, detached, archived, erased, missing file. Do not build UI
+that tries to distinguish them from the public side; two answers would let a stranger
+enumerate the clinic's unpublished photographs. (A missing file behind a live row is
+noticed on the next full fetch, not on a matching revalidation — the visitor already holds
+exactly the bytes the hash names.)
 
 ## 9. Not in scope for A5
 
@@ -303,12 +337,17 @@ prescribes nothing about the interface that produces it.
 
 No public-space presentation either: see section 3.
 
-**Physical deletion and retention timing remain an open owner decision.** Nothing in the
-API deletes a byte — there is no schedule, no duration, no route and no permission for
-erasure — and no UI should imply that it does. `bytesPurgedAt` exists so that the
-decision, when it is taken, is an ordinary piece of work rather than a redesign; it is
-`null` on every asset and nothing in this product writes it. Treat it as read-only
-information, and do not build a control that appears to trigger it.
+**Erasure** (Milestone 10 A3; description added in Milestone 9.5 A10). A nightly job erases
+a photograph uploaded 30 days ago and never attached, one archived 30 days ago, and every
+photograph ever attached to a testimonial whose consent was withdrawn. Erasure removes the
+master, every rendition **and the description**: `bytesPurgedAt` is set and `altText` is
+`null`, together, always (a database CHECK). The asset row stays in the library with its
+attachments and dates, and the audit trail keeps only `media.bytes_erased` with the rule
+that applied. An erased photograph cannot be attached, published, restored or re-described
+— each answers `MEDIA_NOT_FOUND` — and none of its renditions can be fetched or previewed.
+There is no route or permission that erases on demand; do not build a control that appears
+to trigger it. Displaying an erased photograph to staff (no description, no image) is the
+Web lane's work.
 
 ## 10. Staff preview of persisted draft media (added after A8)
 
@@ -393,7 +432,7 @@ bytes at the origin on the very next request. The one visible change for the web
   through §10's preview. The web tier's `CLINIC_SPACE` staging use is unaffected.
 
 **A retried upload does not duplicate.** `POST /media` with bytes identical to an
-`ACTIVE` asset the **same user** uploaded returns that asset (same `mediaId`, same
+`ACTIVE` asset the **same user** uploaded returns that asset (same asset `id`, same
 renditions, its original alt text) instead of creating a new one. The response shape and
 status are unchanged. The identity is the SHA-256 of the uploaded bytes and lives in the
 database, so it survives web and API restarts; the web tier's per-process duplicate
@@ -403,3 +442,19 @@ different photograph is always a new asset.
 **Derivation is serialised.** Image processing runs one upload at a time per API
 process; concurrent uploads queue. A worst-case upload takes a few seconds, so the web
 tier's upload timeout should allow for one queued upload ahead of it.
+
+## 12. Public contract cleanup and description erasure (A10, 2026-09-30)
+
+- **`PublicImage.mediaId` is removed.** No public projection carries an internal
+  identifier; a photograph is identified by its rendition paths (§1, §7). Checked across
+  every public read — services, team, articles, testimonials, spaces, clinic content,
+  clinic profile, sitemap, request submission: slugs, a slot enum and `received: true`
+  are the only other keys that identify anything, and none is an internal id. The error
+  envelope's `requestId` is a per-request correlation id for support, not a record id,
+  and is kept.
+- **`MediaAsset.altText` is `string | null`**, null exactly when erased (§4, §9).
+  Migration `20260930090000_m95_a10_erase_media_description`: `alt_text` nullable, the
+  erasure guard lets the erasure clear it, existing erased rows are cleared
+  (**destructive for those rows**), and `media_asset_description_erasure_chk` ties it to
+  `bytes_purged_at`.
+- **Caching** is `private, no-cache` with cheap revalidation (§1, §8).
