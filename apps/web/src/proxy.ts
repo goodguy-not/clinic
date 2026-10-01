@@ -70,9 +70,11 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
-  // The literal path resolves against the browser's public origin. The query
-  // string is discarded entirely, so no `?next=` can steer it.
-  const response = new NextResponse(null, { status: 303, headers: { location: '/login' } });
+  // Rebuilt from this application's own origin and the literal matched path.
+  // The query string is discarded entirely, so no `?next=` can steer it and
+  // there is nothing for an open redirect to work with.
+  const target = new URL('/login', request.nextUrl.origin);
+  const response = NextResponse.redirect(target, 303);
 
   response.cookies.set({
     name: cookies.csrf.name,
