@@ -6222,3 +6222,27 @@ creditToman }` (the account's own derivation, read after the family row is locke
   the amount as read. The family stays visible either way and the void is audited on its own.
 - **Revisit when:** the clinic wants inactive families with open promises or future bookings
   treated the same way, or the family search (which carries no money) to surface them.
+
+## 2026-10-01 — How the server is installed, and its size
+
+**Status:** Accepted — Agent A, Milestone 10 A7 (staging rehearsal); server size for the owner to confirm
+
+- **Decision:** one Ubuntu 24.04 LTS server installed by `docs/DEPLOYMENT_RUNBOOK.md`:
+  PostgreSQL 17 (PGDG) on localhost, Node 24 (NodeSource), nginx as the only way in, API and
+  web as systemd services under their own users (`clinic-api`, `clinic-web`), code owned by
+  a separate `clinic-build`, secrets in four root-owned files in `/etc/clinic` each readable
+  by one user, migrations and operator commands through `systemd-run` so no secret passes
+  through a shell. Size: **2 vCPU, 4 GB RAM with a 2 GB swap file, 60 GB disk**.
+- **Alternatives:** containers (Docker Hub is unreachable from Iranian hosting and adds a
+  layer nobody here operates); a managed database (none confirmed at the chosen host); 40 GB
+  disk (holds year one, not year two's backups).
+- **Reason:** rehearsed twice on a disposable server — the second time by executing the
+  runbook's own commands — with measured resources (`docs/M10_A7_STAGING_REHEARSAL.md` §3):
+  normal use peaks under 2 GiB, a 12 MP photograph costs one core for ~7 s, a web build on
+  the server peaks at 1.6 GiB.
+- **Trade-off:** the web is built on the server, so an upgrade needs the build's memory and a
+  short web outage; nginx works around a web-tier redirect defect (`proxy_redirect`) until
+  Agent B removes it (A7 §5, B1).
+- **Revisit when:** the API's resident memory passes 1.5 GiB, the backup directory passes
+  half the disk, the chosen provider offers only another Ubuntu release, or upgrades become
+  frequent enough to want building elsewhere and shipping the build.

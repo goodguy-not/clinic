@@ -17,14 +17,14 @@ otherwise. `<SITE_HOST>` is the owner-approved host name (for example
 
 ## 0. Before you start
 
-| You need                                                                                                       | From                                                                        |
-| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| A server: Ubuntu **24.04 LTS**, 2 vCPU, 4 GB RAM, 40 GB+ disk, a public IPv4, root or sudo over SSH with a key | the hosting account (owner)                                                 |
-| The site's host name, with an `A` record pointing at the server                                                | the owner (DNS)                                                             |
-| An e-mail address for certificate expiry notices                                                               | the owner                                                                   |
-| The owner's **public** backup key, `clinic-backup-public.asc`                                                  | the owner, made on his own computer (README, Setting up the server, step 2) |
-| Clinic terms a password may not contain (optional)                                                             | the owner (`PASSWORD_BLOCKED_TERMS`)                                        |
-| A copy of the repository at the release commit                                                                 | the operator's computer                                                     |
+| You need                                                                                                                         | From                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| A server: Ubuntu **24.04 LTS**, 2 vCPU, 4 GB RAM, 60 GB disk (rehearsal sizing), a public IPv4, root or sudo over SSH with a key | the hosting account (owner)                                                 |
+| The site's host name, with an `A` record pointing at the server                                                                  | the owner (DNS)                                                             |
+| An e-mail address for certificate expiry notices                                                                                 | the owner                                                                   |
+| The owner's **public** backup key, `clinic-backup-public.asc`                                                                    | the owner, made on his own computer (README, Setting up the server, step 2) |
+| Clinic terms a password may not contain (optional)                                                                               | the owner (`PASSWORD_BLOCKED_TERMS`)                                        |
+| A copy of the repository at the release commit                                                                                   | the operator's computer                                                     |
 
 **Outbound access.** The install downloads from `archive.ubuntu.com`,
 `apt.postgresql.org`, `deb.nodesource.com`, `registry.npmjs.org`,
@@ -54,6 +54,16 @@ decided in SQL, never by the server clock (README, Checks):
 
 ```bash
 sudo timedatectl set-timezone Etc/UTC
+```
+
+**Swap.** Building the web (step 11) is the server's largest memory moment —
+about 1.6 GiB on 2 vCPU, on top of the running API and PostgreSQL (rehearsal
+measurement). A 2 GB swap file keeps a 4 GB server from killing a build or an
+upload; skip it if `swapon --show` already lists one. (Not rehearsed: WSL brings
+its own swap.)
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
 **Firewall.** Only SSH and the web. The API listens on every interface
