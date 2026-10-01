@@ -6137,3 +6137,56 @@ clinic's visitors' network or devices.
 - **Trade-off:** those checks cannot pass before the pilot server exists; the milestone
   gate records them as deferred, not passed.
 - **Revisit when:** the pilot server is up — they are then the first measurements taken.
+
+## 2026-10-01 — The route × role matrix is generated from the decorators and pinned
+
+**Status:** Accepted — Agent A, Milestone 10 A5
+
+`docs/PERMISSION_MATRIX.md` is rendered from the route decorators and `ROLE_PERMISSIONS` by
+`apps/api/src/auth/route-access-matrix.ts` and compared byte for byte by a unit test. Every
+route that requires no permission is listed in `OPEN_ROUTES` with its reason; every
+in-handler permission check is listed in `IN_HANDLER_AUTHORITY`; every controller has a
+product area. A new route, a changed requirement or an unrecorded open route fails the test.
+
+- **Alternatives:** a hand-written matrix (drifts on the first change); an HTTP probe of every
+  route per role (needs a database and fixtures for 169 routes, and proves the same guard rule).
+- **Reason:** the guard chain is deterministic over the decorators, so applying its rule to
+  the metadata is exact, runs without a database, and cannot disagree with the guards unless
+  the guards change.
+- **Trade-off:** the generated file is excluded from Prettier, and regenerating it is a manual
+  step in a change that touches routes.
+- **Revisit when:** a guard decides on something other than the decorators and the role map.
+
+## 2026-10-01 — The practice clinic acts through services, checked against the matrix
+
+**Status:** Accepted — Agent A, Milestone 10 A5
+
+The two-month simulation calls the domain services the routes call, parses every request with
+the route's contract schema, and before each act checks that the acting role could make the
+call over HTTP according to the route × role matrix. Its expected figures come from its own
+price list and share rules; the reconciliation re-derives the money rules without importing
+ledger, settlement or report code, and compares the book, base rows and the application's
+answers.
+
+- **Alternatives:** drive it over HTTP with real sessions (closest to the browser, but the dev
+  binary would need a listening server, passwords for every account and a forced password
+  change first); raw SQL fixtures (forbidden: a second implementation of the domain).
+- **Reason:** the services are what the controllers call after the guards and pipes, the
+  guard decision is reproduced exactly by the matrix, and the same code then serves the test
+  and the practice environment.
+- **Trade-off:** controller-level response shaping is not exercised by the simulation; it is
+  covered by the per-route integration suites.
+- **Revisit when:** a controller starts doing domain work beyond calling its service.
+
+## 2026-10-01 — Open (owner): permission findings from the A5 review
+
+**Status:** Open — for the owner; nothing was changed
+
+Eight findings are listed in `docs/M10_A5_PERMISSION_REVIEW.md` §1: (1) a receptionist can
+deactivate a family that owes money and the default family-balances report then omits it;
+(2) recording a testimonial consent withdrawal is manager-only although it arrives at the
+desk; (3) every desk correction (payment void, charge void, reopen) needs the manager the same
+day; (4) every discount, including a standing one, needs the manager; (5) a therapist's day
+off can only be entered by the manager; (6) a missing price blocks charging until the manager
+adds it; (7) the receptionist's end-of-day check covers only their own entries; (8) backup and
+job status reuse `user.read`. (1) affects money visibility and is recommended before go-live.

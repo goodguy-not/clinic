@@ -2183,6 +2183,34 @@ One consequence worth knowing: every seeded payment carries the run's own
 empty for earlier days**. Back-dated `receivedOn` still exercises the two payment
 bases against each other.
 
+### The practice clinic
+
+The reconciled two-month clinic of Milestone 10 (A5), for the walkthrough, the
+operator guide screenshots and staff practice. It needs an **empty** disposable
+database with one manager from `bootstrap-manager`, and refuses otherwise:
+
+```bash
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_demo?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --practice-clinic
+```
+
+It runs from three weeks before the previous Jalali month to yesterday, closes
+the previous Jalali month for settlement, acts through the staff services as a
+manager, two receptionists and a visitor (each act checked against the route ×
+role matrix), then reconciles every balance, day, month, settlement line and
+audit entry independently of the report code. It prints each check and exits
+non-zero on any discrepancy. See `docs/M10_A5_PERMISSION_REVIEW.md`. It is not a
+way to manage real website content.
+
+### The route × role matrix
+
+`docs/PERMISSION_MATRIX.md` is generated from the route decorators and the role
+map and pinned by `apps/api/src/auth/route-access-matrix.spec.ts`. After adding a
+route or changing what one requires, regenerate it and review the diff:
+
+```bash
+UPDATE_PERMISSION_MATRIX=1 pnpm --filter @clinic/api exec jest src/auth/route-access-matrix.spec.ts
+```
+
 ### Verifying Milestone 7 locally
 
 The repository-wide gate, which needs no database:
