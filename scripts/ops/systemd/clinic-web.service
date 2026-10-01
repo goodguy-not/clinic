@@ -1,0 +1,44 @@
+# Milestone 10, checkpoint A7 — the Next.js web tier (docs/DEPLOYMENT_RUNBOOK.md).
+# Installed to /etc/systemd/system/. Paths and the user below are the
+# documented defaults; change them to match the deployment.
+[Unit]
+Description=Clinic web (Next.js)
+Wants=network-online.target clinic-api.service
+After=network-online.target clinic-api.service
+
+[Service]
+Type=simple
+User=clinic-web
+Group=clinic-web
+# DEPLOYMENT_MODE, API_BASE_URL, INTERNAL_API_KEY, SESSION_COOKIE_SECRET,
+# WEB_ALLOWED_ORIGINS, PUBLIC_SITE_ORIGIN. Readable only by root and
+# clinic-web. Never a database variable (CLAUDE.md, Architecture boundary).
+EnvironmentFile=/etc/clinic/web.env
+WorkingDirectory=/srv/clinic/apps/web
+# Loopback only: the reverse proxy is the one way in, and it is what sets
+# X-Forwarded-For and X-Forwarded-Proto, which this tier trusts.
+ExecStart=/srv/clinic/apps/web/node_modules/.bin/next start --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5s
+# `next start` exits 128+SIGTERM on a normal stop; without this every stop and
+# restart is recorded as a failure.
+SuccessExitStatus=143
+UMask=0027
+# Next.js writes its page and image caches under .next, which this user owns
+# (it builds it, docs/DEPLOYMENT_RUNBOOK.md). Everything else is read-only.
+ProtectSystem=strict
+ReadWritePaths=/srv/clinic/apps/web/.next
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SyslogIdentifier=clinic-web
+
+[Install]
+WantedBy=multi-user.target

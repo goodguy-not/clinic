@@ -8,7 +8,8 @@ Persian RTL rehabilitation-clinic platform.
 
 See [CLAUDE.md](CLAUDE.md) for the architecture boundary and non-negotiable domain rules,
 [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for product rules, and
-[docs/DECISION_LOG.md](docs/DECISION_LOG.md) for accepted decisions.
+[docs/DECISION_LOG.md](docs/DECISION_LOG.md) for accepted decisions. Installing a server:
+[docs/DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md).
 
 ## Prerequisites
 
@@ -389,18 +390,20 @@ forced command it could not delete or alter a backup.
    handed to the owner to keep with the decryption key:
 
    ```bash
-   gpg --homedir /var/lib/clinic-backup/signing-gnupg --batch --passphrase '' --quick-gen-key "Clinic server backup signing" ed25519 sign never
+   sudo -u clinic-backup gpg --homedir /var/lib/clinic-backup/signing-gnupg --batch --passphrase '' --quick-gen-key "Clinic server backup signing" ed25519 sign never
    ```
 
    ```bash
-   gpg --homedir /var/lib/clinic-backup/signing-gnupg --armor --export > clinic-server-signing-public.asc
+   sudo -u clinic-backup gpg --homedir /var/lib/clinic-backup/signing-gnupg --armor --export > clinic-server-signing-public.asc
    ```
 
-4. **Run once by hand** and keep the output: `scripts/backup/backup.sh`.
-
-5. **Nightly.** Install `scripts/backup/systemd/clinic-backup.service` and
+4. **Run once by hand** and keep the output — through the service unit, so it
+   runs as `clinic-backup` with `/etc/clinic/backup.env` exactly as it will every
+   night: install `scripts/backup/systemd/clinic-backup.service` and
    `clinic-backup.timer` in `/etc/systemd/system/`, adjust the paths, then
-   `systemctl enable --now clinic-backup.timer`. The timer runs at 02:30 Tehran time,
+   `systemctl start clinic-backup` and `journalctl -u clinic-backup`.
+
+5. **Nightly.** `systemctl enable --now clinic-backup.timer`. The timer runs at 02:30 Tehran time,
    and `Persistent=true` runs a missed backup at the next boot. A failure exits
    non-zero with the reason on stderr (`journalctl -u clinic-backup`); the manager
    sees the consequence as a stale off-site copy within three days (below).
@@ -413,7 +416,9 @@ so the server cannot reach it, and a pull needs no inbound port at the clinic.
 **On the server**, once:
 
 1. Put the collector's public key (printed by the Windows install, below) in
-   `~clinic-collector/.ssh/authorized_keys`, exactly as one line:
+   `~clinic-collector/.ssh/authorized_keys`, exactly as one line. The file, its
+   directory and that home are owned by `root` (readable by `clinic-collect`), so
+   the login cannot rewrite its own restriction (docs/DEPLOYMENT_RUNBOOK.md, step 15):
 
    ```text
    restrict,command="env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh" ssh-ed25519 AAAA... clinic-collector@<computer>
@@ -750,7 +755,9 @@ production error by its request id, which the user sees and the audit row carrie
 
 **Rotation.** Every process runs under systemd and logs to the journal. Install
 `scripts/ops/systemd/journald-clinic.conf` as `/etc/systemd/journald.conf.d/clinic.conf`
-and restart `systemd-journald`: at most 1 GB, at most one month.
+and restart `systemd-journald`: at most 1 GB, at most one month, and no second copy in
+rsyslog's `/var/log/syslog`. nginx's access log records neither client addresses nor query
+strings (`scripts/ops/nginx/clinic.conf`), because a family search is a query string.
 
 ## Authentication and audit (Milestone 1)
 
