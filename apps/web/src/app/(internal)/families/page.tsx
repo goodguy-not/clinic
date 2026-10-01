@@ -30,7 +30,10 @@ export default async function FamiliesPage({
   await requireSession({ requirePermission: 'family.read' });
 
   const sessionToken = await readSessionToken();
-  const result = await api.searchFamilies({}, await callerContext(sessionToken ?? undefined));
+  const result = await api.searchFamilies(
+    { includeInactive: true },
+    await callerContext(sessionToken ?? undefined),
+  );
 
   const params = await searchParams;
   const rawError = params['error'];
@@ -63,7 +66,7 @@ export default async function FamiliesPage({
         <FamilySearch
           initial={{
             q: '',
-            includeInactive: false,
+            includeInactive: true,
             families: result.ok ? result.data.families : [],
             truncated: result.ok ? result.data.truncated : false,
             searched: false,

@@ -162,6 +162,7 @@ import {
   type PromiseResponse,
   type PasswordResetResponse,
   type RecordStatus,
+  type UpdateFamilyStatusRequest,
   type RecordAttendanceRequest,
   type RegistrationDraftResponse,
   type ReplaceAvailabilityWindowsRequest,
@@ -284,11 +285,8 @@ export type ApiFailure = {
   status: number;
   requestId: string;
   /**
-   * The envelope's `error.details`, unparsed. Populated only for the two
-   * codes that carry one — `FAMILY_POSSIBLE_DUPLICATE` and
-   * `CHILD_POSSIBLE_DUPLICATE` — so a caller can parse it against
-   * `duplicateBlockedDetailsSchema` and read the draft token out of it. Every
-   * other failure leaves this undefined.
+   * The envelope's `error.details`, unparsed. Callers validate details against
+   * the schema for the error code before using them.
    */
   details?: unknown;
 };
@@ -1774,7 +1772,7 @@ export const api = {
 
   changeFamilyStatus: (
     id: string,
-    status: RecordStatus,
+    body: UpdateFamilyStatusRequest,
     context: CallerContext,
   ): Promise<ApiResult<FamilyDetailResponse>> =>
     call(
@@ -1782,9 +1780,7 @@ export const api = {
       'PATCH',
       familyDetailResponseSchema,
       context,
-      {
-        status,
-      },
+      body,
     ),
 
   confirmFamilyRegistration: (

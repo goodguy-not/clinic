@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { familyBalanceSchema } from '@clinic/contracts';
 import { api } from '@/server/api-client';
 import { readCsrfCookie, readSessionToken, requireSession } from '@/server/auth-session';
 import { persianMessage } from '@/server/errors-fa';
@@ -21,6 +22,7 @@ import { COPY } from '@/server/copy-fa';
 import { GUARDIAN_RELATIONSHIP_LABEL } from '../relationship-labels';
 import { AppHeader } from '@/components/app-header';
 import { FamilyDetailActions } from './family-detail-actions';
+import { formatToman } from '@/server/numerals-fa';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +54,16 @@ export default async function FamilyDetailPage({
   const errorCode = typeof rawError === 'string' ? rawError : null;
   const rawNotice = query['notice'];
   const noticeCode = typeof rawNotice === 'string' ? rawNotice : null;
+  const pendingBalance = familyBalanceSchema.safeParse({
+    amountDueToman: query['balanceDue'],
+    creditToman: query['balanceCredit'],
+  });
+  const balanceWarning =
+    family.status === 'ACTIVE' &&
+    pendingBalance.success &&
+    (pendingBalance.data.amountDueToman !== '0' || pendingBalance.data.creditToman !== '0')
+      ? pendingBalance.data
+      : null;
 
   const csrfToken = (await readCsrfCookie()) ?? '';
   const canUpdate = user.permissions.includes('family.update');
@@ -81,6 +93,42 @@ export default async function FamilyDetailPage({
         ) : null}
         {isKnownErrorCode(errorCode) ? <Alert>{persianMessage(errorCode)}</Alert> : null}
 
+        {canUpdateStatus && balanceWarning !== null ? (
+          <section
+            role="alert"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950"
+          >
+            <p>
+              {balanceWarning.amountDueToman !== '0' ? (
+                <>
+                  این خانواده <bdi>{formatToman(balanceWarning.amountDueToman)}</bdi> بدهکار است.
+                </>
+              ) : (
+                <>
+                  این خانواده <bdi>{formatToman(balanceWarning.creditToman)}</bdi> اعتبار دارد.
+                </>
+              )}{' '}
+              اگر پرونده را غیرفعال کنید، این مبلغ همچنان در گزارش مالی می‌ماند و{' '}
+              {balanceWarning.amountDueToman !== '0'
+                ? 'خانواده بعداً هم می‌تواند بدهی را پرداخت کند.'
+                : 'بعداً هم می‌توان اعتبار را به خانواده بازپرداخت کرد.'}
+            </p>
+            <form method="post" action="/api/families/status" className="mt-3">
+              <input type="hidden" name="csrfToken" value={csrfToken} />
+              <input type="hidden" name="id" value={family.id} />
+              <input type="hidden" name="status" value="INACTIVE" />
+              <input type="hidden" name="amountDueToman" value={balanceWarning.amountDueToman} />
+              <input type="hidden" name="creditToman" value={balanceWarning.creditToman} />
+              <div className="flex flex-wrap gap-2">
+                <SubmitButton tone="secondary">مبلغ را دیدم؛ خانواده غیرفعال شود</SubmitButton>
+                <ButtonLink href={`/families/${id}`} tone="secondary">
+                  انصراف
+                </ButtonLink>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
         <Panel>
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge
@@ -101,7 +149,7 @@ export default async function FamilyDetailPage({
             </p>
           ) : null}
 
-          {canUpdateStatus ? (
+          {canUpdateStatus && balanceWarning === null ? (
             <form method="post" action="/api/families/status" className="pt-1">
               <input type="hidden" name="csrfToken" value={csrfToken} />
               <input type="hidden" name="id" value={family.id} />

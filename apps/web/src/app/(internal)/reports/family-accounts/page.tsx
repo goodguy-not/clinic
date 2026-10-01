@@ -81,14 +81,15 @@ export default async function FamilyAccountsReportPage({
         <ReportPrintContext
           items={[
             `جایگاه: ${query.standing ? STANDING_LABELS[query.standing] : 'همه'}`,
-            `خانواده‌های غیرفعال: ${query.includeInactive ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
+            `غیرفعال‌ها: بدهی و اعتبارشان با فیلتر جایگاهِ انتخاب‌شده نمایش داده می‌شود؛ بدون مانده: ${query.includeInactive ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
             'ارقام جایگاه: همهٔ سوابق نگهداری‌شده در این سامانه',
           ]}
         />
         <ReportNavigation active="/reports/family-accounts" showFinancial />
         <Alert tone="info">
           هر ردیف جایگاه کل خانواده در همهٔ سوابق سامانه است. فیلتر این صفحه فقط خانواده‌ها را
-          انتخاب می‌کند و ارقام جایگاه را به یک دوره محدود نمی‌کند.
+          انتخاب می‌کند و ارقام جایگاه را به یک دوره محدود نمی‌کند. غیرفعال‌کردن خانواده، بدهی یا
+          اعتبارش را از گزارش حذف نمی‌کند.
         </Alert>
         <section
           aria-labelledby="family-account-filters"
@@ -110,12 +111,12 @@ export default async function FamilyAccountsReportPage({
                 ))}
               </SelectField>
               <SelectField
-                label="خانواده‌های غیرفعال"
+                label="خانواده‌های غیرفعالِ بدون مانده"
                 name="includeInactive"
                 value={String(query.includeInactive)}
               >
-                <option value="false">نمایش داده نشود</option>
-                <option value="true">نمایش داده شود</option>
+                <option value="false">به گزارش افزوده نشوند</option>
+                <option value="true">به گزارش افزوده شوند</option>
               </SelectField>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -204,6 +205,11 @@ export default async function FamilyAccountsReportPage({
                         >
                           {row.family.familyName}
                         </Link>
+                        {row.family.status === 'INACTIVE' ? (
+                          <span className="ms-2 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-800">
+                            غیرفعال
+                          </span>
+                        ) : null}
                         <span className="mt-1 block text-xs text-slate-500">
                           مشاهدهٔ حساب خانواده
                         </span>

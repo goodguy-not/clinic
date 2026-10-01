@@ -116,11 +116,12 @@ describe('financial report presentation', () => {
           totalCreditToman: '300000',
         },
         families: [
-          { family: { id: FAMILY, familyName: 'خانوادهٔ بدهکار' }, position },
+          { family: { id: FAMILY, familyName: 'خانوادهٔ بدهکار', status: 'INACTIVE' }, position },
           {
             family: {
               id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4e04',
               familyName: 'خانوادهٔ دارای اعتبار',
+              status: 'ACTIVE',
             },
             position: {
               ...position,
@@ -140,6 +141,10 @@ describe('financial report presentation', () => {
     expect(markup).toContain('سوابق ثبت‌شده در این سامانه');
     expect(markup).toContain('شمارش قول‌ها مبلغ قابل پرداخت را کم نمی‌کند');
     expect(markup).toContain(`/families/${FAMILY}/account`);
+    expect(markup).toContain('غیرفعال');
+    expect(markup).toContain(
+      'غیرفعال‌ها: بدهی و اعتبارشان با فیلتر جایگاهِ انتخاب‌شده نمایش داده می‌شود',
+    );
   });
 
   it('renders successful empty states for both report families', async () => {
