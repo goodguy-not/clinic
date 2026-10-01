@@ -138,3 +138,8 @@ if ! RESTORE_OWNER_DATABASE_URL="postgresql://$owner_user:$owner_password@$owner
   setpriv --reuid=clinic-api --regid=clinic-api --init-groups -- "$restore" "$copy"; then
   die "the restore failed (above). Discard the target before trying again: sudo -u postgres dropdb $database && sudo rm -rf $media"
 fi
+
+# A live release older than A8 restores the media with the archive's private
+# modes; the backup user reads the media through the API's group.
+chmod -R u=rwX,g=rX,o= "$media"
+echo "ok: $media readable by clinic-api's group, for the nightly backup"

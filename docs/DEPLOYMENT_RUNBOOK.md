@@ -119,13 +119,13 @@ repository pins (`packageManager` in `package.json`).
 
 ## 4. Users and directories
 
-| User               | Runs                                                          | Can write                              |
-| ------------------ | ------------------------------------------------------------- | -------------------------------------- |
-| `clinic-build`     | dependency install and builds; owns the code                  | `/srv/clinic-releases`                 |
-| `clinic-api`       | the API and the nightly jobs                                  | the media directory                    |
-| `clinic-web`       | Next.js                                                       | its own build output, `apps/web/.next` |
-| `clinic-backup`    | the backup; member of `clinic-api` (reads the media)          | the backup directory, its signing key  |
-| `clinic-collector` | the clinic computer's SSH login (forced command)              | the off-site status file               |
+| User               | Runs                                                 | Can write                              |
+| ------------------ | ---------------------------------------------------- | -------------------------------------- |
+| `clinic-build`     | dependency install and builds; owns the code         | `/srv/clinic-releases`                 |
+| `clinic-api`       | the API and the nightly jobs                         | the media directory                    |
+| `clinic-web`       | Next.js                                              | its own build output, `apps/web/.next` |
+| `clinic-backup`    | the backup; member of `clinic-api` (reads the media) | the backup directory, its signing key  |
+| `clinic-collector` | the clinic computer's SSH login (forced command)     | the off-site status file               |
 
 No service can modify its own code: the code belongs to `clinic-build`.
 
@@ -510,11 +510,11 @@ on the server) and the one to install:
 git diff --stat <live commit> <new commit> -- apps/api packages pnpm-lock.yaml scripts/ops scripts/backup/systemd docs/DEPLOYMENT_RUNBOOK.md
 ```
 
-| The diff lists                                                        | Kind            | The site is down for (2 CPUs, rehearsal) |
-| --------------------------------------------------------------------- | --------------- | ---------------------------------------- |
-| a file under `apps/api/prisma/migrations`                             | with migrations | <DOWNTIME_MIGRATIONS>                    |
+| The diff lists                                                           | Kind            | The site is down for (2 CPUs, rehearsal) |
+| ------------------------------------------------------------------------ | --------------- | ---------------------------------------- |
+| a file under `apps/api/prisma/migrations`                                | with migrations | <DOWNTIME_MIGRATIONS>                    |
 | something under `apps/api`, `packages` or `pnpm-lock.yaml`, no migration | code            | <DOWNTIME_CODE>                          |
-| none of those (the web alone)                                         | web only        | <DOWNTIME_WEB>                           |
+| none of those (the web alone)                                            | web only        | <DOWNTIME_WEB>                           |
 
 "Down" means every page, public and staff, answers `502 Bad Gateway`. A change under
 `scripts/ops`, `scripts/backup/systemd` or this page may bring a unit, an nginx
@@ -553,9 +553,10 @@ OLD=$(basename "$(readlink /srv/clinic)") && NEW=<new commit> && echo "live $OLD
 sudo -u clinic-build install -d /srv/clinic-releases/$NEW && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C /srv/clinic-releases/$NEW
 ```
 
-If that directory is left from an attempt that never went live, remove it first
-(`sudo rm -rf /srv/clinic-releases/$NEW` — never the live one). Then install and
-build the API, **in the release directory** (step 6):
+If that directory is left from an earlier attempt — one that failed, or one that
+was rolled back — remove it first and start clean (`sudo rm -rf
+/srv/clinic-releases/$NEW`; never the live one). Then install and build the API,
+**in the release directory** (step 6):
 
 ```bash
 cd /srv/clinic-releases/$NEW && sudo -u clinic-build -H env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm install --frozen-lockfile && sudo -u clinic-build -H pnpm build:contracts && sudo -u clinic-build -H pnpm --filter @clinic/api build
@@ -572,7 +573,7 @@ sudo systemd-run --quiet --wait --pipe --collect --uid=clinic-build --gid=clinic
 the way back: going back to the previous code leaves the data as it is (18.1).
 
 ```bash
-systemctl is-active clinic-backup clinic-jobs; sudo systemctl start clinic-backup && journalctl -u clinic-backup -n 1 --no-pager -o cat
+systemctl is-active clinic-backup clinic-jobs; sudo systemctl start clinic-backup && journalctl -u clinic-backup -n 5 --no-pager -o cat | grep 'BACKUP COMPLETE'
 ```
 
 `inactive` twice (nothing running), then `BACKUP COMPLETE: …`.
@@ -584,15 +585,14 @@ systemctl is-active clinic-backup clinic-jobs; sudo systemctl stop clinic-web
 ```
 
 **The site is down from here.** With migrations, take the backup now, when nothing
-can change any more, and remember its name:
+can change any more, and keep its name in `PRE`:
 
 ```bash
-sudo systemctl start clinic-backup && journalctl -u clinic-backup -n 1 --no-pager -o cat
+sudo systemctl start clinic-backup && PRE=$(journalctl -u clinic-backup -n 5 --no-pager -o cat | sed -n 's|^BACKUP COMPLETE: /var/backups/clinic/||p') && echo "backup: $PRE"
 ```
 
-```bash
-PRE=$(sudo ls /var/backups/clinic | grep '\.tar\.gpg$' | tail -n 1) && echo "$PRE"
-```
+It must print `backup: clinic-backup-<time>.tar.gpg`; an empty name means the
+backup failed (`journalctl -u clinic-backup`).
 
 Prove it by restoring it — into a separate, new database, with the live release,
 exactly as a rollback would — and then remove that copy:
@@ -753,6 +753,13 @@ Reopen on the previous release, whose web build is intact:
 sudo systemctl start clinic-api && timeout 60 bash -c 'until curl -fs http://127.0.0.1:3001/health/ready; do sleep 1; done' && sudo systemctl start clinic-web && timeout 60 bash -c 'until curl -fs http://127.0.0.1:3000/api/health; do sleep 1; done'
 ```
 
+Back up the restored system at once — a fresh starting point, and the proof that
+the nightly backup works on it:
+
+```bash
+sudo systemctl start clinic-backup && journalctl -u clinic-backup -n 5 --no-pager -o cat | grep 'BACKUP COMPLETE'
+```
+
 Then the checks of 17.6, and put back anything 17.5 changed. **What has to be
 entered again** — every audited action on the new release, from the end of its
 migration:
@@ -791,9 +798,9 @@ What a rollback needs is decided per migration:
 Each new migration states its class and the reason in its header, and adds a row
 here in the same commit.
 
-| Migration                                                              | Rollback | Why                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| every migration up to and including `20260930090000_m95_a10_erase_media_description` | —        | The schema production is installed with: no production upgrade crosses them.                                                                                                                                                                                                     |
+| Migration                                                                                                                | Rollback | Why                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every migration up to and including `20260930090000_m95_a10_erase_media_description`                                     | —        | The schema production is installed with: no production upgrade crosses them.                                                                                                                                                                                           |
 | `20260930090000_m95_a10_erase_media_description` (an install older than it: staging before 2026-09-30, the A8 rehearsal) | restore  | It erases the description of every photograph already erased, irreversibly. The previous release's database client treats a description as never empty and its erasure job leaves the description in place, which the migration's new check refuses. Rehearsed (18.2). |
 
 ### 18.4 An install made before release directories (staging)
@@ -855,7 +862,8 @@ were untouched.
 ran on a fresh distribution, executing this page's own `bash` blocks extracted in
 order, with only the substitutions above; it found three more gaps, fixed here (the
 SSH check on a server nobody has reached over SSH, health checks racing the service
-start, and the redirect origin behind the proxy). Results: `docs/M10_A7_STAGING_REHEARSAL.md`.
+start, and the redirect origin behind the proxy — since fixed in the web itself
+(M10-B12), so nginx rewrites no redirect). Results: `docs/M10_A7_STAGING_REHEARSAL.md`.
 
 **A phone on the same home network (optional).** Staging also accepts the laptop's
 Wi-Fi address (certificate and `WEB_ALLOWED_ORIGINS`), but nothing on Windows forwards

@@ -73,6 +73,11 @@ step "3/4 Media files"
 [[ -d "$MEDIA_STORAGE_DIR" ]] || die "MEDIA_STORAGE_DIR does not exist."
 assert_media_keys_safe "$work/restored/media.sha256"
 check_media_against "$MEDIA_STORAGE_DIR" "$work/restored/media.sha256" "restored media root"
+# The backup user reads the media through the API's group (README, Setting up
+# the server); media only its owner can read would fail the next backup.
+private="$(find "$MEDIA_STORAGE_DIR" \( -type d ! -perm -g=rx \) -o \( -type f ! -perm -g=r \) | head -n 5 || true)"
+[[ -z "$private" ]] || die "media not readable by its group, so the next backup would fail: $private"
+ok "media readable by its group, as the nightly backup needs"
 
 step "4/4 Database protections, exercised (Milestone 10, checkpoint A1)"
 problems="$(psql_value "$owner_url" "

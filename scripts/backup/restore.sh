@@ -88,7 +88,12 @@ ok "restored in one transaction"
 step "Media"
 mkdir -p "$MEDIA_STORAGE_DIR"
 tar -C "$content/media" -cf - . | tar -C "$MEDIA_STORAGE_DIR" -xf -
-ok "copied $(meta_value "$content" media_files) file(s) into $MEDIA_STORAGE_DIR"
+# The archive carries the backup's own private modes (lib.sh's umask 077). The
+# media must be as the API writes it (UMask=0027): readable by the API's group,
+# through which the backup user reads it — or the first backup after a restore
+# fails (Milestone 10, checkpoint A8).
+chmod -R u=rwX,g=rX,o= "$MEDIA_STORAGE_DIR"
+ok "copied $(meta_value "$content" media_files) file(s) into $MEDIA_STORAGE_DIR, readable by its group"
 
 say ""
 say "Restore complete. Verifying."

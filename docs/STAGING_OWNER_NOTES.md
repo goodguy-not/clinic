@@ -115,13 +115,29 @@ then the copies it collected (invented data, encrypted):
 Unregister-ScheduledTask -TaskName 'Clinic backup collector' -Confirm:$false
 ```
 
+Look first: the first command lists the collector's own folder (its key, settings
+and script), the second the collected copies and the log. Remove only if each shows
+what is described here:
+
 ```powershell
-Remove-Item -LiteralPath "$env:ProgramDataClinicBackupCollector" -Recurse -Force
+Get-ChildItem -LiteralPath (Join-Path $env:ProgramData 'ClinicBackupCollector')
 ```
 
 ```powershell
-Remove-Item -LiteralPath 'C:ClinicBackups' -Recurse -Force
+Get-ChildItem -LiteralPath 'C:\ClinicBackups'
 ```
+
+```powershell
+Remove-Item -LiteralPath (Join-Path $env:ProgramData 'ClinicBackupCollector') -Recurse -Force
+```
+
+```powershell
+Remove-Item -LiteralPath 'C:\ClinicBackups' -Recurse -Force
+```
+
+(Corrected in M10-A8: the earlier lines named an environment variable that does
+not exist and a drive-relative path, `C:ClinicBackups`, which means "ClinicBackups
+in whatever folder drive C: is currently in".)
 
 Until then it is harmless: while staging is off it finds nothing to fetch and
 writes one line to its log.

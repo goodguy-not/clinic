@@ -154,6 +154,10 @@ way, each fixed in the runbook, a unit, the nginx template or the README:
 22. (pass 2 smoke test) Every route-handler redirect pointed at
     `https://<host>:3000/...` behind the proxy — see §5, B1. Fixed in nginx
     (`X-Forwarded-Port`, `proxy_redirect`); the web-tier fix is Agent B's.
+    **Superseded (M10-B12, 2026-10-02):** the web now redirects to a path, and the
+    `proxy_redirect` workaround was removed from `scripts/ops/nginx/clinic.conf` and
+    from staging. It must not appear in any nginx config or instruction;
+    `X-Forwarded-Port` stays.
 23. `verify-site.mjs` followed only the redirect's path and passed despite 22 — it
     now fails a sign-in or sign-out that leaves the site's origin (shown failing
     without the nginx fix and passing with it). Not re-run in the restore drill,
@@ -177,6 +181,8 @@ way, each fixed in the runbook, a unit, the nginx template or the README:
 ## 5. For Agent B (web tier)
 
 **B1 — redirects carry Next.js's own port behind a proxy. Needed before go-live.**
+_Superseded: fixed in the web tier by M10-B12 (relative `Location`); the nginx
+workaround described below is withdrawn and must not be used. Kept as the record._
 Route handlers build redirect targets from `request.url`, which behind a reverse
 proxy is `https://<host>:3000/...` whatever `X-Forwarded-Host`/`-Proto`/`-Port`
 say (measured with all four combinations). A browser following it fails: sign-in,
@@ -211,7 +217,7 @@ what happened.
 - **Collector:** installed on the owner's Windows 11 with his permission, as the
   clinic computer, against `127.0.0.1:2222`. The hourly trigger fired on its own at
   23:00 and failed (§4, 26); after the fix a run collected both staging backups
-  into `C:ClinicBackups`, and the manager's backup status went from
+  into `C:\ClinicBackups`, and the manager's backup status went from
   `NEVER_COLLECTED`, with the dashboard warning, to `OK` with none. Removal:
   `docs/STAGING_OWNER_NOTES.md`.
 
