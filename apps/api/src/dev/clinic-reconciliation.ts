@@ -4,6 +4,8 @@ import {
   familyAccountQuerySchema,
   familyAccountReportQuerySchema,
   paymentReportQuerySchema,
+  promiseReportQuerySchema,
+  sessionReportQuerySchema,
   settlementStatementQuerySchema,
 } from '@clinic/contracts';
 import type { ResolvedSession } from '../common/request-context';
@@ -12,6 +14,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DashboardService } from '../reports/dashboard.service';
 import { FamilyAccountReportService } from '../reports/family-account-report.service';
 import { PaymentReportService } from '../reports/payment-report.service';
+import { PromiseReportService } from '../reports/promise-report.service';
+import { SessionReportService } from '../reports/session-report.service';
 import { SettlementCloseService } from '../settlement/close/settlement-close.service';
 import { SettlementStatementService } from '../settlement/statement/settlement-statement.service';
 import type { BookCharge, ExpectedSettlementLine, SimulationBook } from './clinic-simulation';
@@ -151,6 +155,8 @@ export async function reconcileClinic(
   const accounts = app.get(FamilyAccountService);
   const accountReport = app.get(FamilyAccountReportService);
   const paymentReport = app.get(PaymentReportService);
+  const promiseReport = app.get(PromiseReportService);
+  const sessionReport = app.get(SessionReportService);
   const dashboard = app.get(DashboardService);
   const statements = app.get(SettlementStatementService);
   const periods = app.get(SettlementCloseService);
@@ -175,6 +181,12 @@ export async function reconcileClinic(
 
   const charges = [...book.charges.values()];
   const { calendar } = book;
+  const inactive = new Set(book.deactivations.map((one) => one.familyId));
+  /** Whether the default family-accounts report must list a family: money is never hidden. */
+  const listedByDefault = (familyId: string) => {
+    const position = familyPosition(book, familyId);
+    return !inactive.has(familyId) || position.amountDueToman > 0n || position.creditToman > 0n;
+  };
 
   // ---- 1. Charges: every one the book expects, exactly as expected ----------
 
@@ -474,8 +486,10 @@ export async function reconcileClinic(
 
   {
     const into = check('family balances: book, base rows, family account, family-account report');
+    // THE DEFAULT FILTER, after the deactivations: it must list every family that
+    // holds money, whatever its status (DECISION_LOG, 2026-10-01).
     const report = await accountReport.report(
-      familyAccountReportQuerySchema.parse({ pageSize: 100, includeInactive: 'true' }),
+      familyAccountReportQuerySchema.parse({ pageSize: 100 }),
     );
     const sql = await prisma.$queryRaw<{ family_id: string; charged: bigint; paid: bigint }[]>`
       SELECT f.id AS family_id,
@@ -487,7 +501,12 @@ export async function reconcileClinic(
                WHERE p.family_id = f.id AND p.voided_at IS NULL), 0)::bigint AS paid
       FROM family f
     `;
-    expectEqual(into, 'families in the report', book.families.length, report.families.length);
+    expectEqual(
+      into,
+      'families in the report',
+      book.families.filter((family) => listedByDefault(family.id)).length,
+      report.families.length,
+    );
 
     let due = 0n;
     let credit = 0n;
@@ -522,9 +541,17 @@ export async function reconcileClinic(
       expectEqual(
         into,
         `family ${family.label} report row`,
-        shape(expected),
+        listedByDefault(family.id) ? shape(expected) : null,
         row === undefined ? null : shape(row.position),
       );
+      if (row !== undefined) {
+        expectEqual(
+          into,
+          `family ${family.label} status in the report`,
+          inactive.has(family.id) ? 'INACTIVE' : 'ACTIVE',
+          row.family.status,
+        );
+      }
 
       const base = sql.find((one) => one.family_id === family.id);
       expectEqual(
@@ -885,6 +912,7 @@ export async function reconcileClinic(
       }
       if (file.label === 'family-accounts') {
         const id = header.indexOf('شناسهٔ خانواده');
+        const statusColumn = header.indexOf('وضعیت پروندهٔ خانواده');
         const dueColumn = header.indexOf('مبلغ قابل پرداخت (تومان)');
         const creditColumn = header.indexOf('اعتبار خانواده (تومان)');
         for (const family of book.families) {
@@ -893,12 +921,154 @@ export async function reconcileClinic(
           expectEqual(
             into,
             `family ${family.label} in the export`,
-            [expected.amountDueToman, expected.creditToman].map(String),
-            row === undefined ? null : [row[dueColumn], row[creditColumn]],
+            listedByDefault(family.id)
+              ? [
+                  inactive.has(family.id) ? 'INACTIVE' : 'ACTIVE',
+                  ...[expected.amountDueToman, expected.creditToman].map(String),
+                ]
+              : null,
+            row === undefined ? null : [row[statusColumn], row[dueColumn], row[creditColumn]],
           );
         }
       }
+      if (file.label === 'promises' && file.range !== null) {
+        const id = header.indexOf('شناسهٔ قول');
+        expectEqual(
+          into,
+          'promises export ids',
+          book.promises
+            .filter((p) => p.dueOn >= file.range!.from && p.dueOn <= file.range!.to)
+            .map((p) => p.id)
+            .sort(),
+          rows.map((r) => r[id]).sort(),
+        );
+      }
     }
+  }
+
+  // ---- 10b. Families deactivated holding money stay in every summary -----------
+  //
+  // Milestone 10, A6 (DECISION_LOG, 2026-10-01). The default family-accounts
+  // report and file are covered above with the status; this is everything else
+  // that summarises a family's money or obligations, read per family so a hidden
+  // row cannot be masked by a total that happens to agree.
+
+  {
+    const into = check(
+      'families deactivated holding money: acknowledged, visible, totals unchanged',
+    );
+    const owing = book.deactivations.filter(
+      (one) => familyPosition(book, one.familyId).amountDueToman > 0n,
+    );
+    const inCredit = book.deactivations.filter(
+      (one) => familyPosition(book, one.familyId).creditToman > 0n,
+    );
+    expectEqual(into, 'deactivated owing and in credit', [1, 1], [owing.length, inCredit.length]);
+
+    const statuses = await prisma.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id, status::text AS status FROM family
+    `;
+    const acknowledgements = await prisma.$queryRaw<
+      { entity_id: string; metadata: { amountDueToman?: string; creditToman?: string } }[]
+    >`
+      SELECT entity_id, metadata FROM audit_log WHERE action = 'family.deactivated_with_balance'
+    `;
+    expectEqual(
+      into,
+      'family statuses (base rows)',
+      book.families.map((f) => [f.id, inactive.has(f.id) ? 'INACTIVE' : 'ACTIVE']).sort(),
+      statuses.map((row) => [row.id, row.status]).sort(),
+    );
+
+    for (const { familyId, acknowledged } of book.deactivations) {
+      const label = book.families.find((f) => f.id === familyId)?.label ?? familyId;
+      const expected = familyPosition(book, familyId);
+      expectEqual(
+        into,
+        `family ${label} acknowledged balance`,
+        [expected.amountDueToman.toString(), expected.creditToman.toString()],
+        [acknowledged.amountDueToman, acknowledged.creditToman],
+      );
+      expectEqual(
+        into,
+        `family ${label} acknowledgement audited`,
+        // As pairs: jsonb does not keep the order the keys were written in.
+        [[acknowledged.amountDueToman, acknowledged.creditToman]],
+        acknowledgements
+          .filter((row) => row.entity_id === familyId)
+          .map((row) => [row.metadata.amountDueToman, row.metadata.creditToman]),
+      );
+
+      const range = { from: calendar.windowStart, to: calendar.lastHistoryDay };
+      const payments = await paymentReport.report(
+        paymentReportQuerySchema.parse({ ...range, familyId, pageSize: 100 }),
+      );
+      expectEqual(
+        into,
+        `family ${label} in the payments report`,
+        book.payments
+          .filter((p) => p.familyId === familyId && p.receivedOn >= range.from)
+          .filter((p) => p.receivedOn <= range.to)
+          .map((p) => p.id)
+          .sort(),
+        payments.payments.map((p) => p.id).sort(),
+      );
+
+      const promiseRange = {
+        from: addDays(calendar.windowStart, -30),
+        to: addDays(calendar.today, 60),
+      };
+      const promises = await promiseReport.report(
+        promiseReportQuerySchema.parse({ ...promiseRange, familyId, pageSize: 100 }),
+      );
+      expectEqual(
+        into,
+        `family ${label} in the promises report`,
+        book.promises
+          .filter((p) => p.familyId === familyId)
+          .map((p) => [p.id, p.status === 'OPEN' && p.dueOn < calendar.today ? 'MISSED' : p.status])
+          .sort(),
+        promises.promises.map((p) => [p.id, p.status]).sort(),
+      );
+
+      const sessions = book.sessions.filter((one) => one.familyId === familyId);
+      const dates = sessions.map((one) => one.date).sort();
+      if (dates.length > 0) {
+        const report = await sessionReport.report(
+          sessionReportQuerySchema.parse({
+            from: dates[0],
+            to: dates[dates.length - 1],
+            familyId,
+            pageSize: 100,
+          }),
+        );
+        expectEqual(
+          into,
+          `family ${label} in the sessions report`,
+          sessions.map((one) => one.participantId).sort(),
+          report.sessions.map((one) => one.participantId).sort(),
+        );
+      }
+    }
+
+    // Nothing the deactivations did moved a total: the default report reads the
+    // same clinic it read before them, and the same clinic the unfiltered one does.
+    const after = await accountReport.report(familyAccountReportQuerySchema.parse({}));
+    const unfiltered = await accountReport.report(
+      familyAccountReportQuerySchema.parse({ includeInactive: 'true' }),
+    );
+    expectEqual(
+      into,
+      'family-accounts totals before and after the deactivations',
+      book.familyAccountTotalsBeforeDeactivation,
+      after.totals,
+    );
+    expectEqual(
+      into,
+      'family-accounts totals with and without inactive families',
+      unfiltered.totals,
+      after.totals,
+    );
   }
 
   // ---- 11. Audit: every financial act, and no financial row without one -----------

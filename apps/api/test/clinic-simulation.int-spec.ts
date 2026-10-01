@@ -114,6 +114,8 @@ describe('a synthetic clinic, simulated and reconciled', () => {
       'website request converted to a new family',
       'website request linked to an existing family',
       'repeated enquiry absorbed',
+      'family deactivated owing',
+      'family deactivated in credit',
     ].filter((one) => (book.scenario[one] ?? 0) === 0)) {
       missing.push(scenario);
     }
@@ -134,6 +136,7 @@ describe('a synthetic clinic, simulated and reconciled', () => {
       'POST /families/:id/payments',
       'POST /families/:id/promises',
       'POST /website-requests/:id/link',
+      'PATCH /families/:id/status',
     ]) {
       if ((desk[route] ?? 0) === 0) missing.push(route);
     }

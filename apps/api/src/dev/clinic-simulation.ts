@@ -18,15 +18,21 @@ import {
   createTherapistRequestSchema,
   createUserRequestSchema,
   familyAccountReportExportQuerySchema,
+  familyAccountReportQuerySchema,
+  familyBalanceSchema,
   moveAppointmentRequestSchema,
   paymentReportExportQuerySchema,
+  promiseReportExportQuerySchema,
   publicRequestSubmissionSchema,
   PUBLIC_REQUEST_CONSENT_VERSIONS,
   rateSessionRequestSchema,
   recordAttendanceRequestSchema,
   replaceAvailabilityWindowsRequestSchema,
+  updateFamilyStatusRequestSchema,
   websiteRequestInboxQuerySchema,
   type AppointmentDetail,
+  type FamilyAccountReportTotals,
+  type FamilyBalance,
   type PaymentMethod,
   type SettlementPeriodLine,
   type UserRole,
@@ -56,6 +62,7 @@ import { SessionChargesService } from '../ledger/session-charges.service';
 import { PaymentsService } from '../payments/payments.service';
 import { PromisesService } from '../payments/promises.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { FamilyAccountReportService } from '../reports/family-account-report.service';
 import { ReportExportService } from '../reports/report-export.service';
 import { SettlementCloseService } from '../settlement/close/settlement-close.service';
 import { SessionRatingService } from '../settlement/ratings/session-rating.service';
@@ -284,6 +291,13 @@ export type SimulationBook = {
     rowCount: number;
     range: { from: string; to: string } | null;
   }[];
+  /**
+   * Families the desk deactivated while they held money (Milestone 10, A6), with
+   * the balance the refusal stated and the person then acknowledged.
+   */
+  deactivations: { familyId: string; acknowledged: FamilyBalance }[];
+  /** The default family-accounts totals, read just before those deactivations. */
+  familyAccountTotalsBeforeDeactivation: FamilyAccountReportTotals | null;
   /** Every act, counted by role and by route — the dual-role walkthrough in numbers. */
   acts: Record<SimRole, Record<string, number>>;
   /** Scenario coverage, counted as it happened. */
@@ -355,6 +369,7 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     ratings: app.get(SessionRatingService),
     close: app.get(SettlementCloseService),
     exports: app.get(ReportExportService),
+    accountReport: app.get(FamilyAccountReportService),
     publicRequests: app.get(PublicRequestsService),
     websiteRequests: app.get(WebsiteRequestsService),
   };
@@ -397,6 +412,8 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     websiteRequests: [],
     audited: new Map(),
     exports: [],
+    deactivations: [],
+    familyAccountTotalsBeforeDeactivation: null,
     acts: { MANAGER: {}, RECEPTIONIST: {}, VISITOR: {} },
     scenario: {},
   };
@@ -1979,7 +1996,11 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     await afterClose();
   }
 
-  // The month-end position, exported after every correction.
+  // Two families leave the clinic holding money: they must stay in every report.
+  await deactivateHoldingMoney();
+
+  // The month-end position, exported after every correction and after the
+  // deactivations, with the default filter — which must hide no toman.
   const accounts = await act(manager, 'GET /reports/family-accounts/export', () =>
     svc.exports.familyAccounts(familyAccountReportExportQuerySchema.parse({}), s(manager), ctx()),
   );
@@ -1990,9 +2011,88 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     range: null,
   });
 
+  // The whole history's payments and promises, exported after the deactivations.
+  const history = { from: calendar.windowStart, to: calendar.lastHistoryDay };
+  const allPayments = await act(manager, 'GET /reports/payments/export', () =>
+    svc.exports.payments(paymentReportExportQuerySchema.parse(history), s(manager), ctx()),
+  );
+  book.exports.push({
+    label: 'payments',
+    csv: allPayments.csv,
+    rowCount: allPayments.rowCount,
+    range: history,
+  });
+  const promiseRange = { from: addDays(calendar.windowStart, -30), to: addDays(today, 60) };
+  const allPromises = await act(manager, 'GET /reports/promises/export', () =>
+    svc.exports.promises(promiseReportExportQuerySchema.parse(promiseRange), s(manager), ctx()),
+  );
+  book.exports.push({
+    label: 'promises',
+    csv: allPromises.csv,
+    rowCount: allPromises.rowCount,
+    range: promiseRange,
+  });
+
   return { book };
 
   // ---- local helpers that need the closure ----
+
+  /**
+   * THE DESK DEACTIVATES A FAMILY THAT OWES AND ONE IN CREDIT (Milestone 10, A6).
+   *
+   * As the receptionist would: the first attempt is refused with the balance,
+   * which the simulation reads from the refusal — not from its own book — and
+   * acknowledges. The reconciliation then checks that what was acknowledged is
+   * what the independent model says, and that both families stay in every report
+   * and file with every total unchanged.
+   */
+  async function deactivateHoldingMoney() {
+    const front = desk(calendar.lastHistoryDay);
+    const before = await act(manager, 'GET /reports/family-accounts', () =>
+      svc.accountReport.report(familyAccountReportQuerySchema.parse({})),
+    );
+    book.familyAccountTotalsBeforeDeactivation = before.totals;
+
+    const leaving = [
+      { family: book.families.find((one) => one && due(one.id) > 0n), as: 'owing' },
+      { family: book.families.find((one) => one && due(one.id) < 0n), as: 'in credit' },
+    ];
+    for (const { family, as } of leaving) {
+      if (family === undefined) continue;
+      let shown: FamilyBalance | undefined;
+      try {
+        await act(front, 'PATCH /families/:id/status', () =>
+          svc.families.changeStatus(
+            family.id,
+            updateFamilyStatusRequestSchema.parse({ status: 'INACTIVE' }),
+            s(front),
+            ctx(),
+          ),
+        );
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== 'FAMILY_BALANCE_UNACKNOWLEDGED') {
+          throw error;
+        }
+        shown = familyBalanceSchema.parse(error.details);
+      }
+      if (shown === undefined) {
+        throw new Error(`Family ${family.label} was deactivated without acknowledging its money.`);
+      }
+      await act(front, 'PATCH /families/:id/status', () =>
+        svc.families.changeStatus(
+          family.id,
+          updateFamilyStatusRequestSchema.parse({ status: 'INACTIVE', acknowledgedBalance: shown }),
+          s(front),
+          ctx(),
+        ),
+      );
+      // `family.status_changed` and `family.deactivated_with_balance`.
+      audited(family.id);
+      audited(family.id);
+      book.deactivations.push({ familyId: family.id, acknowledged: shown });
+      count(`family deactivated ${as}`);
+    }
+  }
 
   async function fulfil(by: Person, record: BookPromise, payment: BookPayment) {
     await act(by, 'POST /promises/:id/fulfill', () =>
