@@ -18,6 +18,8 @@ The `proxy_redirect ~^https?://[^/]+:3000(/.*)?$ $1;` line was removed from `scr
 6. Run `nginx -t` and reload nginx when the config changes. Start `clinic-web.service`, check all clinic services, `/api/health`, and form/auth redirects through `https://localhost/` with no nginx redirect rewriting.
 7. Define separate API/schema migration, compatibility, and rollback steps before using this as a general upgrade procedure. They were outside this Web-only rehearsal.
 
+The optional cleanup commands in `docs/STAGING_OWNER_NOTES.md` lines 119 and 123 also need correction before reuse: `"$env:ProgramDataClinicBackupCollector"` refers to a different environment variable, and `C:ClinicBackups` is a drive-relative path. Use an explicitly joined path under `ProgramData` and an absolute `C:\ClinicBackups` path after confirming the intended targets.
+
 The staging release built and started successfully after the B1 fix. The `proxy_redirect` directive is absent from the live nginx config. The tour uses only the synthetic practice clinic.
 
 ## Manager-only status B2
