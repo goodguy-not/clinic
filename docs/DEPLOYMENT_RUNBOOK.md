@@ -67,8 +67,14 @@ sudo ufw default deny incoming && sudo ufw default allow outgoing && sudo ufw al
 you in:
 
 ```bash
-printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\n' | sudo tee /etc/ssh/sshd_config.d/10-clinic.conf && sudo sshd -t && sudo systemctl restart ssh
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\n' | sudo tee /etc/ssh/sshd_config.d/10-clinic.conf && sudo install -d -m 0755 /run/sshd && sudo sshd -t && sudo systemctl restart ssh
 ```
+
+`sshd -t` checks the configuration before the restart, so a mistake cannot lock
+you out. On Ubuntu 24.04 SSH starts on demand, and on a server nobody has yet
+reached over SSH (a provider's web console) its runtime directory does not exist
+and the check fails with `Missing privilege separation directory: /run/sshd` —
+hence the `install -d` first.
 
 ## 2. PostgreSQL 17
 
@@ -265,7 +271,7 @@ sudo install -m 0644 /srv/clinic/scripts/ops/systemd/clinic-api.service /etc/sys
 ```
 
 ```bash
-curl -fsS http://127.0.0.1:3001/health/ready
+timeout 30 bash -c 'until curl -fs http://127.0.0.1:3001/health/ready; do sleep 1; done'
 ```
 
 It must answer `{"status":"ok","checks":{"database":"ok","media":"ok"}}`. If it
@@ -300,7 +306,7 @@ sudo install -m 0644 /srv/clinic/scripts/ops/systemd/clinic-web.service /etc/sys
 ```
 
 ```bash
-curl -fsS http://127.0.0.1:3000/api/health
+timeout 30 bash -c 'until curl -fs http://127.0.0.1:3000/api/health; do sleep 1; done'
 ```
 
 Next.js listens on `127.0.0.1:3000` only (the unit says so); nginx is the one way
@@ -429,7 +435,7 @@ echo 'restrict,command="env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_ST
 The same restriction in `sshd`, for any key added later without it:
 
 ```bash
-printf 'Match User clinic-collector\n    AuthenticationMethods publickey\n    DisableForwarding yes\n    PermitTTY no\n    ForceCommand env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh\n' | sudo tee /etc/ssh/sshd_config.d/20-clinic-collector.conf && sudo sshd -t && sudo systemctl restart ssh
+printf 'Match User clinic-collector\n    AuthenticationMethods publickey\n    DisableForwarding yes\n    PermitTTY no\n    ForceCommand env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh\n' | sudo tee /etc/ssh/sshd_config.d/20-clinic-collector.conf && sudo install -d -m 0755 /run/sshd && sudo sshd -t && sudo systemctl restart ssh
 ```
 
 Check the `Match` applies to the collector and to nobody else:
@@ -501,4 +507,17 @@ database in it; nothing else on Windows is touched):
 wsl --unregister clinic-staging
 ```
 
-Then delete the empty folder given as `--location`.
+Tested on 2026-10-01 on the first rehearsal server: the distribution, its 4.9 GB disk
+image and the `--location` folder were all removed, and the other WSL distributions
+were untouched.
+
+**How the rehearsal was run.** Pass 1 installed while this page was written. Pass 2
+ran on a fresh distribution, executing this page's own `bash` blocks extracted in
+order, with only the substitutions above; it found three more gaps, fixed here (the
+SSH check on a server nobody has reached over SSH, health checks racing the service
+start, and the redirect origin behind the proxy). Results: `docs/M10_A7_STAGING_REHEARSAL.md`.
+
+**A phone on the same home network (optional).** Staging also accepts the laptop's
+Wi-Fi address (certificate and `WEB_ALLOWED_ORIGINS`), but nothing on Windows forwards
+to it: that needs a port proxy and a firewall rule, made by the owner as Administrator
+and removed after the tour (`docs/STAGING_OWNER_NOTES.md`).

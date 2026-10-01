@@ -172,6 +172,11 @@ async function checkStaffLogin(password) {
   if (!['/dashboard', '/change-password'].includes(landing.pathname)) {
     fail(`sign-in landed on ${landing.pathname}.`);
   }
+  // A browser follows the whole Location, not just its path: behind a proxy a
+  // redirect to another origin (Next.js's own :3000, M10-A7) breaks every sign-in.
+  if (landing.origin !== new URL(origin).origin) {
+    fail(`sign-in redirected off the site, to ${landing.origin}.`);
+  }
   ok(`${username} signed in through the web tier`);
 
   const page = await get(landing.pathname, { cookie: jar.header() });
@@ -185,6 +190,10 @@ async function checkStaffLogin(password) {
   if (csrfCookie === undefined) fail('no CSRF cookie after sign-in.');
   const logout = await post('/api/auth/logout', jar, { csrfToken: csrfCookie[1] });
   if (logout.status !== 303) fail(`sign-out answered ${logout.status}.`);
+  const away = new URL(logout.headers.get('location') ?? '/', origin);
+  if (away.origin !== new URL(origin).origin) {
+    fail(`sign-out redirected off the site, to ${away.origin}.`);
+  }
   ok('signed out; no session left open');
 }
 
