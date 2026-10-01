@@ -59,6 +59,17 @@ if (-not (Test-Path -LiteralPath $key)) {
   & ssh-keygen -q -t ed25519 -N '""' -C "clinic-collector@$env:COMPUTERNAME" -f $key
   if ($LASTEXITCODE -ne 0) { throw 'ssh-keygen failed' }
 }
+# Windows OpenSSH ignores a private key that any account other than its owner,
+# SYSTEM and Administrators can open ("UNPROTECTED PRIVATE KEY FILE"). ssh-keygen
+# makes the installing administrator the owner and grants them access, so the
+# task, running as SYSTEM, would ignore the key and never sign in (M10-A7). The
+# key becomes SYSTEM's, and `/reset` drops every entry of its own so it keeps
+# only what the directory grants (SYSTEM and Administrators, above) — also for a
+# key kept from an earlier install, so running this again repairs one.
+& icacls $key /reset | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'could not restrict the collector key' }
+& icacls $key /setowner $system | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'could not make SYSTEM the owner of the collector key' }
 
 # --- the server's host key, pinned, never trusted on first sight -----------------
 # Read with ssh itself, not ssh-keyscan: the ssh-keyscan shipped with Windows
