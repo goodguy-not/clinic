@@ -97,7 +97,10 @@ cores; `systemctl --failed` lists two WSL-only units (`getty@tty1`,
    drill could not show it, because it runs everything as one user. Fixed:
    `restore.sh` gives the media the API's modes (`u=rwX,g=rX,o=`), `verify.sh` now
    refuses media its group cannot read, the A8 wrapper corrects them for a live release
-   older than the fix, and a restore rollback takes a backup at once (18.2).
+   older than the fix, and a restore rollback takes a backup at once (18.2). The restore
+   drill (`scripts/backup/drill.sh`, Docker runner, commit `61769f2`) passes with the
+   change: `copied 21 file(s) … readable by its group`, `media readable by its group`,
+   `DRILL PASSED`, every broken and planted case still refused.
 2. The runbook read the backup's result with `journalctl -n 1`, which shows systemd's
    "Finished" line, not `BACKUP COMPLETE`. The pre-upgrade backup's name is now taken
    from its own `BACKUP COMPLETE` line (empty if it failed).
