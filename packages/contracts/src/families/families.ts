@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../dates';
+import { tomanAmountSchema } from '../money';
 import {
   addressSchema,
   fileNumberSchema,
@@ -229,3 +230,48 @@ export const familyWriteResponseSchema = familyDetailResponseSchema.extend({
 });
 
 export type FamilyWriteResponse = z.infer<typeof familyWriteResponseSchema>;
+
+/**
+ * WHAT A FAMILY HOLDS, AS THE DEACTIVATION WARNING STATES IT (Milestone 10, A6).
+ *
+ * The two unsigned figures of the family position, exactly as
+ * `GET /families/:id/account` derives them: at most one is non-zero. It is both
+ * the `details` of `FAMILY_BALANCE_UNACKNOWLEDGED` and the acknowledgement the
+ * caller sends back, so the interface echoes what it was shown and never adds
+ * anything up itself.
+ */
+export const familyBalanceSchema = z.strictObject({
+  amountDueToman: tomanAmountSchema,
+  creditToman: tomanAmountSchema,
+});
+
+export type FamilyBalance = z.infer<typeof familyBalanceSchema>;
+
+/**
+ * Activates or deactivates a family (`PATCH /families/:id/status`).
+ *
+ * MONEY MUST NEVER DISAPPEAR BECAUSE OF A FAMILY'S STATUS (DECISION_LOG,
+ * 2026-10-01). Deactivating a family that owes money or holds credit is refused
+ * with `FAMILY_BALANCE_UNACKNOWLEDGED`, whose details are the current
+ * `familyBalanceSchema`; the caller shows them and, if the person confirms, sends
+ * the same figures back as `acknowledgedBalance`. The server compares them with
+ * the balance it derives inside the deactivating transaction: if they differ —
+ * a payment landed in between — it refuses again with the new figures, so what
+ * was acknowledged is always what was true.
+ *
+ * A family with a zero balance is deactivated exactly as before, with or without
+ * the field. The field is refused on an activation, where it would acknowledge
+ * nothing. Children keep `updateRecordStatusRequestSchema`: a child has no
+ * balance of its own.
+ */
+export const updateFamilyStatusRequestSchema = z
+  .strictObject({
+    status: recordStatusSchema,
+    acknowledgedBalance: familyBalanceSchema.optional(),
+  })
+  .refine((body) => body.status === 'INACTIVE' || body.acknowledgedBalance === undefined, {
+    message: 'a balance is acknowledged only when deactivating',
+    path: ['acknowledgedBalance'],
+  });
+
+export type UpdateFamilyStatusRequest = z.infer<typeof updateFamilyStatusRequestSchema>;

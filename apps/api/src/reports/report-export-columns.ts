@@ -215,6 +215,9 @@ export const FAMILY_ACCOUNT_EXPORT_COLUMNS: readonly CsvColumn<FamilyAccountRepo
     () => FAMILY_ACCOUNT_SCOPE,
   ),
   text('خانواده', (row) => row.family.familyName),
+  // Beside the name, so an inactive family that still holds money — listed by
+  // default (DECISION_LOG, 2026-10-01) — is read as inactive before its figures.
+  plain('وضعیت پروندهٔ خانواده', (row) => row.family.status),
   plain('مبلغ خالص بدهکارشده (تومان)', (row) => row.position.netChargedTotalToman),
   plain('جمع پرداخت تأییدشده (تومان)', (row) => row.position.confirmedPaymentTotalToman),
   plain('مبلغ قابل پرداخت (تومان)', (row) => row.position.amountDueToman),

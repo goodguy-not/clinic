@@ -59,6 +59,10 @@ export const AUDIT_ACTIONS = [
   'family.created',
   'family.updated',
   'family.status_changed',
+  // Written beside `family.status_changed` when a family that owes money or
+  // holds credit is deactivated: the amount the person acknowledged. A separate
+  // action so "how often is a family with money deactivated?" can be counted.
+  'family.deactivated_with_balance',
   'child.created',
   'child.updated',
   'child.status_changed',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordStatusSchema } from '../families/common';
 import { familyFinancialPositionSchema } from '../ledger/family-account';
 import { ledgerPageQuerySchema, pageInfoSchema } from '../ledger/common';
 import { tomanAmountSchema } from '../money';
@@ -65,10 +66,14 @@ export const familyAccountStandingSchema = z.enum(FAMILY_ACCOUNT_STANDINGS);
 /**
  * Which families to report on.
  *
- * `includeInactive` DEFAULTS TO FALSE and is about the FAMILY RECORD, never
- * about its money. A deactivated family that still owes money is a real
- * situation and the flag is how a manager finds it; what the flag never does is
- * hide a charge, a payment or a void from a position it is included in.
+ * THE DEFAULT NEVER HIDES MONEY (DECISION_LOG, 2026-10-01 — Milestone 10, A6).
+ * Without `includeInactive` the report lists every active family AND every
+ * inactive family that owes money or holds credit, each marked by
+ * `family.status`. `includeInactive=true` adds only inactive families standing
+ * at zero, so the two sums and the owing and in-credit counts are the same with
+ * the flag and without it. The flag is about the FAMILY RECORD, never about its
+ * money: it never hides a charge, a payment or a void from a position it is
+ * included in.
  *
  * NO FREE TEXT, AS EVERYWHERE IN THIS DIRECTORY: a family is found by search,
  * which is a POST for exactly the reason a name may not travel in a query
@@ -128,7 +133,11 @@ export type FamilyAccountReportExportQuery = z.infer<typeof familyAccountReportE
  * separation exists to prevent.
  */
 export const familyAccountReportRowSchema = z.strictObject({
-  family: reportFamilySummarySchema,
+  family: reportFamilySummarySchema.extend({
+    // INACTIVE rows are listed by default when they hold money; the interface
+    // marks them, and the file carries the same word in its own column.
+    status: recordStatusSchema,
+  }),
   position: familyFinancialPositionSchema,
 });
 

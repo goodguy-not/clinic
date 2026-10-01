@@ -666,18 +666,32 @@ describe('the manager-only financial reports', () => {
         totalAmountDueToman: '250000',
         totalCreditToman: '0',
       },
-      families: [{ family, position }],
+      families: [{ family: { ...family, status: 'INACTIVE' as const }, position }],
       page: { page: 1, pageSize: 25, total: 1, hasMore: false },
     };
 
     expect(familyAccountReportResponseSchema.safeParse(response).success).toBe(true);
+
+    // Every row says whether the family is active: an inactive family that holds
+    // money is listed by default and must be read as inactive (Milestone 10, A6).
+    expect(
+      familyAccountReportResponseSchema.safeParse({
+        ...response,
+        families: [{ family, position }],
+      }).success,
+    ).toBe(false);
 
     // The position's own invariant travels with it: a family owes money or is
     // owed money, never both.
     expect(
       familyAccountReportResponseSchema.safeParse({
         ...response,
-        families: [{ family, position: { ...position, creditToman: '100000' } }],
+        families: [
+          {
+            family: { ...family, status: 'ACTIVE' as const },
+            position: { ...position, creditToman: '100000' },
+          },
+        ],
       }).success,
     ).toBe(false);
   });

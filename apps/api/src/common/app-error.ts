@@ -72,6 +72,9 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // the domain permits.
   FAMILY_PRIMARY_GUARDIAN_INVALID: 422,
   FAMILY_INACTIVE: 422,
+  // 409, like the duplicate warning: the request is legitimate once the person
+  // has seen what the family still holds, and the details say what that is.
+  FAMILY_BALANCE_UNACKNOWLEDGED: 409,
   CHILD_BIRTH_DATE_IN_FUTURE: 422,
   // 404 for missing, expired, consumed, wrong user, wrong session and wrong
   // purpose alike. A draft token is a bearer credential; distinguishing those
@@ -295,6 +298,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   FAMILY_PRIMARY_GUARDIAN_INVALID:
     'Exactly one guardian must be the primary contact, with a mobile or a landline',
   FAMILY_INACTIVE: 'The family is inactive',
+  FAMILY_BALANCE_UNACKNOWLEDGED:
+    'The family owes money or holds credit; deactivating it requires acknowledging the amount',
   CHILD_BIRTH_DATE_IN_FUTURE: 'The birth date is after the current date at the clinic',
   DRAFT_NOT_FOUND: 'Registration draft not found or no longer valid',
 

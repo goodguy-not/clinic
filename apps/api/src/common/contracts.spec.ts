@@ -28,6 +28,7 @@ import {
   createChildRequestSchema,
   createFamilyRequestSchema,
   errorEnvelopeSchema,
+  updateFamilyStatusRequestSchema,
   iranLandlineSchema,
   iranMobileSchema,
   loginResponseSchema,
@@ -991,5 +992,41 @@ describe('Milestone 4 contracts', () => {
     expect(clockTimeSchema.safeParse('24:00').success).toBe(false);
     // Not an instant: a working window is a time of day, not a moment.
     expect(clockTimeSchema.safeParse('2026-09-01T09:00:00Z').success).toBe(false);
+  });
+});
+
+describe('the family status request (Milestone 10, A6)', () => {
+  const balance = { amountDueToman: '250000', creditToman: '0' };
+
+  it('accepts a deactivation with or without an acknowledged balance', () => {
+    expect(updateFamilyStatusRequestSchema.safeParse({ status: 'INACTIVE' }).success).toBe(true);
+    expect(
+      updateFamilyStatusRequestSchema.safeParse({
+        status: 'INACTIVE',
+        acknowledgedBalance: balance,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('refuses an acknowledgement on an activation, where it would acknowledge nothing', () => {
+    expect(updateFamilyStatusRequestSchema.safeParse({ status: 'ACTIVE' }).success).toBe(true);
+    expect(
+      updateFamilyStatusRequestSchema.safeParse({ status: 'ACTIVE', acknowledgedBalance: balance })
+        .success,
+    ).toBe(false);
+  });
+
+  it('takes the amounts as canonical toman strings and nothing else', () => {
+    for (const acknowledgedBalance of [
+      { amountDueToman: 250000, creditToman: '0' },
+      { amountDueToman: '0250000', creditToman: '0' },
+      { amountDueToman: '250000' },
+      { ...balance, note: 'x' },
+    ]) {
+      expect(
+        updateFamilyStatusRequestSchema.safeParse({ status: 'INACTIVE', acknowledgedBalance })
+          .success,
+      ).toBe(false);
+    }
   });
 });

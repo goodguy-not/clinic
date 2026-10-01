@@ -45,7 +45,8 @@ import { pageWindow, windowClause, type ReportWindow } from './report-window';
  * a family has ever had, and it does not move when a reader narrows a filter.
  * `includeInactive` and `standing` decide WHICH FAMILIES are listed; neither
  * reaches a single financial statement, so no filter on this route can produce a
- * narrowed balance. That is the frozen Milestone 6 `totals`-versus-`position`
+ * narrowed balance — and no default hides a family that holds money, whatever
+ * its status (`familyVisibility`). That is the frozen Milestone 6 `totals`-versus-`position`
  * distinction, held across a second surface.
  *
  * NOTHING IS STORED. No balance column, no reporting table, no rollup, no
@@ -91,14 +92,14 @@ export class FamilyAccountReportService {
    * could disagree with it.
    */
   async report(query: FamilyAccountReportQuery): Promise<FamilyAccountReportResponse> {
-    const selection = familySelection(query);
+    const listed = familyVisibility(query);
     const standing = standingFilter(query);
     const window = pageWindow(query);
 
     return this.prisma.$transaction(
       async (tx) => {
-        const totals = await this.totals(tx, selection, standing);
-        const families = await this.rows(tx, selection, standing, window);
+        const totals = await this.totals(tx, listed, standing);
+        const families = await this.rows(tx, listed, standing, window);
 
         return {
           totals,
@@ -140,7 +141,7 @@ export class FamilyAccountReportService {
     tx: Prisma.TransactionClient,
     query: FamilyAccountReportExportQuery,
   ): Promise<FamilyAccountReportRow[]> {
-    return this.rows(tx, familySelection(query), standingFilter(query), null);
+    return this.rows(tx, familyVisibility(query), standingFilter(query), null);
   }
 
   /**
@@ -162,11 +163,11 @@ export class FamilyAccountReportService {
    */
   private async totals(
     tx: Prisma.TransactionClient,
-    selection: Prisma.Sql,
+    listed: Prisma.Sql,
     standing: Prisma.Sql,
   ): Promise<FamilyAccountReportTotals> {
     const rows = await tx.$queryRaw<TotalsRow[]>`
-      WITH position AS (${familyPositionParts(selection)})
+      WITH position AS (${familyPositionParts(Prisma.sql`TRUE`)})
       SELECT
         count(*)::int AS family_count,
         count(*) FILTER (WHERE amount_due_total > 0)::int AS owing_family_count,
@@ -174,7 +175,7 @@ export class FamilyAccountReportService {
         coalesce(sum(amount_due_total), 0)::bigint AS total_amount_due,
         coalesce(sum(credit_total), 0)::bigint AS total_credit
       FROM position
-      WHERE ${standing}
+      WHERE ${listed} AND ${standing}
     `;
 
     const row = rows[0];
@@ -218,14 +219,14 @@ export class FamilyAccountReportService {
    */
   private async rows(
     tx: Prisma.TransactionClient,
-    selection: Prisma.Sql,
+    listed: Prisma.Sql,
     standing: Prisma.Sql,
     window: ReportWindow | null,
   ): Promise<FamilyAccountReportRow[]> {
     const rows = await tx.$queryRaw<FamilyPositionPartsRow[]>`
-      WITH position AS (${familyPositionParts(selection)})
+      WITH position AS (${familyPositionParts(Prisma.sql`TRUE`)})
       SELECT * FROM position
-      WHERE ${standing}
+      WHERE ${listed} AND ${standing}
       ORDER BY amount_due_total DESC, family_name ASC, family_id ASC
       ${windowClause(window)}
     `;
@@ -236,7 +237,7 @@ export class FamilyAccountReportService {
     );
 
     return rows.map((row) => ({
-      family: { id: row.family_id, familyName: row.family_name },
+      family: { id: row.family_id, familyName: row.family_name, status: row.family_status },
       position: toFamilyPosition(row, lastPayments.get(row.family_id) ?? null),
     }));
   }
@@ -245,17 +246,27 @@ export class FamilyAccountReportService {
 /**
  * WHICH FAMILIES ARE LISTED, which is not a financial statement at all.
  *
- * `includeInactive` is about the family RECORD — a deactivated family that still
- * owes money is a real situation and the flag is how a manager finds it. It
- * narrows no charge, no payment and no promise, on the screen or in a file,
- * which is why the position each row carries is always the whole family's.
+ * MONEY NEVER DISAPPEARS BECAUSE OF A FAMILY'S STATUS (DECISION_LOG,
+ * 2026-10-01). By default every active family is listed AND every inactive
+ * family that owes money or holds credit — each row says which it is — so the
+ * default report and file hide no toman. `includeInactive` adds only what the
+ * default leaves out: inactive families standing at zero. It narrows no charge,
+ * no payment and no promise, on the screen or in a file, which is why the
+ * position each row carries is always the whole family's, and why the two sums
+ * are the same with the flag and without it.
+ *
+ * A PREDICATE OVER THE DERIVED POSITION, not a narrowing of `family`, because
+ * whether a family holds money is the position's own answer — so every family's
+ * position is derived and this decides which of them are printed.
  *
  * Extracted so the report and the export state it once. Two copies of "which
  * families" would be two places for a later filter to reach one surface and not
  * the other.
  */
-function familySelection(query: FamilyAccountReportExportQuery): Prisma.Sql {
-  return query.includeInactive ? Prisma.sql`TRUE` : Prisma.sql`f.status = 'ACTIVE'::record_status`;
+function familyVisibility(query: FamilyAccountReportExportQuery): Prisma.Sql {
+  if (query.includeInactive) return Prisma.sql`TRUE`;
+
+  return Prisma.sql`(family_status = 'ACTIVE' OR amount_due_total > 0 OR credit_total > 0)`;
 }
 
 /**

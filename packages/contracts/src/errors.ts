@@ -69,6 +69,10 @@ export const ERROR_CODES = [
   // landline.
   'FAMILY_PRIMARY_GUARDIAN_INVALID',
   'FAMILY_INACTIVE',
+  // Deactivating a family that owes money or holds credit, without acknowledging
+  // the amount (or acknowledging an amount that is no longer true). The details
+  // carry the family's current balance (`familyBalanceSchema`); nothing changed.
+  'FAMILY_BALANCE_UNACKNOWLEDGED',
   // Measured against the clinic's own calendar day in Asia/Tehran, never the
   // server's.
   'CHILD_BIRTH_DATE_IN_FUTURE',

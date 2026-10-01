@@ -462,27 +462,38 @@ describe('the family-accounts report (real PostgreSQL)', () => {
       expect(due[due.length - 1]).toBe(0n);
     });
 
-    it('leaves a deactivated family out by default and finds it on request', async () => {
+    it('lists a deactivated family that owes money by default, marked inactive', async () => {
+      // Money never disappears because of a family's status (DECISION_LOG,
+      // 2026-10-01): the default hides only inactive families standing at zero.
       const debtor = await chargedFamily('بدهکار غیرفعال');
+      const { familyId: quiet } = await makeFamilyWithChild(harness, managerToken, {
+        firstName: 'بی‌حساب غیرفعال',
+      });
 
-      await request(harness.app.getHttpServer())
-        .patch(`/families/${debtor.familyId}/status`)
-        .set(asUser(managerToken))
-        .send({ status: 'INACTIVE' })
-        .expect(200);
+      const status = (familyId: string, body: Record<string, unknown>) =>
+        request(harness.app.getHttpServer())
+          .patch(`/families/${familyId}/status`)
+          .set(asUser(managerToken))
+          .send({ status: 'INACTIVE', ...body });
+      await status(debtor.familyId, {
+        acknowledgedBalance: { amountDueToman: '250000', creditToman: '0' },
+      }).expect(200);
+      await status(quiet, {}).expect(200);
 
       const byDefault = await okReport();
-      expect(byDefault.families.map((row) => row.family.id)).not.toContain(debtor.familyId);
-      expect(byDefault.totals.totalAmountDueToman).toBe('0');
-
-      // A deactivated family that still owes money is a real situation, and the
-      // flag is how a manager finds it. What it never does is hide a charge, a
-      // payment or a void from a position it is included in.
-      const included = await okReport({ includeInactive: 'true' });
-      const row = included.families.find((one) => one.family.id === debtor.familyId);
-
-      expect(row?.position.amountDueToman).toBe('250000');
+      const row = byDefault.families.find((one) => one.family.id === debtor.familyId);
+      expect(row?.family.status).toBe('INACTIVE');
       expect(row?.position).toEqual(await accountPosition(debtor.familyId));
+      expect(byDefault.totals.totalAmountDueToman).toBe('250000');
+      expect(byDefault.families.map((one) => one.family.id)).not.toContain(quiet);
+
+      // The flag adds only the settled inactive family, so no sum moves. What it
+      // never does is hide a charge, a payment or a void from a position.
+      const included = await okReport({ includeInactive: 'true' });
+      expect(included.families.find((one) => one.family.id === quiet)?.family.status).toBe(
+        'INACTIVE',
+      );
+      expect(included.totals).toEqual({ ...byDefault.totals, familyCount: 2 });
     });
   });
 
