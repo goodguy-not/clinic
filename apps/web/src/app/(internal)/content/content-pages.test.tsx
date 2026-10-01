@@ -192,11 +192,16 @@ describe('manager editorial workspace', () => {
     expect(markup).toContain('action="/api/content/testimonials/publication"');
     expect(markup).toContain('action="/api/content/testimonials/consent-withdrawal"');
     expect(markup).toContain(WITHDRAWAL_CONFIRMATION);
+    expect(WITHDRAWAL_CONFIRMATION).toContain('همین حالا از سایت برداشته می‌شود');
+    expect(WITHDRAWAL_CONFIRMATION).toContain('معمولاً همان شب و در هر صورت حداکثر تا ۷ روز');
+    expect(WITHDRAWAL_CONFIRMATION).toContain('این کار برگشت‌پذیر نیست');
+    expect(WITHDRAWAL_CONFIRMATION).not.toContain('امشب');
     expect(markup).toContain('required="" name="confirmed" value="yes"');
     expect(markup).toContain('برداشتن از سایت');
     expect(markup).not.toContain('href="/api/content/');
     expect(markup).toContain('سوابق پس‌گرفتن رضایت');
-    expect(markup).toContain('پاک‌سازی تا');
+    expect(markup).toContain('در انتظار پاک‌سازی؛ حداکثر تا');
+    expect(markup).toContain('معمولاً همان شب و در هر صورت حداکثر تا ۷');
     expect(markup).toContain('پاک‌شده در');
   });
 

@@ -248,12 +248,16 @@ export function EditorialWorkspace(props: WorkspaceProps) {
             {props.canApproveTestimonials && (props.withdrawals?.length ?? 0) > 0 ? (
               <section aria-label="سوابق پس‌گرفتن رضایت" className="border-t border-slate-200 pt-4">
                 <h3 className="font-semibold text-slate-900">سوابق پس‌گرفتن رضایت</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  متن، نام یا عنوان گوینده و عکس‌های وصل‌شده معمولاً همان شب و در هر صورت حداکثر تا
+                  ۷ روز پس از ثبت پس‌گرفتن رضایت برای همیشه پاک می‌شوند.
+                </p>
                 <ul className="mt-2 list-disc space-y-1 pe-5 text-sm text-slate-700">
                   {props.withdrawals?.map((record) => (
                     <li key={record.id}>
                       رضایت در {formatContentDate(record.consentWithdrawnAt)} پس گرفته شد؛{' '}
                       {record.contentErasedAt === null
-                        ? `پاک‌سازی تا ${formatContentDate(record.erasureDueBy)}`
+                        ? `در انتظار پاک‌سازی؛ حداکثر تا ${formatContentDate(record.erasureDueBy)}`
                         : `پاک‌شده در ${formatContentDate(record.contentErasedAt)}`}
                     </li>
                   ))}

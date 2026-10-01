@@ -66,9 +66,10 @@ its package/lockfile, and this handoff. No API or contracts source was edited.
    format. Screenshots: `manager-erased-archived-media.png`,
    `receptionist-erased-archived-media.png`.
 5. **Consent withdrawal.** Only Manager sees the form and date-only history.
-   The form states immediate removal, tonight's permanent erasure of text,
-   attribution and every attached photo everywhere it appears, and that the
-   action cannot be undone. Web enforces CSRF/Origin and returns a direct 403
+   The form states immediate removal, permanent erasure of text, attribution
+   and every attached photo everywhere it appears, usually the same night and
+   in any case within seven days, and that the action cannot be undone. Web
+   enforces CSRF/Origin and returns a direct 403
    on an API permission refusal. The API integration suite proves a direct
    receptionist POST returns 403. Screenshots:
    `manager-consent-confirmation.png`, `manager-consent-history.png`,
@@ -89,14 +90,15 @@ its package/lockfile, and this handoff. No API or contracts source was edited.
    Web typecheck, lint, format, `check:boundary`, API production build and
    Web production build passed.
 
-## Agent A follow-up
+## Owner-approved erasure timing
 
 The API erasure job selects every withdrawn testimonial on its next nightly
 run, but the persisted `erasureDueBy`/A3 contract allows seven days and a
-files-lock deferral can delay that run. The requested Web confirmation says
-«امشب». Agent A should make the tonight promise a guaranteed backend deadline
-or align owner-approved wording with the seven-day bound before production
-use. This work did not change the API or contracts.
+files-lock deferral can delay that run. The Web confirmation and history now
+state the owner-approved rule: usually the same night, always within seven
+days. This work did not change the API or contracts. The B10 consent screenshots
+were captured before this wording correction; the source and Web tests pin the
+current wording.
 
 All named screenshots and live evidence above are under
 `E:\work\clinic\gate-evidence\m9.5-b10\`. Data and accounts used for the
