@@ -959,7 +959,7 @@ async function publishSyntheticPublicSite(
  * `clinic_date()` is the single authority for where one day ends (Milestone 3),
  * and every date this seeder writes is derived from it.
  */
-async function clinicToday(prisma: PrismaService): Promise<string> {
+export async function clinicToday(prisma: PrismaService): Promise<string> {
   const rows = await prisma.$queryRaw<{ day: string }[]>`SELECT clinic_date()::text AS day`;
   const day = rows[0]?.day;
 
@@ -976,7 +976,7 @@ async function clinicToday(prisma: PrismaService): Promise<string> {
  * against a populated `app_user`, and a seeder that quietly created an account
  * with a known password would be a second one.
  */
-async function managerActor(prisma: PrismaService): Promise<ResolvedSession> {
+export async function managerActor(prisma: PrismaService): Promise<ResolvedSession> {
   const rows = await prisma.$queryRaw<{ id: string; username: string; display_name: string }[]>`
     SELECT id, username, display_name
     FROM app_user
@@ -1004,7 +1004,7 @@ async function managerActor(prisma: PrismaService): Promise<ResolvedSession> {
  * is deliberately a plain uuid with no relation, so a seeded act is traceable to
  * this run without inventing a login that never happened.
  */
-function sessionFor(
+export function sessionFor(
   userId: string,
   username: string,
   displayName: string,
@@ -1022,7 +1022,7 @@ function sessionFor(
 }
 
 /** One request id per act, exactly as a real request would carry. */
-function requestContext(): RequestContext {
+export function requestContext(): RequestContext {
   return { requestId: uuidv7(), clientIp: null, userAgent: null, session: null };
 }
 
@@ -1045,7 +1045,7 @@ function createRandom(seed: string): () => number {
 }
 
 /** `YYYY-MM-DD` arithmetic that never touches the host timezone. */
-function addDays(day: string, offset: number): string {
+export function addDays(day: string, offset: number): string {
   const parsed = Date.parse(`${day}T00:00:00Z`);
   return new Date(parsed + offset * 86_400_000).toISOString().slice(0, 10);
 }
@@ -1055,7 +1055,7 @@ function* clinicDaysBetween(from: string, to: string): Generator<string> {
 }
 
 /** The clinic's weekday numbering, where 0 is Saturday (`weekdaySchema`). */
-function clinicWeekday(day: string): number {
+export function clinicWeekday(day: string): number {
   return (new Date(`${day}T00:00:00Z`).getUTCDay() + 1) % 7;
 }
 
@@ -1067,7 +1067,7 @@ function clinicWeekday(day: string): number {
  * name. A seeder that used the host's local time would place every session in
  * whatever timezone the reviewer's laptop is in.
  */
-function tehranInstant(day: string, hour: number): string {
+export function tehranInstant(day: string, hour: number): string {
   const wholeHours = Math.floor(hour);
   const minutes = Math.round((hour - wholeHours) * 60);
 
