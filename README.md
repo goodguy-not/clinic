@@ -489,7 +489,9 @@ cookie secret are created fresh on the new server.
 ### Restoring (runbook)
 
 Into an **empty** environment only — a replacement server, or a fresh database and
-media directory beside the old ones. `restore.sh` refuses a database that holds
+media directory beside the old ones. Going back from a failed upgrade restores on the same
+server, with the live database set aside first: `docs/DEPLOYMENT_RUNBOOK.md`, step
+18.2, through `scripts/ops/restore-on-server.sh`. `restore.sh` refuses a database that holds
 anything and a media directory that is not empty, so it cannot merge into or
 overwrite a live system.
 
@@ -514,7 +516,8 @@ overwrite a live system.
 
    It checks the target is empty, decrypts the whole archive and checks its
    signature and contents, restores the database **in one transaction** (complete
-   or not at all) and copies the media, then runs `verify.sh`. It must end with
+   or not at all) and copies the media — readable by the API's group, through which
+   the backup user reads it — then runs `verify.sh`. It must end with
    `RESTORE VERIFIED`. Any failure after the database step means: discard this
    target and start again from step 3.
 
@@ -564,7 +567,8 @@ restored system takes its first request, because it compares records exactly):
 `prisma migrate status` and `migrate diff` report the schema in sync; every table's
 count and checksum, every sequence, every trigger with its enabled state, every
 constraint, index, function and grant equal the backup's; every file the restored
-rows refer to is on disk with its recorded hash; every object is owned by the
+rows refer to is on disk with its recorded hash, and the media are readable by their
+group (the next backup reads them that way); every object is owned by the
 non-superuser owner; and, from the API's own login, `TRUNCATE`, deleting a payment
 or a charge, disabling a trigger, `session_replication_role`, `SET ROLE` to the owner,
 DDL and touching the migration history are all refused, while the owner's delete of an

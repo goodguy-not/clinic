@@ -499,7 +499,8 @@ Every fix reaches the clinic this way. The new release is installed and built
 **beside** the live one while the site keeps working; then the site closes for a
 few minutes, the link `/srv/clinic` moves, and the site reopens. The previous
 release is never modified: it stays built until a later upgrade, ready to go back
-to (step 18). **Rehearsed** on 2026-10-02 (`docs/M10_A8_UPGRADE_REHEARSAL.md`).
+to (step 18). **Rehearsed** on 2026-10-02, every path below, on a disposable server
+(`docs/M10_A8_UPGRADE_REHEARSAL.md`).
 
 ### 17.1 Which kind of release
 
@@ -510,11 +511,15 @@ on the server) and the one to install:
 git diff --stat <live commit> <new commit> -- apps/api packages pnpm-lock.yaml scripts/ops scripts/backup/systemd docs/DEPLOYMENT_RUNBOOK.md
 ```
 
-| The diff lists                                                           | Kind            | The site is down for (2 CPUs, rehearsal) |
-| ------------------------------------------------------------------------ | --------------- | ---------------------------------------- |
-| a file under `apps/api/prisma/migrations`                                | with migrations | <DOWNTIME_MIGRATIONS>                    |
-| something under `apps/api`, `packages` or `pnpm-lock.yaml`, no migration | code            | <DOWNTIME_CODE>                          |
-| none of those (the web alone)                                            | web only        | <DOWNTIME_WEB>                           |
+| The diff lists                                                           | Kind            | The site is down for                                                                                                                                    |
+| ------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a file under `apps/api/prisma/migrations`                                | with migrations | **about 40 seconds** measured, almost all the web build (31 s); the backup and its proof (5 s here) grow with the photographs. **Plan on two minutes.** |
+| something under `apps/api`, `packages` or `pnpm-lock.yaml`, no migration | code            | **about 33 seconds**, almost all the web build. Plan on one minute.                                                                                     |
+| none of those (the web alone)                                            | web only        | **about 2 seconds**: a restart.                                                                                                                         |
+
+Measured on two CPU cores with a small clinic. A real 2 vCPU server may build the
+web more slowly; at the first year's size (a 450 MB backup) the backup and its
+proof add about half a minute.
 
 "Down" means every page, public and staff, answers `502 Bad Gateway`. A change under
 `scripts/ops`, `scripts/backup/systemd` or this page may bring a unit, an nginx
@@ -684,7 +689,7 @@ before the clinic next opens.** When it is kept:
 - Delete the owner's key from the server: `shred -u ~/clinic-backup-secret.asc`.
 - Keep the live release and `$OLD`; remove older ones (`ls -1t /srv/clinic-releases`,
   then `sudo rm -rf /srv/clinic-releases/<older commit>` — never the live one or
-  `$OLD`). Each kept release costs about <RELEASE_DISK> of disk.
+  `$OLD`). Each kept release costs about 0.3–0.5 GB of disk beyond the shared package store.
 - Record the date, `$OLD` → `$NEW`, the kind, the downtime, `$PRE` and the outputs.
 
 ## 18. Going back to the previous release
@@ -693,7 +698,10 @@ before the clinic next opens.** When it is kept:
 
 For a release without migrations, or whose migrations the register (18.3) marks
 **code**. The previous release is still built; nothing is rebuilt, and **nothing
-entered since the upgrade is lost**. The site is down for <DOWNTIME_ROLLBACK_CODE>.
+entered since the upgrade is lost**. The site is down for **about 2 seconds**. The
+oldest release this may reach is one with the web's redirect fix (M10-B12, commit
+`0d26eef` or later): older ones need the withdrawn nginx workaround to sign anybody
+in. Production starts after it.
 
 ```bash
 sudo systemctl stop clinic-web clinic-api && sudo ln -sfn /srv/clinic-releases/$OLD /srv/clinic && sudo systemctl start clinic-api && timeout 60 bash -c 'until curl -fs http://127.0.0.1:3001/health/ready; do sleep 1; done' && sudo systemctl start clinic-web && timeout 60 bash -c 'until curl -fs http://127.0.0.1:3000/api/health; do sleep 1; done'
@@ -716,7 +724,8 @@ works, and decide before the clinic opens. Once the clinic has worked on the new
 release, fix forward with another release unless the release itself endangers the
 records.
 
-The site is down for <DOWNTIME_ROLLBACK_RESTORE>. Close it and go back to the
+The site is down for **about 8 seconds** measured (the restore 4.5 s); the restore
+grows with the photographs — **plan on two minutes**. Close it and go back to the
 previous code:
 
 ```bash
@@ -762,7 +771,8 @@ sudo systemctl start clinic-backup && journalctl -u clinic-backup -n 5 --no-page
 
 Then the checks of 17.6, and put back anything 17.5 changed. **What has to be
 entered again** — every audited action on the new release, from the end of its
-migration:
+migration (after a migration that failed, the new release never opened and
+nothing was entered: skip this):
 
 ```bash
 sudo -u postgres psql -X -d $ASIDE -c "SELECT occurred_at AT TIME ZONE 'Asia/Tehran' AS tehran_time, action, entity_type, entity_id FROM audit_log WHERE occurred_at > (SELECT max(finished_at) FROM _prisma_migrations) ORDER BY occurred_at"
@@ -798,15 +808,16 @@ What a rollback needs is decided per migration:
 Each new migration states its class and the reason in its header, and adds a row
 here in the same commit.
 
-| Migration                                                                                                                | Rollback | Why                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| every migration up to and including `20260930090000_m95_a10_erase_media_description`                                     | —        | The schema production is installed with: no production upgrade crosses them.                                                                                                                                                                                           |
-| `20260930090000_m95_a10_erase_media_description` (an install older than it: staging before 2026-09-30, the A8 rehearsal) | restore  | It erases the description of every photograph already erased, irreversibly. The previous release's database client treats a description as never empty and its erasure job leaves the description in place, which the migration's new check refuses. Rehearsed (18.2). |
+| Migration                                                                              | Rollback | Why                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every migration up to and including `20260926090000_m10_a3_scheduled_jobs_and_erasure` | —        | Production is installed with them (step 8); no production upgrade crosses them.                                                                                                                                                                                                                                                                                               |
+| `20260930090000_m95_a10_erase_media_description`                                       | restore  | Production is installed with it too; it matters to an install older than it (the A8 rehearsal). It erases the description of every photograph already erased, irreversibly. The previous release's database client treats a description as never empty, and its erasure job leaves the description in place, which the migration's new check refuses. Rehearsed twice (18.2). |
 
 ### 18.4 An install made before release directories (staging)
 
 An install from the A7 runbook has `/srv/clinic` as a directory. Once, before its
-first upgrade, turn it into the live release — a stop of about ten seconds:
+first upgrade, turn it into the live release — a stop of a few seconds (1.3 s in
+the rehearsal):
 
 ```bash
 C=<the commit it runs> && sudo install -d -o clinic-build -g clinic-build -m 0755 /srv/clinic-releases && sudo systemctl stop clinic-web clinic-api && sudo mv /srv/clinic /srv/clinic-releases/$C && sudo ln -s /srv/clinic-releases/$C /srv/clinic && sudo systemctl start clinic-api && sudo systemctl start clinic-web

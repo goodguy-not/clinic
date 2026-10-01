@@ -6242,7 +6242,40 @@ creditToman }` (the account's own derivation, read after the family row is locke
   the server peaks at 1.6 GiB.
 - **Trade-off:** the web is built on the server, so an upgrade needs the build's memory and a
   short web outage; nginx works around a web-tier redirect defect (`proxy_redirect`) until
-  Agent B removes it (A7 §5, B1).
+  Agent B removes it (A7 §5, B1). _Superseded in part (2026-10-02, M10-B12/A8): the web
+  now redirects to a path; the `proxy_redirect` workaround is withdrawn from every nginx
+  config and instruction._
 - **Revisit when:** the API's resident memory passes 1.5 GiB, the backup directory passes
   half the disk, the chosen provider offers only another Ubuntu release, or upgrades become
   frequent enough to want building elsewhere and shipping the build.
+
+## 2026-10-02 — Releases side by side; a migration is undone by restoring, never by a down script
+
+**Status:** Accepted — Agent A, Milestone 10 A8 (upgrade and rollback rehearsal)
+
+- **Decision:** each release is installed in `/srv/clinic-releases/<commit>` and
+  `/srv/clinic` is a root-owned link to the live one. An upgrade builds the next release
+  beside the live one while the site works, closes the site, migrates, moves the link and
+  reopens; the previous release stays built until a later upgrade, so a code rollback is
+  moving the link back. Migrations have no down scripts: each is classed **code** (purely
+  additive, the previous release runs on it) or **restore** (anything else), in the
+  runbook's register (step 18.3). Before a migration the site closes, a backup is taken and
+  **proven by a restore on the server** (`scripts/ops/restore-on-server.sh`) before
+  anything changes; going back from a **restore** migration sets the upgraded database and
+  media aside (renamed, never deleted) and restores that backup.
+- **Alternatives:** in-place extraction (B12's web-only upgrade: no previous release left to
+  go back to); hand-written down migrations (on tables guarded by immutability triggers,
+  written for a case that may never come and never rehearsed); a database copy by
+  `CREATE DATABASE … TEMPLATE` before migrating (seconds, no owner key, but a second recovery
+  path the drill does not prove, and it loses the database's own grants).
+- **Reason:** the one recovery path is the one every drill and this rehearsal exercise
+  (`docs/M10_A8_UPGRADE_REHEARSAL.md`: two restore rollbacks, one code rollback); measured
+  downtime is seconds for code, under a minute with migrations at rehearsal size.
+- **Trade-off:** a restore rollback loses what was entered on the new release from the
+  live system (kept set aside, listed from its audit history for re-entry), so migration
+  upgrades are done outside clinic hours and decided on before the clinic opens; the
+  owner's private backup key must be on the server for the upgrade's duration; each kept
+  release costs 0.3–0.5 GB.
+- **Revisit when:** a migration must be applied while the clinic works, the restore of a
+  real backup takes more than a few minutes, or the owner cannot be present for upgrades
+  with migrations.
