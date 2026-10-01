@@ -104,5 +104,24 @@ wsl --unregister clinic-staging
 That cannot be undone, and nothing else on the computer is affected. Then
 delete the empty folder `E:\wsl` if it is still there.
 
-If the backup collector was installed on this computer for the rehearsal, remove
-it as well — see the checkpoint report for the exact steps.
+## Removing the backup collector
+
+For the rehearsal, this computer also played the clinic computer: a scheduled
+task fetches the staging backups every hour. Remove it when staging goes, in
+**PowerShell as Administrator** — first the task, then its key and settings,
+then the copies it collected (invented data, encrypted):
+
+```powershell
+Unregister-ScheduledTask -TaskName 'Clinic backup collector' -Confirm:$false
+```
+
+```powershell
+Remove-Item -LiteralPath "$env:ProgramDataClinicBackupCollector" -Recurse -Force
+```
+
+```powershell
+Remove-Item -LiteralPath 'C:ClinicBackups' -Recurse -Force
+```
+
+Until then it is harmless: while staging is off it finds nothing to fetch and
+writes one line to its log.

@@ -36,21 +36,22 @@ All through nginx and HTTPS, as a browser would. The built-in browser pane
 refuses `localhost`, so the browser's own requests were made by scripts: the
 same pages, the same route handlers, the same cookies and CSRF tokens.
 
-| Check                                                                 | Result                                                                                                                  |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `GET /health/ready`                                                   | `{"status":"ok","checks":{"database":"ok","media":"ok"}}`                                                               |
-| Every public page by name (12, incl. one service, therapist, article) | 200, each carrying «نمونه»; `/no-such-page` 404                                                                         |
-| `robots.txt`, `sitemap.xml`                                           | `Disallow: /`; 18 URLs on `https://clinic-staging.test`; both `noindex`                                                 |
-| `verify-site.mjs` (README, Restoring, step 8)                         | `SITE VERIFIED`: public pages, 173 published renditions served, manager sign-in, dashboard, sign-out                    |
-| Manager sign-in                                                       | 303 → `/dashboard` (after the §4, 22 fix; before it, `https://localhost:3000/dashboard`)                                |
-| Receptionist first sign-in                                            | 303 → `/change-password`; change → `/dashboard`; dashboard, families, diary 200                                         |
-| Receptionist on manager pages                                         | `/staff` 307 → `/dashboard`; reports and settlements stream a redirect to `/dashboard`, no money in the page (§5, B2)   |
-| Photo upload and publish (12 MP, 5.95 MiB)                            | upload 201 in 6.8 s (12 renditions), draft-attach 201, publish 303; `/about` shows it; rendition served as `image/webp` |
-| One backup                                                            | `BACKUP COMPLETE`, 242 then 268 media files checked by hash, 3.4 then 13.6 MiB archive                                  |
-| One nightly-jobs run                                                  | four `SUCCEEDED` lines                                                                                                  |
-| Collector, server side (throwaway key)                                | `list`, `get`, `ack` answered; a shell and a path name refused; cannot read media or write backups                      |
-| Timers                                                                | backup 02:30 and jobs 04:15 Tehran (UTC 23:00 and 00:45 + random delay)                                                 |
-| Firewall                                                              | from outside the server: 443 answers, 3000 and 3001 do not                                                              |
+| Check                                                                 | Result                                                                                                                                                           |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health/ready`                                                   | `{"status":"ok","checks":{"database":"ok","media":"ok"}}`                                                                                                        |
+| Every public page by name (12, incl. one service, therapist, article) | 200, each carrying «نمونه»; `/no-such-page` 404                                                                                                                  |
+| `robots.txt`, `sitemap.xml`                                           | `Disallow: /`; 18 URLs on `https://clinic-staging.test`; both `noindex`                                                                                          |
+| `verify-site.mjs` (README, Restoring, step 8)                         | `SITE VERIFIED`: public pages, 173 published renditions served, manager sign-in, dashboard, sign-out                                                             |
+| Manager sign-in                                                       | 303 → `/dashboard` (after the §4, 22 fix; before it, `https://localhost:3000/dashboard`)                                                                         |
+| Receptionist first sign-in                                            | 303 → `/change-password`; change → `/dashboard`; dashboard, families, diary 200                                                                                  |
+| Receptionist on manager pages                                         | `/staff` 307 → `/dashboard`; reports and settlements stream a redirect to `/dashboard`, no money in the page (§5, B2)                                            |
+| Photo upload and publish (12 MP, 5.95 MiB)                            | upload 201 in 6.8 s (12 renditions), draft-attach 201, publish 303; `/about` shows it; rendition served as `image/webp`                                          |
+| One backup                                                            | `BACKUP COMPLETE`, 242 then 268 media files checked by hash, 3.4 then 13.6 MiB archive                                                                           |
+| One nightly-jobs run                                                  | four `SUCCEEDED` lines                                                                                                                                           |
+| Collector on Windows 11 (owner approved), scheduled task as SYSTEM    | after two installer fixes (§4, 25–26): both staging archives collected, SHA-256 checked; backup status `NEVER_COLLECTED` (dashboard warning) → `OK` (no warning) |
+| Collector, server side (throwaway key)                                | `list`, `get`, `ack` answered; a shell and a path name refused; cannot read media or write backups                                                               |
+| Timers                                                                | backup 02:30 and jobs 04:15 Tehran (UTC 23:00 and 00:45 + random delay)                                                                                          |
+| Firewall                                                              | from outside the server: 443 answers, 3000 and 3001 do not                                                                                                       |
 
 ## 3. Resources
 
@@ -160,6 +161,19 @@ way, each fixed in the runbook, a unit, the nginx template or the README:
 24. (measurement) No swap, and the web build is the largest memory moment — a
     2 GB swap file in step 1.
 
+25. (collector, on Windows 11) The installer pinned the host key with Windows'
+    `ssh-keyscan` (OpenSSH_for_Windows 9.5p2), which cannot negotiate with Ubuntu
+    24.04's sshd ("unsupported KEX method sntrup761x25519") and returned nothing; the
+    script then failed with a misleading message. It now has `ssh` record the key with
+    every authentication method off, and checks the fingerprint as before (right one
+    accepted, wrong one refused — both tried).
+26. (collector, the first real scheduled run) Windows OpenSSH ignored the collector's
+    key as an "UNPROTECTED PRIVATE KEY FILE": `ssh-keygen` had made the installing
+    administrator its owner with access, and the task runs as SYSTEM. Every install
+    would have collected nothing. The installer now resets the key to SYSTEM's
+    ownership with SYSTEM and Administrators access only. The drill could catch
+    neither: it runs the collector as a normal user over a stand-in for SSH.
+
 ## 5. For Agent B (web tier)
 
 **B1 — redirects carry Next.js's own port behind a proxy. Needed before go-live.**
@@ -194,7 +208,12 @@ what happened.
   is prepared for it (certificate and allowed origin include `192.168.2.46`);
   the Windows side was not made and is untested. No router change and no
   internet exposure.
-- **Collector:** see the checkpoint report.
+- **Collector:** installed on the owner's Windows 11 with his permission, as the
+  clinic computer, against `127.0.0.1:2222`. The hourly trigger fired on its own at
+  23:00 and failed (§4, 26); after the fix a run collected both staging backups
+  into `C:ClinicBackups`, and the manager's backup status went from
+  `NEVER_COLLECTED`, with the dashboard warning, to `OK` with none. Removal:
+  `docs/STAGING_OWNER_NOTES.md`.
 
 ## 7. Decisions and assumptions
 

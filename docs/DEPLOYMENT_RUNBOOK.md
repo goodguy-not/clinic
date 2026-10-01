@@ -499,7 +499,7 @@ page. Synthetic data only; it never leaves the computer.
 | 10   | after the first manager: the practice clinic (README, The practice clinic), and the sample public content                                                          |
 | 12   | a self-signed certificate (90 days, not a CA) for `clinic-staging.test`, `localhost`, `127.0.0.1`; no HSTS line; `scripts/ops/nginx/staging-noindex.conf` included |
 | 13   | the "owner's key" is a throwaway made for staging                                                                                                                  |
-| 15   | the collector connects to `localhost:2222`                                                                                                                         |
+| 15   | the collector connects to `127.0.0.1:2222` (`-Server 127.0.0.1 -Port 2222`)                                                                                        |
 
 `.test` is reserved and never resolves on the internet, so canonical links and
 the sitemap cannot point at a real site; the browser opens `https://localhost`.
