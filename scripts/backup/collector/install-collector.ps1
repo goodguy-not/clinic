@@ -39,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
 
-foreach ($tool in 'ssh', 'ssh-keygen', 'ssh-keyscan') {
+foreach ($tool in 'ssh', 'ssh-keygen') {
   if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
     throw "$tool not found. Enable the Windows 'OpenSSH Client' optional feature first."
   }
@@ -61,12 +61,25 @@ if (-not (Test-Path -LiteralPath $key)) {
 }
 
 # --- the server's host key, pinned, never trusted on first sight -----------------
+# Read with ssh itself, not ssh-keyscan: the ssh-keyscan shipped with Windows
+# (OpenSSH_for_Windows 9.5) proposes a key exchange it cannot perform and gets
+# nothing from an Ubuntu 24.04 server ("unsupported KEX method sntrup761...",
+# M10-A7). No authentication is attempted; ssh only records the key it was
+# shown, and that key is then checked against the fingerprint read off the
+# server before anything else is set up.
 $scanned = Join-Path $installDir 'known_hosts.scan'
-# ssh-keyscan reports progress on stderr, which Windows PowerShell turns into a
-# terminating error under 'Stop'; only its stdout, the key, is wanted.
+Remove-Item -LiteralPath $scanned -Force -ErrorAction SilentlyContinue
+# ssh reports on stderr, which Windows PowerShell turns into a terminating error
+# under 'Stop'; the connection is expected to end unauthenticated.
 $ErrorActionPreference = 'Continue'
-& ssh-keyscan -p $Port -t ed25519 $Server 2> $null | Set-Content -LiteralPath $scanned -Encoding ASCII
+& ssh -p $Port -o BatchMode=yes -o StrictHostKeyChecking=accept-new `
+  -o "UserKnownHostsFile=$scanned" -o GlobalKnownHostsFile=NUL -o HostKeyAlgorithms=ssh-ed25519 `
+  -o PubkeyAuthentication=no -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no `
+  -o ConnectTimeout=15 "$User@$Server" exit 2>&1 | Out-Null
 $ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $scanned)) {
+  throw "No host key could be read from ${Server}:$Port. Nothing was set up; check the server address, the port and that SSH is running there."
+}
 $seen = (& ssh-keygen -l -f $scanned) -split ' ' | Select-Object -Index 1
 if ($seen -ne $HostKeyFingerprint) {
   Remove-Item -LiteralPath $scanned -Force
