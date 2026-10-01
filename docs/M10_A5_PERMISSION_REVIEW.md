@@ -110,6 +110,9 @@ what the clinic wants day to day.
    Options: block deactivation while a balance or future booking exists; make it manager-only;
    or include inactive families with a balance in the default report. _Money visibility —
    recommended to decide before go-live._
+   **Decided and implemented in M10-A6:** inactive families holding money are always in the
+   default report and file, marked inactive; deactivating one needs an acknowledged amount
+   (DECISION_LOG, 2026-10-01; `docs/M10_A6_WEB_HANDOFF.md`).
 2. **A receptionist cannot record a parent's withdrawal of testimonial consent.** It is behind
    `testimonial.approve` (manager). The withdrawal usually arrives by phone at the desk and
    starts the seven-day erasure clock. Option: a separate "record withdrawal" authority for the

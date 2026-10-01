@@ -6190,3 +6190,35 @@ day; (4) every discount, including a standing one, needs the manager; (5) a ther
 off can only be entered by the manager; (6) a missing price blocks charging until the manager
 adds it; (7) the receptionist's end-of-day check covers only their own entries; (8) backup and
 job status reuse `user.read`. (1) affects money visibility and is recommended before go-live.
+
+## 2026-10-01 — Money never disappears from a report because of a family's status
+
+**Status:** Accepted — owner decision (A5 finding 1); implemented by Agent A, Milestone 10 A6
+
+Owner: money must never disappear from a report because of a family's status. A receptionist
+may still deactivate a family, but not silently while it owes money or holds credit.
+
+- **Reports:** the family-accounts report and its CSV list, by default, every active family
+  **and** every inactive family whose derived position is non-zero (amount due or credit). Each
+  row carries `family.status`; the file carries it in a column beside the name.
+  `includeInactive=true` now adds only inactive families standing at zero, so the two sums and
+  the owing/in-credit counts are identical with and without it. Every other money summary was
+  checked and already ignores family status (list in `docs/M10_A6_WEB_HANDOFF.md`).
+- **Deactivation:** `PATCH /families/:id/status` to `INACTIVE` on a family with a non-zero
+  position is refused `409 FAMILY_BALANCE_UNACKNOWLEDGED`, details `{ amountDueToman,
+creditToman }` (the account's own derivation, read after the family row is locked). The
+  caller resends with `acknowledgedBalance` equal to those figures; a mismatch (the balance
+  moved) is refused again with the new figures. Success writes `family.status_changed` and
+  `family.deactivated_with_balance` (metadata: the two amounts). A zero-balance family is
+  unchanged. Same route, same permission (`family.update_status`, both roles).
+- **Alternatives:** block deactivation outright while a balance exists (the owner chose
+  acknowledgement); make deactivation manager-only (more desk friction, does not fix the
+  report); show inactive families always (lists settled families nobody needs).
+- **Reason:** the report rule is the guarantee — it holds whatever happens after deactivation
+  (a later void can create a balance on an inactive family); the acknowledgement is the warning
+  in front of it, and an amount the person saw is the only thing worth auditing.
+- **Trade-off:** a void or concession does not lock the family row, so it can change the
+  balance between the read and the commit of a deactivation; the acknowledgement then records
+  the amount as read. The family stays visible either way and the void is audited on its own.
+- **Revisit when:** the clinic wants inactive families with open promises or future bookings
+  treated the same way, or the family search (which carries no money) to surface them.
