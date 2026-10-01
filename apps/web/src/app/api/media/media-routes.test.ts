@@ -123,7 +123,7 @@ describe('media archive route', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(invalidateMediaArchive).toHaveBeenCalledOnce();
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?success=archived`);
+    expect(response.headers.get('location')).toBe(`/media?success=archived`);
   });
 
   it('restores an asset without implicitly publishing any attachment', async () => {
@@ -136,7 +136,7 @@ describe('media archive route', () => {
       { archived: false },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?success=restored`);
+    expect(response.headers.get('location')).toBe(`/media?success=restored`);
   });
 });
 
@@ -443,7 +443,7 @@ describe('attachment and framing routes', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/spaces/${spaceId}/edit?success=space-photo-published`,
+      `/content/spaces/${spaceId}/edit?success=space-photo-published`,
     );
     expect(invalidateMediaPublication).toHaveBeenCalledWith(
       expect.objectContaining({ attachmentId: ATTACHMENT_ID, ownerType: 'CLINIC_SPACE' }),
@@ -466,7 +466,7 @@ describe('attachment and framing routes', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/services/${serviceId}?success=service-image-published`,
+      `/content/services/${serviceId}?success=service-image-published`,
     );
   });
 
@@ -486,7 +486,7 @@ describe('attachment and framing routes', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/articles/${articleId}/edit?success=article-image-published`,
+      `/content/articles/${articleId}/edit?success=article-image-published`,
     );
   });
 
@@ -506,7 +506,7 @@ describe('attachment and framing routes', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/testimonials/${testimonialId}/edit?success=testimonial-image-published`,
+      `/content/testimonials/${testimonialId}/edit?success=testimonial-image-published`,
     );
   });
 });
@@ -528,7 +528,7 @@ describe('photo description correction route', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/articles/${articleId}/edit?success=photo-description-corrected`,
+      `/content/articles/${articleId}/edit?success=photo-description-corrected`,
     );
     expect(invalidateMediaPublication).not.toHaveBeenCalled();
   });
@@ -581,9 +581,7 @@ describe('photo description correction route', () => {
       }),
     );
 
-    expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/media?error=MEDIA_ALT_TEXT_MANAGER_REQUIRED`,
-    );
+    expect(response.headers.get('location')).toBe(`/media?error=MEDIA_ALT_TEXT_MANAGER_REQUIRED`);
   });
 
   it('refuses an invalid description before calling NestJS with photo-specific wording', async () => {
@@ -595,7 +593,7 @@ describe('photo description correction route', () => {
       }),
     );
 
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/media?error=MEDIA_ALT_TEXT_INVALID`);
+    expect(response.headers.get('location')).toBe(`/media?error=MEDIA_ALT_TEXT_INVALID`);
     expect(mocks.updateMediaAltText).not.toHaveBeenCalled();
   });
 });

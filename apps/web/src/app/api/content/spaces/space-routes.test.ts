@@ -75,7 +75,7 @@ describe('public-space draft handlers', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/spaces/${SPACE_ID}/edit?success=space-created`,
+      `/content/spaces/${SPACE_ID}/edit?success=space-created`,
     );
   });
 
@@ -122,7 +122,7 @@ describe('public-space manager authority handler', () => {
       request('/api/content/spaces/publication', { id: SPACE_ID, isPublic: 'true' }),
     );
 
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/content/spaces?error=AUTH_FORBIDDEN`);
+    expect(response.headers.get('location')).toBe(`/content/spaces?error=AUTH_FORBIDDEN`);
   });
 
   it('rejects malformed authority values before calling the API', async () => {

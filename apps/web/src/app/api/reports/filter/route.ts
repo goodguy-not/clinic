@@ -13,7 +13,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { jalaliToIsoDate } from '@/server/jalali';
-import { applySecurityHeaders } from '@/server/security-headers';
+import { relativeRedirect } from '@/server/security-headers';
 
 export const runtime = 'nodejs';
 
@@ -51,14 +51,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       pageSize: 25,
       ...pick(body, ['standing', 'includeInactive']),
     });
-    if (!parsed.success)
-      return applySecurityHeaders(NextResponse.redirect(new URL(base, request.url), 303));
-    return redirectToReport(request, base, parsed.data);
+    if (!parsed.success) return relativeRedirect(base as `/${string}`);
+    return redirectToReport(base, parsed.data);
   }
   const from = date(body, 'from');
   const to = date(body, 'to');
-  if (from === null || to === null)
-    return applySecurityHeaders(NextResponse.redirect(new URL(base, request.url), 303));
+  if (from === null || to === null) return relativeRedirect(base as `/${string}`);
 
   const common = { from, to };
   const parsed =
@@ -95,16 +93,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               ...common,
               ...pick(body, ['therapistId', 'serviceId', 'includeInactive']),
             });
-  if (!parsed.success)
-    return applySecurityHeaders(NextResponse.redirect(new URL(base, request.url), 303));
+  if (!parsed.success) return relativeRedirect(base as `/${string}`);
 
-  return redirectToReport(request, base, parsed.data);
+  return redirectToReport(base, parsed.data);
 }
 
-function redirectToReport(request: NextRequest, base: string, query: object): NextResponse {
-  const target = new URL(base, request.url);
+function redirectToReport(base: string, query: object): NextResponse {
+  const target = new URL(base, 'https://unused.invalid');
   for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value));
-  return applySecurityHeaders(NextResponse.redirect(target, 303));
+  return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
 }
 
 function pick(body: Record<string, string>, keys: string[]): Record<string, string> {

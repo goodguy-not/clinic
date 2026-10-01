@@ -35,7 +35,7 @@ describe('first visit', () => {
     const response = proxy(get());
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe('http://localhost:3000/login');
+    expect(response.headers.get('location')).toBe('/login');
     expect(setCookieNames(response)).toEqual([DEV.csrf.name]);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
@@ -98,14 +98,14 @@ describe('open redirect', () => {
 
     // Rebuilt from this application's own origin and the literal path. There is
     // nothing an attacker can steer.
-    expect(response.headers.get('location')).toBe('http://localhost:3000/login');
+    expect(response.headers.get('location')).toBe('/login');
   });
 
   it('never redirects to a foreign origin even if the request claims one', () => {
     const response = proxy(get('http://localhost:3000/login', {}, { host: 'evil.test' }));
     const location = response.headers.get('location') as string;
 
-    expect(new URL(location).origin).toBe('http://localhost:3000');
+    expect(new URL(location, 'https://public.example').origin).toBe('https://public.example');
   });
 });
 

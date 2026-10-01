@@ -63,7 +63,7 @@ describe('POST /api/ledger/adjustments/void', () => {
     );
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/families/${FAMILY_ID}/account?success=adjustment-voided`,
+      `/families/${FAMILY_ID}/account?success=adjustment-voided`,
     );
   });
 });

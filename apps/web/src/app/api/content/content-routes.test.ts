@@ -120,7 +120,7 @@ describe('content draft handlers', () => {
       },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/content/articles/${ARTICLE_ID}/edit`);
+    expect(response.headers.get('location')).toBe(`/content/articles/${ARTICLE_ID}/edit`);
   });
 
   it('constructs testimonial drafts without accepting approval or publication flags', async () => {
@@ -139,7 +139,7 @@ describe('content draft handlers', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-created`,
+      `/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-created`,
     );
   });
 
@@ -173,7 +173,7 @@ describe('content draft handlers', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(testimonialResponse.headers.get('location')).toBe(
-      `${ORIGIN}/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-updated`,
+      `/content/testimonials/${TESTIMONIAL_ID}/edit?success=testimonial-updated`,
     );
     expect(invalidations.article).not.toHaveBeenCalled();
     expect(invalidations.testimonials).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe('content draft handlers', () => {
     );
 
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/testimonials/new?error=VALIDATION_FAILED`,
+      `/content/testimonials/new?error=VALIDATION_FAILED`,
     );
     expect(mocks.createTestimonial).not.toHaveBeenCalled();
   });
@@ -240,8 +240,8 @@ describe('manager authority handlers', () => {
       request('/api/content/testimonials/approval', { id: TESTIMONIAL_ID, approved: 'true' }),
     );
 
-    expect(article.headers.get('location')).toBe(`${ORIGIN}/content?error=AUTH_FORBIDDEN`);
-    expect(testimonial.headers.get('location')).toBe(`${ORIGIN}/content?error=AUTH_FORBIDDEN`);
+    expect(article.headers.get('location')).toBe(`/content?error=AUTH_FORBIDDEN`);
+    expect(testimonial.headers.get('location')).toBe(`/content?error=AUTH_FORBIDDEN`);
   });
 
   it('rejects bad origin and malformed authority values before calling the API', async () => {

@@ -48,7 +48,7 @@ describe('family status BFF', () => {
       details: balance,
     });
     const response = await POST(request({}));
-    const target = new URL(response.headers.get('location') as string);
+    const target = new URL(response.headers.get('location') as string, ORIGIN);
 
     expect(mocks.changeFamilyStatus).toHaveBeenCalledWith(
       ID,
@@ -74,7 +74,7 @@ describe('family status BFF', () => {
       { status: 'INACTIVE', acknowledgedBalance: { amountDueToman: '1250000', creditToman: '0' } },
       { sessionToken: SESSION_TOKEN },
     );
-    const target = new URL(response.headers.get('location') as string);
+    const target = new URL(response.headers.get('location') as string, ORIGIN);
     expect(target.searchParams.get('balanceDue')).toBe(changed.amountDueToman);
   });
 
@@ -86,6 +86,8 @@ describe('family status BFF', () => {
       { status: 'INACTIVE' },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(new URL(response.headers.get('location') as string).pathname).toBe(`/families/${ID}`);
+    expect(new URL(response.headers.get('location') as string, ORIGIN).pathname).toBe(
+      `/families/${ID}`,
+    );
   });
 });

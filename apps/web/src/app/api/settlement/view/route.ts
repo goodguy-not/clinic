@@ -7,7 +7,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { jalaliToIsoDate } from '@/server/jalali';
-import { applySecurityHeaders } from '@/server/security-headers';
+import { relativeRedirect } from '@/server/security-headers';
 import { settlementReturnPath } from '@/server/settlement-forms';
 
 export const runtime = 'nodejs';
@@ -36,5 +36,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const target = parsed.success
     ? settlementReturnPath(parsed.data.therapistId, parsed.data.from, parsed.data.to)
     : '/settlements?error=VALIDATION_FAILED';
-  return applySecurityHeaders(NextResponse.redirect(new URL(target, request.url), 303));
+  return relativeRedirect(target as `/${string}`);
 }

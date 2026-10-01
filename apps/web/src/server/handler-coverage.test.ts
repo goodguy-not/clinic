@@ -229,6 +229,7 @@ describe('every state-changing handler is protected', () => {
     (_path, handler) => {
       const applies =
         handler.source.includes('secureRedirect') ||
+        handler.source.includes('relativeRedirect') ||
         handler.source.includes('applySecurityHeaders') ||
         handler.source.includes('temporaryPasswordResponse') ||
         handler.source.includes('failureRedirect');

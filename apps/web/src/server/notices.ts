@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { NOTICE_CODES, type NoticeCode } from '@clinic/contracts';
-import { applySecurityHeaders } from './security-headers';
+import { relativeRedirect } from './security-headers';
 
 /**
  * Informational outcomes of a write that succeeded.
@@ -53,16 +53,16 @@ export function persianNotice(code: NoticeCode): string {
  * would be a small step towards putting content there.
  */
 export function noticeRedirect(
-  request: NextRequest,
+  _request: NextRequest,
   path: `/${string}`,
   notices: readonly NoticeCode[],
 ): NextResponse {
-  const target = new URL(path, new URL(request.url).origin);
+  const target = new URL(path, 'https://unused.invalid');
   const first = notices[0];
 
   if (first !== undefined) target.searchParams.set('notice', first);
 
-  return applySecurityHeaders(NextResponse.redirect(target, 303));
+  return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
 }
 
 /** Exposed so the coverage test can assert against the contract's own list. */

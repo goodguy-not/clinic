@@ -85,9 +85,7 @@ describe('clinic content entry handler', () => {
       },
       { sessionToken: SESSION_TOKEN },
     );
-    expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/clinic-profile?success=entry-saved`,
-    );
+    expect(response.headers.get('location')).toBe(`/content/clinic-profile?success=entry-saved`);
   });
 
   it('preserves an authoritative backend refusal', async () => {
@@ -107,9 +105,7 @@ describe('clinic content entry handler', () => {
       }),
     );
 
-    expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/clinic-profile?error=AUTH_FORBIDDEN`,
-    );
+    expect(response.headers.get('location')).toBe(`/content/clinic-profile?error=AUTH_FORBIDDEN`);
   });
 });
 
@@ -129,7 +125,7 @@ describe('clinic image publication handler', () => {
       { sessionToken: SESSION_TOKEN },
     );
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/clinic-profile?success=image-published`,
+      `/content/clinic-profile?success=image-published`,
     );
   });
 
@@ -143,7 +139,7 @@ describe('clinic image publication handler', () => {
     );
 
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/content/clinic-profile?error=VALIDATION_FAILED`,
+      `/content/clinic-profile?error=VALIDATION_FAILED`,
     );
     expect(mocks.updateMediaPublication).not.toHaveBeenCalled();
   });

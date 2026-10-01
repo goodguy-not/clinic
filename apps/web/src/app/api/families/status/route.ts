@@ -8,7 +8,7 @@ import {
   readBody,
   sessionTokenFrom,
 } from '@/server/handler-support';
-import { applySecurityHeaders, secureRedirect } from '@/server/security-headers';
+import { relativeRedirect, secureRedirect } from '@/server/security-headers';
 
 export const runtime = 'nodejs';
 
@@ -54,10 +54,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (result.code === 'FAMILY_BALANCE_UNACKNOWLEDGED') {
       const balance = familyBalanceSchema.safeParse(result.details);
       if (balance.success) {
-        const target = new URL(`/families/${encodeURIComponent(id)}`, request.url);
+        const target = new URL(`/families/${encodeURIComponent(id)}`, 'https://unused.invalid');
         target.searchParams.set('balanceDue', balance.data.amountDueToman);
         target.searchParams.set('balanceCredit', balance.data.creditToman);
-        return applySecurityHeaders(NextResponse.redirect(target, 303));
+        return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
       }
     }
     return failureRedirect(request, `/families/${id}`, result.code);

@@ -92,7 +92,7 @@ describe('POST /api/auth/login', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/dashboard`);
+    expect(response.headers.get('location')).toBe(`/dashboard`);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 
@@ -163,7 +163,7 @@ describe('POST /api/auth/login', () => {
       }),
     );
 
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/change-password`);
+    expect(response.headers.get('location')).toBe(`/change-password`);
   });
 
   it.each([
@@ -231,7 +231,7 @@ describe('POST /api/auth/login', () => {
       }),
     );
 
-    const location = new URL(response.headers.get('location') as string);
+    const location = new URL(response.headers.get('location') as string, ORIGIN);
     expect(location.pathname).toBe('/login');
     expect(location.searchParams.get('error')).toBe('AUTH_INVALID_CREDENTIALS');
     expect(setCookieNames(response)).toEqual([]);
@@ -249,9 +249,9 @@ describe('POST /api/auth/login', () => {
 
     // Strict contract parsing, but the same generic code: the interface must not
     // reintroduce a distinction the API removed.
-    expect(new URL(response.headers.get('location') as string).searchParams.get('error')).toBe(
-      'AUTH_INVALID_CREDENTIALS',
-    );
+    expect(
+      new URL(response.headers.get('location') as string, ORIGIN).searchParams.get('error'),
+    ).toBe('AUTH_INVALID_CREDENTIALS');
   });
 
   it('never puts a token in the redirect', async () => {
@@ -268,7 +268,7 @@ describe('POST /api/auth/login', () => {
     const location = response.headers.get('location') as string;
     expect(location).not.toContain(SESSION_TOKEN);
     expect(location).not.toContain(token);
-    expect(new URL(location).search).toBe('');
+    expect(new URL(location, ORIGIN).search).toBe('');
   });
 });
 
@@ -288,7 +288,7 @@ describe('POST /api/auth/logout', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/login`);
+    expect(response.headers.get('location')).toBe(`/login`);
 
     const raw = rawSetCookies(response);
     expect(raw).toHaveLength(2);
@@ -341,7 +341,7 @@ describe('/api/auth/session-reset', () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/login`);
+    expect(response.headers.get('location')).toBe(`/login`);
 
     const raw = rawSetCookies(response);
     expect(raw).toHaveLength(2);
@@ -355,7 +355,7 @@ describe('/api/auth/session-reset', () => {
     const response = await sessionResetPost(post('/api/auth/session-reset'));
 
     expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/login`);
+    expect(response.headers.get('location')).toBe(`/login`);
   });
 
   it('requires no CSRF token — the documented exemption', async () => {
@@ -385,7 +385,7 @@ describe('/api/auth/session-reset', () => {
 
     const response = await sessionResetPost(request);
 
-    expect(response.headers.get('location')).toBe(`${ORIGIN}/login`);
+    expect(response.headers.get('location')).toBe(`/login`);
   });
 
   it('makes no call to NestJS', async () => {
