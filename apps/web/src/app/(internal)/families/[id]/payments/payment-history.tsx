@@ -16,6 +16,7 @@ const PERSIAN_INSTANT = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-arabext',
   timeZone: 'Asia/Tehran',
   dateStyle: 'medium',
   timeStyle: 'short',
+  hourCycle: 'h23',
 });
 
 export function buildPaymentsHref(familyId: string, query: PaymentListQuery, page: number): string {

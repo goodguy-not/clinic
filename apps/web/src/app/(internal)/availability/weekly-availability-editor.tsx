@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { AVAILABILITY_WINDOWS_MAX, type AvailabilityWindowInput } from '@clinic/contracts';
 import { FOCUS_RING } from '@/components/styles';
+import { TimeInput } from '@/components/time-input';
 import { WEEKDAYS_FA, windowsOverlap } from '@/scheduling/availability-presentation';
 
 type EditorWindow = AvailabilityWindowInput & { key: string };
@@ -132,16 +133,12 @@ export function WeeklyAvailabilityEditor({
                           className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600"
                         >
                           {labels.startTime}
-                          <input
+                          <TimeInput
                             id={startId}
                             name="startTime"
-                            type="time"
-                            step="60"
                             required
                             value={window.startTime}
-                            onChange={(event) =>
-                              updateWindow(window.key, 'startTime', event.target.value)
-                            }
+                            onChange={(value) => updateWindow(window.key, 'startTime', value)}
                             className={TIME_CLASS}
                           />
                         </label>
@@ -150,16 +147,12 @@ export function WeeklyAvailabilityEditor({
                           className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600"
                         >
                           {labels.endTime}
-                          <input
+                          <TimeInput
                             id={endId}
                             name="endTime"
-                            type="time"
-                            step="60"
                             required
                             value={window.endTime}
-                            onChange={(event) =>
-                              updateWindow(window.key, 'endTime', event.target.value)
-                            }
+                            onChange={(value) => updateWindow(window.key, 'endTime', value)}
                             className={TIME_CLASS}
                           />
                         </label>

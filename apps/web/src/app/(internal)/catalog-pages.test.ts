@@ -283,9 +283,18 @@ describe('room form', () => {
     expect(markup).toMatch(new RegExp(`value="${SERVICE.id}"[^>]*selected`));
   });
 
-  it('offers a multiple select so several services can be chosen', () => {
-    expect(createMarkup).toContain('multiple');
-    expect(createMarkup).toContain('name="serviceIds"');
+  it('shows allowed services only for a restricted room', () => {
+    expect(createMarkup).not.toContain('name="serviceIds"');
+    const editMarkup = renderToStaticMarkup(
+      createElement(RoomForm, {
+        room: { ...ROOM, allowedServiceIds: [SERVICE.id] },
+        services: [SERVICE],
+        csrfToken: CSRF,
+        errorMessage: null,
+      }),
+    );
+    expect(editMarkup).toContain('multiple');
+    expect(editMarkup).toContain('name="serviceIds"');
   });
 
   it('explains itself when there is no service to restrict to', () => {
@@ -293,7 +302,7 @@ describe('room form', () => {
       createElement(RoomForm, { services: [], csrfToken: CSRF, errorMessage: null }),
     );
 
-    expect(markup).toContain('هنوز خدمتی ثبت نشده است');
+    expect(markup).not.toContain('هنوز خدمتی ثبت نشده است');
     expect(markup).not.toContain('name="serviceIds"');
   });
 

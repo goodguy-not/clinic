@@ -9,6 +9,7 @@ import {
   SubmitButton,
 } from '@/components/ui';
 import { COPY } from '@/server/copy-fa';
+import { TimeInput } from '@/components/time-input';
 import { isoDateToJalali } from '@/server/jalali';
 import { toPersianDigits } from '@/server/numerals-fa';
 import { appointmentInstantInClinic } from '@/scheduling/appointment-presentation';
@@ -71,15 +72,12 @@ export function AppointmentMoveForm({
           />
           <Field id="appointment-start-time" label={COPY.appointmentStartTime} required>
             {({ id, className }) => (
-              <input
+              <TimeInput
                 id={id}
                 name="startTime"
-                type="time"
-                step={60}
                 required
                 defaultValue={current?.time ?? ''}
                 className={className}
-                dir="ltr"
               />
             )}
           </Field>

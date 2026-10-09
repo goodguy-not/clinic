@@ -9,6 +9,7 @@ import {
   Panel,
 } from '@/components/ui';
 import { CONTROL_CLASS } from '@/components/styles';
+import { TimeInput } from '@/components/time-input';
 import { persianMessage } from '@/server/errors-fa';
 import { toPersianDigits } from '@/server/numerals-fa';
 import { appointmentTimeLabel } from '@/scheduling/appointment-presentation';
@@ -352,11 +353,9 @@ export function BookingPanel({
           <DateFields prefix="date" label="تاریخ اولین جلسه" intent={state.intent} />
           <Field id="start-time" label="ساعت شروع" required>
             {({ id, className }) => (
-              <input
+              <TimeInput
                 id={id}
                 name="startTime"
-                type="time"
-                step="60"
                 required
                 defaultValue={state.intent['startTime'] ?? ''}
                 className={className}

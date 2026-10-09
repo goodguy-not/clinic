@@ -14,10 +14,12 @@ import {
   SubmitButton,
 } from '@/components/ui';
 import { CONTROL_CLASS } from '@/components/styles';
+import { TimeInput } from '@/components/time-input';
 import { COPY } from '@/server/copy-fa';
 import { isoDateToJalali, JALALI_MONTHS, type JalaliParts } from '@/server/jalali';
 import { toPersianDigits } from '@/server/numerals-fa';
 import { WEEKDAYS_FA } from '@/scheduling/availability-presentation';
+import { formatScheduleTime } from '@/scheduling/presentation';
 import { JalaliDateField } from '../tariffs/jalali-date-field';
 import { WeeklyAvailabilityEditor } from './weekly-availability-editor';
 
@@ -170,7 +172,8 @@ export function AvailabilityDetail({
                   exception.startTime !== null &&
                   exception.endTime !== null ? (
                     <p className="mt-1 text-sm font-semibold tabular-nums text-slate-800" dir="ltr">
-                      {exception.startTime} – {exception.endTime}
+                      {formatScheduleTime(exception.startTime)} –{' '}
+                      {formatScheduleTime(exception.endTime)}
                     </p>
                   ) : null}
                   <p className="mt-1 text-sm text-slate-600">
@@ -214,7 +217,7 @@ function ReadOnlyWeek({ windows }: { windows: TherapistAvailability[] }) {
                     dir="ltr"
                     className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-bold tabular-nums text-brand-950"
                   >
-                    {window.startTime} – {window.endTime}
+                    {formatScheduleTime(window.startTime)} – {formatScheduleTime(window.endTime)}
                   </li>
                 ))}
               </ul>
@@ -252,7 +255,7 @@ function ResolvedDay({ availability }: { availability: ResolvedAvailability }) {
               dir="ltr"
               className="rounded-lg bg-white px-3 py-1.5 text-sm font-bold tabular-nums text-slate-900 shadow-xs"
             >
-              {window.startTime} – {window.endTime}
+              {formatScheduleTime(window.startTime)} – {formatScheduleTime(window.endTime)}
             </li>
           ))}
         </ul>
@@ -302,11 +305,11 @@ function ExceptionForm({
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm font-semibold text-slate-900">
             {COPY.availabilityStartTime}
-            <input name="startTime" type="time" step="60" required className={CONTROL_CLASS} />
+            <TimeInput name="startTime" required className={CONTROL_CLASS} />
           </label>
           <label className="flex flex-col gap-1 text-sm font-semibold text-slate-900">
             {COPY.availabilityEndTime}
-            <input name="endTime" type="time" step="60" required className={CONTROL_CLASS} />
+            <TimeInput name="endTime" required className={CONTROL_CLASS} />
           </label>
         </div>
       ) : null}

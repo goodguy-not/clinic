@@ -311,6 +311,8 @@
   color: var(--vala-ink);
   background: transparent;
   box-shadow: 0 1.6rem 4rem rgb(0 10 20 / 35%);
+  margin: auto;
+  border-radius: 1rem;
 }
 
 .request-tray::backdrop {
@@ -321,6 +323,7 @@
 .request-tray__surface {
   padding: 1.25rem;
   background: var(--vala-paper);
+  border-radius: inherit;
 }
 
 .request-tray__header {

@@ -127,7 +127,7 @@ export function RequestForm({
           id="contactMobile"
           name="contactMobile"
           label="شمارهٔ همراه"
-          placeholder="۰۹۱۲۱۲۳۴۵۶۷"
+          placeholder="۰۹۰۰۰۰۰۰۰۰۰"
           autoComplete="tel"
           inputMode="tel"
           dir="ltr"
@@ -163,7 +163,7 @@ export function RequestForm({
       </div>
 
       <p id="childAgeYears-help" className="request-helper">
-        سن به سال کامل و فقط برای زمینهٔ پیگیری است؛ بازهٔ فرم ۰ تا ۱۲۰ است و شرط پذیرش نیست.
+        سن فرزندتان را به سال کامل وارد کنید؛ مثلاً ۶.
       </p>
       <FieldError id="childAgeYears-error" message={state.fieldErrors.childAgeYears} />
       <p id="childSex-help" className="request-helper">
@@ -298,7 +298,7 @@ export function RequestForm({
 
           {tray === 'age' ? (
             <fieldset className="request-tray__age">
-              <legend>یک عدد از ۰ تا ۱۲۰ وارد کنید</legend>
+              <legend>سن فرزندتان به سال کامل</legend>
               <input
                 data-tray-focus
                 type="text"
@@ -307,7 +307,7 @@ export function RequestForm({
                 value={age}
                 onChange={(event) => setAge(event.target.value)}
                 aria-label="سن فرزند به سال کامل"
-                placeholder="مثلاً ۱۳"
+                placeholder="مثلاً ۶"
               />
               <button type="button" className="public-focus" onClick={closeTray}>
                 تأیید سن

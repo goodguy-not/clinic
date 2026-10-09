@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { TimeInput } from '@/components/time-input';
 import type {
   AppointmentSeriesDetail,
   ChildDetailResponse,
@@ -126,11 +127,9 @@ export function SeriesDetail({
             <div className="grid gap-4 sm:grid-cols-2">
               <Field id="series-time" label="ساعت جدید" required>
                 {({ id, className }) => (
-                  <input
+                  <TimeInput
                     id={id}
                     name="startTime"
-                    type="time"
-                    step="60"
                     required
                     defaultValue={appointmentInstantInClinic(first.appointment.startsAt)?.time}
                     className={className}

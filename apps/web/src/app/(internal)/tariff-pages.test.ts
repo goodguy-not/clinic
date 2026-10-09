@@ -276,10 +276,10 @@ describe('tariff form', () => {
     expect(markup).toContain('Synthetic Service');
   });
 
-  it('offers only active therapists', () => {
+  it('hides the therapist picker until therapist scope is chosen', () => {
     const markup = form({ therapists: [THERAPIST, INACTIVE_THERAPIST] });
 
-    expect(markup).toContain('Synthetic Therapist');
+    expect(markup).not.toContain('name="therapistId"');
     expect(markup).not.toContain('Retired Therapist');
   });
 
@@ -303,11 +303,11 @@ describe('tariff form', () => {
     expect(/id="priceMode-free"[^>]*checked/.test(markup)).toBe(false);
   });
 
-  it('explains that free means a clinic programme, not an individual discount', () => {
+  it('explains that free means a clinic programme before a price mode is chosen', () => {
     const markup = form();
 
-    expect(markup).toContain('name="confirmFreePrice"');
-    expect(markup).toContain('نه تخفیف برای یک خانوادهٔ خاص');
+    expect(markup).not.toContain('name="confirmFreePrice"');
+    expect(markup).toContain('این گزینه برای تخفیف یک خانوادهٔ خاص نیست');
   });
 
   it('uses Jalali selects rather than a native date input', () => {

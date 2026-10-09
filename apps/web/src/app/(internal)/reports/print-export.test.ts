@@ -31,7 +31,7 @@ describe('M7 print treatment', () => {
   });
 
   it('preserves the system-record scope disclosure and invents no receipt framing', () => {
-    const copy = read('server', 'copy-fa.ts');
+    const copy = read('shared', 'copy-fa.ts');
     const account = read('components', 'family-financial-position.tsx');
     expect(copy).toContain('همهٔ سوابق ثبت‌شدهٔ خانواده');
     expect(account).toContain('COPY.familyFinancialPositionScope');

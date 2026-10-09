@@ -43,6 +43,7 @@ export function instantLabel(value: string): string {
     timeZone: 'Asia/Tehran',
     dateStyle: 'medium',
     timeStyle: 'short',
+    hourCycle: 'h23',
   }).format(new Date(value));
 }
 

@@ -407,6 +407,16 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.
   'src/app/(internal)/availability/weekly-availability-editor.tsx',
+  // Locale-independent clock entry keeps Persian digits visible and submits
+  // the ASCII 24-hour value that the existing handlers validate.
+  'src/components/time-input.tsx',
+  // Catalog forms reveal only applicable inputs. The handlers and API retain
+  // validation and all writes; these islands own only unsaved form state.
+  'src/app/(internal)/catalog/services/service-form.tsx',
+  'src/app/(internal)/rooms/room-form.tsx',
+  'src/app/(internal)/tariffs/tariff-conditional-fields.tsx',
+  // Guardian rows appear on demand up to the existing six-person contract cap.
+  'src/app/(internal)/families/guardian-fields.tsx',
   // Booking needs private POST-based child search and an advisory preview whose
   // returned occurrences remain beside the receptionist's unpersisted intent.
   'src/app/(internal)/appointments/new/booking-workflow.tsx',

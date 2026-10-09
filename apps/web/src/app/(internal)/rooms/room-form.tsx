@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import type { Room, Service } from '@clinic/contracts';
 import {
   Alert,
@@ -10,7 +13,7 @@ import {
   Panel,
   SubmitButton,
 } from '@/components/ui';
-import { COPY } from '@/server/copy-fa';
+import { COPY } from '@/shared/copy-fa';
 
 /**
  * The create and edit form for a room.
@@ -39,6 +42,7 @@ export function RoomForm({
 }) {
   const isEdit = room !== undefined;
   const isRestricted = room !== undefined && room.allowedServiceIds.length > 0;
+  const [restricted, setRestricted] = useState(isRestricted);
 
   return (
     <PageShell>
@@ -82,6 +86,7 @@ export function RoomForm({
               label={COPY.roomUnrestrictedLabel}
               description={COPY.roomUnrestrictedDescription}
               defaultChecked={!isRestricted}
+              onChange={() => setRestricted(false)}
             />
             <ChoiceOption
               id="restriction-selected"
@@ -90,10 +95,11 @@ export function RoomForm({
               label={COPY.roomRestrictedLabel}
               description={COPY.roomRestrictedDescription}
               defaultChecked={isRestricted}
+              onChange={() => setRestricted(true)}
             />
           </ChoiceGroup>
 
-          {services.length === 0 ? (
+          {!restricted ? null : services.length === 0 ? (
             <Alert tone="info">{COPY.roomNoServicesAvailable}</Alert>
           ) : (
             <Field id="serviceIds" label={COPY.roomServicesLabel} help={COPY.roomServicesHelp}>

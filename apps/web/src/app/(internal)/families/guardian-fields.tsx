@@ -1,14 +1,16 @@
+'use client';
+
+import { useState } from 'react';
 import type { Guardian } from '@clinic/contracts';
 import { GUARDIAN_RELATIONSHIPS } from '@clinic/contracts';
 import { CONTROL_CLASS, FOCUS_RING } from '@/components/ui';
-import { COPY } from '@/server/copy-fa';
-import { GUARDIAN_SLOTS } from '@/server/family-forms';
+import { COPY } from '@/shared/copy-fa';
 import { GUARDIAN_RELATIONSHIP_LABEL } from './relationship-labels';
 
+const GUARDIAN_SLOTS = 6; // Same cap as the family request contract.
+
 /**
- * A fixed set of guardian slots — no client JavaScript exists to add a row on
- * demand, so the form offers the contract's own maximum of six and a slot
- * counts as used only when its name is filled in (`family-forms.ts`).
+ * Guardian slots appear on demand up to the contract maximum.
  *
  * The primary-contact radio group spans every slot by sharing one `name`, so
  * exactly one can be checked across the whole form, and `required` on each
@@ -21,7 +23,11 @@ export function GuardianFields({
   guardians?: Guardian[];
   websiteContact?: { fullName: string; mobile: string };
 }) {
-  const slots = Array.from({ length: GUARDIAN_SLOTS }, (_unused, index) => guardians?.[index]);
+  const [count, setCount] = useState(Math.max(1, guardians?.length ?? 0));
+  const [names, setNames] = useState<Record<number, string>>(() =>
+    Object.fromEntries((guardians ?? []).map((guardian, index) => [index + 1, guardian.fullName])),
+  );
+  const slots = Array.from({ length: count }, (_unused, index) => guardians?.[index]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -46,6 +52,9 @@ export function GuardianFields({
                   name={`guardian-${slot}-fullName`}
                   maxLength={120}
                   defaultValue={guardian?.fullName ?? (slot === 1 ? websiteContact?.fullName : '')}
+                  onChange={(event) =>
+                    setNames((current) => ({ ...current, [slot]: event.target.value }))
+                  }
                   className={CONTROL_CLASS}
                 />
               </label>
@@ -58,9 +67,13 @@ export function GuardianFields({
                 <select
                   id={`guardian-${slot}-relationship`}
                   name={`guardian-${slot}-relationship`}
-                  defaultValue={guardian?.relationship ?? 'MOTHER'}
+                  defaultValue={guardian?.relationship ?? ''}
+                  required={Boolean(names[slot] || (slot === 1 && websiteContact?.fullName))}
                   className={CONTROL_CLASS}
                 >
+                  <option value="" disabled>
+                    انتخاب کنید
+                  </option>
                   {GUARDIAN_RELATIONSHIPS.map((relationship) => (
                     <option key={relationship} value={relationship}>
                       {GUARDIAN_RELATIONSHIP_LABEL[relationship]}
@@ -136,6 +149,15 @@ export function GuardianFields({
           </fieldset>
         );
       })}
+      {count < GUARDIAN_SLOTS ? (
+        <button
+          type="button"
+          onClick={() => setCount((current) => current + 1)}
+          className={`self-start rounded-lg border border-brand-300 bg-white px-4 py-2 text-sm font-semibold text-brand-900 ${FOCUS_RING}`}
+        >
+          افزودن سرپرست
+        </button>
+      ) : null}
     </div>
   );
 }

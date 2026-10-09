@@ -4,7 +4,12 @@ import {
   createServiceRequestSchema,
   createTherapistRequestSchema,
 } from '@clinic/contracts';
-import { roomFormToRequest, serviceFormToRequest, therapistFormToRequest } from './catalog-forms';
+import {
+  roomFormToRequest,
+  serviceFormToRequest,
+  servicePublicAddressValid,
+  therapistFormToRequest,
+} from './catalog-forms';
 import { parseNumberList, toWesternDigits } from './numerals-fa';
 
 /**
@@ -69,6 +74,17 @@ describe('service form', () => {
     // Anything other than the literal "true" is private, so a missing field
     // cannot accidentally publish a service.
     expect(serviceFormToRequest({ ...base, isPublic: '' })['isPublic']).toBe(false);
+  });
+
+  it('requires a valid address whenever a manager makes the service public', () => {
+    expect(servicePublicAddressValid({ ...base, isPublic: 'true' })).toBe(false);
+    expect(servicePublicAddressValid({ ...base, isPublic: 'true', publicSlug: 'Bad slug' })).toBe(
+      false,
+    );
+    expect(
+      servicePublicAddressValid({ ...base, isPublic: 'true', publicSlug: 'goftar-darmani' }),
+    ).toBe(true);
+    expect(servicePublicAddressValid(base)).toBe(true);
   });
 
   it('fails validation when the duration list has a typo', () => {

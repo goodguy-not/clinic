@@ -106,8 +106,8 @@ describe('availability detail', () => {
   it('shows the whole Saturday-first week and the recurring hours', () => {
     const markup = detail(false);
     expect(markup.indexOf('شنبه')).toBeLessThan(markup.indexOf('جمعه'));
-    expect(markup).toContain('09:00');
-    expect(markup).toContain('13:00');
+    expect(markup).toContain('۰۹:۰۰');
+    expect(markup).toContain('۱۳:۰۰');
   });
 
   it('explains a closure while preserving an explicit extra window in the resolved result', () => {
@@ -115,8 +115,8 @@ describe('availability detail', () => {
     expect(markup).toContain('روز بسته');
     expect(markup).toContain('حضور اضافه');
     expect(markup).toContain('ساعت معمول این روز بسته است');
-    expect(markup).toContain('15:00');
-    expect(markup).toContain('18:00');
+    expect(markup).toContain('۱۵:۰۰');
+    expect(markup).toContain('۱۸:۰۰');
   });
 
   it('gives a receptionist a useful view without mutation actions', () => {

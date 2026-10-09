@@ -34,6 +34,13 @@ export function serviceFormToRequest(body: SubmittedBody): Record<string, unknow
   };
 }
 
+/** A public service needs a usable address before it can be published. */
+export function servicePublicAddressValid(body: SubmittedBody): boolean {
+  if (body['isPublic'] !== 'true') return true;
+  const slug = (body['publicSlug'] ?? '').trim();
+  return slug.length >= 2 && slug.length <= 80 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+}
+
 /**
  * Builds the room request from the explicit restriction choice.
  *

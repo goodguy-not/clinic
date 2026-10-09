@@ -41,6 +41,7 @@ export const CONTACT_TIME_LABEL: Record<PublicRequestContactTime, string> = {
 const PERSIAN_INSTANT = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-arabext', {
   dateStyle: 'medium',
   timeStyle: 'short',
+  hourCycle: 'h23',
   timeZone: 'Asia/Tehran',
 });
 

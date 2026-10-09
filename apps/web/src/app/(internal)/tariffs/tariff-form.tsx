@@ -1,8 +1,6 @@
 import type { Service, Tariff, Therapist } from '@clinic/contracts';
 import {
   Alert,
-  ChoiceGroup,
-  ChoiceOption,
   Field,
   FormActions,
   PageHeader,
@@ -14,6 +12,7 @@ import { COPY } from '@/server/copy-fa';
 import { isoDateToJalali } from '@/server/jalali';
 import { toPersianDigits } from '@/server/numerals-fa';
 import { JalaliDateField } from './jalali-date-field';
+import { TariffConditionalFields } from './tariff-conditional-fields';
 
 /**
  * The tariff creation form, also used for a correction.
@@ -28,9 +27,7 @@ import { JalaliDateField } from './jalali-date-field';
  * fields are therefore shown as read-only text plus hidden inputs rather than
  * as editable controls that would silently fail.
  *
- * Both price branches are always in the markup — there is no JavaScript to hide
- * one — so the Route Handler builds a payload for the chosen branch only, and
- * refuses a submission whose two halves disagree.
+ * The interactive fields render only the selected scope and price branch.
  */
 export function TariffForm({
   services,
@@ -148,114 +145,13 @@ export function TariffForm({
                     </select>
                   )}
                 </Field>
-
-                <ChoiceGroup legend={COPY.tariffScopeLegend}>
-                  <ChoiceOption
-                    id="scope-general"
-                    name="scope"
-                    value="general"
-                    label={COPY.tariffScopeGeneralLabel}
-                    description={COPY.tariffScopeGeneralDescription}
-                    defaultChecked
-                  />
-                  <ChoiceOption
-                    id="scope-therapist"
-                    name="scope"
-                    value="therapist"
-                    label={COPY.tariffScopeTherapistLabel}
-                    description={COPY.tariffScopeTherapistDescription}
-                  />
-                </ChoiceGroup>
-
-                {activeTherapists.length > 0 ? (
-                  <Field
-                    id="therapistId"
-                    label={COPY.tariffTherapistLabel}
-                    help={COPY.tariffTherapistHelp}
-                  >
-                    {({ id, className, describedBy }) => (
-                      <select
-                        id={id}
-                        name="therapistId"
-                        defaultValue=""
-                        aria-describedby={describedBy}
-                        className={className}
-                      >
-                        <option value="">—</option>
-                        {activeTherapists.map((therapist) => (
-                          <option key={therapist.id} value={therapist.id}>
-                            {therapist.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </Field>
-                ) : null}
               </>
             )}
 
-            <ChoiceGroup legend={COPY.tariffPriceModeLegend}>
-              {/* No default: choosing paid or free has to be deliberate. */}
-              <ChoiceOption
-                id="priceMode-paid"
-                name="priceMode"
-                value="PAID"
-                label={COPY.tariffPaidLabel}
-                description={COPY.tariffPaidDescription}
-              />
-              <ChoiceOption
-                id="priceMode-free"
-                name="priceMode"
-                value="FREE"
-                label={COPY.tariffFreeLabel}
-                description={COPY.tariffFreeDescription}
-              />
-            </ChoiceGroup>
-
-            <Field id="priceToman" label={COPY.tariffPriceLabel} help={COPY.tariffPriceHelp}>
-              {({ id, className, describedBy }) => (
-                <input
-                  id={id}
-                  name="priceToman"
-                  type="text"
-                  inputMode="numeric"
-                  dir="ltr"
-                  maxLength={10}
-                  aria-describedby={describedBy}
-                  className={`${className} text-start`}
-                />
-              )}
-            </Field>
-
-            <Field
-              id="freeReason"
-              label={COPY.tariffFreeReasonLabel}
-              help={COPY.tariffFreeReasonHelp}
-            >
-              {({ id, className, describedBy }) => (
-                <input
-                  id={id}
-                  name="freeReason"
-                  type="text"
-                  maxLength={500}
-                  aria-describedby={describedBy}
-                  className={className}
-                />
-              )}
-            </Field>
-
-            <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3">
-              <input
-                id="confirmFreePrice"
-                name="confirmFreePrice"
-                type="checkbox"
-                value="true"
-                className="mt-1 size-4 shrink-0 accent-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-              />
-              <label htmlFor="confirmFreePrice" className="text-sm text-slate-900">
-                {COPY.tariffFreeConfirmLabel}
-              </label>
-            </div>
+            <TariffConditionalFields
+              activeTherapists={activeTherapists}
+              isCorrection={isCorrection}
+            />
 
             <JalaliDateField
               legend={COPY.tariffEffectiveStartLabel}
