@@ -130,6 +130,24 @@ additionally forces the database session into `Pacific/Kiritimati` and follows s
 either side of Tehran midnight, at a Gregorian month end and at the Jalali new year, through
 the diary, the posted charge and the session report.
 
+**The host clock must be correct.** Several suites compare an instant the test reads from
+Node (`Date.now()`) with one PostgreSQL wrote (`transaction_timestamp()`), and on Windows
+Node runs on the host while the database runs in the WSL/Docker VM — two clocks. Keep
+Windows' "Set time automatically" on (the Windows Time service, `w32time`, running) and the
+time zone correct. Before a full run, compare the two:
+
+```bash
+date -u && docker exec <test database container> date -u
+```
+
+They must show the same second. A skew of hours (a wrong Windows time or zone) fails
+`families-duplicates`, `payment-void` and `promise-create` outright, and a clock that steps
+backwards mid-run can fail `clinic-simulation` on the promise-successor trigger. The
+narrowest check, `payment-void`'s "the void instant falls between two Node readings", fails
+on any skew larger than the request's own duration — tens of milliseconds — which the VM
+can show for a while after the Windows clock is corrected. If only that test fails, measure
+the skew before suspecting the code.
+
 ## Architecture boundary
 
 The web application must never reach the database. This is enforced mechanically, not by
