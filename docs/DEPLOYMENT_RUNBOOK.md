@@ -173,15 +173,29 @@ git archive --format=tar.gz -o clinic-release.tar.gz <commit>
 scp clinic-release.tar.gz <you>@<server>:/tmp/
 ```
 
-On the server, into a directory named after the commit, then link it:
+`<commit>` must be a commit (a hash, branch or tag), not a tree: `git archive`
+then records the commit's full hash inside the archive, and the server reads it
+from there rather than from anybody's typing.
+
+On the server, read the commit from the archive:
 
 ```bash
-REL=/srv/clinic-releases/<commit>
+C=$(python3 -c "import sys, tarfile; t = tarfile.open(sys.argv[1]); t.next(); print(t.pax_headers['comment'])" /tmp/clinic-release.tar.gz) && REL=/srv/clinic-releases/$C && echo "$REL"
 ```
 
+It prints `/srv/clinic-releases/` and a 40-character hash — the one `git rev-parse
+<commit>` prints on the operator's computer. A `KeyError` means the archive was
+made from a tree, not a commit: make it again. Then unpack it into that directory,
+write the **release receipt** (`RELEASE`: the commit, as read from the archive), and
+link it:
+
 ```bash
-sudo -u clinic-build install -d $REL && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C $REL && sudo ln -sfn $REL /srv/clinic && readlink /srv/clinic
+sudo -u clinic-build install -d $REL && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C $REL && echo "$C" | sudo -u clinic-build tee $REL/RELEASE && sudo ln -sfn $REL /srv/clinic && readlink /srv/clinic
 ```
+
+**Which commit is live** is then answered on the server, at any time, by two
+records that must agree: `readlink /srv/clinic` (the directory) and `cat
+/srv/clinic/RELEASE` (the receipt).
 
 ## 6. Install and build the API
 
@@ -491,7 +505,8 @@ VERIFY_WEB_URL=https://<SITE_HOST> VERIFY_STAFF_USERNAME=<username> node /srv/cl
 ```
 
 On a new clinic with no published photograph yet, add `VERIFY_MIN_PUBLIC_IMAGES=0`.
-Record the commit (`readlink /srv/clinic`), the date and these outputs.
+Record the commit (`cat /srv/clinic/RELEASE`, which must match `readlink
+/srv/clinic`), the date and these outputs.
 
 ## 17. Upgrading to a new release
 
@@ -504,8 +519,9 @@ to (step 18). **Rehearsed** on 2026-10-02, every path below, on a disposable ser
 
 ### 17.1 Which kind of release
 
-On the operator's computer, with the commit the server runs (`readlink /srv/clinic`
-on the server) and the one to install:
+On the operator's computer, with the commit the server runs (`cat /srv/clinic/RELEASE`
+on the server, which matches `readlink /srv/clinic`; a release installed before
+receipts has only the link, and 18.4 says how to prove it) and the one to install:
 
 ```bash
 git diff --stat <live commit> <new commit> -- apps/api packages pnpm-lock.yaml scripts/ops scripts/backup/systemd docs/DEPLOYMENT_RUNBOOK.md
@@ -551,11 +567,15 @@ setting or an environment variable to install with the release: read it (17.5).
 The release archive, from the operator's computer, as in step 5, then on the server:
 
 ```bash
-OLD=$(basename "$(readlink /srv/clinic)") && NEW=<new commit> && echo "live $OLD, new $NEW"
+OLD=$(basename "$(readlink /srv/clinic)") && NEW=$(python3 -c "import sys, tarfile; t = tarfile.open(sys.argv[1]); t.next(); print(t.pax_headers['comment'])" /tmp/clinic-release.tar.gz) && echo "live $OLD, new $NEW"
 ```
 
+`NEW` is read from the archive (step 5), so it is the commit that was archived:
+compare it with `git rev-parse <new commit>` on the operator's computer before going
+on.
+
 ```bash
-sudo -u clinic-build install -d /srv/clinic-releases/$NEW && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C /srv/clinic-releases/$NEW
+sudo -u clinic-build install -d /srv/clinic-releases/$NEW && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C /srv/clinic-releases/$NEW && echo "$NEW" | sudo -u clinic-build tee /srv/clinic-releases/$NEW/RELEASE
 ```
 
 If that directory is left from an earlier attempt — one that failed, or one that
@@ -668,16 +688,29 @@ come back (`verify-site.mjs` fails a sign-in that leaves the site's address).
 ### 17.6 Checks, then keep or go back
 
 ```bash
-readlink /srv/clinic && curl -fsS http://127.0.0.1:3001/health/ready && systemctl --no-pager --failed && systemctl --no-pager list-timers 'clinic-*'
+readlink /srv/clinic && cat /srv/clinic/RELEASE && curl -fsS http://127.0.0.1:3001/health/ready && systemctl --no-pager --failed && systemctl --no-pager list-timers 'clinic-*'
 ```
 
-The new commit; `{"status":"ok",…}`; `0 loaded units listed`; both timers.
+The new commit, twice (the link and the receipt); `{"status":"ok",…}`; `0 loaded
+units listed` (on the WSL staging server, exactly one: Appendix A); both timers.
 
 ```bash
 VERIFY_WEB_URL=https://<SITE_HOST> VERIFY_STAFF_USERNAME=<username> node /srv/clinic/scripts/backup/verify-site.mjs
 ```
 
-`SITE VERIFIED`. Then the journal since the switch, which must hold no error:
+`SITE VERIFIED`. The sign-in is a real, audited login. **When the data must stay
+untouched** (staging while somebody tours it, or any deployment whose instructions
+say so), verify without it instead:
+
+```bash
+VERIFY_WEB_URL=https://<SITE_HOST> VERIFY_READ_ONLY=1 node /srv/clinic/scripts/backup/verify-site.mjs
+```
+
+`SITE VERIFIED (READ-ONLY)`: the public pages and photographs render and the sign-in
+form renders, and nothing is written: no sign-in, no session, no audit row. It does
+not prove that a colleague can sign in, so record that it was read-only; the first
+real sign-in afterwards completes the check. Production upgrades use the full
+check. Then the journal since the switch, which must hold no error:
 
 ```bash
 journalctl -u clinic-api -u clinic-web --since "-15 min" -p warning --no-pager
@@ -690,7 +723,8 @@ before the clinic next opens.** When it is kept:
 - Keep the live release and `$OLD`; remove older ones (`ls -1t /srv/clinic-releases`,
   then `sudo rm -rf /srv/clinic-releases/<older commit>` — never the live one or
   `$OLD`). Each kept release costs about 0.3–0.5 GB of disk beyond the shared package store.
-- Record the date, `$OLD` → `$NEW`, the kind, the downtime, `$PRE` and the outputs.
+- Record the date, `$OLD` → `$NEW`, the kind, the downtime, `$PRE` and the outputs,
+  and whether `verify-site.mjs` ran read-only.
 
 ## 18. Going back to the previous release
 
@@ -812,6 +846,7 @@ here in the same commit.
 | -------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every migration up to and including `20260926090000_m10_a3_scheduled_jobs_and_erasure` | —        | Production is installed with them (step 8); no production upgrade crosses them.                                                                                                                                                                                                                                                                                               |
 | `20260930090000_m95_a10_erase_media_description`                                       | restore  | Production is installed with it too; it matters to an install older than it (the A8 rehearsal). It erases the description of every photograph already erased, irreversibly. The previous release's database client treats a description as never empty, and its erasure job leaves the description in place, which the migration's new check refuses. Rehearsed twice (18.2). |
+| `20261016090000_m10_a9_partial_closure`                                                | restore  | Partial-day closures (M10-A9). Changes no row, but replaces the one-closure-per-date index with exclusion constraints and widens a CHECK: the previous release would read a partial closure as a whole-day one, and its duplicate-closure and extra-window writes would fail with a 500 instead of a conflict.                                                                |
 
 ### 18.4 An install made before release directories (staging)
 
@@ -820,11 +855,34 @@ first upgrade, turn it into the live release — a stop of a few seconds (1.3 s 
 the rehearsal):
 
 ```bash
-C=<the commit it runs> && sudo install -d -o clinic-build -g clinic-build -m 0755 /srv/clinic-releases && sudo systemctl stop clinic-web clinic-api && sudo mv /srv/clinic /srv/clinic-releases/$C && sudo ln -s /srv/clinic-releases/$C /srv/clinic && sudo systemctl start clinic-api && sudo systemctl start clinic-web
+C=<the commit it runs> && sudo install -d -o clinic-build -g clinic-build -m 0755 /srv/clinic-releases && sudo systemctl stop clinic-web clinic-api && sudo mv /srv/clinic /srv/clinic-releases/$C && sudo ln -s /srv/clinic-releases/$C /srv/clinic && echo "$C" | sudo -u clinic-build tee /srv/clinic/RELEASE && sudo systemctl start clinic-api && sudo systemctl start clinic-web
 ```
 
 Its build is untouched: every path it recorded under `/srv/clinic` still leads to the
-same files.
+same files, and it now carries a receipt like every later release.
+
+**Finding `C` when nobody recorded it.** Such an install has no receipt and no Git
+checkout, so `C` is proven by content: the commit whose release archive unpacks to
+exactly the files on the server. On the operator's computer, for a candidate commit
+(start from the one made just before `ls -l --time-style=full-iso
+/srv/clinic/package.json` on the server), list the checksums of what its archive
+installs. It is the archive, not the repository, that is compared, because
+`git archive` applies the line endings `.gitattributes` sets:
+
+```bash
+rm -rf candidate && mkdir candidate && git archive <candidate> | tar -x -C candidate && (cd candidate && find . -type f -exec sha256sum {} +) > sums.txt && scp sums.txt <you>@<server>:/tmp/
+```
+
+On the server:
+
+```bash
+cd /srv/clinic && sha256sum --quiet -c /tmp/sums.txt && echo MATCHES
+```
+
+`MATCHES` names the commit. Anything else lists the files that differ or are
+missing: another candidate, or files edited on the server, which is itself the
+finding to report. Staging's conversion on 2026-10-09 identified `89050497` by
+comparing file contents in the same spirit.
 
 ## Not covered yet
 
@@ -838,16 +896,17 @@ page. Synthetic data only; it never leaves the computer.
 
 **What differs from production, and only this:**
 
-| Step | Staging                                                                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| —    | The server is a WSL distribution: `wsl --install Ubuntu-24.04 --name clinic-staging --location <folder> --no-launch`, as root                                      |
-| 1    | `/etc/wsl.conf` adds `[time]` `useWindowsTimezone=false`, or WSL resets the clock zone to Windows' at every start                                                  |
-| 1    | SSH listens on **2222** (`/etc/ssh/sshd_config.d/10-staging-port.conf`, `ufw allow 2222/tcp`), so it cannot meet a Windows SSH server on 22                        |
-| 7    | `DB=clinic_demo`, `SITE=https://clinic-staging.test`, `ORIGINS=https://clinic-staging.test,https://localhost`                                                      |
-| 10   | after the first manager: the practice clinic (README, The practice clinic), and the sample public content                                                          |
-| 12   | a self-signed certificate (90 days, not a CA) for `clinic-staging.test`, `localhost`, `127.0.0.1`; no HSTS line; `scripts/ops/nginx/staging-noindex.conf` included |
-| 13   | the "owner's key" is a throwaway made for staging                                                                                                                  |
-| 15   | the collector connects to `127.0.0.1:2222` (`-Server 127.0.0.1 -Port 2222`)                                                                                        |
+| Step | Staging                                                                                                                                                                                        |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| —    | The server is a WSL distribution: `wsl --install Ubuntu-24.04 --name clinic-staging --location <folder> --no-launch`, as root                                                                  |
+| 1    | `/etc/wsl.conf` adds `[time]` `useWindowsTimezone=false`, or WSL resets the clock zone to Windows' at every start                                                                              |
+| 1    | SSH listens on **2222** (`/etc/ssh/sshd_config.d/10-staging-port.conf`, `ufw allow 2222/tcp`), so it cannot meet a Windows SSH server on 22                                                    |
+| 7    | `DB=clinic_demo`, `SITE=https://clinic-staging.test`, `ORIGINS=https://clinic-staging.test,https://localhost`                                                                                  |
+| 10   | after the first manager: the practice clinic (README, The practice clinic), and the sample public content                                                                                      |
+| 12   | a self-signed certificate (90 days, not a CA) for `clinic-staging.test`, `localhost`, `127.0.0.1`; no HSTS line; `scripts/ops/nginx/staging-noindex.conf` included                             |
+| 13   | the "owner's key" is a throwaway made for staging                                                                                                                                              |
+| 15   | the collector connects to `127.0.0.1:2222` (`-Server 127.0.0.1 -Port 2222`)                                                                                                                    |
+| 17.6 | `systemctl --failed` lists exactly one unit, `systemd-binfmt.service`: WSL registers its own binary formats and that Ubuntu unit fails at every start. Any other unit listed is a real failure |
 
 `.test` is reserved and never resolves on the internet, so canonical links and
 the sitemap cannot point at a real site; the browser opens `https://localhost`.

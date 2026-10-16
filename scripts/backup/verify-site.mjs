@@ -21,6 +21,17 @@
  * for the reason the operator CLI refuses `--password`. The sign-in is a real,
  * audited login.
  *
+ * READ-ONLY MODE (M10-A9), for a deployment whose data must stay untouched —
+ * staging while the owner tours it, say:
+ *
+ *   VERIFY_WEB_URL=https://... VERIFY_READ_ONLY=1 node scripts/backup/verify-site.mjs
+ *
+ * Checks 1 and 2 as above, and in place of 3 only that the sign-in page renders
+ * its form with a CSRF token. No username, no password, no sign-in: nothing is
+ * written to the database or the audit log (the login page reads no session and
+ * calls no API without a session cookie, and its CSRF token is a stateless HMAC).
+ * It proves less — the API's session path is not exercised — and says so.
+ *
  * Exits non-zero on the first failure, naming it.
  */
 
@@ -40,8 +51,13 @@ function ok(message) {
 
 const webUrl = process.env.VERIFY_WEB_URL;
 const username = process.env.VERIFY_STAFF_USERNAME;
+const readOnly = process.env.VERIFY_READ_ONLY === '1';
 const minImages = Number(process.env.VERIFY_MIN_PUBLIC_IMAGES ?? '1');
-if (!webUrl || !username) fail('VERIFY_WEB_URL and VERIFY_STAFF_USERNAME are required.');
+if (!webUrl) fail('VERIFY_WEB_URL is required.');
+if (readOnly && username) {
+  fail('VERIFY_READ_ONLY=1 signs nobody in; leave VERIFY_STAFF_USERNAME unset.');
+}
+if (!readOnly && !username) fail('VERIFY_STAFF_USERNAME is required (or VERIFY_READ_ONLY=1).');
 if (!Number.isInteger(minImages) || minImages < 0) {
   fail('VERIFY_MIN_PUBLIC_IMAGES must be 0 or more.');
 }
@@ -197,9 +213,29 @@ async function checkStaffLogin(password) {
   ok('signed out; no session left open');
 }
 
-const password = await readPassword();
-await checkPublicSite();
-await checkStaffLogin(password);
-process.stdout.write(
-  '\nSITE VERIFIED: public pages and published images render; staff sign-in works.\n',
-);
+// --- 3, read-only: the sign-in form renders, and nobody signs in ------------
+
+async function checkLoginFormOnly() {
+  process.stdout.write('\n==> Sign-in form (read-only: nobody signs in)\n');
+  const response = await get('/login');
+  if (response.status !== 200) fail(`/login answered ${response.status}.`);
+  // The same two-request read the sign-in uses: the first sets the CSRF cookie,
+  // which lives only in this process's jar. Nothing is posted.
+  await csrfFrom('/login', cookieJar());
+  ok('/login rendered the sign-in form with a CSRF token');
+}
+
+if (readOnly) {
+  await checkPublicSite();
+  await checkLoginFormOnly();
+  process.stdout.write(
+    '\nSITE VERIFIED (READ-ONLY): public pages and published images render; the sign-in form renders. Staff sign-in was NOT exercised.\n',
+  );
+} else {
+  const password = await readPassword();
+  await checkPublicSite();
+  await checkStaffLogin(password);
+  process.stdout.write(
+    '\nSITE VERIFIED: public pages and published images render; staff sign-in works.\n',
+  );
+}
