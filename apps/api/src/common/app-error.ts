@@ -184,6 +184,9 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // with a promise the clinic has already made to everybody holding the URL.
   PUBLIC_SLUG_IMMUTABLE: 409,
   PUBLIC_SLUG_TAKEN: 409,
+  // 422, as for a therapist's incomplete profile: nothing conflicts, the
+  // combination — public, with no address — is one the rules do not permit.
+  SERVICE_PUBLIC_ADDRESS_REQUIRED: 422,
   // 422: nothing conflicts and nothing is missing from the request. The
   // combination — publish this person, with no approved name to publish them
   // under — is one the recorded content does not permit.
@@ -364,6 +367,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   SETTLEMENT_PERIOD_NOT_FOUND: 'Settlement period not found',
   PUBLIC_SLUG_IMMUTABLE: 'A public slug cannot change once it has been publicly reachable',
   PUBLIC_SLUG_TAKEN: 'Public slug is already in use',
+  SERVICE_PUBLIC_ADDRESS_REQUIRED: 'A service can be public only with a public address',
   THERAPIST_PUBLIC_PROFILE_INCOMPLETE:
     'A therapist cannot be published without a public slug and an approved display name',
   ARTICLE_NOT_FOUND: 'Article not found',

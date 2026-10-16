@@ -125,27 +125,44 @@ describe('service public presentation (real PostgreSQL)', () => {
       );
     });
 
-    it('accepts an edit to a service flagged public with no address', async () => {
+    it('holds a legacy public row with no address to the address rule on its next edit', async () => {
       // The state every Milestone 2 row was left in: `isPublic` true, no slug,
-      // and therefore not on the website at all. Editing one must not be an
-      // error, and must not claim its published content was revised — there is
-      // none.
-      const id = await createService({ isPublic: true });
+      // and therefore not on the website at all. The API no longer creates it
+      // (M10-A9: a service is public only with an address), so it is made here
+      // the way it was made then — directly.
+      const id = await createService();
+      await harness.prisma.$executeRaw`UPDATE service SET is_public = true WHERE id = ${id}::uuid`;
       const created = serviceResponseSchema.parse(
         (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
       ).service;
+      expect(created.isPublic).toBe(true);
+      expect(created.publicSlug).toBeNull();
 
-      const edited = await update(id, {
+      // An edit that would leave it public with no address is refused…
+      const keptPublic = await update(id, {
         name: created.name,
         publicDescription: 'شرح داخلی نمونه.',
         isPublic: true,
         allowedDurationsMinutes: [30, 45],
       });
+      expect(keptPublic.status).toBe(422);
+      expect(keptPublic.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
+
+      // …and one that makes it private is an ordinary edit that revises no
+      // published content, because there is none.
+      const madePrivate = await update(id, {
+        name: created.name,
+        publicDescription: 'شرح داخلی نمونه.',
+        isPublic: false,
+        allowedDurationsMinutes: [30, 45],
+      });
 
       const listed = await request(server()).get('/public/services').set(internalHeaders());
 
-      expect(edited.status).toBe(200);
-      expect(serviceResponseSchema.parse(edited.body).service.publicFirstPublishedAt).toBeNull();
+      expect(madePrivate.status).toBe(200);
+      expect(
+        serviceResponseSchema.parse(madePrivate.body).service.publicFirstPublishedAt,
+      ).toBeNull();
       expect(publicServiceListResponseSchema.parse(listed.body).services).toEqual([]);
     });
   });

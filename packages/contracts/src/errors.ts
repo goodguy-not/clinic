@@ -331,6 +331,10 @@ export const ERROR_CODES = [
   // are looking at.
   'PUBLIC_SLUG_IMMUTABLE',
   'PUBLIC_SLUG_TAKEN',
+  // A service is public only with an address to be public AT (M10-A9). Refused
+  // on create and on the state an update would leave, rather than stored as a
+  // flag the website silently ignores.
+  'SERVICE_PUBLIC_ADDRESS_REQUIRED',
   // A therapist cannot be published without the approved content the opt-in is
   // an opt-in TO: an address and a name they agreed to appear under. Refused
   // rather than filled in from the personnel record, which would be a

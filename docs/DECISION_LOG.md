@@ -6317,3 +6317,21 @@ creditToman }` (the account's own derivation, read after the family row is locke
   closure was made"; the migration is rollback class **restore** (runbook 18.3).
 - **Revisit when:** a closure must span several days, or the clinic asks for the diary to
   act on a closure (notify, propose a new time) rather than show it.
+
+## 2026-10-16 — A service is public only with an address
+
+**Status:** Accepted — Agent A, Milestone 10 A9 (found by Agent B in the tour fixes)
+
+- **Decision:** the API refuses a service that would be public with no public address,
+  with `SERVICE_PUBLIC_ADDRESS_REQUIRED` (422): on create, and on the state an update would
+  leave once "omitted means unchanged" is applied. Status changes are not affected. A
+  supplied address is already validated by `publicSlugSchema`; slug immutability after
+  publication is unchanged and is checked first.
+- **Alternative:** a database CHECK. Rejected for now: Milestone 2 rows may be public with no
+  address, and a CHECK (even `NOT VALID`) would make every later update of such a row fail,
+  including a deactivation, rather than only the edits that touch publicity.
+- **Trade-off:** a legacy row keeps its public-without-address state until its next edit,
+  which must add an address or make it private. It was never on the website, because a
+  public read requires the address.
+- **Revisit when:** no production row is public without an address; then the CHECK can be
+  added with a data step.

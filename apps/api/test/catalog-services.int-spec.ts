@@ -53,7 +53,9 @@ describe('catalog services (real PostgreSQL)', () => {
     return {
       name: 'Synthetic Service',
       publicDescription: 'Synthetic description.',
-      isPublic: true,
+      // Private by default: a public service needs an address (M10-A9), and
+      // only the tests about publication supply one.
+      isPublic: false,
       allowedDurationsMinutes: [30, 45],
       ...overrides,
     };
@@ -147,6 +149,7 @@ describe('catalog services (real PostgreSQL)', () => {
         (
           await createService(token, {
             name: 'Published synthetic service',
+            isPublic: true,
             publicSlug: 'published-synthetic-service',
           })
         ).body,
@@ -162,6 +165,53 @@ describe('catalog services (real PostgreSQL)', () => {
       });
     });
 
+    it('refuses a public service without an address, on create and on every update', async () => {
+      const { token } = await signIn('MANAGER');
+
+      // Create: public with the address absent, and with it explicitly null.
+      for (const overrides of [{ isPublic: true }, { isPublic: true, publicSlug: null }]) {
+        const refused = await createService(token, { name: 'Addressless', ...overrides });
+        expect(refused.status).toBe(422);
+        expect(refused.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
+      }
+      expect(await harness.prisma.service.count({ where: { name: 'Addressless' } })).toBe(0);
+
+      // Update: the EFFECTIVE state is checked. A private service with no
+      // address cannot be made public by an edit that omits the address…
+      const created = serviceResponseSchema.parse(
+        (await createService(token, { name: 'Private synthetic service' })).body,
+      ).service;
+      const patch = (body: Record<string, unknown>) =>
+        request(server())
+          .patch(`/catalog/services/${created.id}`)
+          .set(asUser(token))
+          .send({
+            name: created.name,
+            publicDescription: null,
+            allowedDurationsMinutes: [30, 45],
+            ...body,
+          });
+
+      const omitted = await patch({ isPublic: true });
+      expect(omitted.status).toBe(422);
+      expect(omitted.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
+
+      // …but can with one, and a later edit that omits it keeps it (unchanged).
+      expect((await patch({ isPublic: true, publicSlug: 'addressed-service' })).status).toBe(200);
+      expect((await patch({ isPublic: true })).status).toBe(200);
+
+      // Clearing the address of a public row is refused too. A public row with an
+      // address has been reachable, so the existing immutability rule answers
+      // first and is unchanged by this one.
+      const cleared = await patch({ isPublic: true, publicSlug: null });
+      expect(cleared.status).toBe(409);
+      expect(cleared.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+
+      const row = await harness.prisma.service.findUniqueOrThrow({ where: { id: created.id } });
+      expect(row.isPublic).toBe(true);
+      expect(row.publicSlug).toBe('addressed-service');
+    });
+
     it('creates a service with its durations and records who created it', async () => {
       const { user, token } = await signIn('MANAGER');
 
@@ -171,7 +221,7 @@ describe('catalog services (real PostgreSQL)', () => {
       const { service } = serviceResponseSchema.parse(response.body);
 
       expect(service.name).toBe('Synthetic Service');
-      expect(service.isPublic).toBe(true);
+      expect(service.isPublic).toBe(false);
       expect(service.status).toBe('ACTIVE');
       expect(service.deactivatedAt).toBeNull();
       expect(service.allowedDurationsMinutes).toEqual([30, 45]);

@@ -124,6 +124,8 @@ export class ServicesService {
     const publicSlug = input.publicSlug ?? null;
     const durations = normalizeDurations(input.allowedDurationsMinutes);
 
+    assertPublicAddress(input.isPublic, publicSlug);
+
     const created = await this.prisma.$transaction(async (tx) => {
       try {
         await tx.$executeRaw`
@@ -230,6 +232,13 @@ export class ServicesService {
       // slug, which is the wrong one on the write that first supplies it.
       const slugAfter = input.publicSlug === undefined ? before.public_slug : input.publicSlug;
       const reachableAfter = input.isPublic && slugAfter !== null;
+
+      // Checked on the EFFECTIVE state, after the omitted-means-unchanged rule
+      // has been applied: an update that leaves the slug alone on a row that has
+      // none, or clears it on a public row, is refused exactly as a create would
+      // be. A legacy Milestone 2 row that is public with no address keeps that
+      // state until its next edit, which must add an address or make it private.
+      assertPublicAddress(input.isPublic, slugAfter);
 
       // THE ONE WRITE ON THIS FORM THAT PUBLISHES COPY, AND IT PUBLISHES IT
       // BECAUSE IT IS THE PUBLICATION. A service crossing from unreachable to
@@ -462,6 +471,20 @@ export class ServicesService {
     if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
     return row;
   }
+}
+
+/**
+ * A service can be public only with a valid public address (M10-A9).
+ *
+ * "Valid" is the contract's `publicSlugSchema`, which every supplied slug has
+ * already passed, and every stored slug passed on its way in; what is left to
+ * refuse is a public flag with no address at all. The manager form refuses the
+ * same combination, but the form is a convenience and this is the rule — any
+ * other caller of the API is held to it too. Status changes do not reach this:
+ * they change neither the flag nor the address.
+ */
+function assertPublicAddress(isPublic: boolean, publicSlug: string | null): void {
+  if (isPublic && publicSlug === null) throw new AppError('SERVICE_PUBLIC_ADDRESS_REQUIRED');
 }
 
 function isPubliclyReachable(row: ServiceRow): boolean {
