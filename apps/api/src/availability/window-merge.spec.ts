@@ -1,4 +1,9 @@
-import { findOverlappingPair, mergeWindows, type WeeklyWindow } from './window-merge';
+import {
+  findOverlappingPair,
+  mergeWindows,
+  subtractWindows,
+  type WeeklyWindow,
+} from './window-merge';
 
 /**
  * The resolution arithmetic, tested without a database.
@@ -101,5 +106,53 @@ describe('a submitted week that contradicts itself', () => {
     // same hours, and there is no date on which one of them stops applying —
     // that would be effective-dated availability, which does not exist here.
     expect(Object.keys(recurring()).sort()).toEqual(['endTime', 'startTime', 'weekday']);
+  });
+});
+
+describe('taking closed ranges out of a day (partial closures)', () => {
+  const day = [window('09:00', '13:00'), window('15:00', '18:00')];
+
+  it('leaves the day alone when nothing is closed', () => {
+    expect(subtractWindows(day, [])).toEqual(day);
+  });
+
+  it('splits a window around a range closed in its middle', () => {
+    expect(subtractWindows([window('09:00', '18:00')], [window('12:00', '14:00')])).toEqual([
+      window('09:00', '12:00'),
+      window('14:00', '18:00'),
+    ]);
+  });
+
+  it('shortens the day for "leaves at 14:00" and "arrives at 11:00"', () => {
+    expect(subtractWindows([window('09:00', '18:00')], [window('14:00', '23:59')])).toEqual([
+      window('09:00', '14:00'),
+    ]);
+    expect(subtractWindows([window('09:00', '18:00')], [window('00:00', '11:00')])).toEqual([
+      window('11:00', '18:00'),
+    ]);
+  });
+
+  it('removes a window wholly inside a closed range, and returns nothing of zero length', () => {
+    expect(subtractWindows(day, [window('09:00', '13:00')])).toEqual([window('15:00', '18:00')]);
+    expect(subtractWindows(day, [window('08:00', '19:00')])).toEqual([]);
+  });
+
+  it('is half-open: a range that only touches a window leaves it whole', () => {
+    expect(subtractWindows(day, [window('13:00', '15:00')])).toEqual(day);
+  });
+
+  it('applies several ranges, in any order, across several windows', () => {
+    expect(
+      subtractWindows(day, [
+        window('16:00', '17:00'),
+        window('10:00', '11:00'),
+        window('12:30', '15:30'),
+      ]),
+    ).toEqual([
+      window('09:00', '10:00'),
+      window('11:00', '12:30'),
+      window('15:30', '16:00'),
+      window('17:00', '18:00'),
+    ]);
   });
 });

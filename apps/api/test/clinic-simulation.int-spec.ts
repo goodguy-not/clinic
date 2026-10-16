@@ -116,6 +116,9 @@ describe('a synthetic clinic, simulated and reconciled', () => {
       'repeated enquiry absorbed',
       'family deactivated owing',
       'family deactivated in credit',
+      'partial-day closure',
+      'sessions surfaced by a partial closure',
+      'booking refused inside a partial closure',
     ].filter((one) => (book.scenario[one] ?? 0) === 0)) {
       missing.push(scenario);
     }

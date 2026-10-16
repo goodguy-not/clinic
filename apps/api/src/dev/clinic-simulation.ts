@@ -6,6 +6,7 @@ import {
   correctSessionRatingRequestSchema,
   createAppointmentRequestSchema,
   createAppointmentSeriesRequestSchema,
+  createAvailabilityExceptionRequestSchema,
   createChargeAdjustmentRequestSchema,
   createChildRequestSchema,
   createFamilyRequestSchema,
@@ -302,6 +303,21 @@ export type SimulationBook = {
   acts: Record<SimRole, Record<string, number>>;
   /** Scenario coverage, counted as it happened. */
   scenario: Record<string, number>;
+  /**
+   * The manager's partial-day closure (M10-A9): "leaves at 14:00" on one day
+   * of the booked week. `expectedAffected` is the book's own answer — which of
+   * its scheduled sessions sit in the range — and `reportedAffected` is what the
+   * closure returned when it was written; reconciliation compares both with a
+   * fresh read.
+   */
+  partialClosure: {
+    therapistId: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    expectedAffected: string[];
+    reportedAffected: string[];
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -416,6 +432,7 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     familyAccountTotalsBeforeDeactivation: null,
     acts: { MANAGER: {}, RECEPTIONIST: {}, VISITOR: {} },
     scenario: {},
+    partialClosure: null,
   };
 
   const routes = new Map<string, RouteEntry>(
@@ -1996,6 +2013,9 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
     await afterClose();
   }
 
+  // The first therapist leaves at 14:00 on one day of the booked week.
+  await closePartOfADay();
+
   // Two families leave the clinic holding money: they must stay in every report.
   await deactivateHoldingMoney();
 
@@ -2046,6 +2066,101 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
    * what the independent model says, and that both families stay in every report
    * and file with every total unchanged.
    */
+  /**
+   * A partial-day closure (M10-A9) on a booked-ahead day, chosen as the first
+   * weekday of the coming week on which the first therapist has an afternoon
+   * session, so the closure has something to surface.
+   *
+   * Nothing is cancelled: the sessions it reaches stay SCHEDULED (the appointment
+   * check reconciles their status), and the book records which ones they are
+   * from its own sessions, not from the response. A booking the desk then tries
+   * inside the range is refused exactly as on a closed day.
+   */
+  async function closePartOfADay() {
+    const startTime = '14:00';
+    const endTime = '18:00';
+    const inRange = (session: BookSession) => {
+      const start = tehranHour(session.startsAt) * 60;
+      return start < 18 * 60 && start + session.durationMinutes > 14 * 60;
+    };
+    const scheduled = (date: string) =>
+      book.sessions.filter(
+        (session) =>
+          session.therapistId === T1 && session.date === date && session.status === 'SCHEDULED',
+      );
+
+    let chosen: string | undefined;
+    for (let offset = 1; addDays(today, offset) <= calendar.bookedUntil; offset += 1) {
+      const day = addDays(today, offset);
+      if (clinicWeekday(day) > 4) continue;
+      chosen ??= day;
+      if (scheduled(day).some(inRange)) {
+        chosen = day;
+        break;
+      }
+    }
+    if (chosen === undefined) throw new Error('The booked week has no weekday to close part of.');
+    const date = chosen;
+
+    const added = await act(manager, 'POST /availability/therapists/:therapistId/exceptions', () =>
+      svc.availability.addException(
+        T1,
+        createAvailabilityExceptionRequestSchema.parse({
+          isAvailable: false,
+          exceptionDate: date,
+          startTime,
+          endTime,
+          reason: 'جلسهٔ اداری (نمونه)',
+        }),
+        s(manager),
+        ctx(),
+      ),
+    );
+    book.partialClosure = {
+      therapistId: T1,
+      date,
+      startTime,
+      endTime,
+      expectedAffected: scheduled(date)
+        .filter(inRange)
+        .map((session) => session.appointmentId)
+        .sort(),
+      reportedAffected: added.affectedAppointments.map((one) => one.appointmentId).sort(),
+    };
+    count('partial-day closure');
+    count('sessions surfaced by a partial closure', book.partialClosure.expectedAffected.length);
+
+    // The desk tries to book the closed afternoon for a child the therapist sees.
+    const template = book.sessions.find(
+      (session) => session.therapistId === T1 && session.status === 'SCHEDULED',
+    );
+    if (template === undefined) throw new Error('The first therapist has no booked session.');
+    try {
+      await act(receptionists[0]!, 'POST /appointments', () =>
+        svc.appointments.create(
+          createAppointmentRequestSchema.parse({
+            serviceId: template.serviceId,
+            durationMinutes: template.durationMinutes,
+            therapistId: T1,
+            roomId: template.roomId,
+            childId: template.childId,
+            startsAt: tehranInstant(date, 17),
+            note: null,
+            availabilityOverrideReason: null,
+          }),
+          s(receptionists[0]!),
+          ctx(),
+        ),
+      );
+      throw new Error('A booking inside a partial closure was accepted.');
+    } catch (error) {
+      if (!(error instanceof AppError && error.code === 'APPOINTMENT_OUTSIDE_AVAILABILITY')) {
+        throw error;
+      }
+      count('booking refused inside a partial closure');
+    }
+  }
+
   async function deactivateHoldingMoney() {
     const front = desk(calendar.lastHistoryDay);
     const before = await act(manager, 'GET /reports/family-accounts', () =>

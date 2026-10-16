@@ -8,6 +8,7 @@ import {
   sessionReportQuerySchema,
   settlementStatementQuerySchema,
 } from '@clinic/contracts';
+import { AvailabilityService } from '../availability/availability.service';
 import type { ResolvedSession } from '../common/request-context';
 import { FamilyAccountService } from '../ledger/family-account.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -1130,6 +1131,52 @@ export async function reconcileClinic(
         `request from ${request.contactMobile}`,
         { status: request.status, family: request.linkedFamilyId },
         row === undefined ? null : { status: row.status, family: row.family },
+      );
+    }
+  }
+
+  // ---- 13. The partial-day closure (M10-A9) ----------------------------------
+
+  {
+    const into = check('partial-day closure: resolved hours and the sessions it surfaced');
+    const closure = book.partialClosure;
+    expectEqual(into, 'a partial closure was recorded', true, closure !== null);
+    if (closure !== null) {
+      const availability = app.get(AvailabilityService);
+      const day = await availability.resolve({
+        therapistId: closure.therapistId,
+        date: closure.date,
+      });
+      // The therapist's 09:00–18:00 day, less the closed afternoon.
+      expectEqual(
+        into,
+        `hours on ${closure.date}`,
+        {
+          isClosed: false,
+          closedRanges: [{ startTime: closure.startTime, endTime: closure.endTime }],
+          windows: [{ startTime: '09:00', endTime: closure.startTime }],
+        },
+        {
+          isClosed: day.isClosed,
+          closedRanges: day.closedRanges.map(({ startTime, endTime }) => ({ startTime, endTime })),
+          windows: day.windows,
+        },
+      );
+      expectEqual(
+        into,
+        'sessions surfaced when the closure was written',
+        closure.expectedAffected,
+        closure.reportedAffected,
+      );
+      const read = await availability.listClosureConflicts(closure.therapistId, {
+        from: closure.date,
+        to: closure.date,
+      });
+      expectEqual(
+        into,
+        'sessions surfaced by the conflict read',
+        closure.expectedAffected,
+        read.map((one) => one.appointmentId).sort(),
       );
     }
   }

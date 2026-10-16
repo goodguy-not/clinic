@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   AvailabilityExceptionListQuery,
+  ClosureAffectedAppointment,
+  ClosureConflictQuery,
   CreateAvailabilityExceptionRequest,
   ResolveAvailabilityQuery,
   ResolvedAvailability,
@@ -9,15 +11,16 @@ import type {
   TherapistAvailability,
   TherapistAvailabilityException,
 } from '@clinic/contracts';
+import { isWithinAvailability } from '../appointments/booking-support';
 import { AuditService } from '../audit/audit.service';
 import type { AuditJsonObject } from '../audit/audit.types';
 import { actorContext, canonicalOptionalText } from '../catalog/catalog-support';
 import { AppError } from '../common/app-error';
-import { isUniqueViolation, violatesConstraint } from '../common/pg-error';
+import { violatesConstraint } from '../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
-import { findOverlappingPair, mergeWindows } from './window-merge';
+import { findOverlappingPair, mergeWindows, subtractWindows } from './window-merge';
 
 /**
  * A therapist's working hours: the recurring week, the dated exceptions to it,
@@ -45,8 +48,10 @@ import { findOverlappingPair, mergeWindows } from './window-merge';
  *  1. Two recurring windows may not cover the same weekday and overlapping
  *     hours. `therapist_availability_no_overlap_excl` decides that, which is
  *     what makes it hold when two managers save at once.
- *  2. A dated exception may not collide with another on the same date: a date is
- *     closed at most once, and extra windows on it may not overlap each other.
+ *  2. A dated exception may not collide with another on the same date: closures
+ *     on it may not overlap (a whole-day closure overlaps all of them), extra
+ *     windows on it may not overlap each other, and a partial closure may not
+ *     overlap an extra window (M10-A9).
  *  3. A window ends after it starts and carries no seconds. Two CHECKs.
  *
  * LOCKING. Every mutation takes the therapist row `FOR UPDATE` first and holds
@@ -71,6 +76,27 @@ type AvailabilityRow = {
   start_time: string;
   end_time: string;
   created_at: Date;
+};
+
+type ConflictRow = {
+  id: string;
+  series_id: string | null;
+  starts_at: Date;
+  ends_at: Date;
+  availability_override_reason: string | null;
+  start_date: string;
+  end_date: string;
+  start_time: string;
+  end_time: string;
+};
+
+type ConflictSeatRow = {
+  appointment_id: string;
+  id: string;
+  family_id: string;
+  first_name: string;
+  last_name: string;
+  file_number: string;
 };
 
 type ExceptionRow = {
@@ -249,15 +275,27 @@ export class AvailabilityService {
     return rows.map(toAvailability);
   }
 
+  /**
+   * Adds a closure (whole-day or partial) or an extra window.
+   *
+   * A closure cancels and moves nothing. The scheduled appointments it leaves
+   * outside the therapist's hours are read on the same transaction and returned
+   * with it, so the manager is shown them at the moment of closing; the same
+   * list stays readable afterwards through `listClosureConflicts`.
+   */
   async addException(
     therapistId: string,
     input: CreateAvailabilityExceptionRequest,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<TherapistAvailabilityException> {
+  ): Promise<{
+    exception: TherapistAvailabilityException;
+    affectedAppointments: ClosureAffectedAppointment[];
+  }> {
     const reason = canonicalOptionalText(input.reason);
-    const startTime = input.isAvailable ? input.startTime : null;
-    const endTime = input.isAvailable ? input.endTime : null;
+    // Absent and null are one answer for a closure: no times is the whole day.
+    const startTime = input.startTime ?? null;
+    const endTime = input.endTime ?? null;
     const id = uuidv7();
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -294,10 +332,147 @@ export class AvailabilityService {
         metadata: { change: 'exception_added' },
       });
 
-      return written;
+      // An extra window only adds hours, so it can leave nothing outside them.
+      const affected = written.is_available
+        ? []
+        : await this.closureConflictsOn(
+            tx,
+            therapistId,
+            written.exception_date,
+            written.exception_date,
+          );
+
+      return { written, affected };
     });
 
-    return toException(row);
+    return { exception: toException(row.written), affectedAppointments: row.affected };
+  }
+
+  /**
+   * The scheduled appointments that closures in a date range have left outside
+   * the therapist's hours (M10-A9).
+   *
+   * NOTHING IS CANCELLED OR MOVED, here or anywhere a closure is written. This
+   * is how the conflict is surfaced: a manager who closed a day — or part of one
+   * — sees which sessions still sit in it and decides with the families what
+   * happens to each. Reads are allowed for an inactive therapist, as every
+   * availability read is.
+   */
+  async listClosureConflicts(
+    therapistId: string,
+    query: ClosureConflictQuery,
+  ): Promise<ClosureAffectedAppointment[]> {
+    await this.assertTherapistExists(therapistId);
+
+    return this.closureConflictsOn(this.prisma, therapistId, query.from, query.to);
+  }
+
+  /**
+   * One rule for both callers. An appointment is a closure conflict when it is
+   * `SCHEDULED`, falls on a date carrying a closure, overlaps a closed range on
+   * that date (a whole-day closure is the whole date), and is not inside the
+   * resolved availability of that date.
+   *
+   * The last condition is the resolution itself, read through `resolveOn`, so a
+   * session inside an extra window on a closed day is not reported — the window
+   * is exactly why it is still fine — and the precedence is stated once.
+   *
+   * The clinic's calendar and clock come from PostgreSQL (`clinic_date`,
+   * `clinic_clock_time`, `clinic_day_start`), so Asia/Tehran is applied where it
+   * always is and never in this process.
+   */
+  private async closureConflictsOn(
+    client: PrismaService | Prisma.TransactionClient,
+    therapistId: string,
+    from: string,
+    to: string,
+  ): Promise<ClosureAffectedAppointment[]> {
+    const closedDates = await client.$queryRaw<{ exception_date: string }[]>`
+      SELECT DISTINCT exception_date::text AS exception_date
+      FROM therapist_availability_exception
+      WHERE therapist_id = ${therapistId}::uuid
+        AND is_available = false
+        AND exception_date BETWEEN ${from}::date AND ${to}::date
+      ORDER BY exception_date
+    `;
+    if (closedDates.length === 0) return [];
+
+    const dates = new Set(closedDates.map((row) => row.exception_date));
+
+    const scheduled = await client.$queryRaw<ConflictRow[]>`
+      SELECT a.id, a.series_id, a.starts_at, a.ends_at, a.availability_override_reason,
+             clinic_date(a.starts_at)::text AS start_date,
+             clinic_date(a.ends_at)::text AS end_date,
+             clinic_clock_time(a.starts_at) AS start_time,
+             clinic_clock_time(a.ends_at) AS end_time
+      FROM appointment a
+      WHERE a.therapist_id = ${therapistId}::uuid
+        AND a.status = 'SCHEDULED'
+        AND a.starts_at >= clinic_day_start(${from}::date)
+        AND a.starts_at < clinic_day_start((${to}::date + 1))
+      ORDER BY a.starts_at ASC, a.id ASC
+    `;
+
+    const resolvedByDate = new Map<string, ResolvedAvailability>();
+    const conflicts: ConflictRow[] = [];
+
+    for (const row of scheduled) {
+      if (!dates.has(row.start_date)) continue;
+
+      let resolved = resolvedByDate.get(row.start_date);
+      if (resolved === undefined) {
+        resolved = await this.resolveOn(client, therapistId, row.start_date);
+        resolvedByDate.set(row.start_date, resolved);
+      }
+
+      const closed = resolved.isClosed
+        ? [{ startTime: '00:00', endTime: '24:00' }]
+        : resolved.closedRanges;
+      // A session ending at midnight ends on the next date; on its own date it
+      // runs to the end of the day.
+      const endsAt = row.end_date === row.start_date ? row.end_time : '24:00';
+      const overlapsClosure = closed.some(
+        (range) => row.start_time < range.endTime && endsAt > range.startTime,
+      );
+      const span = {
+        startDate: row.start_date,
+        startTime: row.start_time,
+        endDate: row.end_date,
+        endTime: row.end_time,
+      };
+
+      if (overlapsClosure && !isWithinAvailability(span, resolved.windows)) conflicts.push(row);
+    }
+
+    if (conflicts.length === 0) return [];
+
+    const seats = await client.$queryRaw<ConflictSeatRow[]>`
+      SELECT ap.appointment_id, c.id, c.family_id, c.first_name, c.last_name, c.file_number
+      FROM appointment_participant ap
+      JOIN child c ON c.id = ap.child_id
+      WHERE ap.appointment_id IN (${Prisma.join(conflicts.map((row) => Prisma.sql`${row.id}::uuid`))})
+      ORDER BY ap.appointment_id, c.last_name, c.first_name, c.id
+    `;
+
+    return conflicts.map((row) => ({
+      appointmentId: row.id,
+      seriesId: row.series_id,
+      date: row.start_date,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      startsAt: row.starts_at.toISOString(),
+      endsAt: row.ends_at.toISOString(),
+      availabilityOverrideReason: row.availability_override_reason,
+      children: seats
+        .filter((seat) => seat.appointment_id === row.id)
+        .map((seat) => ({
+          id: seat.id,
+          familyId: seat.family_id,
+          firstName: seat.first_name,
+          lastName: seat.last_name,
+          fileNumber: seat.file_number,
+        })),
+    }));
   }
 
   /**
@@ -341,7 +516,8 @@ export class AvailabilityService {
    * The rule, and it is the whole domain behaviour of this checkpoint:
    *
    *   1. A closed-day exception suspends the RECURRING WEEK for that date, and
-   *      nothing else. It does not suppress the dated windows, because "not my
+   *      nothing else. A PARTIAL closure (M10-A9) does the same for its own
+   *      time range only: that range is taken out of the recurring windows. It does not suppress the dated windows, because "not my
    *      usual Saturday hours this week, but I will come in for 15:00 to 18:00"
    *      is a real and common arrangement, and a closure plus an extra window is
    *      the only way to state it. The database allows the pair for exactly that
@@ -352,8 +528,8 @@ export class AvailabilityService {
    *   3. The result is sorted, and touching windows are merged, so the answer is
    *      one non-overlapping reading of the day.
    *
-   * `isClosed` reports the closure, which is why the day differs from the
-   * ordinary week. It is NOT the bookability test — `windows` is, always, and it
+   * `isClosed` reports a whole-day closure and `closedRanges` the partial ones,
+   * which is why the day differs from the ordinary week. It is NOT the bookability test — `windows` is, always, and it
    * is empty on a closed day with no dated window as well as on a weekday the
    * therapist simply never works.
    *
@@ -398,13 +574,18 @@ export class AvailabilityService {
       {
         weekday: number;
         source: string;
-        start_time: string;
-        end_time: string;
+        // Null only on a whole-day closure.
+        start_time: string | null;
+        end_time: string | null;
         reason: string | null;
       }[]
     >`
       SELECT ${CLINIC_WEEKDAY(date)} AS weekday,
-             'closed' AS source, '00:00' AS start_time, '00:00' AS end_time, reason
+             'closed' AS source,
+             -- The first branch names the columns for the whole UNION.
+             to_char(start_time, 'HH24:MI') AS start_time,
+             to_char(end_time, 'HH24:MI') AS end_time,
+             reason
       FROM therapist_availability_exception
       WHERE therapist_id = ${therapistId}::uuid
         AND exception_date = ${date}::date
@@ -433,24 +614,36 @@ export class AvailabilityService {
     // Derived rather than read from the rows, so the answer is right on a day
     // with no availability of any kind, when the query returns nothing at all.
     const weekday = clinicWeekday(date);
-    const closed = rows.find((row) => row.source === 'closed');
+    const windowsFrom = (source: string) =>
+      rows.flatMap((row) =>
+        row.source === source && row.start_time !== null && row.end_time !== null
+          ? [{ startTime: row.start_time, endTime: row.end_time, reason: row.reason }]
+          : [],
+      );
+
+    const wholeDay = rows.find((row) => row.source === 'closed' && row.start_time === null);
+    const closedRanges = windowsFrom('closed').sort((left, right) =>
+      left.startTime.localeCompare(right.startTime),
+    );
 
     // The one precedence rule: a closure removes the recurring week from the
-    // day and leaves the dated windows standing. There is at most one closure
-    // per date — a partial unique index says so.
-    const contributing = rows.filter(
-      (row) => row.source === 'exception' || (row.source === 'recurring' && closed === undefined),
-    );
+    // day — the whole of it, or only its own range (M10-A9) — and leaves the
+    // dated windows standing. A partial closure cannot overlap a dated window,
+    // and closures of one date cannot overlap each other: two exclusion
+    // constraints say so, so this subtraction never has to choose between them.
+    const recurring = wholeDay !== undefined ? [] : windowsFrom('recurring');
 
     return {
       therapistId,
       date,
       weekday,
-      isClosed: closed !== undefined,
-      closedReason: closed?.reason ?? null,
-      windows: mergeWindows(
-        contributing.map((row) => ({ startTime: row.start_time, endTime: row.end_time })),
-      ),
+      isClosed: wholeDay !== undefined,
+      closedReason: wholeDay?.reason ?? null,
+      closedRanges,
+      windows: mergeWindows([
+        ...windowsFrom('exception'),
+        ...subtractWindows(recurring, closedRanges),
+      ]),
     };
   }
 
@@ -548,17 +741,15 @@ function translateAvailabilityWrite(error: unknown): unknown {
 }
 
 function translateExceptionWrite(error: unknown): unknown {
-  // Two mechanisms, one meaning: overlapping extra windows raise the exclusion
-  // constraint, a second closure of one date raises the partial unique index.
-  // Both are "this date already says that", which is one thing to explain.
-  //
-  // The unique violation is matched by its SQLSTATE rather than by name:
-  // PostgreSQL reports a partial unique index by its key columns and not by its
-  // index name, so there is no name in the error to match. This insert has
-  // exactly one unique index over it, so the class is unambiguous.
+  // Three constraints, one meaning — "this date already says something about
+  // these hours": overlapping extra windows, overlapping closures (a whole-day
+  // closure overlaps every closure of its date), and a partial closure over an
+  // extra window. M10-A9 replaced the one-closure-per-date unique index with the
+  // closure exclusion constraint, so every case is now matched by name.
   if (
     violatesConstraint(error, 'therapist_availability_exception_no_overlap_excl') ||
-    isUniqueViolation(error)
+    violatesConstraint(error, 'therapist_availability_exception_closure_no_overlap_excl') ||
+    violatesConstraint(error, 'therapist_availability_exception_closure_window_excl')
   ) {
     return new AppError('AVAILABILITY_EXCEPTION_CONFLICT');
   }

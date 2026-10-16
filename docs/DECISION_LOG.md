@@ -6279,3 +6279,41 @@ creditToman }` (the account's own derivation, read after the family row is locke
 - **Revisit when:** a migration must be applied while the clinic works, the restore of a
   real backup takes more than a few minutes, or the owner cannot be present for upgrades
   with migrations.
+
+## 2026-10-16 — A therapist's day can be closed in part
+
+**Status:** Accepted — Agent A, Milestone 10 A9 (tour item T-012, owner-approved for the pilot)
+
+- **Decision:** a closure (`therapist_availability_exception`, `is_available = false`) may
+  carry a start and an end; with them it closes that range of the date only, without them
+  the whole day as before. Times are `HH:MM` on the clinic's calendar (Asia/Tehran), end
+  after start, within the day. The resolved day takes each partial closure out of the
+  recurring windows and leaves dated extra windows standing — the whole-day rule, applied
+  to a range — and lists them as `closedRanges`; `isClosed` still means the whole day.
+  Booking, moving and the recurrence preview are unchanged: they read the resolved
+  windows, so a session inside a closed range is refused with
+  `APPOINTMENT_OUTSIDE_AVAILABILITY` unless overridden with a recorded reason. Same
+  permission (`availability.manage`), same audit (`therapist_availability.updated`, the
+  exception with its times).
+- **Overlaps are refused, not merged:** closures on one date may not overlap (a whole-day
+  closure overlaps every closure of its date), and a partial closure may not overlap an
+  extra window; all three answer `AVAILABILITY_EXCEPTION_CONFLICT`. Back-to-back ranges are
+  allowed. A whole-day closure beside an extra window stays allowed ("not my usual hours,
+  these instead"). Enforced by two exclusion constraints, replacing the one-closure-per-date
+  unique index.
+- **Existing sessions:** a closure — whole-day or partial — cancels and moves nothing. The
+  scheduled appointments it leaves outside the therapist's hours are returned with the
+  closure (`affectedAppointments`) and stay readable through
+  `GET /availability/therapists/:therapistId/closure-conflicts?from&to` (`availability.read`).
+  Before this, a whole-day closure surfaced nothing at all; it now surfaces conflicts the
+  same way, so both kinds behave alike.
+- **Alternatives:** a separate partial-closure table (two places to read a closure from,
+  and the precedence rule written twice); merging overlapping closures (two rows answering
+  "why is this hour closed", and removing one would silently reopen hours the other meant
+  to close); cancelling or flagging the sessions in the range (a session promised to a
+  family is changed by a person who has spoken to them); a stored conflict flag on the
+  appointment (state that goes stale the moment the closure is removed).
+- **Trade-off:** the conflict list is computed on read, so it is "now", not "when the
+  closure was made"; the migration is rollback class **restore** (runbook 18.3).
+- **Revisit when:** a closure must span several days, or the clinic asks for the diary to
+  act on a closure (notify, propose a new time) rather than show it.

@@ -202,6 +202,10 @@ export class SchedulingRules {
         // tomorrow, and an audit row that pointed at them would answer a
         // different question every time it was read.
         isClosed: resolved.isClosed,
+        closedRanges: resolved.closedRanges.map((range) => ({
+          startTime: range.startTime,
+          endTime: range.endTime,
+        })),
         availableWindows: resolved.windows.map((window) => ({
           startTime: window.startTime,
           endTime: window.endTime,

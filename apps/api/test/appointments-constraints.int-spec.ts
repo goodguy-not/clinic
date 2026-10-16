@@ -503,7 +503,7 @@ describe('appointment database constraints', () => {
       ]);
     });
 
-    it('accepts a closed day and an extra window, and refuses a half-stated exception', async () => {
+    it('accepts a closed day, a partial closure and an extra window, and refuses a half-stated exception', async () => {
       const insertException = (
         isAvailable: boolean,
         startTime: string | null,
@@ -521,17 +521,35 @@ describe('appointment database constraints', () => {
       await expect(insertException(false, null, null)).resolves.toBe(1);
       await expect(insertException(true, '15:00', '18:00')).resolves.toBe(1);
 
-      // A closed day carrying times, and an extra window carrying none.
-      await expectRejection(
-        insertException(false, '09:00', '12:00'),
-        CHECK_VIOLATION,
-        /therapist_availability_exception_window_chk/,
-      );
-      await expectRejection(
-        insertException(true, null, null),
-        CHECK_VIOLATION,
-        /therapist_availability_exception_window_chk/,
-      );
+      // A closure carrying both times is a partial closure (M10-A9). Another
+      // date, because a whole-day closure overlaps every closure of its own.
+      await expect(
+        harness.prisma.$executeRaw`
+          INSERT INTO therapist_availability_exception (
+            id, therapist_id, exception_date, is_available, start_time, end_time,
+            reason, created_by_user_id
+          ) VALUES (
+            ${uuidv7()}::uuid, ${therapistId}::uuid, DATE '2026-09-06', false,
+            '09:00'::time, '12:00'::time, NULL, ${actorId}::uuid
+          )
+        `,
+      ).resolves.toBe(1);
+
+      // Half-stated: a closure with one bound, a range ending at or before its
+      // start, and an extra window carrying no times.
+      for (const [isAvailable, startTime, endTime] of [
+        [false, '09:00', null],
+        [false, null, '12:00'],
+        [false, '12:00', '12:00'],
+        [false, '12:00', '09:00'],
+        [true, null, null],
+      ] as const) {
+        await expectRejection(
+          insertException(isAvailable, startTime, endTime),
+          CHECK_VIOLATION,
+          /therapist_availability_exception_window_chk/,
+        );
+      }
     });
   });
 

@@ -528,6 +528,7 @@ describe('availability endpoints', () => {
         reason: 'مرخصی',
         createdAt: '2026-08-13T00:00:00.000Z',
       },
+      affectedAppointments: [],
     });
     await api.addAvailabilityException(
       therapistId,
@@ -552,6 +553,7 @@ describe('availability endpoints', () => {
         weekday: 0,
         isClosed: true,
         closedReason: 'مرخصی',
+        closedRanges: [],
         windows: [{ startTime: '15:00', endTime: '18:00' }],
       },
     });

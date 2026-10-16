@@ -60,6 +60,7 @@ const RESOLVED: ResolvedAvailability = {
   weekday: 2,
   isClosed: true,
   closedReason: 'مرخصی',
+  closedRanges: [],
   windows: [{ startTime: '15:00', endTime: '18:00' }],
 };
 

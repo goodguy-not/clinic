@@ -558,15 +558,35 @@ describe('Milestone 4 contracts', () => {
       expect(createAvailabilityExceptionRequestSchema.safeParse(closed).success).toBe(true);
       expect(createAvailabilityExceptionRequestSchema.safeParse(open).success).toBe(true);
 
-      // A closed day with times, and an extra window without them, are both
-      // half-stated facts that the database CHECK refuses as well.
+      // A closure with both times is a partial closure (M10-A9); with one, or
+      // with a range that does not move forward, it is half-stated, as is an
+      // extra window without times. The database CHECK refuses the same.
       expect(
         createAvailabilityExceptionRequestSchema.safeParse({
           ...closed,
           startTime: '16:00',
           endTime: '19:00',
         }).success,
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        createAvailabilityExceptionRequestSchema.safeParse({
+          ...closed,
+          startTime: null,
+          endTime: null,
+        }).success,
+      ).toBe(true);
+      for (const range of [
+        { startTime: '16:00' },
+        { endTime: '19:00' },
+        { startTime: '16:00', endTime: null },
+        { startTime: '19:00', endTime: '16:00' },
+        { startTime: '16:00', endTime: '16:00' },
+        { startTime: '16:00', endTime: '24:00' },
+      ]) {
+        expect(
+          createAvailabilityExceptionRequestSchema.safeParse({ ...closed, ...range }).success,
+        ).toBe(false);
+      }
 
       expect(
         createAvailabilityExceptionRequestSchema.safeParse({
@@ -584,7 +604,11 @@ describe('Milestone 4 contracts', () => {
         weekday: 3,
         isClosed: false,
         closedReason: null,
-        windows: [{ startTime: '09:00', endTime: '13:00' }],
+        closedRanges: [{ startTime: '11:00', endTime: '12:00', reason: null }],
+        windows: [
+          { startTime: '09:00', endTime: '11:00' },
+          { startTime: '12:00', endTime: '13:00' },
+        ],
       };
 
       expect(resolvedAvailabilitySchema.safeParse(resolved).success).toBe(true);
@@ -595,7 +619,7 @@ describe('Milestone 4 contracts', () => {
       expect(
         resolvedAvailabilitySchema.safeParse({
           ...resolved,
-          windows: [{ startTime: '09:00', endTime: '13:00', source: 'recurring' }],
+          windows: [{ startTime: '09:00', endTime: '11:00', source: 'recurring' }],
         }).success,
       ).toBe(false);
     });

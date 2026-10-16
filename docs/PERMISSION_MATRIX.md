@@ -34,6 +34,7 @@ exposed to the internet). Open routes and in-handler checks are listed after the
 | Route | Requires | Manager | Receptionist | Visitor |
 | --- | --- | :-: | :-: | :-: |
 | `GET /availability/resolution` | availability.read | ✔ | ✔ | — |
+| `GET /availability/therapists/:therapistId/closure-conflicts` | availability.read | ✔ | ✔ | — |
 | `GET /availability/therapists/:therapistId/exceptions` | availability.read | ✔ | ✔ | — |
 | `POST /availability/therapists/:therapistId/exceptions` | availability.manage | ✔ | — | — |
 | `DELETE /availability/therapists/:therapistId/exceptions/:id` | availability.manage | ✔ | — | — |
@@ -235,7 +236,7 @@ exposed to the internet). Open routes and in-handler checks are listed after the
 
 ## Totals
 
-169 routes. Manager 169, receptionist 105, visitor 16 (2 liveness probes directly, the rest via the site).
+170 routes. Manager 170, receptionist 106, visitor 16 (2 liveness probes directly, the rest via the site).
 
 ## Routes that require no permission
 

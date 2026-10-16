@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   availabilityExceptionListQuerySchema,
+  closureConflictQuerySchema,
   createAvailabilityExceptionRequestSchema,
   replaceAvailabilityWindowsRequestSchema,
   resolveAvailabilityQuerySchema,
@@ -19,6 +20,8 @@ import {
   type AvailabilityExceptionListResponse,
   type AvailabilityExceptionResponse,
   type AvailabilityWindowListResponse,
+  type ClosureConflictQuery,
+  type ClosureConflictResponse,
   type CreateAvailabilityExceptionRequest,
   type ReplaceAvailabilityWindowsRequest,
   type ResolveAvailabilityQuery,
@@ -107,7 +110,25 @@ export class AvailabilityController {
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
   ): Promise<AvailabilityExceptionResponse> {
-    return { exception: await this.availability.addException(therapistId, body, session, context) };
+    return this.availability.addException(therapistId, body, session, context);
+  }
+
+  /**
+   * The scheduled appointments that closures in a date range have left outside
+   * the therapist's hours (M10-A9).
+   *
+   * A read under `availability.read`, like every other read of a schedule: who
+   * may close a day is unchanged (`availability.manage`, the manager), and a
+   * closure cancels nothing — this is where the sessions it conflicts with are
+   * shown, for a person to resolve with the families.
+   */
+  @Get('therapists/:therapistId/closure-conflicts')
+  @RequirePermissions('availability.read')
+  async listClosureConflicts(
+    @Param('therapistId', ParseUUIDPipe) therapistId: string,
+    @Query(new ZodBodyPipe(closureConflictQuerySchema)) query: ClosureConflictQuery,
+  ): Promise<ClosureConflictResponse> {
+    return { appointments: await this.availability.listClosureConflicts(therapistId, query) };
   }
 
   /**
