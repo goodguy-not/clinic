@@ -246,8 +246,13 @@ describe('public service imagery (real PostgreSQL)', () => {
     it('serves nothing for a service that has no public address yet', async () => {
       // The third condition. A service may be flagged public and active and
       // still have no slug — it is simply not reachable, and nor is its
-      // photograph.
-      const { service } = await liveServiceImage({ publicSlug: null });
+      // photograph. The API no longer writes that state (M10-A9: public only
+      // with an address), so it is made the way Milestone 2 rows were left in
+      // it — directly — to keep the gate proven for any such legacy row.
+      const { service } = await liveServiceImage({ isPublic: false, publicSlug: null });
+      await harness.prisma.$executeRaw`
+        UPDATE service SET is_public = true WHERE id = ${service.id}::uuid
+      `;
 
       expect(await listPaths()).toEqual([]);
 
@@ -264,6 +269,7 @@ describe('public service imagery (real PostgreSQL)', () => {
         (
           await updateService(service.id, {
             ...service.body,
+            isPublic: true,
             publicSlug: `synthetic-late-${uuidv7().slice(-8)}`,
           })
         ).status,
