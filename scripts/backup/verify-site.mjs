@@ -217,8 +217,13 @@ async function checkStaffLogin(password) {
 
 async function checkLoginFormOnly() {
   process.stdout.write('\n==> Sign-in form (read-only: nobody signs in)\n');
+  // A first visit without the CSRF cookie answers 303 back to /login, setting it
+  // (M10-A11 found the check expecting 200 here); anything else is a failure.
   const response = await get('/login');
-  if (response.status !== 200) fail(`/login answered ${response.status}.`);
+  const location = response.headers.get('location');
+  if (response.status !== 200 && !(response.status === 303 && location === '/login')) {
+    fail(`/login answered ${response.status}${location ? ` to ${location}` : ''}.`);
+  }
   // The same two-request read the sign-in uses: the first sets the CSRF cookie,
   // which lives only in this process's jar. Nothing is posted.
   await csrfFrom('/login', cookieJar());

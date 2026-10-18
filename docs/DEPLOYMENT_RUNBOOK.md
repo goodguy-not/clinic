@@ -396,7 +396,17 @@ As README, [Setting up the server](../README.md#setting-up-the-server); the
 commands as rehearsed:
 
 1. The backup login was provisioned in step 7.
-2. Put the owner's public key on the server (it arrives by any means — it is not
+2. **Who holds the private key.** The backup key pair is made on the owner's own
+   computer (README, Setting up the server), so its private half and passphrase never
+   leave the owner. **Whoever makes a backup key for any deployment — staging, a
+   rehearsal, a stand-in — hands the private half and the passphrase to the owner at
+   once, and the handover is written down** (where they are kept, the fingerprint, the
+   date). A key nobody can produce makes every backup encrypted to it unrestorable, and
+   every upgrade with migrations impossible to prove (17.3). This happened on staging:
+   the M10-A7 stand-in key was never handed over and could not be found on 2026-10-18
+   (M10-A11); it was replaced (Appendix A).
+
+   Put the owner's public key on the server (it arrives by any means — it is not
    secret):
 
    ```bash
@@ -535,7 +545,10 @@ git diff --stat <live commit> <new commit> -- apps/api packages pnpm-lock.yaml s
 
 Measured on two CPU cores with a small clinic. A real 2 vCPU server may build the
 web more slowly; at the first year's size (a 450 MB backup) the backup and its
-proof add about half a minute.
+proof add about half a minute. **The first real upgrade with migrations** (staging,
+2026-10-18, M10-A11, `8b55eb0` → `8d5744a`, two migrations, a 14.6 MB backup): closed
+**23.7 s** — backup 0.7, restore proof 4.6, API stop and migrations 1.5, API start
+1.1, web build 14.6, web start 1.1; an outside prober saw 22.7 s of `502`.
 
 "Down" means every page, public and staff, answers `502 Bad Gateway`. A change under
 `scripts/ops`, `scripts/backup/systemd` or this page may bring a unit, an nginx
@@ -550,17 +563,33 @@ setting or an environment variable to install with the release: read it (17.5).
   to keep the release before the clinic next opens. Not between 02:00 and 05:00
   Tehran, when the backup and the nightly jobs run.
 - The **owner's backup key and its passphrase** are needed for the whole upgrade:
-  the backup is proven by restoring it (17.3), and a rollback restores it. The owner
-  exports the key on the owner's own computer, and it comes to the server only for
-  the upgrade:
+  the backup is proven by restoring it (17.3), and a rollback restores it. **Before
+  the day**, prove the owner holds the key the server encrypts to — the same
+  fingerprint on both sides (the server's first, then on the owner's computer):
 
   ```bash
-  gpg --armor --export-secret-keys "Clinic backups" > clinic-backup-secret.asc
+  gpg --show-keys --with-colons /etc/clinic/clinic-backup-public.asc | awk -F: '$1 == "fpr" {print $10; exit}'
   ```
 
   ```bash
-  scp clinic-backup-secret.asc <you>@<server>:
+  gpg --list-secret-keys --with-colons "Clinic backups" | awk -F: '$1 == "fpr" {print $10; exit}'
   ```
+
+  Different, or no secret key: stop and find the key (13, step 2) — never discover
+  it with the site closed.
+
+- **The key comes to the server only for the upgrade, only in memory, and leaves
+  after.** The owner exports it on the owner's own computer and sends it straight
+  into `/dev/shm` (a memory file system: it is never written to the server's disk,
+  and a restart erases it):
+
+  ```bash
+  gpg --armor --export-secret-keys "Clinic backups" | ssh <you>@<server> 'umask 077 && cat > /dev/shm/clinic-backup-secret.asc'
+  ```
+
+  `restore-on-server.sh` imports it into a keyring it makes in `/dev/shm` as well and
+  removes on exit (since M10-A11; a release before it copies the key into
+  `/var/tmp` for the length of the run).
 
 ### 17.2 Prepare (the site keeps working)
 
@@ -573,6 +602,17 @@ OLD=$(basename "$(readlink /srv/clinic)") && NEW=$(python3 -c "import sys, tarfi
 `NEW` is read from the archive (step 5), so it is the commit that was archived:
 compare it with `git rev-parse <new commit>` on the operator's computer before going
 on.
+
+**A live release with no receipt** (installed by 17.2 before receipts existed, so
+`cat /srv/clinic/RELEASE` fails though the link names a commit): prove the link's
+commit by content as in 18.4 ("Finding `C`", with `cd /srv/clinic-releases/$OLD`),
+and on `MATCHES` give it its receipt, so a rollback to it passes the checks of 17.6:
+
+```bash
+echo "$OLD" | sudo -u clinic-build tee /srv/clinic-releases/$OLD/RELEASE
+```
+
+(Staging's `8b55eb0` was such a release; proven and given its receipt in M10-A11.)
 
 ```bash
 sudo -u clinic-build install -d /srv/clinic-releases/$NEW && sudo -u clinic-build tar -xzf /tmp/clinic-release.tar.gz -C /srv/clinic-releases/$NEW && echo "$NEW" | sudo -u clinic-build tee /srv/clinic-releases/$NEW/RELEASE
@@ -623,7 +663,7 @@ Prove it by restoring it — into a separate, new database, with the live releas
 exactly as a rollback would — and then remove that copy:
 
 ```bash
-sudo /srv/clinic-releases/$NEW/scripts/ops/restore-on-server.sh /var/backups/clinic/$PRE clinic_upgrade_check /var/lib/clinic/upgrade-check-media ~/clinic-backup-secret.asc
+sudo /srv/clinic-releases/$NEW/scripts/ops/restore-on-server.sh /var/backups/clinic/$PRE clinic_upgrade_check /var/lib/clinic/upgrade-check-media /dev/shm/clinic-backup-secret.asc
 ```
 
 It asks for the key's passphrase and must end `RESTORE VERIFIED`.
@@ -719,7 +759,9 @@ journalctl -u clinic-api -u clinic-web --since "-15 min" -p warning --no-pager
 Then a manager looks at what the release changed. **Keep it, or go back (step 18)
 before the clinic next opens.** When it is kept:
 
-- Delete the owner's key from the server: `shred -u ~/clinic-backup-secret.asc`.
+- Delete the owner's key from the server: `rm /dev/shm/clinic-backup-secret.asc`
+  (it was only ever in memory), and check nothing is left: `ls /dev/shm /var/tmp`
+  shows no `clinic-backup-secret.asc` and no `clinic-restore*`.
 - Keep the live release and `$OLD`; remove older ones (`ls -1t /srv/clinic-releases`,
   then `sudo rm -rf /srv/clinic-releases/<older commit>` — never the live one or
   `$OLD`). Each kept release costs about 0.3–0.5 GB of disk beyond the shared package store.
@@ -780,7 +822,7 @@ sudo -u postgres psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "ALTER DATABASE $D
 Restore the backup `$PRE` (17.3) under the live name, with the previous release:
 
 ```bash
-sudo /srv/clinic-releases/$NEW/scripts/ops/restore-on-server.sh /var/backups/clinic/$PRE $DB /var/lib/clinic/media ~/clinic-backup-secret.asc
+sudo /srv/clinic-releases/$NEW/scripts/ops/restore-on-server.sh /var/backups/clinic/$PRE $DB /var/lib/clinic/media /dev/shm/clinic-backup-secret.asc
 ```
 
 It must end `RESTORE VERIFIED`. Re-apply erasures that fell due since the backup was
@@ -897,17 +939,20 @@ page. Synthetic data only; it never leaves the computer.
 
 **What differs from production, and only this:**
 
-| Step | Staging                                                                                                                                                                                        |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| —    | The server is a WSL distribution: `wsl --install Ubuntu-24.04 --name clinic-staging --location <folder> --no-launch`, as root                                                                  |
-| 1    | `/etc/wsl.conf` adds `[time]` `useWindowsTimezone=false`, or WSL resets the clock zone to Windows' at every start                                                                              |
-| 1    | SSH listens on **2222** (`/etc/ssh/sshd_config.d/10-staging-port.conf`, `ufw allow 2222/tcp`), so it cannot meet a Windows SSH server on 22                                                    |
-| 7    | `DB=clinic_demo`, `SITE=https://clinic-staging.test`, `ORIGINS=https://clinic-staging.test,https://localhost`                                                                                  |
-| 10   | after the first manager: the practice clinic (README, The practice clinic), and the sample public content                                                                                      |
-| 12   | a self-signed certificate (90 days, not a CA) for `clinic-staging.test`, `localhost`, `127.0.0.1`; no HSTS line; `scripts/ops/nginx/staging-noindex.conf` included                             |
-| 13   | the "owner's key" is a throwaway made for staging                                                                                                                                              |
-| 15   | the collector connects to `127.0.0.1:2222` (`-Server 127.0.0.1 -Port 2222`)                                                                                                                    |
-| 17.6 | `systemctl --failed` lists exactly one unit, `systemd-binfmt.service`: WSL registers its own binary formats and that Ubuntu unit fails at every start. Any other unit listed is a real failure |
+| Step | Staging                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| —    | The server is a WSL distribution: `wsl --install Ubuntu-24.04 --name clinic-staging --location <folder> --no-launch`, as root                                                                                                                                                                                                                                                                                       |
+| 1    | `/etc/wsl.conf` adds `[time]` `useWindowsTimezone=false`, or WSL resets the clock zone to Windows' at every start                                                                                                                                                                                                                                                                                                   |
+| 1    | SSH listens on **2222** (`/etc/ssh/sshd_config.d/10-staging-port.conf`, `ufw allow 2222/tcp`), so it cannot meet a Windows SSH server on 22                                                                                                                                                                                                                                                                         |
+| 7    | `DB=clinic_demo`, `SITE=https://clinic-staging.test`, `ORIGINS=https://clinic-staging.test,https://localhost`                                                                                                                                                                                                                                                                                                       |
+| 10   | after the first manager: the practice clinic (README, The practice clinic), and the sample public content                                                                                                                                                                                                                                                                                                           |
+| 12   | a self-signed certificate (90 days, not a CA) for `clinic-staging.test`, `localhost`, `127.0.0.1`; no HSTS line; `scripts/ops/nginx/staging-noindex.conf` included                                                                                                                                                                                                                                                  |
+| 13   | the "owner's key" is a staging-only key, kept for the owner outside every repository in `E:\work\clinic\staging-secrets\` (private key, passphrase, fingerprint `94CE F8D1 372A 397F 54AA C8A7 B107 F3D0 611E 7182`; `docs/STAGING_OWNER_NOTES.md`). It replaced the M10-A7 stand-in (`371E B14B … 6C61 0B31`), which was never handed over and was lost; staging backups made before 2026-10-18 cannot be restored |
+| 15   | the collector connects to `127.0.0.1:2222` (`-Server 127.0.0.1 -Port 2222`)                                                                                                                                                                                                                                                                                                                                         |
+| 17.2 | the archive reaches the server over the Windows drive (`/mnt/c/...`) instead of `scp`                                                                                                                                                                                                                                                                                                                               |
+| 17.3 | the server is a WSL distribution that stops when unused; after it starts, the backup and jobs timers run what they missed within minutes. Wait until `systemctl is-active clinic-backup clinic-jobs` prints `inactive` twice before closing the site                                                                                                                                                                |
+| 17.6 | `systemctl --failed` lists no unit or exactly one, `systemd-binfmt.service`: WSL registers its own binary formats and that Ubuntu unit fails at some starts (it was absent on 2026-10-18). Any other unit listed is a real failure                                                                                                                                                                                  |
+| 17.6 | `verify-site.mjs` runs with `VERIFY_WEB_URL=https://localhost` and `NODE_EXTRA_CA_CERTS=/etc/ssl/clinic-staging/cert.pem` (the self-signed certificate), read-only while the owner's tour data must stay untouched                                                                                                                                                                                                  |
 
 `.test` is reserved and never resolves on the internet, so canonical links and
 the sitemap cannot point at a real site; the browser opens `https://localhost`.

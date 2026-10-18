@@ -6496,3 +6496,32 @@ service is public only with an address" true by construction.
   assertion changed. In production Node and PostgreSQL read one host clock.
 - **Revisit when:** that test fails again with a measured sub-second offset — then a bound
   of the measured offset plus the round trip on that one comparison only.
+
+## 2026-10-18 — The settlement basis for M10.5 is the existing one
+
+**Status:** Accepted — owner (answer 6 to the M10.5 design, recorded by Agent A, M10-A11;
+money-critical)
+
+- **Decision:** confirmed unchanged by the owner. A therapist's share of a session is computed on
+  the effective charge: the session price (the tariff valid on the session's clinic date), with
+  each discount as the manager allocated it, plus any no-show penalty, using the share rule valid on
+  the session's clinic date, independent of whether or when the family pays. In numbers, per charge:
+  therapist gross = round-half-up(charge × share%), clinic gross = charge − therapist gross
+  (`settlement/ratings/share-split.ts`, re-checked by `session_settlement_split_chk`); therapist net
+  = gross − the therapist's stated portion of its discount; clinic net = gross − the clinic's
+  portion. A penalty is one more charge rated the same way (A5). A group session is the sum of
+  its children's charges and penalties (B3).
+- **What the owner added:** every discount states both portions explicitly; there is no default or
+  pre-filled split, for individual or group sessions (design D10, built in M10.5 phase 1; until
+  then an omitted therapist portion still means the clinic bears all of it).
+- **Alternatives:** the therapist automatically bearing their share percentage of every group
+  discount (offered in the design as question 1) — not chosen; a share computed at the decision or
+  payment date — never proposed, refused by the session-date rule.
+- **Trade-off:** the same discount amount gives different therapist results depending on the
+  manager's allocation (design example 2.2: 720,000 or 800,000). That is intended: the allocation
+  is the manager's explicit, reasoned and audited act.
+- **Existing code:** no change. `resolveShareRuleRow(therapistId, serviceDate)` and
+  `resolveTariffSql` already resolve by the session date, at posting and at the manager's late
+  rating.
+- **Revisit when:** the owner states a standing per-therapist discount allocation, or a share
+  that depends on payment.

@@ -9,6 +9,10 @@ money, the therapists and every piece of website text, which is marked
 
 Your existing Linux (`Ubuntu`) is separate and was not touched.
 
+**Staging's backup key is yours:** the private key, its passphrase and a note are in
+`E:\work\clinic\staging-secrets\` (outside every repository; staging only; made
+2026-10-18, fingerprint `94CE F8D1 372A 397F 54AA C8A7 B107 F3D0 611E 7182`).
+
 ## Starting and stopping
 
 Staging switches itself off about a minute after nothing is using it. To keep it

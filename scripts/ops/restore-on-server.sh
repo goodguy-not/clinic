@@ -14,10 +14,12 @@
 # - <media dir> must not exist. It is created for clinic-api, as the API's own.
 # - restore.sh runs as clinic-api, from the LIVE release (/srv/clinic), which
 #   must be the release that took the backup: verify.sh refuses any other.
-# - <owner key file> is the owner's PRIVATE backup key (gpg --export-secret-keys).
-#   It is imported into a keyring made for this run and removed with it on exit,
-#   success or failure. Its passphrase is asked once (read from standard input
-#   when that is not a terminal) and handed to that keyring's agent only.
+# - <owner key file> is the owner's PRIVATE backup key (gpg --export-secret-keys),
+#   brought to the server in memory (/dev/shm, runbook 17.1). It is imported into a
+#   keyring made for this run, also in /dev/shm, so neither the key nor the keyring
+#   is ever written to the server's disk; both are removed on exit, success or
+#   failure. Its passphrase is asked once (read from standard input when that is
+#   not a terminal) and handed to that keyring's agent only.
 # - The archive's signature is checked against this server's own signing key:
 #   the archive was made here minutes or hours ago, by the same key.
 #
@@ -70,29 +72,34 @@ as_postgres() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d postgres
 [[ -z "$(as_postgres -At -c "SELECT 1 FROM pg_database WHERE datname = '$database'")" ]] \
   || die "database $database already exists; the restore needs a new one."
 
+# The archive and the database dump are large and go to disk; the private key
+# and the keyring holding it go to memory only.
+[[ "$(findmnt -n -o FSTYPE --target /dev/shm 2> /dev/null)" == tmpfs ]] \
+  || die "/dev/shm is not a memory file system; the owner's key must not touch the disk."
 work="$(mktemp -d /var/tmp/clinic-restore.XXXXXX)"
-gnupg="$work/gnupg"
+gnupg="$(mktemp -d /dev/shm/clinic-restore-gnupg.XXXXXX)"
 cleanup() {
   runuser -u clinic-api -- gpgconf --homedir "$gnupg" --kill all 2> /dev/null || true
-  rm -rf "$work"
+  rm -rf "$work" "$gnupg"
 }
 trap cleanup EXIT
-install -d -o clinic-api -g clinic-api -m 0700 "$work" "$gnupg"
+chown clinic-api:clinic-api "$work" "$gnupg"
+chmod 0700 "$work" "$gnupg"
 as_api() { runuser -u clinic-api -- env GNUPGHOME="$gnupg" HOME="$work" "$@"; }
 
 echo "== The archive and the keys"
 copy="$work/$(basename "$archive")"
 install -o clinic-api -g clinic-api -m 0600 "$archive" "$copy"
-install -o clinic-api -g clinic-api -m 0600 "$owner_key" "$work/owner-key.asc"
+install -o clinic-api -g clinic-api -m 0600 "$owner_key" "$gnupg/owner-key.asc"
 runuser -u clinic-backup -- gpg --homedir "$signing_dir" --batch --armor --export > "$work/signer.asc"
 chown clinic-api:clinic-api "$work/signer.asc"
 grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$work/signer.asc" || die "no signing key in $signing_dir."
 
 echo allow-preset-passphrase > "$gnupg/gpg-agent.conf"
 chown clinic-api:clinic-api "$gnupg/gpg-agent.conf"
-as_api gpg --batch --quiet --import "$work/owner-key.asc" 2> /dev/null \
+as_api gpg --batch --quiet --import "$gnupg/owner-key.asc" 2> /dev/null \
   || die "could not import $owner_key."
-rm -f "$work/owner-key.asc"
+rm -f "$gnupg/owner-key.asc"
 mapfile -t keygrips < <(as_api gpg --batch --with-colons --with-keygrip --list-secret-keys \
   | awk -F: '$1 == "grp" { print $10 }')
 [[ ${#keygrips[@]} -gt 0 ]] || die "$owner_key holds no private key."
