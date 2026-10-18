@@ -193,8 +193,9 @@ describe('therapist public profile (real PostgreSQL)', () => {
     });
 
     it('never changes across publication, withdrawal and republication', async () => {
-      const before = (await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } }))
-        .publicSlug;
+      const before = (
+        await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } })
+      ).publicSlug;
 
       await writeProfile(manager);
       await setVisibility(manager, true);

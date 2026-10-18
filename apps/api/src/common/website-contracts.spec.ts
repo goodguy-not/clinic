@@ -499,7 +499,17 @@ describe('public website contracts', () => {
     it('bounds the age broadly and encodes no eligibility rule', () => {
       // Every one of these is a person somebody could be. Refusing any of them
       // would be this clinic declining to hear from them, decided by a schema.
-      for (const childAgeYears of [0, 3, 7, 14, 17, 18, 40, 99, PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS]) {
+      for (const childAgeYears of [
+        0,
+        3,
+        7,
+        14,
+        17,
+        18,
+        40,
+        99,
+        PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS,
+      ]) {
         expect(publicRequestSubmissionSchema.safeParse({ ...valid, childAgeYears }).success).toBe(
           true,
         );

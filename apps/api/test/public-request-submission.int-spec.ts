@@ -484,7 +484,9 @@ describe('public request submission (real PostgreSQL)', () => {
 
       await submit(submission());
       const differentChild = await submit(submission({ childAgeYears: 9 }));
-      const differentService = await submit(submission({ serviceSlug: slugs.get('synthetic-other') }));
+      const differentService = await submit(
+        submission({ serviceSlug: slugs.get('synthetic-other') }),
+      );
 
       expect(differentChild.status).toBe(202);
       expect(differentService.status).toBe(202);
