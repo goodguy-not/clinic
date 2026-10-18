@@ -624,7 +624,9 @@ export const MONTH_ONE_DAY = '2026-09-05';
  * than a fourth hour. */
 export const MONTH_ONE_DAY_TWO = '2026-09-12';
 export const MONTH_TWO_DAY = '2026-10-03';
-export const MONTH_THREE_DAY = '2026-10-31';
+/** A Saturday inside MONTH_THREE that has already happened: since M10-A10 (T-020) no
+ * outcome can be recorded for a session on a later date than today. */
+export const MONTH_THREE_DAY = '2026-10-17';
 
 /** The three closes the suites perform, as inclusive ranges. */
 export const MONTH_ONE = { from: '2026-09-01', to: '2026-09-30' };

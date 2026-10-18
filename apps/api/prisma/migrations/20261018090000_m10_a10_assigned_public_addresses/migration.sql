@@ -5,6 +5,10 @@
 -- database: short, unique, URL-safe, never reused, and never changed once
 -- assigned. Staff forms no longer carry the field; the API no longer accepts it.
 --
+-- ROLLBACK CLASS: restore (DEPLOYMENT_RUNBOOK 18.3). It tightens a trigger and
+-- makes two columns NOT NULL with a default the previous release never wrote;
+-- the previous release would send addresses this database refuses to change.
+--
 -- NON-DESTRUCTIVE. Every address that exists today stays exactly as it is,
 -- published or not. Rows with no address (services and therapists only; an
 -- article always had one) are given one here. No row is deleted, no column is

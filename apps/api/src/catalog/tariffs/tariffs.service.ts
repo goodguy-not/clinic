@@ -11,6 +11,7 @@ import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
 import { toIsoDate } from '../../common/iso-date';
 import { isForeignKeyViolation, violatesConstraint } from '../../common/pg-error';
+import { lockScope } from '../../common/scope-lock';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -169,6 +170,15 @@ export class TariffsService {
         });
         voidedId = target.id;
       }
+
+      // One writer per pricing scope at a time — the scope each exclusion
+      // constraint compares — so two simultaneous overlapping creations end in
+      // one tariff and one `TARIFF_OVERLAP`, never a deadlock (M10-A10). Last in
+      // the lock order: service -> therapist -> tariff row -> scope.
+      await lockScope(
+        tx,
+        `tariff-scope:${input.serviceId}:${input.durationMinutes}:${input.therapistId ?? 'general'}`,
+      );
 
       const row = await this.insert(tx, input, actor.userId);
 

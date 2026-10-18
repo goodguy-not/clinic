@@ -14,6 +14,7 @@ import type { AuditJsonObject } from '../audit/audit.types';
 import { AvailabilityService } from '../availability/availability.service';
 import { AppError } from '../common/app-error';
 import { isForeignKeyViolation, violatesConstraint } from '../common/pg-error';
+import { lockScope } from '../common/scope-lock';
 import type { ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -401,6 +402,14 @@ export class SchedulingRules {
         )
       `;
     }
+
+    // Then the therapist's diary and the room's (M10-A10), always in this
+    // order after the children. Two simultaneous bookings of one therapist or
+    // room would otherwise meet only inside the exclusion constraints, where
+    // PostgreSQL can deadlock them (`lockScope`); here the second waits, then
+    // the read below and the constraint both see the first one's row.
+    await lockScope(tx, `therapist-schedule:${placement.therapistId}`);
+    await lockScope(tx, `room-schedule:${placement.roomId}`);
 
     const conflicts = await this.findConflicts(tx, placement, childIds, excludeAppointmentId);
     if (conflicts.length > 0) throw conflictError(conflicts);

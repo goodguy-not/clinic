@@ -11,6 +11,7 @@ import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
 import { toIsoDate } from '../../common/iso-date';
 import { violatesConstraint } from '../../common/pg-error';
+import { lockScope } from '../../common/scope-lock';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -244,6 +245,12 @@ export class ShareRulesService {
     createdByUserId: string,
   ): Promise<ShareRuleRow> {
     const id = uuidv7();
+
+    // One writer per therapist's rules at a time, so two simultaneous
+    // overlapping rules end in one rule and one `SHARE_RULE_OVERLAP`, never a
+    // deadlock (M10-A10). Last in the lock order, after the therapist and any
+    // superseded rule.
+    await lockScope(tx, `share-rule:${input.therapistId}`);
 
     try {
       const rows = await tx.$queryRaw<ShareRuleRow[]>`

@@ -168,11 +168,15 @@ import {
  * exists. The catalog and family rows are locked `FOR SHARE`, which still
  * conflicts with the `UPDATE` a deactivation performs — the requirement — while
  * letting unrelated bookings proceed together. Two bookings never block each
- * other on a row lock; they meet at the exclusion constraint or at the child's
- * advisory key, which is where they should.
+ * other on a row lock; they meet at the advisory keys, which is where they
+ * should.
  *
- * The one advisory class here is never mixed with Milestone 3's, and a booking
- * takes exactly one key, so there is no ordering to get wrong within it.
+ * THE ADVISORY KEYS, IN ORDER: every child's (sorted), then the therapist's,
+ * then the room's (M10-A10). The therapist and room keys exist because two
+ * simultaneous bookings that met only inside the exclusion constraints could be
+ * deadlocked by PostgreSQL and answered with a 500 (`lockScope`). This advisory
+ * class is never mixed with Milestone 3's, and every path takes its keys in
+ * the one order, so no cycle can form among them.
  */
 @Injectable()
 export class AppointmentsService {
