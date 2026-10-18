@@ -69,6 +69,46 @@ const family: FamilySummary = {
 };
 
 describe('B3 booking workflow', () => {
+  it('shows weekly fields only in weekly mode and lists only therapists for the service', () => {
+    const base = {
+      families: [family],
+      searchTruncated: false,
+      searchPerformed: true,
+      preview: null,
+      errorMessage: null,
+      finalCreateConflict: false,
+    };
+    const props = {
+      services: [service],
+      therapists: [
+        therapist,
+        { ...therapist, id: ID('6'), fullName: 'درمانگر نامرتبط', supportedServiceIds: [] },
+      ],
+      rooms: [room],
+      canOverrideAvailability: true,
+      pending: false,
+    };
+    const weekly = renderToStaticMarkup(
+      createElement(BookingPanel, {
+        ...props,
+        state: {
+          ...base,
+          intent: { bookingMode: 'recurring', serviceDuration: `${service.id}:45` },
+        },
+      }),
+    );
+    expect(weekly).toContain('name="intervalWeeks"');
+    expect(weekly).toContain(therapist.fullName);
+    expect(weekly).not.toContain('درمانگر نامرتبط');
+    const once = renderToStaticMarkup(
+      createElement(BookingPanel, {
+        ...props,
+        state: { ...base, intent: { bookingMode: 'once', serviceDuration: `${service.id}:45` } },
+      }),
+    );
+    expect(once).not.toContain('name="intervalWeeks"');
+    expect(once).toContain('ثبت نوبت یک‌باره');
+  });
   it('keeps private search in a POST form and exposes only the approved availability override', () => {
     const markup = renderToStaticMarkup(
       createElement(BookingPanel, {
