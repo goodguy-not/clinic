@@ -135,9 +135,14 @@ export function failureRedirect(
   _request: NextRequest,
   path: `/${string}`,
   code: DisplayableCode,
+  details?: unknown,
 ): NextResponse {
   const target = new URL(path, 'https://unused.invalid');
   target.searchParams.set('error', code);
+  if (details !== undefined) {
+    const encoded = JSON.stringify(details);
+    if (encoded.length <= 6000) target.searchParams.set('detail', encoded);
+  }
 
   return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
 }

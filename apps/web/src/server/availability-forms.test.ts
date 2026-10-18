@@ -48,6 +48,7 @@ describe('availability form shaping', () => {
     expect(
       availabilityExceptionFromBody({
         kind: 'closed',
+        closureScope: 'whole',
         'closed-year': '1405',
         'closed-month': '5',
         'closed-day': '22',
@@ -72,6 +73,27 @@ describe('availability form shaping', () => {
       exceptionDate: '2026-08-13',
       startTime: '15:00',
       endTime: '18:00',
+      reason: null,
+    });
+  });
+
+  it('sends paired Persian-digit times only for a partial closure', () => {
+    expect(
+      availabilityExceptionFromBody({
+        kind: 'closed',
+        closureScope: 'partial',
+        'closed-year': '1405',
+        'closed-month': '5',
+        'closed-day': '22',
+        startTime: '۰۹:۰۰',
+        endTime: '۱۱:۳۰',
+        reason: '',
+      }),
+    ).toEqual({
+      isAvailable: false,
+      exceptionDate: '2026-08-13',
+      startTime: '09:00',
+      endTime: '11:30',
       reason: null,
     });
   });

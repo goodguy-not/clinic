@@ -240,6 +240,7 @@ export function AppointmentDetail({
   charges,
   canReadCharges,
   canPostCharge,
+  outcomeTiming = 'ready',
 }: {
   view: AppointmentView;
   csrfToken: string;
@@ -252,6 +253,7 @@ export function AppointmentDetail({
   charges: ParticipantChargeLookup;
   canReadCharges: boolean;
   canPostCharge: boolean;
+  outcomeTiming?: 'future' | 'before' | 'ready';
 }) {
   const { appointment } = view;
   const seat = view.participants[0];
@@ -292,7 +294,17 @@ export function AppointmentDetail({
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
       {successMessage !== null ? <Alert tone="info">{successMessage}</Alert> : null}
-      {view.outcomeUnresolved ? (
+      {scheduled && outcomeTiming === 'future' ? (
+        <Alert tone="info">
+          روز این جلسه هنوز نرسیده است؛ ثبت حضور و نتیجه از روز جلسه ممکن است.
+        </Alert>
+      ) : scheduled && outcomeTiming === 'before' ? (
+        <Alert tone="info">
+          تا ساعت شروع جلسه، فقط حضور کودک را می‌توانید ثبت کنید. انجام جلسه و غیبت پس از شروع ممکن
+          است.
+        </Alert>
+      ) : null}
+      {view.outcomeUnresolved && outcomeTiming !== 'future' ? (
         <div
           role="status"
           className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950"
@@ -358,7 +370,7 @@ export function AppointmentDetail({
         />
       ) : null}
 
-      {mutableOutcome && canComplete && participant !== undefined ? (
+      {mutableOutcome && canComplete && participant !== undefined && outcomeTiming !== 'future' ? (
         <Panel title={COPY.appointmentAttendanceTitle}>
           <p className="text-sm text-slate-600">{COPY.appointmentAttendanceCorrection}</p>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -370,7 +382,7 @@ export function AppointmentDetail({
                 <SubmitButton>{COPY.appointmentAttendedAction}</SubmitButton>
               </form>
             ) : null}
-            {participant.attendance !== 'NO_SHOW' ? (
+            {participant.attendance !== 'NO_SHOW' && outcomeTiming === 'ready' ? (
               <form method="post" action="/api/appointments/attendance">
                 <HiddenWriteFields id={appointment.id} csrfToken={csrfToken} />
                 <input type="hidden" name="participantId" value={participant.id} />
@@ -384,7 +396,7 @@ export function AppointmentDetail({
 
       {scheduled && (canComplete || canCancel) ? (
         <Panel title="عملیات نوبت">
-          {canComplete ? (
+          {canComplete && outcomeTiming === 'ready' ? (
             <form
               method="post"
               action="/api/appointments/complete"

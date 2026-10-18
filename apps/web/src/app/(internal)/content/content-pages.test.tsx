@@ -225,7 +225,7 @@ describe('draft forms', () => {
     );
 
     expect(article).toContain('action="/api/content/articles/create"');
-    expect(article).toContain('name="publicSlug"');
+    expect(article).not.toContain('name="publicSlug"');
     expect(article).not.toContain('name="isPublic"');
     expect(testimonial).toContain('action="/api/content/testimonials/create"');
     expect(testimonial).toContain('name="kind"');

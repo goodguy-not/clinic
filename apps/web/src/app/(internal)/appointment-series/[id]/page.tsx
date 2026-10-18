@@ -9,9 +9,9 @@ import {
   readSessionToken,
   requireSession,
 } from '@/server/auth-session';
-import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { SeriesDetail } from '../series-detail';
+import { readRefusalDetails, schedulingRefusalMessage } from '@/scheduling/refusal-message';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -55,7 +55,20 @@ export default async function SeriesPage({
   );
   const query = await searchParams;
   const error = one(query['error']) ?? null;
-  const errorMessage = isKnownErrorCode(error) ? persianMessage(error) : null;
+  const names = {
+    children: Object.fromEntries(
+      [...children].map(([id, value]) => [id, `${value.child.firstName} ${value.child.lastName}`]),
+    ),
+    therapists: Object.fromEntries(
+      (therapists.ok ? therapists.data.therapists : []).map((item) => [item.id, item.fullName]),
+    ),
+    rooms: Object.fromEntries(
+      (rooms.ok ? rooms.data.rooms : []).map((item) => [item.id, item.name]),
+    ),
+  };
+  const errorMessage = isKnownErrorCode(error)
+    ? schedulingRefusalMessage(error, readRefusalDetails(query['detail']), names)
+    : null;
   const success = one(query['success']);
   const changed = Number(one(query['changed']) ?? '0');
   const successMessage =

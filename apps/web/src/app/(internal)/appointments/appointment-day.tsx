@@ -53,9 +53,11 @@ function ChargeSignal({
 function AppointmentCard({
   view,
   charges,
+  affected = false,
 }: {
   view: AppointmentView;
   charges: ParticipantChargeLookup;
+  affected?: boolean;
 }) {
   const child = view.participants[0]?.child;
   const participant = view.participants[0]?.participant;
@@ -70,6 +72,7 @@ function AppointmentCard({
       badge={
         <span className="flex flex-wrap gap-1.5">
           <Badge tone={status.badgeTone}>{status.label}</Badge>
+          {affected ? <Badge tone="warning">بیرون از ساعت حضور؛ جلسه لغو نشده است</Badge> : null}
           {participant !== undefined && participant.attendance !== 'PENDING' ? (
             <Badge tone={ATTENDANCE_PRESENTATION[participant.attendance].tone}>
               {ATTENDANCE_PRESENTATION[participant.attendance].label}
@@ -146,6 +149,7 @@ export function AppointmentDay({
   clearHref,
   errorMessage,
   charges,
+  affectedAppointmentIds = [],
 }: {
   day: AppointmentDayResponse | null;
   selectedDateLabel: string;
@@ -161,6 +165,7 @@ export function AppointmentDay({
   clearHref: string;
   errorMessage: string | null;
   charges: ParticipantChargeLookup;
+  affectedAppointmentIds?: string[];
 }) {
   const grouped = new Map<string, AppointmentView[]>();
   for (const view of day?.appointments ?? []) {
@@ -274,7 +279,12 @@ export function AppointmentDay({
               timeLabel={appointmentTimeLabel(appointments[0]!.appointment.startsAt)}
             >
               {appointments.map((view) => (
-                <AppointmentCard key={view.appointment.id} view={view} charges={charges} />
+                <AppointmentCard
+                  key={view.appointment.id}
+                  view={view}
+                  charges={charges}
+                  affected={affectedAppointmentIds.includes(view.appointment.id)}
+                />
               ))}
             </ScheduleAgendaGroup>
           ))}

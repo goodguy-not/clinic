@@ -34,13 +34,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     durationMinutes: Number(toWesternDigits(body['durationMinutes'] ?? '')),
     therapistId: body['therapistId'],
     roomId: body['roomId'],
+    weekday: body['weekday'] ? Number(toWesternDigits(body['weekday'])) : null,
     startTime: toWesternDigits(body['startTime'] ?? ''),
     note: nullable(body['note']),
     availabilityOverrideReason: nullable(body['availabilityOverrideReason']),
   });
   if (!parsed.success) return failureRedirect(request, path, 'VALIDATION_FAILED');
   const result = await api.updateAppointmentSeriesFrom(id.data, parsed.data, { sessionToken });
-  if (!result.ok) return failureRedirect(request, path, result.code);
+  if (!result.ok) return failureRedirect(request, path, result.code, result.details);
   return secureRedirect(
     request,
     `${path}?success=updated&changed=${result.data.changedAppointmentIds.length}`,

@@ -49,35 +49,11 @@ export function ArticleForm({
           <input type="hidden" name="csrfToken" value={csrfToken} />
           {isEdit ? <input type="hidden" name="id" value={article.id} /> : null}
 
-          <Field
-            id="publicSlug"
-            label="نشانی مطلب"
-            help={
-              article?.firstPublishedAt
-                ? 'نشانی پس از نخستین انتشار تغییر نمی‌کند.'
-                : 'فقط حروف کوچک انگلیسی، عدد و خط تیره؛ نمونهٔ آزمایشی: synthetic-guide'
-            }
-            required
-          >
-            {({ id, className, describedBy }) => (
-              <input
-                id={id}
-                name="publicSlug"
-                type="text"
-                dir="ltr"
-                required
-                minLength={2}
-                maxLength={80}
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                readOnly={
-                  article?.firstPublishedAt !== null && article?.firstPublishedAt !== undefined
-                }
-                defaultValue={article?.publicSlug ?? ''}
-                aria-describedby={describedBy}
-                className={`${className} text-start`}
-              />
-            )}
-          </Field>
+          <Alert tone="info">
+            {article?.publicSlug
+              ? `نشانی ثابت مطلب: /articles/${article.publicSlug}`
+              : 'نشانی مطلب هنگام ساخت به‌طور خودکار تعیین می‌شود و تغییر نمی‌کند.'}
+          </Alert>
 
           <Field id="title" label="عنوان" required>
             {({ id, className, describedBy }) => (

@@ -40,17 +40,25 @@ export default async function TherapistAvailabilityPage({
       typeof value === 'string' ? [[key, value]] : [],
     ),
   );
-  const requestedDate = hasDateQuery ? jalaliDateFromBody(queryBody, 'date') : today;
+  const closedDate =
+    typeof query['closed'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(query['closed'])
+      ? query['closed']
+      : null;
+  const requestedDate = hasDateQuery
+    ? jalaliDateFromBody(queryBody, 'date')
+    : (closedDate ?? today);
   const selectedDate = requestedDate ?? today;
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
 
-  const [therapistResult, windowsResult, exceptionsResult, resolvedResult] = await Promise.all([
-    api.getTherapist(id, context),
-    api.listAvailabilityWindows(id, context),
-    api.listAvailabilityExceptions(id, {}, context),
-    api.resolveAvailability({ therapistId: id, date: selectedDate }, context),
-  ]);
+  const [therapistResult, windowsResult, exceptionsResult, resolvedResult, conflictsResult] =
+    await Promise.all([
+      api.getTherapist(id, context),
+      api.listAvailabilityWindows(id, context),
+      api.listAvailabilityExceptions(id, {}, context),
+      api.resolveAvailability({ therapistId: id, date: selectedDate }, context),
+      api.getClosureConflicts(id, { from: selectedDate, to: selectedDate }, context),
+    ]);
 
   if (!therapistResult.ok) {
     return (
@@ -70,7 +78,9 @@ export default async function TherapistAvailabilityPage({
 
   const rawError = query['error'];
   const routeCode = typeof rawError === 'string' && isKnownErrorCode(rawError) ? rawError : null;
-  const failedRead = [windowsResult, exceptionsResult, resolvedResult].find((result) => !result.ok);
+  const failedRead = [windowsResult, exceptionsResult, resolvedResult, conflictsResult].find(
+    (result) => !result.ok,
+  );
   const errorMessage =
     requestedDate === null
       ? persianMessage('AVAILABILITY_DATE_INVALID')
@@ -101,6 +111,8 @@ export default async function TherapistAvailabilityPage({
         csrfToken={(await readCsrfCookie()) ?? ''}
         errorMessage={errorMessage}
         success={success}
+        closureConflicts={conflictsResult.ok ? conflictsResult.data.appointments : []}
+        justClosed={query['closed'] === selectedDate && success === 'exception-added'}
       />
     </>
   );

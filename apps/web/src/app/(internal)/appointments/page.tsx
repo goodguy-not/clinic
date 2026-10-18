@@ -68,6 +68,23 @@ export default async function AppointmentsPage({
           context,
         )
       : {};
+  const appointmentTherapists = day.ok
+    ? [
+        ...new Set(
+          day.data.appointments
+            .filter((view) => view.appointment.status === 'SCHEDULED')
+            .map((view) => view.appointment.therapistId),
+        ),
+      ]
+    : [];
+  const closureReads = await Promise.all(
+    appointmentTherapists.map((id) =>
+      api.getClosureConflicts(id, { from: date, to: date }, context),
+    ),
+  );
+  const affectedAppointmentIds = closureReads.flatMap((result) =>
+    result.ok ? result.data.appointments.map((item) => item.appointmentId) : [],
+  );
 
   return (
     <>
@@ -105,6 +122,7 @@ export default async function AppointmentsPage({
         clearHref={dateHref(date)}
         errorMessage={day.ok ? null : persianMessage(day.code)}
         charges={charges}
+        affectedAppointmentIds={affectedAppointmentIds}
       />
     </>
   );

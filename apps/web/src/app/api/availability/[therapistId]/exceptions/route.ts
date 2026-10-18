@@ -45,5 +45,8 @@ export async function POST(
   const result = await api.addAvailabilityException(therapistId, parsed.data, { sessionToken });
   if (!result.ok) return failureRedirect(request, pagePath, result.code);
 
-  return secureRedirect(request, `${pagePath}?success=exception-added`);
+  return secureRedirect(
+    request,
+    `${pagePath}?success=exception-added${parsed.data.isAvailable ? '' : `&closed=${parsed.data.exceptionDate}`}`,
+  );
 }

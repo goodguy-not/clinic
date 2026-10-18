@@ -120,6 +120,46 @@ describe('availability detail', () => {
     expect(markup).toContain('۱۸:۰۰');
   });
 
+  it('shows partial closures and links sessions left outside hours', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AvailabilityDetail, {
+        therapist: THERAPIST,
+        windows: WINDOWS,
+        exceptions: [{ ...EXCEPTIONS[0]!, startTime: '11:00', endTime: '12:00' }],
+        resolved: {
+          ...RESOLVED,
+          isClosed: false,
+          closedReason: null,
+          closedRanges: [{ startTime: '11:00', endTime: '12:00', reason: 'جلسهٔ اداری' }],
+        },
+        selectedDate: RESOLVED.date,
+        today: '2026-08-13',
+        canManage: true,
+        csrfToken: 'synthetic-csrf',
+        errorMessage: null,
+        success: 'exception-added',
+        justClosed: true,
+        closureConflicts: [
+          {
+            appointmentId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64',
+            seriesId: null,
+            date: RESOLVED.date,
+            startTime: '11:00',
+            endTime: '11:45',
+            startsAt: '2026-08-15T07:30:00.000Z',
+            endsAt: '2026-08-15T08:15:00.000Z',
+            availabilityOverrideReason: null,
+            children: [],
+          },
+        ],
+      }),
+    );
+    expect(markup).toContain('بسته (بخشی از روز)');
+    expect(markup).toContain('بسته از ۱۱:۰۰ تا ۱۲:۰۰');
+    expect(markup).toContain('/appointments/0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a64');
+    expect(markup).toContain('هیچ جلسه‌ای خودکار لغو نمی‌شود');
+  });
+
   it('gives a receptionist a useful view without mutation actions', () => {
     const markup = detail(false);
     expect(markup).toContain('فقط برای مشاهده');

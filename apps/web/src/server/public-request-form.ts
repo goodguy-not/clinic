@@ -68,7 +68,7 @@ function optional(value: string): string | undefined {
 const FIELD_MESSAGES: Record<PublicRequestField, string> = {
   contactName: 'نام و نام خانوادگی خود را وارد کنید.',
   contactMobile: 'شمارهٔ همراه معتبر وارد کنید؛ مانند ۰۹۱۲۱۲۳۴۵۶۷.',
-  childAgeYears: 'لطفاً سن فرزندتان را به سال کامل وارد کنید.',
+  childAgeYears: 'سن فرزندتان را به سال کامل، از ۰ تا ۹۹ سال وارد کنید.',
   childSex: 'یکی از گزینه‌های جنسیت را انتخاب کنید.',
   childName: 'نام فرزند باید متن ساده و حداکثر ۱۲۰ نویسه باشد.',
   preferredContactTime: 'یکی از زمان‌های پیشنهادی را انتخاب کنید.',

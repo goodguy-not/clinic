@@ -26,6 +26,8 @@ import {
 } from '@/scheduling/appointment-presentation';
 import { formatScheduleDate } from '@/scheduling/presentation';
 import { toPersianDigits } from '@/server/numerals-fa';
+import { WEEKDAYS_FA } from '@/scheduling/availability-presentation';
+import { SeriesUpdatePreview } from './series-update-preview';
 
 export function SeriesDetail({
   detail,
@@ -100,137 +102,162 @@ export function SeriesDetail({
       {future.length > 0 && canUpdate && first ? (
         <Panel title="به‌روزرسانی این جلسه و جلسه‌های آینده">
           <p className="text-sm text-slate-600">
-            تاریخ‌ها و ریتم هفتگی ثابت می‌ماند؛ ساعت، درمانگر، اتاق، مدت و یادداشت همهٔ جلسه‌های
-            واجد شرایط یکجا تغییر می‌کند یا هیچ‌کدام.
+            روز هفته و ساعت را با هم انتخاب کنید. پیش‌نمایش همهٔ جلسه‌های آینده را پیش از اعمال نشان
+            می‌دهد.
           </p>
-          <form
-            method="post"
-            action="/api/appointment-series/update-from"
-            className="flex flex-col gap-4"
-          >
-            <input type="hidden" name="csrfToken" value={csrfToken} />
-            <input type="hidden" name="seriesId" value={detail.series.id} />
-            <Field id="update-pivot" label="شروع تغییر از جلسه" required>
-              {({ id, className }) => (
-                <select id={id} name="fromAppointmentId" className={className}>
-                  {future.map(({ appointment }) => (
-                    <option key={appointment.id} value={appointment.id}>
-                      {appointmentInstantInClinic(appointment.startsAt)
-                        ? formatScheduleDate(appointmentInstantInClinic(appointment.startsAt)!.date)
-                            ?.full
-                        : appointment.startsAt}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field id="series-time" label="ساعت جدید" required>
+          <SeriesUpdatePreview>
+            <form
+              id="series-update-form"
+              method="post"
+              action="/api/appointment-series/update-from"
+              className="flex flex-col gap-4"
+            >
+              <input type="hidden" name="csrfToken" value={csrfToken} />
+              <input type="hidden" name="seriesId" value={detail.series.id} />
+              <Field id="update-pivot" label="شروع تغییر از جلسه" required>
                 {({ id, className }) => (
-                  <TimeInput
-                    id={id}
-                    name="startTime"
-                    required
-                    defaultValue={appointmentInstantInClinic(first.appointment.startsAt)?.time}
-                    className={className}
-                  />
+                  <select id={id} name="fromAppointmentId" className={className}>
+                    {future.map(({ appointment }) => (
+                      <option key={appointment.id} value={appointment.id}>
+                        {appointmentInstantInClinic(appointment.startsAt)
+                          ? formatScheduleDate(
+                              appointmentInstantInClinic(appointment.startsAt)!.date,
+                            )?.full
+                          : appointment.startsAt}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </Field>
-              <Field id="series-duration" label="مدت مجاز" required>
+              <Field id="series-weekday" label="روز تازهٔ هفته">
                 {({ id, className }) => (
-                  <select
-                    id={id}
-                    name="durationMinutes"
-                    defaultValue={first.appointment.durationMinutes}
-                    className={className}
-                  >
-                    {(service?.allowedDurationsMinutes ?? [first.appointment.durationMinutes]).map(
-                      (duration) => (
+                  <select id={id} name="weekday" defaultValue="" className={className}>
+                    <option value="">روز هر جلسه حفظ شود</option>
+                    {WEEKDAYS_FA.map((day, index) => (
+                      <option key={day} value={index}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field id="series-time" label="ساعت جدید" required>
+                  {({ id, className }) => (
+                    <TimeInput
+                      id={id}
+                      name="startTime"
+                      required
+                      defaultValue={appointmentInstantInClinic(first.appointment.startsAt)?.time}
+                      className={className}
+                    />
+                  )}
+                </Field>
+                <Field id="series-duration" label="مدت مجاز" required>
+                  {({ id, className }) => (
+                    <select
+                      id={id}
+                      name="durationMinutes"
+                      defaultValue={first.appointment.durationMinutes}
+                      className={className}
+                    >
+                      {(
+                        service?.allowedDurationsMinutes ?? [first.appointment.durationMinutes]
+                      ).map((duration) => (
                         <option key={duration} value={duration}>
                           {toPersianDigits(String(duration))} دقیقه
                         </option>
-                      ),
-                    )}
-                  </select>
-                )}
-              </Field>
-              <Field id="series-therapist" label="درمانگر" required>
-                {({ id, className }) => (
-                  <select
-                    id={id}
-                    name="therapistId"
-                    defaultValue={first.appointment.therapistId}
-                    className={className}
-                  >
-                    {therapists
-                      .filter(
-                        (item) =>
-                          item.status === 'ACTIVE' || item.id === first.appointment.therapistId,
-                      )
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.fullName}
-                        </option>
                       ))}
-                  </select>
-                )}
-              </Field>
-              <Field id="series-room" label="اتاق" required>
+                    </select>
+                  )}
+                </Field>
+                <Field id="series-therapist" label="درمانگر" required>
+                  {({ id, className }) => (
+                    <select
+                      id={id}
+                      name="therapistId"
+                      defaultValue={first.appointment.therapistId}
+                      className={className}
+                    >
+                      {therapists
+                        .filter(
+                          (item) =>
+                            item.supportedServiceIds.includes(first.appointment.serviceId) &&
+                            (item.status === 'ACTIVE' || item.id === first.appointment.therapistId),
+                        )
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.fullName}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </Field>
+                <Field id="series-room" label="اتاق" required>
+                  {({ id, className }) => (
+                    <select
+                      id={id}
+                      name="roomId"
+                      defaultValue={first.appointment.roomId}
+                      className={className}
+                    >
+                      {rooms
+                        .filter(
+                          (item) =>
+                            item.status === 'ACTIVE' || item.id === first.appointment.roomId,
+                        )
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </Field>
+              </div>
+              <Field id="series-note" label="یادداشت غیرپزشکی">
                 {({ id, className }) => (
-                  <select
-                    id={id}
-                    name="roomId"
-                    defaultValue={first.appointment.roomId}
-                    className={className}
-                  >
-                    {rooms
-                      .filter(
-                        (item) => item.status === 'ACTIVE' || item.id === first.appointment.roomId,
-                      )
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                  </select>
-                )}
-              </Field>
-            </div>
-            <Field id="series-note" label="یادداشت غیرپزشکی">
-              {({ id, className }) => (
-                <textarea
-                  id={id}
-                  name="note"
-                  rows={3}
-                  maxLength={2000}
-                  defaultValue={first.appointment.note ?? ''}
-                  className={className}
-                />
-              )}
-            </Field>
-            {canOverride ? (
-              <Field
-                id="series-override"
-                label="دلیل ثبت خارج از برنامهٔ حضور"
-                help="فقط نبودن درمانگر در برنامهٔ حضور قابل مجوز است؛ تداخل‌ها هرگز قابل عبور نیستند."
-              >
-                {({ id, className, describedBy }) => (
                   <textarea
                     id={id}
-                    name="availabilityOverrideReason"
-                    rows={2}
-                    maxLength={500}
-                    defaultValue={first.appointment.availabilityOverrideReason ?? ''}
-                    aria-describedby={describedBy}
+                    name="note"
+                    rows={3}
+                    maxLength={2000}
+                    defaultValue={first.appointment.note ?? ''}
                     className={className}
                   />
                 )}
               </Field>
-            ) : null}
-            <FormActions>
-              <SubmitButton>به‌روزرسانی این و آینده</SubmitButton>
-            </FormActions>
-          </form>
+              {canOverride ? (
+                <Field
+                  id="series-override"
+                  label="دلیل ثبت خارج از برنامهٔ حضور"
+                  help="فقط نبودن درمانگر در برنامهٔ حضور قابل مجوز است؛ تداخل‌ها هرگز قابل عبور نیستند."
+                >
+                  {({ id, className, describedBy }) => (
+                    <textarea
+                      id={id}
+                      name="availabilityOverrideReason"
+                      rows={2}
+                      maxLength={500}
+                      defaultValue={first.appointment.availabilityOverrideReason ?? ''}
+                      aria-describedby={describedBy}
+                      className={className}
+                    />
+                  )}
+                </Field>
+              ) : null}
+              <FormActions>
+                <button
+                  type="submit"
+                  name="action"
+                  value="preview"
+                  className="rounded-lg border border-brand-700 px-4 py-2 font-semibold text-brand-800"
+                >
+                  نمایش پیش‌نمایش تغییر
+                </button>
+              </FormActions>
+            </form>
+          </SeriesUpdatePreview>
         </Panel>
       ) : null}
       {future.length > 0 && canCancel ? (

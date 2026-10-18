@@ -13,6 +13,7 @@ import { jalaliToIsoDate } from '@/server/jalali';
 import { toWesternDigits } from '@/server/numerals-fa';
 import { assertOriginAllowed } from '@/server/origin';
 import { clinicWallTimeToIso } from '@/scheduling/appointment-presentation';
+import { schedulingRefusalMessage } from '@/scheduling/refusal-message';
 import type { BookingState } from './booking-state';
 
 function strings(formData: FormData): Record<string, string> {
@@ -85,6 +86,15 @@ export async function bookingAction(
   const action = intent['action'] ?? 'preview';
   const token = await readSessionToken();
   const context = await callerContext(token ?? undefined);
+  const names = {
+    children: Object.fromEntries(
+      previous.families.flatMap((family) =>
+        family.children.map((child) => [child.id, `${child.firstName} ${child.lastName}`]),
+      ),
+    ),
+    therapists: previous.resourceNames?.therapists,
+    rooms: previous.resourceNames?.rooms,
+  };
 
   if (action === 'search') {
     const q = (intent['familySearch'] ?? '').trim();
@@ -101,6 +111,7 @@ export async function bookingAction(
       preview: null,
       errorMessage: result.ok ? null : persianMessage(result.code),
       finalCreateConflict: false,
+      resourceNames: previous.resourceNames,
     };
   }
 
@@ -133,7 +144,7 @@ export async function bookingAction(
         ...previous,
         intent,
         preview: null,
-        errorMessage: persianMessage(result.code),
+        errorMessage: schedulingRefusalMessage(result.code, result.details, names),
         finalCreateConflict: false,
       };
     }
@@ -165,7 +176,7 @@ export async function bookingAction(
           ...previous,
           intent,
           preview: null,
-          errorMessage: persianMessage(result.code),
+          errorMessage: schedulingRefusalMessage(result.code, result.details, names),
           finalCreateConflict: false,
         };
   }
@@ -181,7 +192,7 @@ export async function bookingAction(
     return {
       ...previous,
       intent,
-      errorMessage: persianMessage(result.code),
+      errorMessage: schedulingRefusalMessage(result.code, result.details, names),
       finalCreateConflict: schedulingChanged,
     };
   }

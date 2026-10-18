@@ -12,6 +12,7 @@ import {
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { AppointmentMoveForm } from '../../appointment-move-form';
+import { readRefusalDetails, schedulingRefusalMessage } from '@/scheduling/refusal-message';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { robots: { index: false, follow: false } };
@@ -70,6 +71,15 @@ export default async function AppointmentEditPage({
   }
   const query = await searchParams;
   const rawError = typeof query['error'] === 'string' ? query['error'] : null;
+  const names = {
+    children: Object.fromEntries(
+      view.data.participants.map(({ child }) => [child.id, `${child.firstName} ${child.lastName}`]),
+    ),
+    therapists: Object.fromEntries(
+      therapists.data.therapists.map((item) => [item.id, item.fullName]),
+    ),
+    rooms: Object.fromEntries(rooms.data.rooms.map((item) => [item.id, item.name])),
+  };
 
   return (
     <>
@@ -80,7 +90,11 @@ export default async function AppointmentEditPage({
         therapists={therapists.data.therapists}
         rooms={rooms.data.rooms}
         csrfToken={(await readCsrfCookie()) ?? ''}
-        errorMessage={isKnownErrorCode(rawError) ? persianMessage(rawError) : null}
+        errorMessage={
+          isKnownErrorCode(rawError)
+            ? schedulingRefusalMessage(rawError, readRefusalDetails(query['detail']), names)
+            : null
+        }
         canOverrideAvailability={user.permissions.includes('appointment.override_availability')}
       />
     </>

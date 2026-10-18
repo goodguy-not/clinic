@@ -114,9 +114,11 @@ const MESSAGES: Record<DisplayableCode, string> = {
   APPOINTMENT_DURATION_NOT_ALLOWED: 'این مدت‌زمان برای این خدمت تعریف نشده است.',
   APPOINTMENT_TRANSITION_INVALID: 'وضعیت فعلی نوبت اجازهٔ این تغییر را نمی‌دهد.',
   APPOINTMENT_OUTCOME_DATE_IN_FUTURE:
-    'روز این جلسه هنوز نرسیده است و نتیجه‌ای برای آن ثبت نمی‌شود.',
-  APPOINTMENT_OUTCOME_BEFORE_START: 'اتمام جلسه و غیبت فقط از ساعت شروع جلسه به بعد ثبت می‌شود.',
-  RECURRENCE_OCCURRENCE_IN_PAST: 'با این تغییر، یکی از جلسه‌ها در زمانی قرار می‌گیرد که گذشته است.',
+    'این جلسه در روز دیگری برگزار می‌شود؛ حضور یا نتیجه را از همان روز می‌توانید ثبت کنید.',
+  APPOINTMENT_OUTCOME_BEFORE_START:
+    'ثبت انجام جلسه یا غیبت از ساعت شروع جلسه ممکن است؛ حضور کودک را همین حالا می‌توانید ثبت کنید.',
+  RECURRENCE_OCCURRENCE_IN_PAST:
+    'روز تازه، یکی از جلسه‌های آینده را به گذشته می‌برد. جلسهٔ بعدی را به‌عنوان شروع تغییر انتخاب کنید.',
   APPOINTMENT_OUTSIDE_AVAILABILITY: 'درمانگر در این بازهٔ زمانی در دسترس نیست.',
   RECURRENCE_RULE_INVALID: 'برای نوبت تکرارشونده باید تعداد جلسه‌ها یا تاریخ پایان مشخص شود.',
   AVAILABILITY_WINDOW_INVALID: 'بازهٔ زمانی واردشده معتبر نیست.',

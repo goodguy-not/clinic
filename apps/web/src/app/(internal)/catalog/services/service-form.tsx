@@ -41,7 +41,6 @@ export function ServiceForm({
 }) {
   const isEdit = service !== undefined;
   const [isPublic, setIsPublic] = useState(service?.isPublic ?? false);
-  const [slug, setSlug] = useState(service?.publicSlug ?? '');
   const [origin, setOrigin] = useState('');
   const published = service?.publicFirstPublishedAt != null;
 
@@ -64,14 +63,9 @@ export function ServiceForm({
           className="flex flex-col gap-5"
           onSubmit={(event) => {
             if (isPublic && !published) {
-              if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length < 2) {
-                event.preventDefault();
-                document.getElementById('publicSlug')?.focus();
-                return;
-              }
               if (
                 !window.confirm(
-                  `نشانی ${window.location.origin}/services/${slug} پس از نخستین انتشار دائمی می‌شود و دیگر قابل تغییر نیست. انتشار را تأیید می‌کنید؟`,
+                  `نشانی عمومی این خدمت ${service?.publicSlug ? `${window.location.origin}/services/${service.publicSlug}` : 'هنگام ساخت به‌طور خودکار تعیین می‌شود'} و پس از نخستین انتشار دائمی است. انتشار را تأیید می‌کنید؟`,
                 )
               ) {
                 event.preventDefault();
@@ -142,7 +136,7 @@ export function ServiceForm({
             می‌شود.
           </Alert>
 
-          {isPublic && published ? (
+          {service?.publicSlug ? (
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-semibold text-slate-900">نشانی صفحهٔ عمومی</span>
               <span
@@ -151,45 +145,16 @@ export function ServiceForm({
               >
                 {origin}/services/{service.publicSlug}
               </span>
-              <input type="hidden" name="publicSlug" value={service?.publicSlug ?? ''} />
               <p className="text-xs text-slate-600">
-                این نشانی پس از نخستین انتشار ثابت مانده است.
+                این نشانی به‌طور خودکار تعیین شده و تغییر نمی‌کند.
               </p>
             </div>
-          ) : isPublic ? (
-            <>
-              <Field
-                id="publicSlug"
-                label="نشانی صفحهٔ عمومی"
-                help="فقط حروف انگلیسی کوچک، عدد و خط تیره؛ نمونه: goftar-darmani"
-                required
-              >
-                {({ id, className, describedBy }) => (
-                  <input
-                    id={id}
-                    name="publicSlug"
-                    type="text"
-                    dir="ltr"
-                    required
-                    minLength={2}
-                    maxLength={80}
-                    pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                    value={slug}
-                    onChange={(event) => setSlug(event.target.value)}
-                    aria-describedby={describedBy}
-                    className={`${className} text-start`}
-                  />
-                )}
-              </Field>
-              <p className="text-sm text-slate-700" aria-live="polite" dir="ltr">
-                {origin}/services/{slug}
-              </p>
-              <Alert tone="info">
-                پیش از نخستین انتشار: نشانی عمومی این صفحه پس از انتشار دائمی می‌شود و دیگر قابل
-                تغییر نیست.
-              </Alert>
-            </>
-          ) : null}
+          ) : (
+            <Alert tone="info">
+              نشانی عمومی این خدمت هنگام ساخت به‌طور خودکار تعیین می‌شود و پس از نخستین انتشار دائمی
+              است.
+            </Alert>
+          )}
 
           <Field
             id="durations"

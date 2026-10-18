@@ -407,6 +407,8 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.
   'src/app/(internal)/availability/weekly-availability-editor.tsx',
+  // Closure scope toggles paired clock inputs without exposing a write API.
+  'src/app/(internal)/availability/closure-scope-fields.tsx',
   // Locale-independent clock entry keeps Persian digits visible and submits
   // the ASCII 24-hour value that the existing handlers validate.
   'src/components/time-input.tsx',
@@ -420,6 +422,8 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Booking needs private POST-based child search and an advisory preview whose
   // returned occurrences remain beside the receptionist's unpersisted intent.
   'src/app/(internal)/appointments/new/booking-workflow.tsx',
+  // Series changes are previewed locally before the existing guarded apply route.
+  'src/app/(internal)/appointment-series/series-update-preview.tsx',
   // Phone gallery/camera selection, immediate object-URL preview and focal-point
   // controls are browser-only. Named BFF handlers still own all media writes.
   'src/components/media-upload-framing.tsx',

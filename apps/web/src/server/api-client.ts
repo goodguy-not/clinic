@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   availabilityExceptionListResponseSchema,
   availabilityExceptionResponseSchema,
+  closureConflictResponseSchema,
   availabilityWindowListResponseSchema,
   articleListResponseSchema,
   articleResponseSchema,
@@ -37,6 +38,7 @@ import {
   promiseListResponseSchema,
   promiseResponseSchema,
   recurrencePreviewResponseSchema,
+  seriesUpdatePreviewResponseSchema,
   rescheduledPromiseResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
@@ -68,6 +70,7 @@ import {
   type AvailabilityExceptionListQuery,
   type AvailabilityExceptionListResponse,
   type AvailabilityExceptionResponse,
+  type ClosureConflictResponse,
   type AvailabilityWindowListResponse,
   type AppointmentDayQuery,
   type AppointmentDayResponse,
@@ -171,6 +174,7 @@ import {
   type RevokeSessionsResponse,
   type ReopenAppointmentRequest,
   type RecurrencePreviewResponse,
+  type SeriesUpdatePreviewResponse,
   type RoomListResponse,
   type RoomResponse,
   type ServiceListResponse,
@@ -1322,6 +1326,18 @@ export const api = {
     );
   },
 
+  getClosureConflicts: (
+    therapistId: string,
+    query: { from: string; to: string },
+    context: CallerContext,
+  ): Promise<ApiResult<ClosureConflictResponse>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/closure-conflicts?${new URLSearchParams(query)}`,
+      'GET',
+      closureConflictResponseSchema,
+      context,
+    ),
+
   addAvailabilityException: (
     therapistId: string,
     body: CreateAvailabilityExceptionRequest,
@@ -1441,6 +1457,19 @@ export const api = {
       `/appointment-series/${encodeURIComponent(id)}/update-from`,
       'PATCH',
       appointmentSeriesOperationResponseSchema,
+      context,
+      body,
+    ),
+
+  previewAppointmentSeriesUpdateFrom: (
+    id: string,
+    body: UpdateAppointmentSeriesFromRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SeriesUpdatePreviewResponse>> =>
+    call(
+      `/appointment-series/${encodeURIComponent(id)}/update-from/preview`,
+      'POST',
+      seriesUpdatePreviewResponseSchema,
       context,
       body,
     ),

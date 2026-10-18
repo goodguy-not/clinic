@@ -27,6 +27,11 @@ export function GuardianFields({
   const [names, setNames] = useState<Record<number, string>>(() =>
     Object.fromEntries((guardians ?? []).map((guardian, index) => [index + 1, guardian.fullName])),
   );
+  const [relationships, setRelationships] = useState<Record<number, string>>(() =>
+    Object.fromEntries(
+      (guardians ?? []).map((guardian, index) => [index + 1, guardian.relationship]),
+    ),
+  );
   const slots = Array.from({ length: count }, (_unused, index) => guardians?.[index]);
 
   return (
@@ -68,6 +73,9 @@ export function GuardianFields({
                   id={`guardian-${slot}-relationship`}
                   name={`guardian-${slot}-relationship`}
                   defaultValue={guardian?.relationship ?? ''}
+                  onChange={(event) =>
+                    setRelationships((current) => ({ ...current, [slot]: event.target.value }))
+                  }
                   required={Boolean(names[slot] || (slot === 1 && websiteContact?.fullName))}
                   className={CONTROL_CLASS}
                 >
@@ -82,27 +90,29 @@ export function GuardianFields({
                 </select>
               </label>
 
-              <label
-                htmlFor={`guardian-${slot}-relationshipNote`}
-                className="flex flex-col gap-1 text-sm"
-              >
-                {COPY.guardianRelationshipNoteLabel}
-                <input
-                  id={`guardian-${slot}-relationshipNote`}
-                  type="text"
-                  name={`guardian-${slot}-relationshipNote`}
-                  maxLength={120}
-                  defaultValue={guardian?.relationshipNote ?? ''}
-                  aria-describedby={`guardian-${slot}-relationship-note-help`}
-                  className={CONTROL_CLASS}
-                />
-                <span
-                  id={`guardian-${slot}-relationship-note-help`}
-                  className="text-xs text-slate-600"
+              {relationships[slot] === 'OTHER' ? (
+                <label
+                  htmlFor={`guardian-${slot}-relationshipNote`}
+                  className="flex flex-col gap-1 text-sm"
                 >
-                  {COPY.guardianRelationshipNoteHelp}
-                </span>
-              </label>
+                  {COPY.guardianRelationshipNoteLabel}
+                  <input
+                    id={`guardian-${slot}-relationshipNote`}
+                    type="text"
+                    name={`guardian-${slot}-relationshipNote`}
+                    maxLength={120}
+                    defaultValue={guardian?.relationshipNote ?? ''}
+                    aria-describedby={`guardian-${slot}-relationship-note-help`}
+                    className={CONTROL_CLASS}
+                  />
+                  <span
+                    id={`guardian-${slot}-relationship-note-help`}
+                    className="text-xs text-slate-600"
+                  >
+                    {COPY.guardianRelationshipNoteHelp}
+                  </span>
+                </label>
+              ) : null}
 
               <label htmlFor={`guardian-${slot}-mobile`} className="flex flex-col gap-1 text-sm">
                 {COPY.guardianMobileLabel}

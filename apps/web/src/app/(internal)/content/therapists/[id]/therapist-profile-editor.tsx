@@ -270,19 +270,15 @@ export function TherapistProfileEditor({
 
       {profile !== null ? (
         <Panel title="تنظیمات و نمایش عمومی — فقط مدیر">
-          {profile.firstPublishedAt === null ? (
-            <Alert tone="info">
-              پیش از نخستین انتشار: نشانی عمومی این صفحه پس از انتشار دائمی می‌شود و دیگر قابل تغییر
-              نیست.
-            </Alert>
-          ) : (
-            <div className="flex flex-col gap-1 text-sm">
-              <span className="font-semibold">نشانی ثابت صفحه</span>
-              <span dir="ltr" className="text-start">
-                /team/{profile.publicSlug}
-              </span>
-            </div>
-          )}
+          <div className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">نشانی ثابت صفحه</span>
+            <span dir="ltr" className="text-start">
+              /team/{profile.publicSlug}
+            </span>
+            {profile.firstPublishedAt === null ? (
+              <span>این نشانی در نخستین انتشار دائمی می‌شود.</span>
+            ) : null}
+          </div>
           <form
             method="post"
             action="/api/content/therapist-profiles/settings"
@@ -290,28 +286,6 @@ export function TherapistProfileEditor({
           >
             <input type="hidden" name="csrfToken" value={csrfToken} />
             <input type="hidden" name="id" value={copy.therapistId} />
-            {profile.firstPublishedAt === null ? (
-              <Field
-                id="publicSlug"
-                label="نشانی صفحهٔ عمومی"
-                help="فقط حروف انگلیسی کوچک، عدد و خط تیره؛ نمونه: sara-ahmadi"
-              >
-                {({ id, className, describedBy }) => (
-                  <input
-                    id={id}
-                    name="publicSlug"
-                    type="text"
-                    dir="ltr"
-                    maxLength={80}
-                    defaultValue={profile.publicSlug ?? ''}
-                    aria-describedby={describedBy}
-                    className={`${className} text-start`}
-                  />
-                )}
-              </Field>
-            ) : (
-              <input type="hidden" name="publicSlug" value={profile.publicSlug ?? ''} />
-            )}
             <Field id="displayOrder" label="جایگاه در فهرست درمانگران">
               {({ id, className }) => (
                 <input

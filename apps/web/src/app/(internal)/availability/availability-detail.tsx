@@ -1,4 +1,5 @@
 import type {
+  ClosureAffectedAppointment,
   ResolvedAvailability,
   Therapist,
   TherapistAvailability,
@@ -22,6 +23,7 @@ import { WEEKDAYS_FA } from '@/scheduling/availability-presentation';
 import { formatScheduleTime } from '@/scheduling/presentation';
 import { JalaliDateField } from '../tariffs/jalali-date-field';
 import { WeeklyAvailabilityEditor } from './weekly-availability-editor';
+import { ClosureScopeFields } from './closure-scope-fields';
 
 export type AvailabilitySuccess = 'windows' | 'exception-added' | 'exception-removed';
 
@@ -36,6 +38,8 @@ export function AvailabilityDetail({
   csrfToken,
   errorMessage,
   success,
+  closureConflicts = [],
+  justClosed = false,
 }: {
   therapist: Therapist;
   windows: TherapistAvailability[];
@@ -47,6 +51,8 @@ export function AvailabilityDetail({
   csrfToken: string;
   errorMessage: string | null;
   success: AvailabilitySuccess | null;
+  closureConflicts?: ClosureAffectedAppointment[];
+  justClosed?: boolean;
 }) {
   const editable = canManage && therapist.status === 'ACTIVE';
   const defaultDate = isoDateToJalali(today) ?? undefined;
@@ -71,6 +77,14 @@ export function AvailabilityDetail({
 
       {errorMessage !== null ? <Alert>{errorMessage}</Alert> : null}
       {successMessage !== null ? <Alert tone="info">{successMessage}</Alert> : null}
+      {justClosed ? (
+        <Alert tone="info">
+          {closureConflicts.length === 0
+            ? 'روز بسته ثبت شد. جلسه‌ای بیرون از ساعت حضور درمانگر باقی نمانده است.'
+            : `${toPersianDigits(String(closureConflicts.length))} جلسه پس از بستن این روز بیرون از ساعت حضور درمانگر مانده است. با خانواده‌ها هماهنگ کنید و جلسه‌ها را جابه‌جا یا لغو کنید.`}{' '}
+          هیچ جلسه‌ای خودکار لغو نمی‌شود.
+        </Alert>
+      ) : null}
       {!canManage ? <Alert tone="info">{COPY.availabilityReadOnlyNotice}</Alert> : null}
       {therapist.status !== 'ACTIVE' ? (
         <Alert tone="info">{COPY.availabilityInactiveNotice}</Alert>
@@ -122,6 +136,33 @@ export function AvailabilityDetail({
           </div>
         </form>
         {resolved !== null ? <ResolvedDay availability={resolved} /> : null}
+        {closureConflicts.length > 0 ? (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <h3 className="font-bold text-amber-950">جلسه‌های بیرون از ساعت حضور</h3>
+            <p className="text-sm text-amber-950">
+              این جلسه‌ها همچنان ثبت شده‌اند و خودکار لغو نمی‌شوند.
+            </p>
+            <ul className="mt-2 list-disc space-y-2 ps-5 text-sm">
+              {closureConflicts.map((item) => (
+                <li key={item.appointmentId}>
+                  <a
+                    className="font-semibold underline"
+                    href={`/appointments/${item.appointmentId}`}
+                  >
+                    {item.children
+                      .map((child) => `${child.firstName} ${child.lastName}`)
+                      .join('، ') || 'جلسه'}
+                    ؛ {formatJalali(item.date)}، {formatScheduleTime(item.startTime)} تا{' '}
+                    {formatScheduleTime(item.endTime)}
+                  </a>
+                  {item.availabilityOverrideReason
+                    ? ` — ثبت با دلیل: ${item.availabilityOverrideReason}`
+                    : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Panel>
 
       <Panel title={COPY.availabilityExceptionsTitle}>
@@ -165,12 +206,12 @@ export function AvailabilityDetail({
                     <Badge tone={exception.isAvailable ? 'success' : 'danger'}>
                       {exception.isAvailable
                         ? COPY.availabilityExtraBadge
-                        : COPY.availabilityClosedBadge}
+                        : exception.startTime !== null
+                          ? 'بسته (بخشی از روز)'
+                          : COPY.availabilityClosedBadge}
                     </Badge>
                   </div>
-                  {exception.isAvailable &&
-                  exception.startTime !== null &&
-                  exception.endTime !== null ? (
+                  {exception.startTime !== null && exception.endTime !== null ? (
                     <p className="mt-1 text-sm font-semibold tabular-nums text-slate-800" dir="ltr">
                       {formatScheduleTime(exception.startTime)} –{' '}
                       {formatScheduleTime(exception.endTime)}
@@ -245,6 +286,16 @@ function ResolvedDay({ availability }: { availability: ResolvedAvailability }) {
       {availability.closedReason !== null ? (
         <p className="mt-1 text-sm text-red-900">{availability.closedReason}</p>
       ) : null}
+      {availability.closedRanges.length > 0 ? (
+        <ul className="mt-3 list-none space-y-1 p-0 text-sm text-red-900">
+          {availability.closedRanges.map((range) => (
+            <li key={`${range.startTime}-${range.endTime}`}>
+              بسته از {formatScheduleTime(range.startTime)} تا {formatScheduleTime(range.endTime)}
+              {range.reason ? `: ${range.reason}` : ''}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {availability.windows.length === 0 ? (
         <p className="mt-3 text-sm text-slate-600">{COPY.availabilityResolvedEmpty}</p>
       ) : (
@@ -301,6 +352,7 @@ function ExceptionForm({
         value={defaultDate}
         required
       />
+      {!isExtra ? <ClosureScopeFields /> : null}
       {isExtra ? (
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm font-semibold text-slate-900">

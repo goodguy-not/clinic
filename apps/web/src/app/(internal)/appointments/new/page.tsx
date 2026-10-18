@@ -49,6 +49,17 @@ export default async function NewAppointmentPage() {
             preview: null,
             errorMessage: null,
             finalCreateConflict: false,
+            resourceNames: {
+              therapists: Object.fromEntries(
+                (therapists.ok ? therapists.data.therapists : []).map((item) => [
+                  item.id,
+                  item.fullName,
+                ]),
+              ),
+              rooms: Object.fromEntries(
+                (rooms.ok ? rooms.data.rooms : []).map((item) => [item.id, item.name]),
+              ),
+            },
           }}
           services={services.ok ? services.data.services : []}
           therapists={therapists.ok ? therapists.data.therapists : []}

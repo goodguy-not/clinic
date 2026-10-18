@@ -38,7 +38,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!parsed.success) return failureRedirect(request, editPath, 'VALIDATION_FAILED');
 
   const result = await api.moveAppointment(id.data, parsed.data, { sessionToken });
-  if (!result.ok) return failureRedirect(request, editPath, result.code);
+  if (!result.ok) return failureRedirect(request, editPath, result.code, result.details);
 
   return secureRedirect(request, `/appointments/${id.data}?success=moved`);
 }

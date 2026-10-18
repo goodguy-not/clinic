@@ -127,6 +127,12 @@ describe('service form', () => {
     createElement(ServiceForm, { service: SERVICE, csrfToken: CSRF, errorMessage: null }),
   );
 
+  it('assigns the public address without an editable slug field', () => {
+    expect(createMarkup).not.toContain('name="publicSlug"');
+    expect(editMarkup).not.toContain('name="publicSlug"');
+    expect(createMarkup).toContain('به‌طور خودکار تعیین می‌شود');
+  });
+
   it('labels every control', () => {
     for (const id of ['name', 'publicDescription', 'durations']) {
       expect(createMarkup).toContain(`for="${id}"`);

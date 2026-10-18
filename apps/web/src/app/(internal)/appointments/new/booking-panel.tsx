@@ -1,4 +1,5 @@
 import type { Room, Service, Therapist } from '@clinic/contracts';
+import { useState } from 'react';
 import {
   Alert,
   Badge,
@@ -183,6 +184,15 @@ function ChildPicker({ state, pending }: { state: BookingState; pending: boolean
 function Preview({ state }: { state: BookingState }) {
   const preview = state.preview;
   if (preview === null) return null;
+  const names = {
+    children: Object.fromEntries(
+      state.families.flatMap((family) =>
+        family.children.map((child) => [child.id, `${child.firstName} ${child.lastName}`]),
+      ),
+    ),
+    therapists: state.resourceNames?.therapists,
+    rooms: state.resourceNames?.rooms,
+  };
   return (
     <Panel title="۳. پیش‌نمایش تکرار هفتگی">
       <div
@@ -221,6 +231,29 @@ function Preview({ state }: { state: BookingState }) {
                 </div>
                 <Badge tone={tone}>{label}</Badge>
               </div>
+              {occurrence.conflicts.length > 0 ? (
+                <p className="mt-2 text-sm text-red-800">
+                  تداخل:{' '}
+                  {occurrence.conflicts
+                    .map((item) =>
+                      item.resource === 'CHILD'
+                        ? (names.children[item.resourceId] ?? 'کودک')
+                        : item.resource === 'THERAPIST'
+                          ? (names.therapists?.[item.resourceId] ?? 'درمانگر')
+                          : (names.rooms?.[item.resourceId] ?? 'اتاق'),
+                    )
+                    .join('، ')}
+                </p>
+              ) : null}
+              {occurrence.outsideAvailabilityReason ? (
+                <p className="mt-2 text-sm text-amber-800">
+                  {occurrence.outsideAvailabilityReason === 'CLOSED_DAY'
+                    ? 'روز درمانگر بسته است.'
+                    : occurrence.outsideAvailabilityReason === 'PARTIAL_CLOSURE'
+                      ? 'این ساعت در بازهٔ بستهٔ روز است.'
+                      : 'این ساعت بیرون از حضور هفتگی درمانگر است.'}
+                </p>
+              ) : null}
             </li>
           );
         })}
@@ -263,6 +296,17 @@ export function BookingPanel({
   const activeServices = services.filter((item) => item.status === 'ACTIVE');
   const activeTherapists = therapists.filter((item) => item.status === 'ACTIVE');
   const activeRooms = rooms.filter((item) => item.status === 'ACTIVE');
+  const [mode, setMode] = useState(
+    state.intent['bookingMode'] === 'recurring' ? 'recurring' : 'once',
+  );
+  const [serviceDuration, setServiceDuration] = useState(state.intent['serviceDuration'] ?? '');
+  const [endMode, setEndMode] = useState(
+    state.intent['endMode'] === 'END_DATE' ? 'END_DATE' : 'OCCURRENCE_COUNT',
+  );
+  const chosenServiceId = serviceDuration.split(':')[0] ?? '';
+  const eligibleTherapists = activeTherapists.filter((item) =>
+    item.supportedServiceIds.includes(chosenServiceId),
+  );
   return (
     <>
       {state.errorMessage ? (
@@ -281,6 +325,7 @@ export function BookingPanel({
             value="once"
             label="نوبت یک‌باره"
             defaultChecked={state.intent['bookingMode'] !== 'recurring'}
+            onChange={() => setMode('once')}
           />
           <ChoiceOption
             id="booking-recurring"
@@ -289,6 +334,7 @@ export function BookingPanel({
             label="تکرار هفتگی"
             description="یک روز هفته، حداکثر ۵۲ جلسه و تا ۱۲ ماه"
             defaultChecked={state.intent['bookingMode'] === 'recurring'}
+            onChange={() => setMode('recurring')}
           />
         </ChoiceGroup>
         <Field id="service-duration" label="خدمت و مدت مجاز" required>
@@ -298,6 +344,7 @@ export function BookingPanel({
               name="serviceDuration"
               required
               defaultValue={state.intent['serviceDuration'] ?? ''}
+              onChange={(event) => setServiceDuration(event.target.value)}
               className={className}
             >
               <option value="">انتخاب کنید</option>
@@ -315,6 +362,7 @@ export function BookingPanel({
           <Field id="therapist" label="درمانگر" required>
             {({ id, className }) => (
               <select
+                key={chosenServiceId}
                 id={id}
                 name="therapistId"
                 required
@@ -322,7 +370,7 @@ export function BookingPanel({
                 className={className}
               >
                 <option value="">انتخاب کنید</option>
-                {activeTherapists.map((item) => (
+                {eligibleTherapists.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.fullName}
                   </option>
@@ -403,64 +451,67 @@ export function BookingPanel({
             ثبت خارج از برنامهٔ حضور نیازمند مجوز و دلیل است. تداخل‌های زمانی قابل چشم‌پوشی نیستند.
           </p>
         )}
-        <details
-          open={state.intent['bookingMode'] === 'recurring'}
-          className="rounded-xl border border-brand-200 bg-brand-50/50 p-4"
-        >
-          <summary className="cursor-pointer font-bold text-brand-950">
-            تنظیم پایان تکرار هفتگی
-          </summary>
-          <div className="mt-4 flex flex-col gap-4">
-            <Field id="interval-weeks" label="فاصلهٔ تکرار (هفته)">
-              {({ id, className }) => (
-                <input
-                  id={id}
-                  name="intervalWeeks"
-                  type="number"
-                  min={1}
-                  max={12}
-                  defaultValue={state.intent['intervalWeeks'] ?? '1'}
-                  className={className}
+        {mode === 'recurring' ? (
+          <div className="rounded-xl border border-brand-200 bg-brand-50/50 p-4">
+            <h3 className="font-bold text-brand-950">تنظیم پایان تکرار هفتگی</h3>
+            <div className="mt-4 flex flex-col gap-4">
+              <Field id="interval-weeks" label="فاصلهٔ تکرار (هفته)">
+                {({ id, className }) => (
+                  <input
+                    id={id}
+                    name="intervalWeeks"
+                    type="number"
+                    min={1}
+                    max={12}
+                    defaultValue={state.intent['intervalWeeks'] ?? '1'}
+                    className={className}
+                  />
+                )}
+              </Field>
+              <ChoiceGroup legend="پایان مجموعه">
+                <ChoiceOption
+                  id="end-count"
+                  name="endMode"
+                  value="OCCURRENCE_COUNT"
+                  label="با تعداد جلسه"
+                  defaultChecked={state.intent['endMode'] !== 'END_DATE'}
+                  onChange={() => setEndMode('OCCURRENCE_COUNT')}
                 />
-              )}
-            </Field>
-            <ChoiceGroup legend="پایان مجموعه">
-              <ChoiceOption
-                id="end-count"
-                name="endMode"
-                value="OCCURRENCE_COUNT"
-                label="با تعداد جلسه"
-                defaultChecked={state.intent['endMode'] !== 'END_DATE'}
-              />
-              <ChoiceOption
-                id="end-date"
-                name="endMode"
-                value="END_DATE"
-                label="در تاریخ پایان"
-                defaultChecked={state.intent['endMode'] === 'END_DATE'}
-              />
-            </ChoiceGroup>
-            <Field id="occurrence-count" label="تعداد جلسه (حداکثر ۵۲)">
-              {({ id, className }) => (
-                <input
-                  id={id}
-                  name="occurrenceCount"
-                  type="number"
-                  min={1}
-                  max={52}
-                  defaultValue={state.intent['occurrenceCount'] ?? '8'}
-                  className={className}
+                <ChoiceOption
+                  id="end-date"
+                  name="endMode"
+                  value="END_DATE"
+                  label="در تاریخ پایان"
+                  defaultChecked={state.intent['endMode'] === 'END_DATE'}
+                  onChange={() => setEndMode('END_DATE')}
                 />
-              )}
-            </Field>
-            <DateFields
-              prefix="endsOn"
-              label="تاریخ پایان (فقط در حالت تاریخ پایان)"
-              intent={state.intent}
-              required={false}
-            />
+              </ChoiceGroup>
+              {endMode === 'OCCURRENCE_COUNT' ? (
+                <Field id="occurrence-count" label="تعداد جلسه (حداکثر ۵۲)">
+                  {({ id, className }) => (
+                    <input
+                      id={id}
+                      name="occurrenceCount"
+                      type="number"
+                      min={1}
+                      max={52}
+                      defaultValue={state.intent['occurrenceCount'] ?? '8'}
+                      className={className}
+                    />
+                  )}
+                </Field>
+              ) : null}
+              {endMode === 'END_DATE' ? (
+                <DateFields
+                  prefix="endsOn"
+                  label="تاریخ پایان (فقط در حالت تاریخ پایان)"
+                  intent={state.intent}
+                  required
+                />
+              ) : null}
+            </div>
           </div>
-        </details>
+        ) : null}
         <FormActions>
           <button
             type="submit"
@@ -469,11 +520,15 @@ export function BookingPanel({
             disabled={pending}
             className="min-h-11 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
           >
-            {pending ? 'در حال بررسی…' : 'ثبت نوبت یک‌باره / پیش‌نمایش مجموعه'}
+            {pending
+              ? 'در حال بررسی…'
+              : mode === 'recurring'
+                ? 'پیش‌نمایش مجموعهٔ هفتگی'
+                : 'ثبت نوبت یک‌باره'}
           </button>
         </FormActions>
       </Panel>
-      <Preview state={state} />
+      {mode === 'recurring' ? <Preview state={state} /> : null}
     </>
   );
 }

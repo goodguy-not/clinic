@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { submitPublicRequestAction } from './action';
+import { toWesternDigits } from '@/shared/numerals-fa';
 
 type Tray = 'age' | 'sex' | 'time';
 type Sex = 'FEMALE' | 'MALE' | 'UNSPECIFIED' | '';
@@ -50,6 +51,7 @@ export function RequestForm({
   const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
   const [tray, setTray] = useState<Tray | null>(null);
   const [age, setAge] = useState('');
+  const [ageError, setAgeError] = useState('');
   const [sex, setSex] = useState<Sex>('');
   const [time, setTime] = useState<ContactTime>('');
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -144,7 +146,7 @@ export function RequestForm({
           onClick={() => openTray('age')}
           expanded={tray === 'age'}
           controls="request-selection-tray"
-          invalid={Boolean(state.fieldErrors.childAgeYears)}
+          invalid={Boolean(ageError || state.fieldErrors.childAgeYears)}
           describedBy="childAgeYears-help childAgeYears-error"
         />
         <span>و</span>
@@ -165,7 +167,7 @@ export function RequestForm({
       <p id="childAgeYears-help" className="request-helper">
         سن فرزندتان را به سال کامل وارد کنید؛ مثلاً ۶.
       </p>
-      <FieldError id="childAgeYears-error" message={state.fieldErrors.childAgeYears} />
+      <FieldError id="childAgeYears-error" message={ageError || state.fieldErrors.childAgeYears} />
       <p id="childSex-help" className="request-helper">
         جنسیت فقط برای رسیدن درخواست به تیم مرتبط پرسیده می‌شود و می‌توانید آن را مشخص نکنید.
       </p>
@@ -305,11 +307,30 @@ export function RequestForm({
                 inputMode="numeric"
                 pattern="[0-9۰-۹٠-٩]*"
                 value={age}
-                onChange={(event) => setAge(event.target.value)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  const digits = toWesternDigits(next);
+                  if (digits !== '' && (!/^\d{1,2}$/.test(digits) || Number(digits) > 99)) {
+                    setAgeError('سن را به سال کامل، از ۰ تا ۹۹ وارد کنید.');
+                    return;
+                  }
+                  setAge(next);
+                  setAgeError('');
+                }}
                 aria-label="سن فرزند به سال کامل"
                 placeholder="مثلاً ۶"
               />
-              <button type="button" className="public-focus" onClick={closeTray}>
+              {ageError ? (
+                <span role="alert" className="request-field-error">
+                  {ageError}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className="public-focus"
+                onClick={closeTray}
+                disabled={Boolean(ageError)}
+              >
                 تأیید سن
               </button>
             </fieldset>

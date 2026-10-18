@@ -35,7 +35,9 @@ export function AppointmentMoveForm({
   const current = appointmentInstantInClinic(view.appointment.startsAt);
   const date = current === null ? null : isoDateToJalali(current.date);
   const activeTherapists = therapists.filter(
-    (item) => item.status === 'ACTIVE' || item.id === view.therapist.id,
+    (item) =>
+      item.supportedServiceIds.includes(view.service.id) &&
+      (item.status === 'ACTIVE' || item.id === view.therapist.id),
   );
   const activeRooms = rooms.filter((item) => item.status === 'ACTIVE' || item.id === view.room.id);
 

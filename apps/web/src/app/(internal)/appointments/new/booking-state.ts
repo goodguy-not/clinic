@@ -8,4 +8,5 @@ export type BookingState = {
   preview: RecurrencePreviewResponse | null;
   errorMessage: string | null;
   finalCreateConflict: boolean;
+  resourceNames?: { therapists: Record<string, string>; rooms: Record<string, string> };
 };

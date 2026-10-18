@@ -13,6 +13,8 @@ import { COPY } from '@/server/copy-fa';
 import { persianMessage } from '@/server/errors-fa';
 import { isKnownErrorCode } from '@/server/handler-support';
 import { loadParticipantCharges } from '@/server/appointment-charges';
+import { clinicToday } from '@/server/clinic-time';
+import { appointmentInstantInClinic } from '@/scheduling/appointment-presentation';
 import { AppointmentDetail } from '../appointment-detail';
 
 export const dynamic = 'force-dynamic';
@@ -64,6 +66,14 @@ export default async function AppointmentDetailPage({
         context,
       )
     : {};
+  const sessionDate = appointmentInstantInClinic(result.data.appointment.startsAt)?.date;
+  const outcomeTiming =
+    sessionDate && sessionDate > clinicToday()
+      ? 'future'
+      : sessionDate === clinicToday() &&
+          new Date(result.data.appointment.startsAt).getTime() > Date.now()
+        ? 'before'
+        : 'ready';
 
   return (
     <>
@@ -80,6 +90,7 @@ export default async function AppointmentDetailPage({
         charges={charges}
         canReadCharges={canReadCharges}
         canPostCharge={user.permissions.includes('charge.post')}
+        outcomeTiming={outcomeTiming}
       />
     </>
   );

@@ -44,13 +44,23 @@ export function availabilityExceptionFromBody(
 
   const reason = body['reason']?.trim() || null;
 
-  if (kind === 'closed') return { isAvailable: false, exceptionDate, reason };
+  if (kind === 'closed') {
+    if (body['closureScope'] === 'whole') return { isAvailable: false, exceptionDate, reason };
+    if (body['closureScope'] !== 'partial') return null;
+    return {
+      isAvailable: false,
+      exceptionDate,
+      startTime: toWesternDigits(body['startTime'] ?? ''),
+      endTime: toWesternDigits(body['endTime'] ?? ''),
+      reason,
+    };
+  }
 
   return {
     isAvailable: true,
     exceptionDate,
-    startTime: body['startTime'] ?? '',
-    endTime: body['endTime'] ?? '',
+    startTime: toWesternDigits(body['startTime'] ?? ''),
+    endTime: toWesternDigits(body['endTime'] ?? ''),
     reason,
   };
 }
