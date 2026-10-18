@@ -3,6 +3,8 @@ import { isoDateSchema } from '../dates';
 import { signedTomanAmountSchema, tomanAmountSchema } from '../money';
 import { reportRangeSchema, reportTherapistSummarySchema } from '../reports/common';
 import { tariffPriceModeSchema } from '../catalog/tariffs';
+import { sessionChargeKindSchema } from '../ledger/charges';
+import { penaltyPercentSchema } from '../ledger/common';
 import { ratedViaSchema, settlementLineTypeSchema, shareBasisPointsSchema } from './common';
 
 /**
@@ -159,6 +161,15 @@ export type SettlementStatementExportQuery = SettlementStatementQuery;
 export const settlementStatementLineSchema = z.strictObject({
   sessionSettlementId: z.uuid(),
   sessionChargeId: z.uuid(),
+  /**
+   * M10.5 phase 1: `SESSION` or `NO_SHOW_PENALTY`, with the penalty's percent
+   * (null on a session line), and the session the line belongs to, so the lines
+   * of one session can be grouped. A penalty is rated and settled like any
+   * charge, on its session's date (A5).
+   */
+  chargeKind: sessionChargeKindSchema,
+  penaltyPercent: penaltyPercentSchema.nullable(),
+  appointmentId: z.uuid(),
   serviceDate: isoDateSchema,
   serviceId: z.uuid(),
   serviceName: z.string(),
@@ -248,7 +259,9 @@ export type SettlementStatementLine = z.infer<typeof settlementStatementLineSche
  * means "closed off in a period", not "paid".
  */
 export const settlementStatementTotalsSchema = z.strictObject({
+  /** Lines of kind `SESSION` (M10.5: what it always meant), and of kind `NO_SHOW_PENALTY`. */
   sessionCount: z.number().int().nonnegative(),
+  penaltyCount: z.number().int().nonnegative(),
   correctionCount: z.number().int().nonnegative(),
   baseAmountToman: tomanAmountSchema,
   therapistGrossToman: tomanAmountSchema,
@@ -297,6 +310,14 @@ export const settlementStatementExceptionsSchema = z.strictObject({
   unratedSessionCount: z.number().int().nonnegative(),
   freeSessionCount: z.number().int().nonnegative(),
   unchargedCompletedSessionCount: z.number().int().nonnegative(),
+  /**
+   * M10.5 phase 1: absent seats of completed sessions in this range with no
+   * standing manager decision. The close screen's warning — not stored, not
+   * blocking: a penalty decided after the close is carried into the next one,
+   * labelled with its own session date. Disjoint from the three above (an
+   * absent seat carries no charge until decided).
+   */
+  undecidedNoShowCount: z.number().int().nonnegative(),
 });
 
 export type SettlementStatementExceptions = z.infer<typeof settlementStatementExceptionsSchema>;

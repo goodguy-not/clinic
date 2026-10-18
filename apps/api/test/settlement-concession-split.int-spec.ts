@@ -158,9 +158,9 @@ describe('therapist-borne concessions (checkpoint C4)', () => {
       expect(rows[0]?.clinicDiscountToman).toBe(50000n);
     });
 
-    it('still refuses a caller that tries to state the clinic allocation', async () => {
-      // The clinic half stays unsubmittable, which is what keeps a split that
-      // does not add up unrepresentable rather than merely refused.
+    it('refuses a clinic allocation stated without the therapist one (M10.5 D10)', async () => {
+      // Both halves are required since the owner's R1-1; an omitted therapist
+      // portion no longer means "the clinic bears all".
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${fixture.chargeId}/adjustments`)
         .set(asUser(fixture.managerToken))

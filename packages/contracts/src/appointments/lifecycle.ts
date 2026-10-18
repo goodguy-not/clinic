@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { durationMinutesSchema } from '../catalog/common';
 import { appointmentNoteSchema, appointmentReasonSchema, attendanceOutcomeSchema } from './common';
+import { appointmentViewSchema } from './day';
 
 /**
  * What may happen to a booking after it is made.
@@ -123,3 +124,55 @@ export const recordAttendanceRequestSchema = z.strictObject({
 });
 
 export type RecordAttendanceRequest = z.infer<typeof recordAttendanceRequestSchema>;
+
+/**
+ * "What happened?" — the one-click outcome of an individual session (M10.5
+ * phase 1, T-028).
+ *
+ *   POST /appointments/:id/outcome   this -> `recordAppointmentOutcomeResponseSchema`
+ *
+ * ONE REQUEST, ONE TRANSACTION, ONE OF FOUR ANSWERS, replacing the separate
+ * "arrived", "did not come" and "session done" presses a receptionist could
+ * forget one of:
+ *
+ *   * `ATTENDED` — marks the child present, completes the session and posts the
+ *     session charge (`appointment.complete`).
+ *   * `NO_SHOW` — marks the child absent and completes the session; no charge,
+ *     and the seat appears in the manager's "No-shows to decide"
+ *     (`appointment.complete`).
+ *   * `CANCELLED_BY_FAMILY` / `CANCELLED_BY_CLINIC` — cancels with the short
+ *     reason, which is REQUIRED (R1-3); no charge. Any arrival recorded earlier
+ *     is cleared, audited: a cancelled session has no attendance
+ *     (`appointment.cancel`).
+ *
+ * The first two are accepted only from the session's start on its own clinic
+ * date (T-020, `APPOINTMENT_OUTCOME_BEFORE_START` /
+ * `APPOINTMENT_OUTCOME_DATE_IN_FUTURE` with the view's `outcomeOpensAt`);
+ * cancelling is never time-limited. The same answer pressed twice changes
+ * nothing; a different answer once the session is closed or cancelled is
+ * `APPOINTMENT_OUTCOME_ALREADY_RECORDED` — a correction uses the existing paths.
+ */
+export const recordAppointmentOutcomeRequestSchema = z.discriminatedUnion('outcome', [
+  z.strictObject({ outcome: z.literal('ATTENDED') }),
+  z.strictObject({ outcome: z.literal('NO_SHOW') }),
+  z.strictObject({ outcome: z.literal('CANCELLED_BY_FAMILY'), reason: appointmentReasonSchema }),
+  z.strictObject({ outcome: z.literal('CANCELLED_BY_CLINIC'), reason: appointmentReasonSchema }),
+]);
+
+export type RecordAppointmentOutcomeRequest = z.infer<typeof recordAppointmentOutcomeRequestSchema>;
+
+/**
+ * `RECORDED` when the answer changed something, `UNCHANGED` for a repeat press
+ * (nothing written, nothing audited). `appointment` is the session as it now
+ * reads, so the page re-renders from one response.
+ */
+export const APPOINTMENT_OUTCOME_RESULTS = ['RECORDED', 'UNCHANGED'] as const;
+
+export const recordAppointmentOutcomeResponseSchema = z.strictObject({
+  result: z.enum(APPOINTMENT_OUTCOME_RESULTS),
+  appointment: appointmentViewSchema,
+});
+
+export type RecordAppointmentOutcomeResponse = z.infer<
+  typeof recordAppointmentOutcomeResponseSchema
+>;

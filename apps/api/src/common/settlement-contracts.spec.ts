@@ -438,6 +438,9 @@ describe('the settlement statement', () => {
   const line = {
     sessionSettlementId: UUID,
     sessionChargeId: OTHER_UUID,
+    chargeKind: 'SESSION' as const,
+    penaltyPercent: null,
+    appointmentId: THIRD_UUID,
     serviceDate: '2026-08-15',
     serviceId: THIRD_UUID,
     serviceName: 'کاردرمانی',
@@ -461,6 +464,7 @@ describe('the settlement statement', () => {
 
   const totals = {
     sessionCount: 1,
+    penaltyCount: 0,
     correctionCount: 0,
     baseAmountToman: '250000',
     therapistGrossToman: '106250',
@@ -481,6 +485,7 @@ describe('the settlement statement', () => {
     unratedSessionCount: 3,
     freeSessionCount: 2,
     unchargedCompletedSessionCount: 1,
+    undecidedNoShowCount: 0,
   };
 
   it('is keyed on the session date and adds no new report basis', () => {
@@ -567,6 +572,7 @@ describe('the settlement statement', () => {
       'unratedSessionCount',
       'freeSessionCount',
       'unchargedCompletedSessionCount',
+      'undecidedNoShowCount',
     ] as const) {
       const { [field]: _omitted, ...without } = exceptions;
 
@@ -665,6 +671,8 @@ describe('the lines of a closed period', () => {
     appointmentParticipantId: OTHER_UUID,
     therapistId: THIRD_UUID,
     serviceDate: '2026-08-15',
+    chargeKind: 'SESSION' as const,
+    penaltyPercent: null,
     carriedIn: false,
     serviceId: UUID,
     serviceName: 'کاردرمانی',

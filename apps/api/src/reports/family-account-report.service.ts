@@ -239,6 +239,8 @@ export class FamilyAccountReportService {
     return rows.map((row) => ({
       family: { id: row.family_id, familyName: row.family_name, status: row.family_status },
       position: toFamilyPosition(row, lastPayments.get(row.family_id) ?? null),
+      // M10.5 P1.0: no penalty can exist before the phase-1 migration.
+      penaltyNetChargedTotalToman: '0',
     }));
   }
 }

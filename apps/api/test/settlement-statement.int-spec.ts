@@ -218,6 +218,7 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
 
       expect(totals).toEqual({
         sessionCount: 5,
+        penaltyCount: 0,
         correctionCount: 0,
         baseAmountToman: '1000000',
         therapistGrossToman: '475000',
@@ -461,6 +462,7 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
         unratedSessionCount: 1,
         freeSessionCount: 1,
         unchargedCompletedSessionCount: 1,
+        undecidedNoShowCount: 0,
       });
     });
 
@@ -549,6 +551,7 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
         unratedSessionCount: 0,
         freeSessionCount: 0,
         unchargedCompletedSessionCount: 0,
+        undecidedNoShowCount: 0,
       });
     });
 
@@ -562,6 +565,7 @@ describe('the therapist settlement statement (checkpoint C5)', () => {
         unratedSessionCount: 0,
         freeSessionCount: 0,
         unchargedCompletedSessionCount: 0,
+        undecidedNoShowCount: 0,
       });
     });
 

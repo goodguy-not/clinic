@@ -134,6 +134,7 @@ export class DashboardService {
           // avoid. It is not scoped to `date`: a request nobody has read since
           // three weeks ago is exactly what this number exists to surface.
           newWebsiteRequestCount: await this.websiteRequests.newRequestCount(tx),
+          noShowsToDecideCount: await this.noShowsToDecide(tx),
           reconciliation: await this.reconciliation(tx, date, session.userId),
         };
 
@@ -387,7 +388,25 @@ export class DashboardService {
       chargeCount: totals.charge_count,
       netChargedTotalToman: (totals.charged_total - totals.adjustment_total).toString(),
       voidedChargeCount: totals.voided_charge_count,
+      // M10.5 P1.0: no penalty can exist before the phase-1 migration.
+      penaltyChargeCount: 0,
     };
+  }
+
+  /**
+   * Absent seats of completed sessions still waiting for the manager (M10.5,
+   * T-022), clinic-wide and not scoped to the day. P1.0: before the decision
+   * table exists, every such seat is waiting; P1.1 adds the standing decision.
+   */
+  private async noShowsToDecide(tx: Prisma.TransactionClient): Promise<number> {
+    const rows = await tx.$queryRaw<{ total: number }[]>`
+      SELECT count(*)::int AS total
+      FROM appointment_participant ap
+      JOIN appointment a ON a.id = ap.appointment_id
+      WHERE a.status = 'COMPLETED' AND ap.attendance = 'NO_SHOW'
+    `;
+
+    return rows[0]?.total ?? 0;
   }
 
   /**

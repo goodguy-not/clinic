@@ -3,6 +3,8 @@ import { isoDateSchema } from '../dates';
 import { signedTomanAmountSchema, tomanAmountSchema } from '../money';
 import { reportTherapistSummarySchema } from '../reports/common';
 import { tariffPriceModeSchema } from '../catalog/tariffs';
+import { sessionChargeKindSchema } from '../ledger/charges';
+import { penaltyPercentSchema } from '../ledger/common';
 import { ratedViaSchema, settlementLineTypeSchema, shareBasisPointsSchema } from './common';
 
 /**
@@ -245,6 +247,13 @@ export const settlementPeriodLineSchema = z.strictObject({
   appointmentParticipantId: z.uuid(),
   therapistId: z.uuid(),
   serviceDate: isoDateSchema,
+  /**
+   * M10.5 phase 1, derived from the (immutable) charge the line settles; no
+   * column was added to the closed period. A carried-in penalty reads with its
+   * own session date, as every carried-in line does.
+   */
+  chargeKind: sessionChargeKindSchema,
+  penaltyPercent: penaltyPercentSchema.nullable(),
   carriedIn: z.boolean(),
   serviceId: z.uuid(),
   serviceName: z.string(),

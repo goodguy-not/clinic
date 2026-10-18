@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { RatedVia, TariffPriceMode } from '@clinic/contracts';
+import type { RatedVia, SessionChargeKind, TariffPriceMode } from '@clinic/contracts';
 import type { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -60,6 +60,11 @@ export type SettlementFactRow = {
   session_settlement_id: string;
   session_charge_id: string;
   appointment_participant_id: string;
+  /** The session the charge belongs to (M10.5): lines of one session group by it. */
+  appointment_id: string;
+  /** `SESSION` or `NO_SHOW_PENALTY`, with the penalty's percent (null otherwise). */
+  charge_kind: SessionChargeKind;
+  penalty_percent: number | null;
   therapist_id: string;
   service_date: string;
   service_id: string;
@@ -223,6 +228,10 @@ export async function readSettlementFacts(
         ss.id AS session_settlement_id,
         ss.session_charge_id,
         ss.appointment_participant_id,
+        c.appointment_id,
+        -- M10.5 P1.0: no penalty can exist before the phase-1 migration.
+        'SESSION'::text AS charge_kind,
+        NULL::int AS penalty_percent,
         ss.therapist_id,
         ss.service_date::text AS service_date,
         c.service_id,

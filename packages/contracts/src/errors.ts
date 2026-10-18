@@ -492,6 +492,33 @@ export const ERROR_CODES = [
   'MEDIA_ALREADY_ATTACHED',
   'MEDIA_ATTACHMENT_PUBLISHED',
 
+  // Session outcomes and no-show penalties (M10.5 phase 1, T-028 and T-022).
+  // Each has a details schema stated beside the contract that raises it.
+  //
+  // A different one-click answer for a session that is already closed or
+  // cancelled. Details: `appointmentOutcomeAlreadyRecordedDetailsSchema`.
+  'APPOINTMENT_OUTCOME_ALREADY_RECORDED',
+  // A discount whose two stated portions do not add up to it (D10). Details:
+  // `adjustmentPortionsDetailsSchema`.
+  'ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP',
+  // The decision named does not exist. No details.
+  'NO_SHOW_DECISION_NOT_FOUND',
+  // A decision already stands for this seat: a different second decision, an
+  // absence corrected to present, or a reopen. Withdraw it first. Details:
+  // `noShowDecisionExistsDetailsSchema`.
+  'NO_SHOW_DECISION_EXISTS',
+  // Withdrawing a decision already withdrawn: the screen is stale. No details.
+  'NO_SHOW_DECISION_ALREADY_WITHDRAWN',
+  // Only an absent seat of a completed session can be decided. Details:
+  // `noShowNotDecidableDetailsSchema`.
+  'NO_SHOW_NOT_DECIDABLE',
+  // A penalty on a session priced FREE: any percentage of zero is zero, so only
+  // "no penalty" is possible. No details.
+  'NO_SHOW_PENALTY_ON_FREE_SESSION',
+  // A penalty charge is withdrawn by withdrawing its decision, never voided
+  // directly. Details: `penaltyVoidThroughDecisionDetailsSchema`.
+  'NO_SHOW_PENALTY_VOID_THROUGH_DECISION',
+
   'INTERNAL_ERROR',
 ] as const;
 

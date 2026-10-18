@@ -335,6 +335,8 @@ export class SettlementStatementService {
       unratedSessionCount: await this.unratedCount(tx, query),
       freeSessionCount: rows.filter((row) => row.price_mode === 'FREE').length,
       unchargedCompletedSessionCount: await this.unchargedCount(tx, query),
+      // M10.5 P1.0: the decision table arrives in P1.1; P1.3 counts against it.
+      undecidedNoShowCount: 0,
     };
   }
 
@@ -447,6 +449,9 @@ function toLine(row: SettlementFactRow): SettlementStatementLine {
   return {
     sessionSettlementId: row.session_settlement_id,
     sessionChargeId: row.session_charge_id,
+    chargeKind: row.charge_kind,
+    penaltyPercent: row.penalty_percent,
+    appointmentId: row.appointment_id,
     serviceDate: row.service_date,
     serviceId: row.service_id,
     serviceName: row.service_name,
@@ -534,7 +539,8 @@ function totalsOf(rows: readonly SettlementFactRow[]): SettlementStatementTotals
   ).length;
 
   return {
-    sessionCount: lines.length,
+    sessionCount: lines.filter((line) => line.chargeKind === 'SESSION').length,
+    penaltyCount: lines.filter((line) => line.chargeKind === 'NO_SHOW_PENALTY').length,
     correctionCount,
     baseAmountToman: sum((line) => line.baseAmountToman).toString(),
     therapistGrossToman: sum((line) => line.therapistGrossToman).toString(),

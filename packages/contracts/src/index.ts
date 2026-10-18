@@ -37,6 +37,7 @@ export * from './appointments/refusals';
 export * from './ledger/common';
 export * from './ledger/charges';
 export * from './ledger/family-account';
+export * from './ledger/no-show-decisions';
 export * from './payments/common';
 export * from './payments/payments';
 export * from './payments/promises';

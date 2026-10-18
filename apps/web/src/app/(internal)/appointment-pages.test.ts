@@ -56,6 +56,7 @@ const VIEW: AppointmentView = {
         lastName: 'نمونه',
         fileNumber: '14050001',
       },
+      noShowDecision: null,
     },
   ],
   service: { id: SERVICE_ID, name: 'گفتاردرمانی' },
@@ -63,6 +64,8 @@ const VIEW: AppointmentView = {
   room: { id: ROOM_ID, name: 'اتاق یک' },
   tariffSuggestion: { status: 'MISSING' },
   outcomeUnresolved: true,
+  individualOutcome: 'PENDING',
+  outcomeOpensAt: '2026-08-13T05:30:00.000Z',
 };
 
 const THERAPIST: Therapist = {
@@ -158,6 +161,10 @@ function sessionCharge(overrides: Partial<SessionChargeDetail> = {}): SessionCha
     tariffId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b02',
     priceMode: 'PAID',
     amountToman: '1500000',
+    kind: 'SESSION',
+    penaltyPercent: null,
+    sessionPriceToman: null,
+    noShowDecisionId: null,
     createdAt: '2026-08-13T06:20:00.000Z',
     createdByUserId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b03',
     voidedAt: null,

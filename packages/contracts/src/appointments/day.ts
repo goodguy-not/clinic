@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { tariffPriceModeSchema } from '../catalog/tariffs';
 import { fileNumberSchema } from '../families/common';
 import { isoDateSchema } from '../dates';
+import { noShowDecisionStateSchema } from '../ledger/common';
 import { tomanAmountSchema } from '../money';
 import { appointmentParticipantSchema, appointmentSchema } from './appointments';
+import { individualOutcomeSchema } from './common';
 
 /**
  * The operational read model: one clinic day, and one appointment as a screen
@@ -45,10 +47,17 @@ export const appointmentChildSummarySchema = z.strictObject({
 
 export type AppointmentChildSummary = z.infer<typeof appointmentChildSummarySchema>;
 
-/** A seat, with the child it belongs to resolved. */
+/**
+ * A seat, with the child it belongs to resolved.
+ *
+ * `noShowDecision` (M10.5 phase 1) is where an absent seat of a completed
+ * session stands with the manager — awaiting, no penalty, or a penalty with its
+ * percent — and null for every other seat.
+ */
 export const appointmentParticipantViewSchema = z.strictObject({
   participant: appointmentParticipantSchema,
   child: appointmentChildSummarySchema,
+  noShowDecision: noShowDecisionStateSchema.nullable(),
 });
 
 export type AppointmentParticipantView = z.infer<typeof appointmentParticipantViewSchema>;
@@ -104,6 +113,18 @@ export const appointmentViewSchema = z.strictObject({
   room: namedSchema,
   tariffSuggestion: appointmentTariffSuggestionSchema,
   outcomeUnresolved: z.boolean(),
+  /**
+   * M10.5 phase 1 (T-028): the "What happened?" answer for an individual
+   * session, derived by the server (`INDIVIDUAL_OUTCOMES`); null for a session
+   * with more than one seat (group sessions, phase 2).
+   */
+  individualOutcome: individualOutcomeSchema.nullable(),
+  /**
+   * The instant from which "present" and "did not come" are accepted (T-020) —
+   * the scheduled start, stated so the page can say "available from 11:00"
+   * without deciding the rule itself. Cancelling is never time-limited.
+   */
+  outcomeOpensAt: z.iso.datetime(),
 });
 
 export type AppointmentView = z.infer<typeof appointmentViewSchema>;

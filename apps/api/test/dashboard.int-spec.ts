@@ -523,6 +523,7 @@ describe('the dashboard', () => {
         chargeCount: 1,
         netChargedTotalToman: '250000',
         voidedChargeCount: 0,
+        penaltyChargeCount: 0,
       });
 
       // The charge was POSTED today and belongs to the session's day, not to

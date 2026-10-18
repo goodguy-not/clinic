@@ -179,10 +179,9 @@ export async function seedChargedSession(
  *
  * Deliberately separate from `adjustOverHttp` in `ledger-support.ts` rather than
  * an extra parameter on it: that helper is what every Milestone 5 and 6 suite
- * calls to state a clinic-borne concession, and its body must keep OMITTING the
- * field so those suites go on proving that the default is unchanged. The clinic
- * portion is never sent — it is the server's residual, and the request schema
- * refuses it.
+ * calls to state a clinic-borne concession. Since M10.5 (D10) both portions are
+ * sent; the clinic's is the remainder the TEST states, as the manager would type
+ * it — the server checks that the pair adds up and computes nothing.
  */
 export function allocateOverHttp(
   harness: Harness,
@@ -195,7 +194,12 @@ export function allocateOverHttp(
   return request(harness.app.getHttpServer())
     .post(`/session-charges/${chargeId}/adjustments`)
     .set(asUser(token))
-    .send({ amountToman, reason, therapistDiscountToman });
+    .send({
+      amountToman,
+      reason,
+      therapistDiscountToman,
+      clinicDiscountToman: (BigInt(amountToman) - BigInt(therapistDiscountToman)).toString(),
+    });
 }
 
 export function rateOverHttp(

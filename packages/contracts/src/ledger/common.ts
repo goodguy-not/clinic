@@ -88,6 +88,59 @@ export const therapistDiscountPortionTomanSchema = tomanAmountSchema.refine(
 );
 
 /**
+ * How much of one concession the CLINIC bears (M10.5 phase 1, D10).
+ *
+ * SUPERSEDES THE "NEVER SUBMITTED" RULE ABOVE. The owner ruled (R1-1, 26 Mehr
+ * 1405) that the manager states BOTH portions of every discount, with no
+ * default and nothing pre-filled, so an omitted portion can no longer silently
+ * mean "the clinic bears all". The pair can now be stated so that it does not
+ * add up; that is refused by the server as `ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP`,
+ * with the three amounts in its details, rather than reinterpreted — the
+ * guarantee the residual used to give is now a refusal instead of a
+ * construction. Zero is legitimate, exactly as for the therapist's portion.
+ */
+export const clinicDiscountPortionTomanSchema = therapistDiscountPortionTomanSchema;
+
+/**
+ * The manager's no-show penalty, as a whole percentage of the session price
+ * (M10.5 phase 1, D8 and R1-5): 1 to 100, never a fraction. "No penalty" is its
+ * own decision, not 0%.
+ */
+export const penaltyPercentSchema = z.number().int().min(1).max(100);
+
+/**
+ * Where an absent seat stands with the manager (M10.5 phase 1, T-022).
+ *
+ * `AWAITING` is derived (D3): an absent seat of a completed session with no
+ * standing decision. The other two are the standing decision itself, with its
+ * id and instant; a withdrawn decision stands for nothing and the seat reads
+ * `AWAITING` again until the manager decides anew. A seat that is not an
+ * absent seat of a completed session has no state at all, which every read
+ * carrying this states as `null`.
+ *
+ * Here rather than beside the decision contracts so the appointment view, the
+ * session report and the decision routes share one shape without importing one
+ * another.
+ */
+export const noShowDecisionStateSchema = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('AWAITING') }),
+  z.strictObject({
+    state: z.literal('NO_PENALTY'),
+    noShowDecisionId: z.uuid(),
+    decidedAt: z.iso.datetime(),
+  }),
+  z.strictObject({
+    state: z.literal('PENALTY'),
+    noShowDecisionId: z.uuid(),
+    decidedAt: z.iso.datetime(),
+    penaltyPercent: penaltyPercentSchema,
+    sessionChargeId: z.uuid(),
+  }),
+]);
+
+export type NoShowDecisionState = z.infer<typeof noShowDecisionStateSchema>;
+
+/**
  * The child a charge belongs to, as a family account prints them.
  *
  * Balance is family-level and every charge identifies the child (CLAUDE.md,

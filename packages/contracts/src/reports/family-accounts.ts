@@ -139,6 +139,13 @@ export const familyAccountReportRowSchema = z.strictObject({
     status: recordStatusSchema,
   }),
   position: familyFinancialPositionSchema,
+  /**
+   * M10.5 phase 1: how much of `position.netChargedTotalToman` is no-show
+   * penalties — valid penalty charges less the concessions active against them,
+   * the same arithmetic under the same "net charged" name. Already inside the
+   * position, never added to it.
+   */
+  penaltyNetChargedTotalToman: tomanAmountSchema,
 });
 
 export type FamilyAccountReportRow = z.infer<typeof familyAccountReportRowSchema>;

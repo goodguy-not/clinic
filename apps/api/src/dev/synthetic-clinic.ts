@@ -562,6 +562,9 @@ export async function seedSyntheticClinic(
         createChargeAdjustmentRequestSchema.parse({
           amountToman: '50000',
           reason: 'تخفیف نمونه برای بررسی محلی',
+          // Both portions stated (M10.5 D10): the clinic bears all of it.
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '50000',
         }),
         manager,
         requestContext(),

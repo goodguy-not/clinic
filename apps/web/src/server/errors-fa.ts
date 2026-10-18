@@ -278,6 +278,18 @@ const MESSAGES: Record<DisplayableCode, string> = {
   MEDIA_ALREADY_ATTACHED: 'این عکس همین حالا هم به اینجا وصل است.',
   MEDIA_ATTACHMENT_PUBLISHED:
     'این عکس هم‌اکنون منتشر شده است. مدیر باید ابتدا آن را از سایت بردارد؛ سپس قاب یا جای استفاده را می‌توان تغییر داد.',
+  // M10.5 phase 1 — placeholders by Agent A so the coverage test passes; wording is Agent B's.
+  APPOINTMENT_OUTCOME_ALREADY_RECORDED:
+    'برای این جلسه نتیجهٔ دیگری ثبت شده است. برای اصلاح، از مسیر اصلاح همان نتیجه اقدام کنید.',
+  ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP: 'سهم درمانگر و سهم کلینیک باید روی هم برابر مبلغ تخفیف باشد.',
+  NO_SHOW_DECISION_NOT_FOUND: 'این تصمیم دربارهٔ غیبت پیدا نشد.',
+  NO_SHOW_DECISION_EXISTS:
+    'برای این غیبت تصمیمی ثبت شده است. برای تغییر، ابتدا مدیر باید آن تصمیم را پس بگیرد.',
+  NO_SHOW_DECISION_ALREADY_WITHDRAWN: 'این تصمیم پیش‌تر پس گرفته شده است.',
+  NO_SHOW_NOT_DECIDABLE: 'فقط برای غیبت کودک در جلسهٔ انجام‌شده می‌توان تصمیم گرفت.',
+  NO_SHOW_PENALTY_ON_FREE_SESSION: 'این جلسه رایگان است؛ فقط «بدون جریمه» ممکن است.',
+  NO_SHOW_PENALTY_VOID_THROUGH_DECISION:
+    'جریمهٔ غیبت با پس گرفتن تصمیم آن باطل می‌شود، نه با ابطال مستقیم هزینه.',
 
   INTERNAL_ERROR: 'خطای داخلی رخ داد. اگر تکرار شد با پشتیبانی فنی تماس بگیرید.',
   API_UNREACHABLE: 'سامانه در دسترس نیست. کمی بعد دوباره تلاش کنید.',

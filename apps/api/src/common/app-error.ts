@@ -257,6 +257,18 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   MEDIA_ALREADY_ATTACHED: 409,
   MEDIA_ATTACHMENT_PUBLISHED: 409,
 
+  // M10.5 phase 1. The same split: 404 for a record that is not there, 409 for
+  // a well-formed act against a row already in another state, 422 for values
+  // the domain does not permit, where an identical retry fails identically.
+  APPOINTMENT_OUTCOME_ALREADY_RECORDED: 409,
+  ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP: 422,
+  NO_SHOW_DECISION_NOT_FOUND: 404,
+  NO_SHOW_DECISION_EXISTS: 409,
+  NO_SHOW_DECISION_ALREADY_WITHDRAWN: 409,
+  NO_SHOW_NOT_DECIDABLE: 422,
+  NO_SHOW_PENALTY_ON_FREE_SESSION: 422,
+  NO_SHOW_PENALTY_VOID_THROUGH_DECISION: 409,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -403,6 +415,18 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   MEDIA_ATTACHMENT_NOT_FOUND: 'Media attachment not found',
   MEDIA_ALREADY_ATTACHED: 'This media is already attached to that owner',
   MEDIA_ATTACHMENT_PUBLISHED: 'A published attachment must be unpublished before it is detached',
+
+  APPOINTMENT_OUTCOME_ALREADY_RECORDED: 'This session already has a different recorded outcome',
+  ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP:
+    'The therapist and clinic portions must add up to the discount amount',
+  NO_SHOW_DECISION_NOT_FOUND: 'No-show decision not found',
+  NO_SHOW_DECISION_EXISTS: 'A no-show decision already stands for this participant',
+  NO_SHOW_DECISION_ALREADY_WITHDRAWN: 'This no-show decision has already been withdrawn',
+  NO_SHOW_NOT_DECIDABLE:
+    'Only an absent participant of a completed session can be given a no-show decision',
+  NO_SHOW_PENALTY_ON_FREE_SESSION: 'A session priced as free cannot carry a no-show penalty',
+  NO_SHOW_PENALTY_VOID_THROUGH_DECISION:
+    'A no-show penalty is withdrawn by withdrawing its decision, not by voiding the charge',
 
   INTERNAL_ERROR: 'Internal error',
 };

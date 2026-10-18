@@ -4,6 +4,7 @@ import type {
   CloseSettlementPeriodRequest,
   CloseSettlementPeriodResult,
   RatedVia,
+  SessionChargeKind,
   SettlementLineType,
   SettlementPeriod,
   SettlementPeriodDetailResponse,
@@ -195,6 +196,9 @@ type PeriodLineRow = {
   appointment_participant_id: string;
   therapist_id: string;
   service_date: string;
+  /** Derived from the immutable charge the line settles (M10.5); no column on the line. */
+  charge_kind: SessionChargeKind;
+  penalty_percent: number | null;
   carried_in: boolean;
   service_id: string;
   service_name: string;
@@ -342,6 +346,9 @@ export class SettlementCloseService {
             l.appointment_participant_id,
             l.therapist_id,
             l.service_date::text AS service_date,
+            -- M10.5 P1.0: no penalty can exist before the phase-1 migration.
+            'SESSION'::text AS charge_kind,
+            NULL::int AS penalty_percent,
             (l.service_date < p.period_start OR l.service_date > p.period_end) AS carried_in,
             c.service_id,
             s.name AS service_name,
@@ -811,6 +818,8 @@ function toPeriodLine(row: PeriodLineRow): SettlementPeriodLine {
     appointmentParticipantId: row.appointment_participant_id,
     therapistId: row.therapist_id,
     serviceDate: row.service_date,
+    chargeKind: row.charge_kind,
+    penaltyPercent: row.penalty_percent,
     carriedIn: row.carried_in,
     serviceId: row.service_id,
     serviceName: row.service_name,

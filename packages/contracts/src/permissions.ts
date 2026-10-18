@@ -706,4 +706,26 @@ export const WEBSITE_REQUEST_LINK_PERMISSIONS = [
   'family.read',
 ] as const satisfies readonly Permission[];
 
+/**
+ * WHAT READING "NO-SHOWS TO DECIDE" REQUIRES (M10.5 phase 1): the diary, because
+ * the list is absent seats of held sessions, and the ledger, because whether a
+ * seat is still waiting depends on a decision that raises money. Both roles
+ * hold both; only `charge.adjust` decides.
+ */
+export const NO_SHOW_DECISION_PENDING_READ_PERMISSIONS = [
+  'appointment.read',
+  'charge.read',
+] as const satisfies readonly Permission[];
+
+/**
+ * WHAT WITHDRAWING A NO-SHOW DECISION REQUIRES: BOTH HALVES OF THE ACT. It takes
+ * back a discretionary decision (`charge.adjust`, the authority that made it)
+ * and voids the penalty charge it raised (`charge.void`). The manager holds both;
+ * the receptionist neither.
+ */
+export const NO_SHOW_DECISION_WITHDRAW_PERMISSIONS = [
+  'charge.adjust',
+  'charge.void',
+] as const satisfies readonly Permission[];
+
 export const permissionSchema = z.enum(PERMISSIONS);

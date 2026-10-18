@@ -440,6 +440,7 @@ describe('frozen dashboard endpoint', () => {
     promises: { dueTodayCount: 0, missedCount: 0 },
     dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
     newWebsiteRequestCount: 0,
+    noShowsToDecideCount: 0,
     reconciliation: {
       scope: 'RECORDED_BY_ME',
       dateBasis: 'PAYMENT_RECORDED_AT',
@@ -591,6 +592,10 @@ describe('frozen ledger endpoints', () => {
     tariffId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b09',
     priceMode: 'PAID',
     amountToman: '1500000',
+    kind: 'SESSION',
+    penaltyPercent: null,
+    sessionPriceToman: null,
+    noShowDecisionId: null,
     createdAt: '2026-08-14T01:00:00.000Z',
     createdByUserId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b10',
     voidedAt: null,
@@ -696,7 +701,12 @@ describe('frozen ledger endpoints', () => {
     await api.voidSessionCharge(chargeId, { reason: 'wrong session' }, { sessionToken: 'token' });
     await api.createChargeAdjustment(
       chargeId,
-      { amountToman: '250000', reason: 'clinic waiver' },
+      {
+        amountToman: '250000',
+        reason: 'clinic waiver',
+        therapistDiscountToman: '0',
+        clinicDiscountToman: '250000',
+      },
       { sessionToken: 'token' },
     );
     await api.voidChargeAdjustment(
@@ -715,7 +725,12 @@ describe('frozen ledger endpoints', () => {
       [`/session-charges/${chargeId}/void`, { reason: 'wrong session' }],
       [
         `/session-charges/${chargeId}/adjustments`,
-        { amountToman: '250000', reason: 'clinic waiver' },
+        {
+          amountToman: '250000',
+          reason: 'clinic waiver',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '250000',
+        },
       ],
       [
         `/session-charges/${chargeId}/adjustments/${adjustmentId}/void`,

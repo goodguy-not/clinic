@@ -346,6 +346,11 @@ export const dashboardClinicChargesSchema = z.strictObject({
   chargeCount: z.number().int().nonnegative(),
   netChargedTotalToman: tomanAmountSchema,
   voidedChargeCount: z.number().int().nonnegative(),
+  /**
+   * M10.5 phase 1: how many of `chargeCount` are no-show penalties for this
+   * day's sessions — already counted there, stated so they can be labelled.
+   */
+  penaltyChargeCount: z.number().int().nonnegative(),
 });
 
 export type DashboardClinicCharges = z.infer<typeof dashboardClinicChargesSchema>;
@@ -404,6 +409,13 @@ const dashboardCommonFields = {
   promises: dashboardPromiseSummarySchema,
   dataIssues: dashboardDataIssuesSchema,
   newWebsiteRequestCount: dashboardNewWebsiteRequestCountSchema,
+  /**
+   * M10.5 phase 1: absent seats of completed sessions with no standing manager
+   * decision, clinic-wide and NOT scoped to the dashboard's day — like
+   * `missedCount`, an absence nobody decided three weeks ago is still waiting.
+   * Both roles see the count; deciding is `charge.adjust`.
+   */
+  noShowsToDecideCount: z.number().int().nonnegative(),
   reconciliation: dashboardReconciliationSchema,
 } as const;
 

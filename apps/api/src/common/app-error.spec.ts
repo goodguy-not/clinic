@@ -70,11 +70,11 @@ describe('error vocabulary', () => {
     expect(throttling).toEqual(['PUBLIC_REQUEST_THROTTLED']);
   });
 
-  it('carries exactly the nine approved ledger codes', () => {
-    // Stated as an exact list: a tenth ledger code is a rule invented outside
+  it('carries exactly the ten approved ledger codes', () => {
+    // Stated as an exact list: another ledger code is a rule invented outside
     // the approved milestone, and it must fail here rather than appear in a
     // response. It was eight through Milestones 5 to 7; Milestone 8 adds the
-    // split code below, and nothing else.
+    // split code below, and M10.5 phase 1 (D10) the portions code.
     const ledgerCodes = ERROR_CODES.filter(
       (code) => code.startsWith('CHARGE_') || code.startsWith('ADJUSTMENT_'),
     );
@@ -84,6 +84,7 @@ describe('error vocabulary', () => {
         'ADJUSTMENT_ALREADY_VOIDED',
         'ADJUSTMENT_EXCEEDS_CHARGE',
         'ADJUSTMENT_NOT_FOUND',
+        'ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP',
         'ADJUSTMENT_SPLIT_INVALID',
         'CHARGE_ALREADY_VOIDED',
         'CHARGE_EXISTS_FOR_PARTICIPANT',

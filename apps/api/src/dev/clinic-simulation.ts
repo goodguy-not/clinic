@@ -1166,7 +1166,9 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
         createChargeAdjustmentRequestSchema.parse({
           amountToman: amount.toString(),
           reason,
-          ...(therapistPortion > 0n ? { therapistDiscountToman: therapistPortion.toString() } : {}),
+          // D10: both portions, always stated, as the manager types them.
+          therapistDiscountToman: therapistPortion.toString(),
+          clinicDiscountToman: (amount - therapistPortion).toString(),
         }),
         s(manager),
         ctx(),

@@ -81,6 +81,7 @@ const quietDashboard = {
   promises: { dueTodayCount: 0, missedCount: 0 },
   dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
   newWebsiteRequestCount: 0,
+  noShowsToDecideCount: 0,
   reconciliation: emptyReconciliation,
 };
 
@@ -101,6 +102,7 @@ const clinicFinancial = {
     chargeCount: 3,
     netChargedTotalToman: '600000',
     voidedChargeCount: 0,
+    penaltyChargeCount: 0,
   },
 };
 
@@ -265,6 +267,7 @@ describe('the operational reports, which both roles read', () => {
       therapist: { id: UUID, fullName: 'درمانگر نمونه' },
       service: { id: OTHER_UUID, name: 'خدمت نمونه' },
       room: { id: THIRD_UUID, name: 'اتاق نمونه' },
+      noShowDecision: null,
     };
 
     const response = {
@@ -435,6 +438,8 @@ describe('the dashboard', () => {
         // Milestone 9, checkpoint A4: the website-request item PROJECT_SPEC.md 10
         // lists and Milestone 7 could not implement, closed with the inbox.
         'newWebsiteRequestCount',
+        // M10.5 phase 1: absent seats awaiting the manager — a count, not money.
+        'noShowsToDecideCount',
         'reconciliation',
       ].sort(),
     );
@@ -666,7 +671,13 @@ describe('the manager-only financial reports', () => {
         totalAmountDueToman: '250000',
         totalCreditToman: '0',
       },
-      families: [{ family: { ...family, status: 'INACTIVE' as const }, position }],
+      families: [
+        {
+          family: { ...family, status: 'INACTIVE' as const },
+          position,
+          penaltyNetChargedTotalToman: '0',
+        },
+      ],
       page: { page: 1, pageSize: 25, total: 1, hasMore: false },
     };
 
@@ -677,7 +688,7 @@ describe('the manager-only financial reports', () => {
     expect(
       familyAccountReportResponseSchema.safeParse({
         ...response,
-        families: [{ family, position }],
+        families: [{ family, position, penaltyNetChargedTotalToman: '0' }],
       }).success,
     ).toBe(false);
 
@@ -690,6 +701,7 @@ describe('the manager-only financial reports', () => {
           {
             family: { ...family, status: 'ACTIVE' as const },
             position: { ...position, creditToman: '100000' },
+            penaltyNetChargedTotalToman: '0',
           },
         ],
       }).success,

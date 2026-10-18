@@ -36,6 +36,7 @@ const own: OwnScopedDashboardResponse = {
   promises: { dueTodayCount: 1, missedCount: 3 },
   dataIssues: { missingTariffCount: 2, unchargedCompletedSessionCount: 1 },
   newWebsiteRequestCount: 2,
+  noShowsToDecideCount: 0,
   reconciliation: {
     scope: 'RECORDED_BY_ME',
     dateBasis: 'PAYMENT_RECORDED_AT',
@@ -86,6 +87,7 @@ const clinicWide: ClinicWideDashboardResponse = {
       chargeCount: 3,
       netChargedTotalToman: '2400000',
       voidedChargeCount: 1,
+      penaltyChargeCount: 0,
     },
   },
 };
@@ -138,6 +140,7 @@ describe('daily dashboard operational states', () => {
       appointments: { ...own.appointments, unresolvedOutcomes: 0 },
       availabilityOverrideCount: 1,
       newWebsiteRequestCount: 0,
+      noShowsToDecideCount: 0,
       promises: { dueTodayCount: 0, missedCount: 0 },
       dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
     });
@@ -165,6 +168,7 @@ describe('daily dashboard operational states', () => {
       promises: { dueTodayCount: 0, missedCount: 0 },
       availabilityOverrideCount: 0,
       newWebsiteRequestCount: 0,
+      noShowsToDecideCount: 0,
       dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
       reconciliation: {
         ...own.reconciliation,

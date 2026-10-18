@@ -312,6 +312,12 @@ function toSessionCharge(row: ChargeRow) {
     tariffId: row.tariff_id,
     priceMode: row.price_mode,
     amountToman: row.amount_toman.toString(),
+    // M10.5 P1.0: the contract freezes the kind before the column exists; every
+    // row of a pre-phase-1 database is a session charge. P1.1 reads the column.
+    kind: 'SESSION' as const,
+    penaltyPercent: null,
+    sessionPriceToman: null,
+    noShowDecisionId: null,
     createdAt: row.created_at.toISOString(),
     createdByUserId: row.created_by_user_id,
     voidedAt: row.voided_at?.toISOString() ?? null,

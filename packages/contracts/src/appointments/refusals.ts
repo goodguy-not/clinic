@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isoDateSchema } from '../dates';
-import { clockTimeSchema } from './common';
+import { clockTimeSchema, individualOutcomeSchema } from './common';
 
 /**
  * What a scheduling refusal says about itself (M10-A10, T-020, T-024, T-025).
@@ -123,3 +123,17 @@ export const appointmentOutcomeTimingDetailsSchema = z.strictObject({
 });
 
 export type AppointmentOutcomeTimingDetails = z.infer<typeof appointmentOutcomeTimingDetailsSchema>;
+
+/**
+ * The `details` of `APPOINTMENT_OUTCOME_ALREADY_RECORDED` (M10.5 phase 1): the
+ * session already has a different answer, and this is it. A correction goes
+ * through the existing paths — attendance correction, the manager's charge void
+ * or reopen, the no-show decision withdrawal — never through a second press.
+ */
+export const appointmentOutcomeAlreadyRecordedDetailsSchema = z.strictObject({
+  current: individualOutcomeSchema,
+});
+
+export type AppointmentOutcomeAlreadyRecordedDetails = z.infer<
+  typeof appointmentOutcomeAlreadyRecordedDetailsSchema
+>;

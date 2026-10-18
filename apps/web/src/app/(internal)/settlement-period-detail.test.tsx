@@ -14,6 +14,8 @@ const base = (values: Partial<SettlementPeriodLine>): SettlementPeriodLine => ({
   appointmentParticipantId: '66666666-6666-4666-8666-666666666666',
   therapistId: '77777777-7777-4777-8777-777777777777',
   serviceDate: '2026-08-01',
+  chargeKind: 'SESSION',
+  penaltyPercent: null,
   carriedIn: false,
   serviceId: '88888888-8888-4888-8888-888888888888',
   serviceName: 'کاردرمانی',
