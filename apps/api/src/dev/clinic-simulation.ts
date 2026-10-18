@@ -519,21 +519,22 @@ export async function simulateClinic(app: INestApplicationContext): Promise<Clin
 
   // One public service, so the contact form has something to name.
   const ot = await act(manager, 'GET /catalog/services/:id', () => svc.services.get(OT));
-  const publicSlug = 'practice-occupational-therapy';
-  await act(manager, 'PATCH /catalog/services/:id', () =>
+  // The address is the one the system assigned (M10-A10, T-010), read back
+  // from the response exactly as the manager screen shows it.
+  const published = await act(manager, 'PATCH /catalog/services/:id', () =>
     svc.services.update(
       OT,
       {
         name: ot.name,
         publicDescription: 'شرح نمونه برای محیط تمرین؛ متن واقعی کلینیک نیست.',
         isPublic: true,
-        publicSlug,
         allowedDurationsMinutes: ot.allowedDurationsMinutes,
       },
       s(manager),
       ctx(),
     ),
   );
+  const publicSlug = published.service.publicSlug!;
 
   const roomIds: string[] = [];
   for (const index of [1, 2, 3]) {

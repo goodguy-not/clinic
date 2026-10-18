@@ -48,14 +48,19 @@ describe('article imagery (real PostgreSQL)', () => {
 
   const server = () => harness.app.getHttpServer();
 
-  async function createArticle(slug: string): Promise<string> {
+  // Labels name the articles; each is read at its assigned address (M10-A10).
+  const slugs = new Map<string, string>();
+
+  async function createArticle(label: string): Promise<string> {
     const response = await request(server())
       .post('/content/articles')
       .set(as(receptionist))
-      .send(articleDraft(slug));
+      .send(articleDraft(label));
 
     expect(response.status).toBe(201);
-    return articleResponseSchema.parse(response.body).article.id;
+    const article = articleResponseSchema.parse(response.body).article;
+    slugs.set(label, article.publicSlug);
+    return article.id;
   }
 
   async function publishArticle(id: string, isPublic: boolean) {
@@ -94,8 +99,10 @@ describe('article imagery (real PostgreSQL)', () => {
       .send({ isPublished });
   }
 
-  async function publicArticle(slug: string) {
-    const response = await request(server()).get(`/public/articles/${slug}`).set(asVisitor());
+  async function publicArticle(label: string) {
+    const response = await request(server())
+      .get(`/public/articles/${slugs.get(label)}`)
+      .set(asVisitor());
     if (response.status !== 200) return null;
     return publicArticleDetailResponseSchema.parse(response.body).article;
   }

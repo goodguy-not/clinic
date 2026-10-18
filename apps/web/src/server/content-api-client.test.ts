@@ -72,12 +72,12 @@ describe('named internal content API client', () => {
     answer({ article: ARTICLE });
     await api.getArticle(ARTICLE_ID, { sessionToken: 'synthetic-token' });
     await api.createArticle(
-      { publicSlug: 'synthetic-guide', title: 'عنوان ساختگی', summary: null, body: 'متن ساختگی' },
+      { title: 'عنوان ساختگی', summary: null, body: 'متن ساختگی' },
       { sessionToken: 'synthetic-token' },
     );
     await api.updateArticle(
       ARTICLE_ID,
-      { publicSlug: 'synthetic-guide', title: 'عنوان ساختگی', summary: null, body: 'متن ساختگی' },
+      { title: 'عنوان ساختگی', summary: null, body: 'متن ساختگی' },
       { sessionToken: 'synthetic-token' },
     );
     await api.updateArticlePublication(

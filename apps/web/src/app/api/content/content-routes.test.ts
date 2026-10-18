@@ -111,9 +111,9 @@ describe('content draft handlers', () => {
       }),
     );
 
+    // Neither the flag nor a typed address reaches the API (M10-A10, T-010).
     expect(mocks.createArticle).toHaveBeenCalledWith(
       {
-        publicSlug: 'synthetic-guide',
         title: 'عنوان ساختگی',
         summary: null,
         body: 'متن ساختگی',

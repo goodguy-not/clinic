@@ -142,45 +142,37 @@ describe('catalog services (real PostgreSQL)', () => {
     it('returns whether the exact public cache identity was affected', async () => {
       const { token } = await signIn('MANAGER');
 
-      const unaddressable = serviceMutationResponseSchema.parse(
-        (await createService(token, { name: 'Unaddressable synthetic service' })).body,
+      const unpublished = serviceMutationResponseSchema.parse(
+        (await createService(token, { name: 'Unpublished synthetic service' })).body,
       );
       const published = serviceMutationResponseSchema.parse(
-        (
-          await createService(token, {
-            name: 'Published synthetic service',
-            isPublic: true,
-            publicSlug: 'published-synthetic-service',
-          })
-        ).body,
+        (await createService(token, { name: 'Published synthetic service', isPublic: true })).body,
       );
 
-      expect(unaddressable.publication).toEqual({
-        publicSlug: null,
+      // Both have an address from creation (M10-A10, T-010); only the public
+      // one is on the website.
+      expect(unpublished.publication).toEqual({
+        publicSlug: unpublished.service.publicSlug,
         affectsPublicCache: false,
       });
       expect(published.publication).toEqual({
-        publicSlug: 'published-synthetic-service',
+        publicSlug: published.service.publicSlug,
         affectsPublicCache: true,
       });
     });
 
-    it('refuses a public service without an address, on create and on every update', async () => {
+    it('assigns every service its address, and no request may carry one', async () => {
       const { token } = await signIn('MANAGER');
 
-      // Create: public with the address absent, and with it explicitly null.
-      for (const overrides of [{ isPublic: true }, { isPublic: true, publicSlug: null }]) {
-        const refused = await createService(token, { name: 'Addressless', ...overrides });
-        expect(refused.status).toBe(422);
-        expect(refused.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
-      }
-      expect(await harness.prisma.service.count({ where: { name: 'Addressless' } })).toBe(0);
-
-      // Update: the EFFECTIVE state is checked. A private service with no
-      // address cannot be made public by an edit that omits the address…
       const created = serviceResponseSchema.parse(
-        (await createService(token, { name: 'Private synthetic service' })).body,
+        (await createService(token, { name: 'Addressed by the system' })).body,
       ).service;
+      expect(created.publicSlug).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+
+      const typed = await createService(token, { name: 'Typed', publicSlug: 'typed-address' });
+      expect(typed.status).toBe(400);
+      expect(typed.body.error.code).toBe('VALIDATION_FAILED');
+
       const patch = (body: Record<string, unknown>) =>
         request(server())
           .patch(`/catalog/services/${created.id}`)
@@ -189,27 +181,21 @@ describe('catalog services (real PostgreSQL)', () => {
             name: created.name,
             publicDescription: null,
             allowedDurationsMinutes: [30, 45],
+            isPublic: false,
             ...body,
           });
 
-      const omitted = await patch({ isPublic: true });
-      expect(omitted.status).toBe(422);
-      expect(omitted.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
+      expect((await patch({ publicSlug: 'typed-address' })).status).toBe(400);
 
-      // …but can with one, and a later edit that omits it keeps it (unchanged).
-      expect((await patch({ isPublic: true, publicSlug: 'addressed-service' })).status).toBe(200);
+      // Publishing, withdrawing and republishing never move it.
       expect((await patch({ isPublic: true })).status).toBe(200);
-
-      // Clearing the address of a public row is refused too. A public row with an
-      // address has been reachable, so the existing immutability rule answers
-      // first and is unchanged by this one.
-      const cleared = await patch({ isPublic: true, publicSlug: null });
-      expect(cleared.status).toBe(409);
-      expect(cleared.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+      expect((await patch({ isPublic: false })).status).toBe(200);
+      expect((await patch({ isPublic: true, name: 'Renamed by the system' })).status).toBe(200);
 
       const row = await harness.prisma.service.findUniqueOrThrow({ where: { id: created.id } });
       expect(row.isPublic).toBe(true);
-      expect(row.publicSlug).toBe('addressed-service');
+      expect(row.publicSlug).toBe(created.publicSlug);
+      expect(row.publicFirstPublishedAt).not.toBeNull();
     });
 
     it('creates a service with its durations and records who created it', async () => {

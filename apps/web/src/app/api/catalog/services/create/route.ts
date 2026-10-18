@@ -8,7 +8,7 @@ import {
   readBody,
   sessionTokenFrom,
 } from '@/server/handler-support';
-import { serviceFormToRequest, servicePublicAddressValid } from '@/server/catalog-forms';
+import { serviceFormToRequest } from '@/server/catalog-forms';
 import { secureRedirect } from '@/server/security-headers';
 import { invalidateServicePublication } from '@/server/public-cache-invalidation';
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const candidate = serviceFormToRequest(body);
   const parsed = createServiceRequestSchema.safeParse(candidate);
 
-  if (!parsed.success || !servicePublicAddressValid(body))
+  if (!parsed.success)
     return failureRedirect(request, '/catalog/services/new', 'VALIDATION_FAILED');
 
   const result = await api.createService(parsed.data, { sessionToken });

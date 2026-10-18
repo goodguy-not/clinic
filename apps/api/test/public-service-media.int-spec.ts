@@ -61,7 +61,7 @@ describe('public service imagery (real PostgreSQL)', () => {
 
   const server = () => harness.app.getHttpServer();
 
-  /** A synthetic service body. The name and the slug are unique per call. */
+  /** A synthetic service body. The name is unique per call; the address is the system's. */
   function serviceDraft(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     const suffix = uuidv7().slice(-8);
 
@@ -69,7 +69,6 @@ describe('public service imagery (real PostgreSQL)', () => {
       name: `Synthetic service ${suffix}`,
       publicDescription: 'Synthetic public description. It names nobody and prices nothing.',
       isPublic: true,
-      publicSlug: `synthetic-service-${suffix}`,
       allowedDurationsMinutes: [45],
       ...overrides,
     };
@@ -243,42 +242,6 @@ describe('public service imagery (real PostgreSQL)', () => {
       expect((await fetchBytes(path)).status).toBe(200);
     });
 
-    it('serves nothing for a service that has no public address yet', async () => {
-      // The third condition. A service may be flagged public and active and
-      // still have no slug — it is simply not reachable, and nor is its
-      // photograph. The API no longer writes that state (M10-A9: public only
-      // with an address), so it is made the way Milestone 2 rows were left in
-      // it — directly — to keep the gate proven for any such legacy row.
-      const { service } = await liveServiceImage({ isPublic: false, publicSlug: null });
-      await harness.prisma.$executeRaw`
-        UPDATE service SET is_public = true WHERE id = ${service.id}::uuid
-      `;
-
-      expect(await listPaths()).toEqual([]);
-
-      const library = await request(server()).get('/media').set(as(manager));
-      const rendition = library.body.media[0].renditions[0].path as string;
-
-      const refused = await fetchBytes(rendition);
-      expect(refused.status).toBe(404);
-      expect(refused.body.error.code).toBe('MEDIA_NOT_FOUND');
-
-      // Given an address, the same photograph becomes reachable — no
-      // re-upload, no re-attachment, no republication.
-      expect(
-        (
-          await updateService(service.id, {
-            ...service.body,
-            isPublic: true,
-            publicSlug: `synthetic-late-${uuidv7().slice(-8)}`,
-          })
-        ).status,
-      ).toBe(200);
-
-      expect(await listPaths()).toContain(rendition);
-      expect((await fetchBytes(rendition)).status).toBe(200);
-    });
-
     it('revokes the bytes when the ATTACHMENT is unpublished, service untouched', async () => {
       const { attachmentId } = await liveServiceImage();
       const path = (await listPaths())[0] as string;
@@ -338,7 +301,7 @@ describe('public service imagery (real PostgreSQL)', () => {
       // Drafting is exactly this: preparing a picture for a service that is
       // still private. Attach time asks only that the service EXISTS; whether
       // the picture ever reaches a visitor is decided on every read.
-      const service = await createService({ isPublic: false, publicSlug: null });
+      const service = await createService({ isPublic: false });
       const { attachmentId } = await attachTo(service.id);
 
       expect((await publishAttachment(attachmentId, true)).status).toBe(200);

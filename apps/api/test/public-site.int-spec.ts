@@ -207,7 +207,8 @@ describe('public website reads (real PostgreSQL)', () => {
       await seedService({ name: 'AAA Published', slug: 'published-service' });
       await seedService({ name: 'BBB Private', isPublic: false, slug: 'private-service' });
       await seedService({ name: 'CCC Retired', status: 'INACTIVE', slug: 'retired-service' });
-      await seedService({ name: 'DDD No slug', slug: null });
+      // Every row has an address since M10-A10; a private one is still unlisted.
+      await seedService({ name: 'DDD Private, address assigned', isPublic: false });
 
       const response = await request(server()).get('/public/services').set(internalHeaders());
       const body = publicServiceListResponseSchema.parse(response.body);
@@ -310,7 +311,7 @@ describe('public website reads (real PostgreSQL)', () => {
       await seedTherapist({ slug: 'published-therapist', order: 1 });
       await seedTherapist({ slug: 'private-therapist', isPublic: false, order: 2 });
       await seedTherapist({ slug: 'departed-therapist', status: 'INACTIVE', order: 3 });
-      await seedTherapist({ slug: null, displayName: null, isPublic: false, order: 4 });
+      await seedTherapist({ displayName: null, isPublic: false, order: 4 });
 
       const response = await request(server()).get('/public/team').set(internalHeaders());
       const body = publicTeamResponseSchema.parse(response.body);

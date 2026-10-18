@@ -56,7 +56,6 @@ describe('therapist public profile (real PostgreSQL)', () => {
   const server = () => harness.app.getHttpServer();
 
   const profileBody = (overrides: Record<string, unknown> = {}) => ({
-    publicSlug: 'synthetic-colleague',
     displayName: 'Synthetic Display Name',
     title: 'Synthetic Public Title',
     bio: 'Synthetic biography written for a test.',
@@ -119,7 +118,7 @@ describe('therapist public profile (real PostgreSQL)', () => {
       expect(publicTeamResponseSchema.parse(team.body).therapists).toEqual([]);
     });
 
-    it('refuses publication without an approved name and address', async () => {
+    it('refuses publication without an approved name', async () => {
       const attempt = await setVisibility(manager, true);
 
       expect(attempt.status).toBe(422);
@@ -180,51 +179,35 @@ describe('therapist public profile (real PostgreSQL)', () => {
     });
   });
 
-  describe('the slug, through the real A2 write path', () => {
-    it('may be corrected while the colleague is private', async () => {
-      await writeProfile(manager);
+  describe('the address (M10-A10, T-010)', () => {
+    it('is assigned when the therapist row is created, and the form cannot carry one', async () => {
+      const read = await request(server())
+        .get(`/catalog/therapists/${therapistId}/public-profile`)
+        .set(as(manager));
+      const assigned = therapistPublicProfileResponseSchema.parse(read.body).profile.publicSlug;
+      expect(assigned).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
 
-      const corrected = await writeProfile(manager, { publicSlug: 'synthetic-corrected' });
-
-      expect(corrected.status).toBe(200);
-      expect(therapistPublicProfileResponseSchema.parse(corrected.body).profile.publicSlug).toBe(
-        'synthetic-corrected',
-      );
+      const typed = await writeProfile(manager, { publicSlug: 'typed-address' });
+      expect(typed.status).toBe(400);
+      expect(typed.body.error.code).toBe('VALIDATION_FAILED');
     });
 
-    it('is refused a rename once the page has been reachable', async () => {
-      // THE A1 INVARIANT, THROUGH THE MANAGER PATH RATHER THAN THROUGH RAW SQL.
-      // A1 could only prove it against the trigger; this is the first time the
-      // rule is exercised by the surface a person actually uses, and the answer
-      // is a code with a Persian sentence rather than a 500.
-      await writeProfile(manager);
-      await setVisibility(manager, true);
+    it('never changes across publication, withdrawal and republication', async () => {
+      const before = (await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } }))
+        .publicSlug;
 
-      const renamed = await writeProfile(manager, { publicSlug: 'a-different-address' });
-
-      expect(renamed.status).toBe(409);
-      expect(renamed.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
-    });
-
-    it('refuses the unpublish-rename-republish round trip', async () => {
       await writeProfile(manager);
       await setVisibility(manager, true);
       await setVisibility(manager, false);
-
-      const renamed = await writeProfile(manager, { publicSlug: 'round-trip' });
-
-      expect(renamed.status).toBe(409);
-      expect(renamed.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
-    });
-
-    it('refuses clearing a published slug', async () => {
-      await writeProfile(manager);
+      await writeProfile(manager, { displayName: 'Synthetic Renamed' });
       await setVisibility(manager, true);
 
-      const cleared = await writeProfile(manager, { publicSlug: null });
-
-      expect(cleared.status).toBe(409);
-      expect(cleared.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+      const team = await request(server()).get(`/public/team/${before}`).set(internalHeaders());
+      expect(team.status).toBe(200);
+      expect(
+        (await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } }))
+          .publicSlug,
+      ).toBe(before);
     });
   });
 

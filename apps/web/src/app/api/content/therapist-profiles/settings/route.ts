@@ -30,9 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!id.success) return failureRedirect(request, path, 'VALIDATION_FAILED');
   const current = await api.getTherapistPublicProfile(id.data, { sessionToken: token });
   if (!current.ok) return failureRedirect(request, path, current.code);
-  const slug = (body['publicSlug'] ?? '').trim();
   const parsed = updateTherapistPublicProfileRequestSchema.safeParse({
-    publicSlug: slug === '' ? null : slug,
     displayName: current.data.profile.displayName,
     title: current.data.profile.title,
     bio: current.data.profile.bio,

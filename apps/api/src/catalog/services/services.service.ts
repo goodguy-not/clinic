@@ -9,15 +9,7 @@ import type {
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
-import {
-  isForeignKeyViolation,
-  isUniqueViolation,
-  violatesConstraint,
-} from '../../common/pg-error';
-import {
-  assertPublicSlugStable,
-  isPublicSlugImmutabilityViolation,
-} from '../../common/public-slug';
+import { isForeignKeyViolation, isUniqueViolation } from '../../common/pg-error';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -119,48 +111,36 @@ export class ServicesService {
     const id = uuidv7();
     const name = canonicalText(input.name);
     const publicDescription = canonicalOptionalText(input.publicDescription);
-    // Absent and null are the same thing on a CREATE: there is no previous slug
-    // for "unchanged" to refer to.
-    const publicSlug = input.publicSlug ?? null;
     const durations = normalizeDurations(input.allowedDurationsMinutes);
-
-    assertPublicAddress(input.isPublic, publicSlug);
 
     const created = await this.prisma.$transaction(async (tx) => {
       try {
+        // NO `public_slug`: the column's default, `next_public_slug`, assigns
+        // the address (M10-A10, T-010). Nobody types one, so every service has
+        // one from its first row, and a public service is always addressable.
         await tx.$executeRaw`
           INSERT INTO service (
-            id, name, public_description, is_public, public_slug, public_revised_at,
+            id, name, public_description, is_public, public_revised_at,
             status, created_at, created_by_user_id
           ) VALUES (
-            ${id}::uuid, ${name}, ${publicDescription}, ${input.isPublic}, ${publicSlug},
-            ${input.isPublic && publicSlug !== null ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
+            ${id}::uuid, ${name}, ${publicDescription}, ${input.isPublic},
+            ${input.isPublic ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
             'ACTIVE'::catalog_status, transaction_timestamp(), ${actor.userId}::uuid
           )
         `;
       } catch (error) {
         // Caught rather than pre-checked: a SELECT-then-INSERT would let two
         // concurrent creations both pass. The unique index is the authority.
-        //
-        // TWO UNIQUE INDEXES NOW, AND THEY ARE DIFFERENT MISTAKES. The name
-        // collides with a service in the same list; the slug collides across
-        // EVERY service including private and retired ones, which the manager
-        // may not be able to see. They are told apart by the COLUMN PostgreSQL
-        // names in the violation, so the manager is told which box to change.
-        if (isUniqueViolation(error)) {
-          throw new AppError(
-            violatesConstraint(error, 'public_slug') ? 'PUBLIC_SLUG_TAKEN' : 'SERVICE_NAME_TAKEN',
-          );
-        }
+        if (isUniqueViolation(error)) throw new AppError('SERVICE_NAME_TAKEN');
         throw error;
       }
 
       await this.insertDurations(tx, id, durations);
 
-      // A service CREATED public and addressable is published by this
-      // statement, so its prepared description is published with it. The
-      // ordinary case creates a private service and promotes nothing.
-      if (input.isPublic && publicSlug !== null) {
+      // A service CREATED public is published by this statement, so its
+      // prepared description is published with it. The ordinary case creates a
+      // private service and promotes nothing.
+      if (input.isPublic) {
         await promoteServicePublicCopy(tx, id);
       }
 
@@ -207,38 +187,10 @@ export class ServicesService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
 
-      // The A1 invariant, refused as a sentence rather than as a trigger's
-      // 23001. The row is already locked, so this cannot race the UPDATE below;
-      // the trigger is still the authority and is still caught, in case a later
-      // edit removes this line.
-      assertPublicSlugStable(
-        { publicSlug: before.public_slug, firstPublishedAt: before.public_first_published_at },
-        input.publicSlug,
-      );
-
-      // Omitted means UNCHANGED. `COALESCE` cannot express that — it would read
-      // an explicit null as "unchanged" too — so the whole assignment is
-      // dropped from the statement instead.
-      const slugAssignment =
-        input.publicSlug === undefined
-          ? Prisma.empty
-          : Prisma.sql`public_slug = ${input.publicSlug},`;
-
-      // REACHABLE MEANS BOTH FACTS, NOT JUST THE FLAG. A service may carry
-      // `is_public` with no slug — that is exactly the state every Milestone 2
-      // row was left in — and such a service is not on the website, so an edit
-      // to it has revised no published content. Computed here rather than in
-      // SQL because a column reference inside the statement would read the OLD
-      // slug, which is the wrong one on the write that first supplies it.
-      const slugAfter = input.publicSlug === undefined ? before.public_slug : input.publicSlug;
-      const reachableAfter = input.isPublic && slugAfter !== null;
-
-      // Checked on the EFFECTIVE state, after the omitted-means-unchanged rule
-      // has been applied: an update that leaves the slug alone on a row that has
-      // none, or clears it on a public row, is refused exactly as a create would
-      // be. A legacy Milestone 2 row that is public with no address keeps that
-      // state until its next edit, which must add an address or make it private.
-      assertPublicAddress(input.isPublic, slugAfter);
+      // The address is the system's (M10-A10, T-010): assigned when the row was
+      // created — or by the M10-A10 backfill for an older one — and never
+      // written here, so this edit cannot move a public URL.
+      const reachableAfter = input.isPublic && before.public_slug !== null;
 
       // THE ONE WRITE ON THIS FORM THAT PUBLISHES COPY, AND IT PUBLISHES IT
       // BECAUSE IT IS THE PUBLICATION. A service crossing from unreachable to
@@ -262,7 +214,6 @@ export class ServicesService {
           SET name = ${name},
               public_description = ${publicDescription},
               is_public = ${input.isPublic},
-              ${slugAssignment}
               -- The sitemap's last-modified, and only while the row is public
               -- after this write: a private service has no published content
               -- for an edit to have revised.
@@ -273,14 +224,7 @@ export class ServicesService {
           WHERE id = ${id}::uuid
         `;
       } catch (error) {
-        if (isPublicSlugImmutabilityViolation(error)) {
-          throw new AppError('PUBLIC_SLUG_IMMUTABLE');
-        }
-        if (isUniqueViolation(error)) {
-          throw new AppError(
-            violatesConstraint(error, 'public_slug') ? 'PUBLIC_SLUG_TAKEN' : 'SERVICE_NAME_TAKEN',
-          );
-        }
+        if (isUniqueViolation(error)) throw new AppError('SERVICE_NAME_TAKEN');
         throw error;
       }
 
@@ -471,20 +415,6 @@ export class ServicesService {
     if (row === undefined) throw new AppError('SERVICE_NOT_FOUND');
     return row;
   }
-}
-
-/**
- * A service can be public only with a valid public address (M10-A9).
- *
- * "Valid" is the contract's `publicSlugSchema`, which every supplied slug has
- * already passed, and every stored slug passed on its way in; what is left to
- * refuse is a public flag with no address at all. The manager form refuses the
- * same combination, but the form is a convenience and this is the rule — any
- * other caller of the API is held to it too. Status changes do not reach this:
- * they change neither the flag nor the address.
- */
-function assertPublicAddress(isPublic: boolean, publicSlug: string | null): void {
-  if (isPublic && publicSlug === null) throw new AppError('SERVICE_PUBLIC_ADDRESS_REQUIRED');
 }
 
 function isPubliclyReachable(row: ServiceRow): boolean {

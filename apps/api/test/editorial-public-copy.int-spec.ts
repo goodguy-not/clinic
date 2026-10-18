@@ -11,7 +11,7 @@ import {
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
-import { as, auditActionsFor, loginAs } from './website-support';
+import { as, assignedSlug, auditActionsFor, loginAs } from './website-support';
 
 /**
  * The editorial split: who may write public copy, who may publish it, and what
@@ -72,7 +72,6 @@ describe('editorial public copy (real PostgreSQL)', () => {
         name: 'خدمت نمونه',
         publicDescription: 'شرح نمونهٔ منتشرشده.',
         isPublic: true,
-        publicSlug: 'synthetic-service',
         allowedDurationsMinutes: [30, 45],
       });
 
@@ -124,7 +123,6 @@ describe('editorial public copy (real PostgreSQL)', () => {
       .patch(`/catalog/therapists/${therapistId}/public-profile`)
       .set(as(session))
       .send({
-        publicSlug: 'synthetic-colleague',
         displayName: 'نام عمومی نمونه',
         title: 'عنوان عمومی نمونه',
         bio: 'زندگی‌نامهٔ نمونهٔ منتشرشده.',
@@ -184,7 +182,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
       expect(await publicServices()).toEqual(before);
       expect(before).toEqual([
         {
-          slug: 'synthetic-service',
+          slug: await assignedSlug(harness, 'service', serviceId),
           name: 'خدمت نمونه',
           description: 'شرح نمونهٔ منتشرشده.',
           image: null,
@@ -258,7 +256,6 @@ describe('editorial public copy (real PostgreSQL)', () => {
       name: 'نام تازه',
       publicDescription: 'شرح تازه.',
       isPublic: true,
-      publicSlug: 'synthetic-service',
       allowedDurationsMinutes: [60],
     };
 
@@ -278,7 +275,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
       const created = await request(server())
         .post('/catalog/services')
         .set(as(receptionist))
-        .send({ ...operationalBody, publicSlug: 'another-service' });
+        .send(operationalBody);
       const retired = await request(server())
         .patch(`/catalog/services/${serviceId}/status`)
         .set(as(receptionist))
@@ -314,7 +311,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
 
       expect(after.name).toBe('خدمت نمونه');
       expect(after.allowedDurationsMinutes).toEqual([30, 45]);
-      expect(after.publicSlug).toBe('synthetic-service');
+      expect(after.publicSlug).toBe(await assignedSlug(harness, 'service', serviceId));
       expect(after.isPublic).toBe(true);
       expect(after.status).toBe('ACTIVE');
     });
@@ -323,7 +320,9 @@ describe('editorial public copy (real PostgreSQL)', () => {
       await draftServiceCopy(receptionist, 'یک');
       await draftServiceCopy(receptionist, 'دو');
 
-      expect((await publicServices())[0]!.slug).toBe('synthetic-service');
+      expect((await publicServices())[0]!.slug).toBe(
+        await assignedSlug(harness, 'service', serviceId),
+      );
     });
   });
 
@@ -489,7 +488,7 @@ describe('editorial public copy (real PostgreSQL)', () => {
         ).body,
       ).profile;
 
-      expect(profile.publicSlug).toBe('synthetic-colleague');
+      expect(profile.publicSlug).toBe(await assignedSlug(harness, 'therapist', therapistId));
       expect(profile.displayOrder).toBe(1);
       expect(profile.isPublic).toBe(true);
       // The refusal wrote nothing at all, the name included.

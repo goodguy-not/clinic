@@ -4,12 +4,7 @@ import {
   createServiceRequestSchema,
   createTherapistRequestSchema,
 } from '@clinic/contracts';
-import {
-  roomFormToRequest,
-  serviceFormToRequest,
-  servicePublicAddressValid,
-  therapistFormToRequest,
-} from './catalog-forms';
+import { roomFormToRequest, serviceFormToRequest, therapistFormToRequest } from './catalog-forms';
 import { parseNumberList, toWesternDigits } from './numerals-fa';
 
 /**
@@ -76,15 +71,10 @@ describe('service form', () => {
     expect(serviceFormToRequest({ ...base, isPublic: '' })['isPublic']).toBe(false);
   });
 
-  it('requires a valid address whenever a manager makes the service public', () => {
-    expect(servicePublicAddressValid({ ...base, isPublic: 'true' })).toBe(false);
-    expect(servicePublicAddressValid({ ...base, isPublic: 'true', publicSlug: 'Bad slug' })).toBe(
-      false,
-    );
+  it('never sends an address, which the API assigns (M10-A10)', () => {
     expect(
-      servicePublicAddressValid({ ...base, isPublic: 'true', publicSlug: 'goftar-darmani' }),
-    ).toBe(true);
-    expect(servicePublicAddressValid(base)).toBe(true);
+      serviceFormToRequest({ ...base, isPublic: 'true', publicSlug: 'typed' }),
+    ).not.toHaveProperty('publicSlug');
   });
 
   it('fails validation when the duration list has a typo', () => {

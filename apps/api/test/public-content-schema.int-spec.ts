@@ -232,14 +232,14 @@ describe('public content schema objects', () => {
       ).rejects.toThrow();
     });
 
-    it('may still be corrected while the article has never been published', async () => {
-      const id = await insertArticle('correctable');
+    it('cannot be changed even while the article has never been published (M10-A10)', async () => {
+      const id = await insertArticle('not-correctable');
 
       await expect(
         harness.prisma.$executeRaw`
           UPDATE public_article SET public_slug = 'corrected' WHERE id = ${id}::uuid
         `,
-      ).resolves.toBeDefined();
+      ).rejects.toThrow(/public_slug is immutable once assigned/);
     });
 
     it('is unique across drafts and published articles alike', async () => {

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateServiceRequestSchema } from '@clinic/contracts';
 import { api } from '@/server/api-client';
-import { serviceFormToRequest, servicePublicAddressValid } from '@/server/catalog-forms';
+import { serviceFormToRequest } from '@/server/catalog-forms';
 import {
   failureRedirect,
   guardFailureResponse,
@@ -44,8 +44,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const parsed = updateServiceRequestSchema.safeParse(serviceFormToRequest(body));
 
-  if (!parsed.success || !servicePublicAddressValid(body))
-    return failureRedirect(request, editPath, 'VALIDATION_FAILED');
+  if (!parsed.success) return failureRedirect(request, editPath, 'VALIDATION_FAILED');
 
   const result = await api.updateService(id, parsed.data, { sessionToken });
 

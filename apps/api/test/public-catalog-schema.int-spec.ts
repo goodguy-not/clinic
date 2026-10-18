@@ -28,6 +28,10 @@ const CHECK_VIOLATION = '23514';
 const UNIQUE_VIOLATION = '23505';
 /** SQLSTATE 23001, restrict_violation: what the protective triggers raise. */
 const RESTRICT_VIOLATION = '23001';
+/** SQLSTATE 23502, not_null_violation. */
+const NOT_NULL_VIOLATION = '23502';
+/** The system-assigned address (M10-A10, T-010). */
+const SLUG_FORMAT = /^[2-9bcdfghjkmnpqrstvwxz]{8}$/;
 
 describe('public catalog schema objects (real PostgreSQL)', () => {
   let harness: Harness;
@@ -186,8 +190,8 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
     });
   });
 
-  describe('slug stability after publication', () => {
-    async function publish(table: 'service' | 'therapist', id: string, slug: string) {
+  describe('slug stability (M9, tightened in M10-A10)', () => {
+    async function publish(table: 'service' | 'therapist', id: string) {
       // The PUBLISHED display name, because that is the column
       // `therapist_public_profile_chk` reads from Milestone 9.5, checkpoint A6.
       // The draft beside it is not what a visitor sees and is not what the
@@ -196,8 +200,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
         table === 'therapist' ? ", published_public_display_name = 'Synthetic Public Name'" : '';
 
       await harness.prisma.$executeRawUnsafe(
-        `UPDATE ${table} SET is_public = TRUE, public_slug = $1${extra} WHERE id = $2::uuid`,
-        slug,
+        `UPDATE ${table} SET is_public = TRUE${extra} WHERE id = $1::uuid`,
         id,
       );
     }
@@ -208,6 +211,14 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
         id,
       );
       return rows[0]?.stamp ?? null;
+    }
+
+    async function slugOf(table: 'service' | 'therapist', id: string): Promise<string> {
+      const rows = await harness.prisma.$queryRawUnsafe<{ public_slug: string }[]>(
+        `SELECT public_slug FROM ${table} WHERE id = $1::uuid`,
+        id,
+      );
+      return rows[0]!.public_slug;
     }
 
     it('carries the stability trigger on both tables, and its shared function', async () => {
@@ -227,42 +238,53 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       expect(fn?.proname).toBe('enforce_public_slug_stability');
     });
 
-    it('stamps nothing until the row is genuinely reachable', async () => {
-      // Intent without an address is not a URL, and neither is an address
-      // without intent. Only both together publish anything.
-      await harness.prisma
-        .$executeRaw`UPDATE service SET public_slug = 'prepared-service' WHERE id = ${serviceId}::uuid`;
+    it('stamps nothing while the row is private, although it has an address', async () => {
+      expect(await slugOf('service', serviceId)).toMatch(SLUG_FORMAT);
       expect(await stampOf('service', serviceId)).toBeNull();
 
       await harness.prisma.$executeRaw`
-        UPDATE therapist SET is_public = FALSE, public_slug = 'prepared-therapist',
-               public_display_name = 'Synthetic Public Name'
+        UPDATE therapist SET public_display_name = 'Synthetic Public Name'
         WHERE id = ${therapistId}::uuid
       `;
       expect(await stampOf('therapist', therapistId)).toBeNull();
     });
 
-    it('lets an unpublished slug be corrected, on both tables', async () => {
-      // Preparing the content and publishing it are two acts, and a typo caught
-      // between them is not yet a promise to anybody.
-      await harness.prisma
-        .$executeRaw`UPDATE service SET public_slug = 'typoo' WHERE id = ${serviceId}::uuid`;
-      await harness.prisma
-        .$executeRaw`UPDATE service SET public_slug = 'corrected' WHERE id = ${serviceId}::uuid`;
+    it('refuses any change of address once assigned, published or not, on both tables', async () => {
+      // No correction is left to allow: nobody types an address any more, and
+      // one that could change while private could be released and reused.
+      await expectRejection(
+        harness.prisma
+          .$executeRaw`UPDATE service SET public_slug = 'corrected' WHERE id = ${serviceId}::uuid`,
+        RESTRICT_VIOLATION,
+        /service\.public_slug is immutable once assigned/,
+      );
+      await expectRejection(
+        harness.prisma
+          .$executeRaw`UPDATE therapist SET public_slug = 'corrected-two' WHERE id = ${therapistId}::uuid`,
+        RESTRICT_VIOLATION,
+        /therapist\.public_slug is immutable once assigned/,
+      );
 
-      await harness.prisma
-        .$executeRaw`UPDATE therapist SET public_slug = 'typoo-two' WHERE id = ${therapistId}::uuid`;
-      await harness.prisma
-        .$executeRaw`UPDATE therapist SET public_slug = 'corrected-two' WHERE id = ${therapistId}::uuid`;
+      await publish('service', serviceId);
+      await expectRejection(
+        harness.prisma
+          .$executeRaw`UPDATE service SET public_slug = 'moved-service' WHERE id = ${serviceId}::uuid`,
+        RESTRICT_VIOLATION,
+        /service\.public_slug is immutable/,
+      );
+    });
 
-      const rows = await harness.prisma.$queryRaw<{ public_slug: string }[]>`
-        SELECT public_slug FROM service WHERE id = ${serviceId}::uuid
-      `;
-      expect(rows[0]?.public_slug).toBe('corrected');
+    it('refuses to clear an address', async () => {
+      await expectRejection(
+        harness.prisma
+          .$executeRaw`UPDATE service SET public_slug = NULL WHERE id = ${serviceId}::uuid`,
+        RESTRICT_VIOLATION,
+        /service\.public_slug is immutable/,
+      );
     });
 
     it('stamps the instant a row first becomes reachable, and never restamps', async () => {
-      await publish('service', serviceId, 'published-service');
+      await publish('service', serviceId);
       const first = await stampOf('service', serviceId);
       expect(first).toBeInstanceOf(Date);
 
@@ -272,40 +294,9 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       expect((await stampOf('service', serviceId))?.getTime()).toBe(first?.getTime());
     });
 
-    it('refuses to change a published slug, on both tables', async () => {
-      await publish('service', serviceId, 'published-service');
-      await publish('therapist', therapistId, 'published-therapist');
-
-      await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE service SET public_slug = 'moved-service' WHERE id = ${serviceId}::uuid`,
-        RESTRICT_VIOLATION,
-        /service\.public_slug is immutable/,
-      );
-
-      await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE therapist SET public_slug = 'moved-therapist' WHERE id = ${therapistId}::uuid`,
-        RESTRICT_VIOLATION,
-        /therapist\.public_slug is immutable/,
-      );
-    });
-
-    it('refuses to clear a published slug', async () => {
-      await publish('service', serviceId, 'published-service');
-
-      await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE service SET public_slug = NULL WHERE id = ${serviceId}::uuid`,
-        RESTRICT_VIOLATION,
-        /service\.public_slug is immutable/,
-      );
-    });
-
     it('refuses the unpublish-rename-republish round trip', async () => {
-      // The same silent URL change with an extra step. Withdrawing the page is
-      // allowed; coming back at a different address is not.
-      await publish('service', serviceId, 'published-service');
+      const address = await slugOf('service', serviceId);
+      await publish('service', serviceId);
 
       await harness.prisma
         .$executeRaw`UPDATE service SET is_public = FALSE WHERE id = ${serviceId}::uuid`;
@@ -320,17 +311,11 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       // Republishing at the SAME address is fine, and the stamp is unchanged.
       await harness.prisma
         .$executeRaw`UPDATE service SET is_public = TRUE WHERE id = ${serviceId}::uuid`;
-
-      const rows = await harness.prisma.$queryRaw<{ public_slug: string }[]>`
-        SELECT public_slug FROM service WHERE id = ${serviceId}::uuid
-      `;
-      expect(rows[0]?.public_slug).toBe('published-service');
+      expect(await slugOf('service', serviceId)).toBe(address);
     });
 
     it('refuses to rewrite the stamp itself', async () => {
-      // The stamp is what the immutability hangs on, so moving it would be a way
-      // to unlock the slug. It is written once, by the database's own clock.
-      await publish('service', serviceId, 'published-service');
+      await publish('service', serviceId);
 
       await expectRejection(
         harness.prisma
@@ -339,28 +324,48 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
         /written once and never rewritten/,
       );
     });
-
-    it('refuses a stamp with no slug behind it', async () => {
-      await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE service SET public_first_published_at = transaction_timestamp() WHERE id = ${serviceId}::uuid`,
-        CHECK_VIOLATION,
-        /service_public_first_published_chk/,
-      );
-    });
   });
 
-  describe('the slug', () => {
-    it('accepts a well-formed one on both tables', async () => {
-      await harness.prisma
-        .$executeRaw`UPDATE service SET public_slug = 'synthetic-service' WHERE id = ${serviceId}::uuid`;
-      await harness.prisma
-        .$executeRaw`UPDATE therapist SET public_slug = 'synthetic-therapist' WHERE id = ${therapistId}::uuid`;
+  describe('the address (M10-A10, T-010)', () => {
+    it('is assigned on insert to every row of both tables, each its own', async () => {
+      const otherId = uuidv7();
+      await harness.prisma.$executeRaw`
+        INSERT INTO service (id, name, is_public, created_by_user_id)
+        VALUES (${otherId}::uuid, 'Second Synthetic Service', false, ${actorId}::uuid)
+      `;
+
+      const rows = await harness.prisma.$queryRaw<{ public_slug: string }[]>`
+        SELECT public_slug FROM service
+        UNION ALL
+        SELECT public_slug FROM therapist
+      `;
+      expect(rows).toHaveLength(3);
+      for (const row of rows) expect(row.public_slug).toMatch(SLUG_FORMAT);
+      expect(new Set(rows.map((row) => row.public_slug)).size).toBe(3);
+    });
+
+    it('keeps an address given explicitly, as every row published before M10-A10 has', async () => {
+      const otherId = uuidv7();
+      await harness.prisma.$executeRaw`
+        INSERT INTO service (id, name, is_public, public_slug, created_by_user_id)
+        VALUES (${otherId}::uuid, 'Legacy Synthetic Service', false, 'synthetic-service', ${actorId}::uuid)
+      `;
 
       const rows = await harness.prisma.$queryRaw<{ count: bigint }[]>`
         SELECT count(*) AS count FROM service WHERE public_slug = 'synthetic-service'
       `;
       expect(Number(rows[0]?.count ?? 0n)).toBe(1);
+    });
+
+    it('refuses a row with no address at all', async () => {
+      await expectRejection(
+        harness.prisma.$executeRaw`
+          INSERT INTO service (id, name, is_public, public_slug, created_by_user_id)
+          VALUES (${uuidv7()}::uuid, 'Addressless', false, NULL, ${actorId}::uuid)
+        `,
+        NOT_NULL_VIOLATION,
+        /Addressless/,
+      );
     });
 
     it('refuses anything that would make one page two strings', async () => {
@@ -375,48 +380,40 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
         'خدمت',
       ]) {
         await expectRejection(
-          harness.prisma
-            .$executeRaw`UPDATE service SET public_slug = ${invalid} WHERE id = ${serviceId}::uuid`,
+          harness.prisma.$executeRaw`
+            INSERT INTO service (id, name, is_public, public_slug, created_by_user_id)
+            VALUES (${uuidv7()}::uuid, ${`Invalid ${invalid}`}, false, ${invalid}, ${actorId}::uuid)
+          `,
           CHECK_VIOLATION,
           /service_public_slug_chk/,
         );
       }
     });
 
-    it('refuses a slug a second row already holds, private or not', async () => {
-      // The unique index covers EVERY row, including unpublished and
-      // deactivated ones, so a slug that ever addressed one page cannot be moved
-      // to another without the first row giving it up.
-      const otherId = uuidv7();
-      await harness.prisma.$executeRaw`
-        INSERT INTO service (id, name, is_public, created_by_user_id)
-        VALUES (${otherId}::uuid, 'Second Synthetic Service', false, ${actorId}::uuid)
+    it('refuses an address a second row already holds, private or not', async () => {
+      const taken = await harness.prisma.$queryRaw<{ public_slug: string }[]>`
+        SELECT public_slug FROM service WHERE id = ${serviceId}::uuid
       `;
 
-      await harness.prisma
-        .$executeRaw`UPDATE service SET public_slug = 'taken-slug' WHERE id = ${serviceId}::uuid`;
-
       await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE service SET public_slug = 'taken-slug' WHERE id = ${otherId}::uuid`,
+        harness.prisma.$executeRaw`
+          INSERT INTO service (id, name, is_public, public_slug, created_by_user_id)
+          VALUES (${uuidv7()}::uuid, 'Second', false, ${taken[0]!.public_slug}, ${actorId}::uuid)
+        `,
         UNIQUE_VIOLATION,
         /public_slug/,
       );
     });
 
-    it('lets any number of rows stay unpublished', async () => {
-      // NULLs are distinct: the uniqueness rule is about published addresses,
-      // not about a queue of rows waiting for one.
-      const otherId = uuidv7();
-      await harness.prisma.$executeRaw`
-        INSERT INTO service (id, name, is_public, created_by_user_id)
-        VALUES (${otherId}::uuid, 'Third Synthetic Service', false, ${actorId}::uuid)
+    it('draws only from its own alphabet, and only for the three addressed tables', async () => {
+      const drawn = await harness.prisma.$queryRaw<{ slug: string }[]>`
+        SELECT next_public_slug('public_article') AS slug FROM generate_series(1, 200)
       `;
+      for (const { slug } of drawn) expect(slug).toMatch(SLUG_FORMAT);
 
-      const rows = await harness.prisma.$queryRaw<{ count: bigint }[]>`
-        SELECT count(*) AS count FROM service WHERE public_slug IS NULL
-      `;
-      expect(Number(rows[0]?.count ?? 0n)).toBe(2);
+      await expect(harness.prisma.$queryRaw`SELECT next_public_slug('family')`).rejects.toThrow(
+        /has no public address/,
+      );
     });
   });
 
@@ -437,14 +434,9 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
         /therapist_public_profile_chk/,
       );
 
-      // A slug alone is not an identity either: the approved display name is
-      // what the website prints, and there is nothing to fall back to.
-      await expectRejection(
-        harness.prisma
-          .$executeRaw`UPDATE therapist SET is_public = TRUE, public_slug = 'a-therapist' WHERE id = ${therapistId}::uuid`,
-        CHECK_VIOLATION,
-        /therapist_public_profile_chk/,
-      );
+      // The address every therapist now has from creation (M10-A10) is not an
+      // identity: the approved display name is what the website prints, and
+      // there is nothing to fall back to — which is what the refusal above is.
     });
 
     it('allows the content to be prepared while the person stays private', async () => {
@@ -452,7 +444,7 @@ describe('public catalog schema objects (real PostgreSQL)', () => {
       // constraint deliberately permits the first without the second.
       await harness.prisma.$executeRaw`
         UPDATE therapist
-        SET public_slug = 'a-therapist', public_display_name = 'Synthetic Public Name'
+        SET public_display_name = 'Synthetic Public Name'
         WHERE id = ${therapistId}::uuid
       `;
 

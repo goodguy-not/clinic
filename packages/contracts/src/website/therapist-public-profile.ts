@@ -70,9 +70,13 @@ export type TherapistPublicProfile = z.infer<typeof therapistPublicProfileSchema
  * `displayOrder` is here rather than on the visibility request because it is
  * content: it is how the clinic wants its team introduced, and it is worth
  * setting before anyone is visible.
+ *
+ * NO ADDRESS (M10-A10, T-010). Nobody types a public address: the database
+ * assigns one when the row is created, it never changes, and it is read back on
+ * the response. A request carrying `publicSlug` is refused as a field this
+ * shape does not have.
  */
 export const updateTherapistPublicProfileRequestSchema = z.strictObject({
-  publicSlug: publicSlugSchema.nullable(),
   displayName: publicHeadingSchema.max(120).nullable(),
   title: publicHeadingSchema.max(120).nullable(),
   bio: publicProseSchema.max(4000).nullable(),

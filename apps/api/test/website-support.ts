@@ -10,6 +10,19 @@ import { internalHeaders, ownerPrisma, seedUser, TEST_PASSWORD, type Harness } f
  * repository, and none may.
  */
 
+/** The address the database assigned to a service, therapist or article (M10-A10). */
+export async function assignedSlug(
+  harness: Harness,
+  table: 'service' | 'therapist' | 'public_article',
+  id: string,
+): Promise<string> {
+  const rows = await harness.prisma.$queryRawUnsafe<{ public_slug: string }[]>(
+    `SELECT public_slug FROM ${table} WHERE id = $1::uuid`,
+    id,
+  );
+  return rows[0]!.public_slug;
+}
+
 /** Signs a synthetic user in and returns the session token. */
 export async function loginAs(harness: Harness, role: 'MANAGER' | 'RECEPTIONIST'): Promise<string> {
   const user = await seedUser(harness, { role });
@@ -59,11 +72,17 @@ export async function auditActionsFor(
   return rows.map((row) => row.action);
 }
 
-/** A synthetic article draft body. */
-export function articleDraft(slug: string): Record<string, unknown> {
+/**
+ * A synthetic article draft body.
+ *
+ * The label only names the article; it is NOT its address. Since M10-A10
+ * (T-010) the database assigns every article its address and no request can
+ * carry one, so a suite that needs the address reads it back from the response
+ * or with `assignedSlug`.
+ */
+export function articleDraft(label: string): Record<string, unknown> {
   return {
-    publicSlug: slug,
-    title: `Synthetic article ${slug}`,
+    title: `Synthetic article ${label}`,
     summary: 'Synthetic standfirst for an article that does not exist.',
     body: 'Synthetic body text. Nothing here describes a real child, family or session.',
   };

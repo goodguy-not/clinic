@@ -53,13 +53,20 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
 
   const server = () => harness.app.getHttpServer();
 
-  async function draftArticle(slug: string): Promise<string> {
+  // Labels name the articles; each is read at the address the system assigned
+  // it (M10-A10, T-010).
+  const slugs = new Map<string, string>();
+  const slugOf = (label: string): string => slugs.get(label)!;
+
+  async function draftArticle(label: string): Promise<string> {
     const response = await request(server())
       .post('/content/articles')
       .set(as(receptionist))
-      .send(articleDraft(slug));
+      .send(articleDraft(label));
 
-    return articleResponseSchema.parse(response.body).article.id;
+    const article = articleResponseSchema.parse(response.body).article;
+    slugs.set(label, article.publicSlug);
+    return article.id;
   }
 
   async function publishArticle(slug: string): Promise<string> {
@@ -137,7 +144,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       await draftArticle('still-being-written');
 
       const draft = await request(server())
-        .get('/public/articles/still-being-written')
+        .get(`/public/articles/${slugOf('still-being-written')}`)
         .set(asVisitor());
       const nonexistent = await request(server())
         .get('/public/articles/never-existed')
@@ -157,7 +164,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
         .send({ isPublic: false });
 
       const detail = await request(server())
-        .get('/public/articles/temporarily-live')
+        .get(`/public/articles/${slugOf('temporarily-live')}`)
         .set(asVisitor());
       const list = await request(server()).get('/public/articles').set(asVisitor());
 
@@ -209,7 +216,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
 
       const list = await request(server()).get('/public/articles').set(asVisitor());
       const detail = await request(server())
-        .get('/public/articles/a-published-article')
+        .get(`/public/articles/${slugOf('a-published-article')}`)
         .set(asVisitor());
 
       const summary = publicArticleListResponseSchema.parse(list.body).articles[0]!;
@@ -242,7 +249,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       await approvedTestimonial(true);
 
       const article = await request(server())
-        .get('/public/articles/projection-check')
+        .get(`/public/articles/${slugOf('projection-check')}`)
         .set(asVisitor());
       const testimonials = await request(server()).get('/public/testimonials').set(asVisitor());
 
@@ -297,11 +304,13 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
       const sitemap = await request(server()).get('/public/sitemap').set(asVisitor());
       const entries = publicSitemapResponseSchema.parse(sitemap.body).entries;
 
-      expect(entries.map((entry) => `${entry.kind}:${entry.slug}`).sort()).toEqual([
-        'article:a-published-article',
-        'service:a-published-service',
-        'therapist:a-published-therapist',
-      ]);
+      expect(entries.map((entry) => `${entry.kind}:${entry.slug}`).sort()).toEqual(
+        [
+          `article:${slugOf('a-published-article')}`,
+          'service:a-published-service',
+          'therapist:a-published-therapist',
+        ].sort(),
+      );
     });
 
     it('agrees with the reads it describes, page for page', async () => {
@@ -410,7 +419,7 @@ describe('public content reads and sitemap data (real PostgreSQL)', () => {
 
       for (const path of [
         '/public/articles',
-        '/public/articles/no-session-needed',
+        `/public/articles/${slugOf('no-session-needed')}`,
         '/public/testimonials',
         '/public/sitemap',
       ]) {

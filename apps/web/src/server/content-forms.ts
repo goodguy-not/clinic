@@ -9,7 +9,6 @@ const nullableTrimmed = (value: string | undefined): string | null => {
 /** Draft-only article payload. Publication is intentionally impossible here. */
 export function articleFormToRequest(body: SubmittedBody): Record<string, unknown> {
   return {
-    publicSlug: (body['publicSlug'] ?? '').trim(),
     title: (body['title'] ?? '').trim(),
     summary: nullableTrimmed(body['summary']),
     body: (body['body'] ?? '').trim(),

@@ -11,7 +11,7 @@ import {
   type Harness,
   ownerPrisma,
 } from './harness';
-import { articleDraft, as, auditActionsFor, loginAs } from './website-support';
+import { articleDraft, as, assignedSlug, auditActionsFor, loginAs } from './website-support';
 
 /**
  * Articles: who may write one, who may publish one, and what the trail says.
@@ -143,47 +143,63 @@ describe('article drafting and publication (real PostgreSQL)', () => {
     });
   });
 
-  describe('the public slug', () => {
-    it('may be corrected freely before the first publication', async () => {
-      const id = await createDraft(receptionist, 'typo-caught-early');
+  describe('the public address', () => {
+    it('is assigned by the system on creation: short, URL-safe, distinct', async () => {
+      const first = await createDraft(receptionist, 'first');
+      const second = await createDraft(receptionist, 'second');
 
-      const corrected = await request(server())
-        .patch(`/content/articles/${id}`)
-        .set(as(receptionist))
-        .send(articleDraft('typo-corrected'));
+      const slugs = [
+        await assignedSlug(harness, 'public_article', first),
+        await assignedSlug(harness, 'public_article', second),
+      ];
+      for (const slug of slugs) expect(slug).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+      expect(slugs[0]).not.toBe(slugs[1]);
 
-      expect(corrected.status).toBe(200);
-      expect(articleResponseSchema.parse(corrected.body).article.publicSlug).toBe('typo-corrected');
+      const read = await request(server()).get(`/content/articles/${first}`).set(as(manager));
+      expect(articleResponseSchema.parse(read.body).article.publicSlug).toBe(slugs[0]);
     });
 
-    it('is refused a rename once the URL has been reachable', async () => {
-      const id = await createDraft(manager, 'promised-address');
-      await publish(manager, id, true);
+    it('cannot be supplied on a create or an edit', async () => {
+      const created = await request(server())
+        .post('/content/articles')
+        .set(as(manager))
+        .send({ ...articleDraft('typed'), publicSlug: 'typed-address' });
+      expect(created.status).toBe(400);
+      expect(created.body.error.code).toBe('VALIDATION_FAILED');
 
-      const renamed = await request(server())
+      const id = await createDraft(manager, 'kept');
+      const before = await assignedSlug(harness, 'public_article', id);
+      const edited = await request(server())
         .patch(`/content/articles/${id}`)
         .set(as(manager))
-        .send(articleDraft('a-different-address'));
-
-      expect(renamed.status).toBe(409);
-      expect(renamed.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+        .send({ ...articleDraft('kept'), publicSlug: 'typed-address' });
+      expect(edited.status).toBe(400);
+      expect(await assignedSlug(harness, 'public_article', id)).toBe(before);
     });
 
-    it('refuses the unpublish-rename-republish round trip', async () => {
-      // The same silent URL change with an extra step (DECISION_LOG,
-      // 2026-08-21). The stamp survives the round trip, so this is refused for
-      // the same reason a direct rename is.
-      const id = await createDraft(manager, 'round-trip-address');
+    it('never changes: not by an edit, a publication, a withdrawal or a republication', async () => {
+      const id = await createDraft(manager, 'stable');
+      const slug = await assignedSlug(harness, 'public_article', id);
+
+      await request(server())
+        .patch(`/content/articles/${id}`)
+        .set(as(manager))
+        .send({ ...articleDraft('stable'), title: 'Synthetic renamed title' });
       await publish(manager, id, true);
       await publish(manager, id, false);
+      await publish(manager, id, true);
 
-      const renamed = await request(server())
-        .patch(`/content/articles/${id}`)
-        .set(as(manager))
-        .send(articleDraft('round-trip-renamed'));
+      expect(await assignedSlug(harness, 'public_article', id)).toBe(slug);
+    });
 
-      expect(renamed.status).toBe(409);
-      expect(renamed.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+    it('is refused a change by the database, even before the first publication', async () => {
+      const id = await createDraft(manager, 'unpublished');
+
+      await expect(
+        harness.prisma.$executeRaw`
+          UPDATE public_article SET public_slug = 'another-address' WHERE id = ${id}::uuid
+        `,
+      ).rejects.toThrow(/public_slug is immutable once assigned/);
     });
 
     it('still allows editing the DRAFT of a published article', async () => {
@@ -205,18 +221,6 @@ describe('article drafting and publication (real PostgreSQL)', () => {
         'Synthetic corrected body text.',
       );
       expect(articleResponseSchema.parse(edited.body).article.hasUnpublishedChanges).toBe(true);
-    });
-
-    it('refuses a slug another article already holds, published or not', async () => {
-      await createDraft(manager, 'taken-address');
-
-      const collision = await request(server())
-        .post('/content/articles')
-        .set(as(manager))
-        .send(articleDraft('taken-address'));
-
-      expect(collision.status).toBe(409);
-      expect(collision.body.error.code).toBe('PUBLIC_SLUG_TAKEN');
     });
   });
 
@@ -249,17 +253,6 @@ describe('article drafting and publication (real PostgreSQL)', () => {
         `,
       ).rejects.toThrow();
     });
-
-    it('refuses a slug that is not a slug', async () => {
-      for (const slug of ['Not Lowercase', 'trailing-', 'double--hyphen', 'a', 'سلام']) {
-        const response = await request(server())
-          .post('/content/articles')
-          .set(as(manager))
-          .send({ ...articleDraft('placeholder'), publicSlug: slug });
-
-        expect(response.status).toBe(400);
-      }
-    });
   });
 
   describe('revising a live article', () => {
@@ -276,14 +269,21 @@ describe('article drafting and publication (real PostgreSQL)', () => {
     // it: the draft moves freely, the page does not move at all, and only a
     // manager can close the gap between them.
 
-    async function publishedArticle(slug: string): Promise<string> {
-      const id = await createDraft(receptionist, slug);
+    // Labels name the articles; the visitor reads each at the address the
+    // system assigned it (M10-A10, T-010).
+    const ids = new Map<string, string>();
+
+    async function publishedArticle(label: string): Promise<string> {
+      const id = await createDraft(receptionist, label);
+      ids.set(label, id);
       expect((await publish(manager, id, true)).status).toBe(200);
       return id;
     }
 
-    const visitorSees = async (slug: string) =>
-      request(server()).get(`/public/articles/${slug}`).set(internalHeaders());
+    const visitorSees = async (label: string) =>
+      request(server())
+        .get(`/public/articles/${await assignedSlug(harness, 'public_article', ids.get(label)!)}`)
+        .set(internalHeaders());
 
     it('leaves the live page untouched while a receptionist prepares a change', async () => {
       const id = await publishedArticle('live-and-revised');
@@ -487,7 +487,7 @@ describe('article drafting and publication (real PostgreSQL)', () => {
       `;
 
       expect(rows[0]!.after).toMatchObject({
-        publicSlug: 'audit-payload',
+        publicSlug: await assignedSlug(harness, 'public_article', id),
         bodyLength: expect.any(Number),
       });
       expect(JSON.stringify(rows[0]!.after)).not.toContain('Synthetic body text');

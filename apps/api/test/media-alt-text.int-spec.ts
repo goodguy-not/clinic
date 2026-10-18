@@ -11,7 +11,14 @@ import {
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
 import { createHarness, resetDatabase, type Harness } from './harness';
-import { articleDraft, as, asVisitor, auditActionsFor, loginAs } from './website-support';
+import {
+  articleDraft,
+  as,
+  asVisitor,
+  assignedSlug,
+  auditActionsFor,
+  loginAs,
+} from './website-support';
 import { uploadPhoto } from './media-support';
 
 /**
@@ -94,7 +101,6 @@ describe('media description correction (real PostgreSQL)', () => {
       .patch(`/catalog/therapists/${therapistId}/public-profile`)
       .set(as(manager))
       .send({
-        publicSlug: 'synthetic-colleague',
         displayName: 'Synthetic Display Name',
         title: 'Synthetic Public Title',
         bio: 'Synthetic biography written for a test.',
@@ -245,7 +251,7 @@ describe('media description correction (real PostgreSQL)', () => {
           attachmentId,
           ownerType: 'THERAPIST_PROFILE',
           ownerId: therapistId,
-          publicSlug: 'synthetic-colleague',
+          publicSlug: await assignedSlug(harness, 'therapist', therapistId),
           ownerIsPublic: true,
           renditionIds: asset.renditions.map((rendition) => rendition.id).sort(),
         },
@@ -267,7 +273,11 @@ describe('media description correction (real PostgreSQL)', () => {
       expect(team.therapists[0]?.photo?.alt).toBe('تصویر درمانگر در اتاق درمان');
 
       const profile = publicTherapistProfileResponseSchema.parse(
-        (await request(server()).get('/public/team/synthetic-colleague').set(asVisitor())).body,
+        (
+          await request(server())
+            .get(`/public/team/${await assignedSlug(harness, 'therapist', therapistId)}`)
+            .set(asVisitor())
+        ).body,
       );
       expect(profile.therapist.photo?.alt).toBe('تصویر درمانگر در اتاق درمان');
     }, 60_000);
@@ -302,11 +312,14 @@ describe('media description correction (real PostgreSQL)', () => {
       );
       expect(
         body.publications.find((item) => item.ownerType === 'PUBLIC_ARTICLE')?.publicSlug,
-      ).toBe('shared-photo-article');
+      ).toBe(await assignedSlug(harness, 'public_article', articleId));
 
       const article = publicArticleDetailResponseSchema.parse(
-        (await request(server()).get('/public/articles/shared-photo-article').set(asVisitor()))
-          .body,
+        (
+          await request(server())
+            .get(`/public/articles/${await assignedSlug(harness, 'public_article', articleId)}`)
+            .set(asVisitor())
+        ).body,
       );
       expect(article.article.images[0]?.alt).toBe('یک توضیح برای همه‌جا');
 

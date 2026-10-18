@@ -7,10 +7,7 @@ import type {
 import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
 import { isCheckViolation, isUniqueViolation, violatesConstraint } from '../../common/pg-error';
-import {
-  assertPublicSlugStable,
-  isPublicSlugImmutabilityViolation,
-} from '../../common/public-slug';
+import { isPublicSlugImmutabilityViolation } from '../../common/public-slug';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext, canonicalOptionalText } from '../catalog-support';
@@ -149,16 +146,13 @@ export class TherapistPublicProfileService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, therapistId);
 
-      assertPublicSlugStable(
-        { publicSlug: before.public_slug, firstPublishedAt: before.public_first_published_at },
-        input.publicSlug,
-      );
-
+      // No `public_slug`: the address is assigned by the database when the
+      // therapist row is created and never written by this form (M10-A10,
+      // T-010).
       try {
         await tx.$executeRaw`
           UPDATE therapist
-          SET public_slug = ${input.publicSlug},
-              public_display_name = ${displayName},
+          SET public_display_name = ${displayName},
               public_title = ${title},
               public_bio = ${bio},
               public_display_order = ${input.displayOrder}

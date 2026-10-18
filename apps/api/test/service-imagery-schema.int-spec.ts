@@ -42,10 +42,10 @@ describe('service imagery schema objects', () => {
     await harness.prisma.$executeRawUnsafe(
       `
       INSERT INTO service (
-        id, name, public_description, is_public, public_slug, status,
+        id, name, public_description, is_public, status,
         created_at, created_by_user_id
       ) VALUES (
-        $1::uuid, $2, NULL, FALSE, NULL, 'ACTIVE'::catalog_status,
+        $1::uuid, $2, NULL, FALSE, 'ACTIVE'::catalog_status,
         transaction_timestamp(), $3::uuid
       )
       `,

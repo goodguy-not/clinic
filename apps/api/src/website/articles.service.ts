@@ -3,8 +3,6 @@ import { Prisma } from '@prisma/client';
 import type { Article, CreateArticleRequest, UpdateArticleRequest } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
-import { isUniqueViolation } from '../common/pg-error';
-import { assertPublicSlugStable, isPublicSlugImmutabilityViolation } from '../common/public-slug';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
@@ -138,22 +136,16 @@ export class ArticlesService {
     const body = canonicalText(input.body);
 
     const created = await this.prisma.$transaction(async (tx) => {
-      try {
-        await tx.$executeRaw`
-          INSERT INTO public_article (
-            id, public_slug, title, summary, body, is_public, created_at, created_by_user_id
-          ) VALUES (
-            ${id}::uuid, ${input.publicSlug}, ${title}, ${summary}, ${body},
-            FALSE, transaction_timestamp(), ${actor.userId}::uuid
-          )
-        `;
-      } catch (error) {
-        // Caught rather than pre-checked: the unique index is the authority,
-        // and a SELECT-then-INSERT would let two concurrent creations both
-        // pass.
-        if (isUniqueViolation(error)) throw new AppError('PUBLIC_SLUG_TAKEN');
-        throw error;
-      }
+      // No `public_slug`: the column's default assigns the address (M10-A10,
+      // T-010), so nobody invents one and two drafts cannot race for a name.
+      await tx.$executeRaw`
+        INSERT INTO public_article (
+          id, title, summary, body, is_public, created_at, created_by_user_id
+        ) VALUES (
+          ${id}::uuid, ${title}, ${summary}, ${body},
+          FALSE, transaction_timestamp(), ${actor.userId}::uuid
+        )
+      `;
 
       const row = await this.readLocked(tx, id);
 
@@ -183,9 +175,8 @@ export class ArticlesService {
    * last-modified — a statement to a crawler about the PUBLISHED page — and a
    * draft edit has not modified the published page.
    *
-   * The ADDRESS is still refused once it has been reachable: a slug is a
-   * promise to everybody holding the URL, and unlike the prose it has no draft
-   * and published version to keep apart.
+   * The ADDRESS is not on this request at all (M10-A10, T-010): the database
+   * assigned it when the article was created, and it never changes.
    */
   async update(
     id: string,
@@ -200,27 +191,13 @@ export class ArticlesService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
 
-      assertPublicSlugStable(
-        { publicSlug: before.public_slug, firstPublishedAt: before.public_first_published_at },
-        input.publicSlug,
-      );
-
-      try {
-        await tx.$executeRaw`
-          UPDATE public_article
-          SET public_slug = ${input.publicSlug},
-              title = ${title},
-              summary = ${summary},
-              body = ${body}
-          WHERE id = ${id}::uuid
-        `;
-      } catch (error) {
-        if (isPublicSlugImmutabilityViolation(error)) {
-          throw new AppError('PUBLIC_SLUG_IMMUTABLE');
-        }
-        if (isUniqueViolation(error)) throw new AppError('PUBLIC_SLUG_TAKEN');
-        throw error;
-      }
+      await tx.$executeRaw`
+        UPDATE public_article
+        SET title = ${title},
+            summary = ${summary},
+            body = ${body}
+        WHERE id = ${id}::uuid
+      `;
 
       const after = await this.readLocked(tx, id);
 

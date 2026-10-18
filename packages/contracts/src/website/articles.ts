@@ -88,9 +88,13 @@ export type Article = z.infer<typeof articleSchema>;
  * holds, and publishing is `article.publish`, which only a manager holds. A
  * creation request carrying a publication flag would let the lower authority
  * perform the higher act in one round trip.
+ *
+ * NO ADDRESS (M10-A10, T-010). Nobody types a public address: the database
+ * assigns one when the row is created, it never changes, and it is read back on
+ * the response. A request carrying `publicSlug` is refused as a field this
+ * shape does not have.
  */
 export const createArticleRequestSchema = z.strictObject({
-  publicSlug: publicSlugSchema,
   title: publicHeadingSchema,
   summary: publicSummarySchema.nullable(),
   body: publicProseSchema,
@@ -99,12 +103,8 @@ export const createArticleRequestSchema = z.strictObject({
 export type CreateArticleRequest = z.infer<typeof createArticleRequestSchema>;
 
 /**
- * Editing carries no publication flag either, for the same reason.
- *
- * The slug is required rather than optional so an edit states the whole
- * article: an omitted slug would have to mean "unchanged", and "unchanged" and
- * "changed to the same value" would then be two ways of saying one thing, only
- * one of which the immutability rule can check.
+ * Editing carries no publication flag either, for the same reason, and no
+ * address: the one assigned at creation is the article's for good.
  */
 export const updateArticleRequestSchema = createArticleRequestSchema;
 

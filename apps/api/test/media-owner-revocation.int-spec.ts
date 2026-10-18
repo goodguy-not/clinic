@@ -16,6 +16,7 @@ import {
   articleDraft,
   as,
   asVisitor,
+  assignedSlug,
   loginAs,
   spaceDraft,
   testimonialDraft,
@@ -126,7 +127,6 @@ describe('owner revocation takes the photograph with it (real PostgreSQL)', () =
       .patch(`/catalog/therapists/${therapistId}/public-profile`)
       .set(as(manager))
       .send({
-        publicSlug: 'synthetic-colleague',
         displayName: 'Synthetic Display Name',
         title: 'Synthetic Public Title',
         bio: 'Synthetic biography written for a test.',
@@ -157,7 +157,10 @@ describe('owner revocation takes the photograph with it (real PostgreSQL)', () =
     `;
     expect(row!.is_public).toBe(true);
     await expectGone('/public/team', path);
-    expect((await visitorGet('/public/team/synthetic-colleague')).status).toBe(404);
+    expect(
+      (await visitorGet(`/public/team/${await assignedSlug(harness, 'therapist', therapistId)}`))
+        .status,
+    ).toBe(404);
 
     await setStatus('ACTIVE');
     await expectLive('/public/team', path);
@@ -171,7 +174,6 @@ describe('owner revocation takes the photograph with it (real PostgreSQL)', () =
         name: 'Synthetic revocation service',
         publicDescription: 'Synthetic public description.',
         isPublic: true,
-        publicSlug: 'synthetic-revocation-service',
         allowedDurationsMinutes: [45],
       })
       .expect(201);

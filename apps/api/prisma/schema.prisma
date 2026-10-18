@@ -684,7 +684,8 @@ model Therapist {
   /// substituting the personnel record would be a publication decision nobody
   /// made.
   isPublic                   Boolean   @default(false) @map("is_public")
-  publicSlug                 String?   @unique @map("public_slug")
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug                 String    @unique @default(dbgenerated("next_public_slug('therapist'::text)")) @map("public_slug")
   /// When this therapist FIRST became publicly reachable — public and carrying
   /// a slug. Stamped once by `enforce_public_slug_stability()` and never
   /// rewritten; while it is set, `publicSlug` is immutable, so a URL that has
@@ -763,7 +764,8 @@ model Service {
   /// the other is simply not reachable from the site. Unique across every
   /// service, including private and inactive ones, so a slug that ever
   /// addressed one page can never quietly address another.
-  publicSlug                 String?       @unique @map("public_slug")
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug                 String        @unique @default(dbgenerated("next_public_slug('service'::text)")) @map("public_slug")
   /// When this service FIRST became publicly reachable. Same rule, same
   /// trigger, same reason as the therapist's: a published URL is a promise to
   /// everybody who has already followed it.
@@ -2234,7 +2236,8 @@ model ClinicContentEntry {
 /// sanitiser.
 model PublicArticle {
   id                     String    @id @default(uuid(7)) @db.Uuid
-  publicSlug             String    @unique @map("public_slug")
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug             String    @unique @default(dbgenerated("next_public_slug('public_article'::text)")) @map("public_slug")
   /// THE WORKING DRAFT. A receptionist may edit these three at any time,
   /// including while the article is live, and nothing they write here is
   /// visible to anybody outside the clinic.

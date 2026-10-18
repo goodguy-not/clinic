@@ -58,14 +58,18 @@ export const CURRENT_PUBLIC_REQUEST_CONSENT_VERSION: PublicRequestConsentVersion
 /**
  * The upper bound on a submitted age, and it is a SANITY BOUND ONLY.
  *
- * One hundred and twenty is the bound of a human lifetime, chosen precisely
- * because it decides nothing. Any narrower number — eighteen, fourteen, seven —
- * would be this clinic refusing to hear from somebody on the basis of their
- * age, written into a validation rule where nobody would ever find it and
- * nobody ever approved it. Who the clinic can help is a conversation a member
- * of staff has, not a 400 a stranger gets.
+ * Whole years from 0 to 99 (owner decision T-018, M10-A10; it was 120). Still
+ * a bound that decides nothing about eligibility: any narrower number —
+ * eighteen, fourteen, seven — would be this clinic refusing to hear from
+ * somebody on the basis of their age, written into a validation rule where
+ * nobody would ever find it and nobody ever approved it. Who the clinic can
+ * help is a conversation a member of staff has, not a 400 a stranger gets.
+ *
+ * NEW SUBMISSIONS ONLY. The column's CHECK stays 0–120 and the staff read
+ * schema bounds nothing, so a request stored under the old bound is read,
+ * listed and erased exactly as before.
  */
-export const PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS = 120;
+export const PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS = 99;
 
 /**
  * When a parent would rather be telephoned. FOUR VALUES, OWNER-APPROVED AND

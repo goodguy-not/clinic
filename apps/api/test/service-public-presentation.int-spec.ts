@@ -58,18 +58,20 @@ describe('service public presentation (real PostgreSQL)', () => {
   const update = (id: string, body: Record<string, unknown>) =>
     request(server()).patch(`/catalog/services/${id}`).set(as(manager)).send(body);
 
+  const read = async (id: string) =>
+    serviceResponseSchema.parse(
+      (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
+    ).service;
+
   describe('publishing without SQL', () => {
-    it('takes a private service onto the website and off again', async () => {
+    it('takes a private service onto the website at its assigned address, and off again', async () => {
       const id = await createService();
-      const name = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
-      ).service.name;
+      const { name, publicSlug } = await read(id);
 
       const publishedResponse = await update(id, {
         name,
         publicDescription: 'شرح عمومی نمونه.',
         isPublic: true,
-        publicSlug: 'a-published-service',
         allowedDurationsMinutes: [30, 45],
       });
 
@@ -77,14 +79,13 @@ describe('service public presentation (real PostgreSQL)', () => {
 
       expect(publishedResponse.status).toBe(200);
       expect(publicServiceListResponseSchema.parse(listed.body).services).toEqual([
-        { slug: 'a-published-service', name, description: 'شرح عمومی نمونه.', image: null },
+        { slug: publicSlug, name, description: 'شرح عمومی نمونه.', image: null },
       ]);
 
       await update(id, {
         name,
         publicDescription: 'شرح عمومی نمونه.',
         isPublic: false,
-        publicSlug: 'a-published-service',
         allowedDurationsMinutes: [30, 45],
       });
 
@@ -94,136 +95,50 @@ describe('service public presentation (real PostgreSQL)', () => {
 
       expect(publicServiceListResponseSchema.parse(afterWithdrawal.body).services).toEqual([]);
     });
-
-    it('leaves the slug alone when the request omits it', async () => {
-      // Every caller written before Milestone 9 sends a body with no
-      // `publicSlug`. Omitted means UNCHANGED, so those callers keep working and
-      // cannot accidentally clear a published address.
-      const id = await createService();
-      const created = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
-      ).service;
-
-      await update(id, {
-        name: created.name,
-        publicDescription: null,
-        isPublic: true,
-        publicSlug: 'omitted-slug-test',
-        allowedDurationsMinutes: [30, 45],
-      });
-
-      const legacyShapedEdit = await update(id, {
-        name: created.name,
-        publicDescription: 'شرح تازه.',
-        isPublic: true,
-        allowedDurationsMinutes: [30, 45],
-      });
-
-      expect(legacyShapedEdit.status).toBe(200);
-      expect(serviceResponseSchema.parse(legacyShapedEdit.body).service.publicSlug).toBe(
-        'omitted-slug-test',
-      );
-    });
-
-    it('holds a legacy public row with no address to the address rule on its next edit', async () => {
-      // The state every Milestone 2 row was left in: `isPublic` true, no slug,
-      // and therefore not on the website at all. The API no longer creates it
-      // (M10-A9: a service is public only with an address), so it is made here
-      // the way it was made then — directly.
-      const id = await createService();
-      await harness.prisma.$executeRaw`UPDATE service SET is_public = true WHERE id = ${id}::uuid`;
-      const created = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
-      ).service;
-      expect(created.isPublic).toBe(true);
-      expect(created.publicSlug).toBeNull();
-
-      // An edit that would leave it public with no address is refused…
-      const keptPublic = await update(id, {
-        name: created.name,
-        publicDescription: 'شرح داخلی نمونه.',
-        isPublic: true,
-        allowedDurationsMinutes: [30, 45],
-      });
-      expect(keptPublic.status).toBe(422);
-      expect(keptPublic.body.error.code).toBe('SERVICE_PUBLIC_ADDRESS_REQUIRED');
-
-      // …and one that makes it private is an ordinary edit that revises no
-      // published content, because there is none.
-      const madePrivate = await update(id, {
-        name: created.name,
-        publicDescription: 'شرح داخلی نمونه.',
-        isPublic: false,
-        allowedDurationsMinutes: [30, 45],
-      });
-
-      const listed = await request(server()).get('/public/services').set(internalHeaders());
-
-      expect(madePrivate.status).toBe(200);
-      expect(
-        serviceResponseSchema.parse(madePrivate.body).service.publicFirstPublishedAt,
-      ).toBeNull();
-      expect(publicServiceListResponseSchema.parse(listed.body).services).toEqual([]);
-    });
   });
 
-  describe('the slug', () => {
-    it('is refused a rename once the URL has been reachable', async () => {
-      const id = await createService();
-      const created = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
-      ).service;
+  describe('the address (M10-A10, T-010)', () => {
+    it('is assigned at creation, distinct per service, and never typed', async () => {
+      const first = await read(await createService());
+      const second = await read(await createService());
 
-      await update(id, {
-        name: created.name,
+      expect(first.publicSlug).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+      expect(second.publicSlug).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+      expect(first.publicSlug).not.toBe(second.publicSlug);
+
+      const typed = await update(first.id, {
+        name: first.name,
         publicDescription: null,
         isPublic: true,
-        publicSlug: 'promised-service-address',
+        publicSlug: 'a-typed-address',
         allowedDurationsMinutes: [30, 45],
       });
-
-      const renamed = await update(id, {
-        name: created.name,
-        publicDescription: null,
-        isPublic: true,
-        publicSlug: 'a-different-service-address',
-        allowedDurationsMinutes: [30, 45],
-      });
-
-      expect(renamed.status).toBe(409);
-      expect(renamed.body.error.code).toBe('PUBLIC_SLUG_IMMUTABLE');
+      expect(typed.status).toBe(400);
+      expect(typed.body.error.code).toBe('VALIDATION_FAILED');
     });
 
-    it('refuses one another service already holds', async () => {
-      const first = await createService();
-      const second = await createService();
-      const firstName = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${first}`).set(as(manager))).body,
-      ).service.name;
-      const secondName = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${second}`).set(as(manager))).body,
-      ).service.name;
+    it('is the same before, during and after publication', async () => {
+      const id = await createService();
+      const { name, publicSlug } = await read(id);
+      const edit = (isPublic: boolean) =>
+        update(id, { name, publicDescription: null, isPublic, allowedDurationsMinutes: [30, 45] });
 
-      await update(first, {
-        name: firstName,
-        publicDescription: null,
-        isPublic: false,
-        publicSlug: 'contested-address',
-        allowedDurationsMinutes: [30],
-      });
+      await edit(true);
+      await edit(false);
+      await edit(true);
 
-      const collision = await update(second, {
-        name: secondName,
-        publicDescription: null,
-        isPublic: false,
-        publicSlug: 'contested-address',
-        allowedDurationsMinutes: [30],
-      });
+      expect((await read(id)).publicSlug).toBe(publicSlug);
+    });
 
-      // Not `SERVICE_NAME_TAKEN`: the names differ, and the conflicting record
-      // may be one the manager cannot see in the list they are looking at.
-      expect(collision.status).toBe(409);
-      expect(collision.body.error.code).toBe('PUBLIC_SLUG_TAKEN');
+    it('is refused a change by the database, published or not', async () => {
+      const id = await createService();
+
+      await expect(
+        harness.prisma.$executeRaw`UPDATE service SET public_slug = 'moved' WHERE id = ${id}::uuid`,
+      ).rejects.toThrow(/public_slug is immutable once assigned/);
+      await expect(
+        harness.prisma.$executeRaw`UPDATE service SET public_slug = NULL WHERE id = ${id}::uuid`,
+      ).rejects.toThrow();
     });
   });
 
@@ -234,7 +149,7 @@ describe('service public presentation (real PostgreSQL)', () => {
       const attempt = await request(server())
         .patch(`/catalog/services/${id}`)
         .set(as(receptionist))
-        .send(serviceBody({ isPublic: true, publicSlug: 'receptionist-attempt' }));
+        .send(serviceBody({ isPublic: true }));
 
       expect(attempt.status).toBe(403);
       expect(attempt.body.error.code).toBe('AUTH_FORBIDDEN');
@@ -244,15 +159,12 @@ describe('service public presentation (real PostgreSQL)', () => {
       // ONE ACTION, NOT TWO. Publishing a service is the same form, the same
       // authority and the same state change as editing one.
       const id = await createService();
-      const created = serviceResponseSchema.parse(
-        (await request(server()).get(`/catalog/services/${id}`).set(as(manager))).body,
-      ).service;
+      const created = await read(id);
 
       await update(id, {
         name: created.name,
         publicDescription: 'شرح عمومی نمونه.',
         isPublic: true,
-        publicSlug: 'audited-service',
         allowedDurationsMinutes: [30, 45],
       });
 
@@ -268,8 +180,8 @@ describe('service public presentation (real PostgreSQL)', () => {
         WHERE entity_type = 'service' AND entity_id = ${id}::uuid AND action = 'service.updated'
       `;
 
-      expect(rows[0]!.before).toMatchObject({ isPublic: false, publicSlug: null });
-      expect(rows[0]!.after).toMatchObject({ isPublic: true, publicSlug: 'audited-service' });
+      expect(rows[0]!.before).toMatchObject({ isPublic: false, publicSlug: created.publicSlug });
+      expect(rows[0]!.after).toMatchObject({ isPublic: true, publicSlug: created.publicSlug });
     });
   });
 });

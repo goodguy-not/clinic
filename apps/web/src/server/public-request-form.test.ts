@@ -38,8 +38,12 @@ describe('public request form translation', () => {
     expect(result.data).not.toHaveProperty('note');
   });
 
-  it.each(['0', '13', '120'])('accepts age %s under the wide sanity bound', (age) => {
+  it.each(['0', '13', '99'])('accepts age %s under the 0–99 bound (T-018)', (age) => {
     expect(parsePublicRequestForm(form({ childAgeYears: age }), null).ok).toBe(true);
+  });
+
+  it.each(['100', '120'])('refuses age %s above the 0–99 bound (T-018)', (age) => {
+    expect(parsePublicRequestForm(form({ childAgeYears: age }), null).ok).toBe(false);
   });
 
   it('folds Persian and Arabic digits and normalizes tolerant mobile entry', () => {

@@ -18,6 +18,7 @@ import {
   articleDraft,
   as,
   asVisitor,
+  assignedSlug,
   auditActionsFor,
   loginAs,
   testimonialDraft,
@@ -123,7 +124,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
       .patch(`/catalog/therapists/${therapistId}/public-profile`)
       .set(as(manager))
       .send({
-        publicSlug: 'synthetic-colleague',
         displayName: 'Synthetic Display Name',
         title: 'Synthetic Public Title',
         bio: 'Synthetic biography written for a test.',
@@ -332,7 +332,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
         .patch(`/catalog/therapists/${therapistId}/public-profile`)
         .set(as(manager))
         .send({
-          publicSlug: 'synthetic-colleague',
           displayName: 'Synthetic Display Name',
           title: null,
           bio: null,
@@ -521,7 +520,11 @@ describe('anonymous media access (real PostgreSQL)', () => {
         (await request(server()).get('/public/team').set(asVisitor())).body,
       );
       const profile = publicTherapistProfileResponseSchema.parse(
-        (await request(server()).get('/public/team/synthetic-colleague').set(asVisitor())).body,
+        (
+          await request(server())
+            .get(`/public/team/${await assignedSlug(harness, 'therapist', therapistId)}`)
+            .set(asVisitor())
+        ).body,
       );
 
       // A visitor identifies the photograph by its rendition paths alone; the
@@ -541,7 +544,6 @@ describe('anonymous media access (real PostgreSQL)', () => {
         .patch(`/catalog/therapists/${therapistId}/public-profile`)
         .set(as(manager))
         .send({
-          publicSlug: 'synthetic-colleague',
           displayName: 'Synthetic Display Name',
           title: null,
           bio: null,
@@ -556,7 +558,11 @@ describe('anonymous media access (real PostgreSQL)', () => {
       await attach(asset.id, { ownerType: 'THERAPIST_PROFILE', ownerId: therapistId });
 
       const profile = publicTherapistProfileResponseSchema.parse(
-        (await request(server()).get('/public/team/synthetic-colleague').set(asVisitor())).body,
+        (
+          await request(server())
+            .get(`/public/team/${await assignedSlug(harness, 'therapist', therapistId)}`)
+            .set(asVisitor())
+        ).body,
       );
 
       expect(profile.therapist.photo).toBeNull();
@@ -582,7 +588,11 @@ describe('anonymous media access (real PostgreSQL)', () => {
       }
 
       const article = publicArticleDetailResponseSchema.parse(
-        (await request(server()).get('/public/articles/illustrated-article').set(asVisitor())).body,
+        (
+          await request(server())
+            .get(`/public/articles/${await assignedSlug(harness, 'public_article', articleId)}`)
+            .set(asVisitor())
+        ).body,
       );
 
       expect(article.article.images.map(renditionPathsOf)).toEqual([

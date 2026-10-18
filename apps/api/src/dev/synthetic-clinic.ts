@@ -278,8 +278,8 @@ export async function seedSyntheticClinic(
   // carries a real audit trail for every publication, and this file is no
   // longer the only writer of a public column anywhere in the repository.
   //
-  // Every value is synthetic, and the run tag is inside every slug so two runs
-  // never collide on a public identity.
+  // Every value is synthetic. The public addresses are the ones the system
+  // assigns (M10-A10, T-010), so two runs never collide on a public identity.
   //
   // IT PUBLISHES SOME AND NOT ALL, DELIBERATELY. One service and one therapist
   // are left private in every run, and one article is left in draft, so anybody
@@ -843,7 +843,6 @@ async function publishSyntheticPublicSite(
         name: current.name,
         publicDescription: `شرح نمونه خدمت ${index + 1} برای وب‌سایت آزمایشی (${runTag}).`,
         isPublic: true,
-        publicSlug: `service-${index + 1}-${runTag}`,
         allowedDurationsMinutes: current.allowedDurationsMinutes,
       },
       manager,
@@ -857,7 +856,6 @@ async function publishSyntheticPublicSite(
     await write.therapistProfiles.update(
       id,
       {
-        publicSlug: `therapist-${index + 1}-${runTag}`,
         displayName: `درمانگر نمونه ${index + 1} (${runTag})`,
         title: `عنوان عمومی نمونه ${index + 1}`,
         bio: `زندگی‌نامه نمونه و کاملاً ساختگی برای درمانگر ${index + 1} (${runTag}).`,
@@ -872,13 +870,11 @@ async function publishSyntheticPublicSite(
 
   // Two articles, and the second is left in draft on purpose: a seeded clinic
   // should contain a page the website must refuse to serve.
-  const articleSlugs = [`article-1-${runTag}`, `article-2-${runTag}`];
   let publishedArticles = 0;
 
-  for (const [index, slug] of articleSlugs.entries()) {
+  for (const index of [0, 1]) {
     const article = await write.articles.create(
       {
-        publicSlug: slug,
         title: `مطلب نمونه ${index + 1} (${runTag})`,
         summary: `چکیده نمونه برای مطلب ${index + 1}. هیچ‌یک از این متن‌ها واقعی نیست.`,
         body: `متن نمونه مطلب ${index + 1}، فقط برای توسعه و آزمایش. هیچ کودک، خانواده یا جلسه‌ای در آن توصیف نشده است.`,

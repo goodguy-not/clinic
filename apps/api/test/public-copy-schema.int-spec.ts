@@ -161,7 +161,6 @@ describe('public copy schema objects (real PostgreSQL)', () => {
         harness.prisma.$executeRaw`
           UPDATE therapist
           SET is_public = TRUE,
-              public_slug = 'schema-colleague',
               public_display_name = 'Synthetic Draft Name'
           WHERE id = ${therapistId}::uuid
         `,
@@ -174,7 +173,6 @@ describe('public copy schema objects (real PostgreSQL)', () => {
       await harness.prisma.$executeRaw`
         UPDATE therapist
         SET is_public = TRUE,
-            public_slug = 'schema-colleague',
             published_public_display_name = 'Synthetic Published Name'
         WHERE id = ${therapistId}::uuid
       `;
@@ -190,7 +188,6 @@ describe('public copy schema objects (real PostgreSQL)', () => {
       await harness.prisma.$executeRaw`
         UPDATE therapist
         SET is_public = TRUE,
-            public_slug = 'schema-colleague',
             public_display_name = 'Synthetic Draft Name',
             published_public_display_name = 'Synthetic Published Name'
         WHERE id = ${therapistId}::uuid
@@ -217,14 +214,14 @@ describe('public copy schema objects (real PostgreSQL)', () => {
       expect(rows[0]!.is_public).toBe(true);
     });
 
-    it('leaves the slug rule exactly where A1 put it', async () => {
-      // A6 touched neither the stability trigger nor its stamp. Restated here
+    it('leaves the slug rule standing beside the redefined constraint', async () => {
+      // A6 touched neither the stability trigger nor its stamp; M10-A10
+      // tightened the trigger to "immutable once assigned". Restated here
       // because the constraint beside it was redefined, and a reader should be
       // able to see that the address rule did not move with it.
       await harness.prisma.$executeRaw`
         UPDATE therapist
         SET is_public = TRUE,
-            public_slug = 'schema-colleague',
             published_public_display_name = 'Synthetic Published Name'
         WHERE id = ${therapistId}::uuid
       `;

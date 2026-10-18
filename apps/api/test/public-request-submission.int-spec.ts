@@ -75,12 +75,16 @@ describe('public request submission (real PostgreSQL)', () => {
       .set({ ...asVisitor(), 'x-client-ip': ip })
       .send(body);
 
-  async function createPublishedService(slug: string): Promise<string> {
+  // Labels name the services; a submission names a service by the address the
+  // system assigned it (M10-A10, T-010).
+  const slugs = new Map<string, string>();
+
+  async function createPublishedService(label: string): Promise<string> {
     const created = await request(server())
       .post('/catalog/services')
       .set(as(manager))
       .send({
-        name: `خدمت نمونه ${slug}`,
+        name: `خدمت نمونه ${label}`,
         publicDescription: null,
         isPublic: false,
         allowedDurationsMinutes: [45],
@@ -95,12 +99,12 @@ describe('public request submission (real PostgreSQL)', () => {
       .send({
         name,
         publicDescription: 'شرح عمومی نمونه.',
-        publicSlug: slug,
         isPublic: true,
         allowedDurationsMinutes: [45],
       });
 
     expect(published.status).toBe(200);
+    slugs.set(label, serviceResponseSchema.parse(published.body).service.publicSlug!);
     return id;
   }
 
@@ -180,7 +184,7 @@ describe('public request submission (real PostgreSQL)', () => {
     it('stores the published service a visitor named, addressed by its slug', async () => {
       const serviceId = await createPublishedService('synthetic-service');
 
-      const response = await submit(submission({ serviceSlug: 'synthetic-service' }));
+      const response = await submit(submission({ serviceSlug: slugs.get('synthetic-service') }));
 
       expect(response.status).toBe(202);
       expect((await storedRequests())[0]?.['requested_service_id']).toBe(serviceId);
@@ -386,7 +390,7 @@ describe('public request submission (real PostgreSQL)', () => {
     // every one of those would be an eligibility decision nobody has approved,
     // taken by a validation rule, delivered to a stranger as a 400. Who the
     // clinic can help is a conversation a colleague has.
-    it.each([0, 1, 7, 14, 17, 18, 35, 120])('accepts an age of %i', async (childAgeYears) => {
+    it.each([0, 1, 7, 14, 17, 18, 35, 99])('accepts an age of %i', async (childAgeYears) => {
       const response = await submit(
         submission({ childAgeYears, contactMobile: `0912000${String(1000 + childAgeYears)}` }),
       );
@@ -394,8 +398,8 @@ describe('public request submission (real PostgreSQL)', () => {
       expect(response.status).toBe(202);
     });
 
-    it('refuses only what is not an age at all', async () => {
-      for (const childAgeYears of [-1, 121, 6.5, '6', null]) {
+    it('refuses what is not an age at all, and anything past 99 (T-018)', async () => {
+      for (const childAgeYears of [-1, 100, 120, 121, 6.5, '6', null]) {
         const response = await submit(submission({ childAgeYears }));
         expect(response.status).toBe(400);
       }
@@ -418,8 +422,10 @@ describe('public request submission (real PostgreSQL)', () => {
           allowedDurationsMinutes: [30],
         });
       expect(privateService.status).toBe(201);
+      // It has a real address from creation (M10-A10), and still is not public.
+      const privateSlug = serviceResponseSchema.parse(privateService.body).service.publicSlug;
 
-      const unpublished = await submit(submission({ serviceSlug: 'synthetic-private' }));
+      const unpublished = await submit(submission({ serviceSlug: privateSlug }));
       const fictional = await submit(submission({ serviceSlug: 'no-such-service-anywhere' }));
 
       expect(unpublished.status).toBe(404);
@@ -478,7 +484,7 @@ describe('public request submission (real PostgreSQL)', () => {
 
       await submit(submission());
       const differentChild = await submit(submission({ childAgeYears: 9 }));
-      const differentService = await submit(submission({ serviceSlug: 'synthetic-other' }));
+      const differentService = await submit(submission({ serviceSlug: slugs.get('synthetic-other') }));
 
       expect(differentChild.status).toBe(202);
       expect(differentService.status).toBe(202);

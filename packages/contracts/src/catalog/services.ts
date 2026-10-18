@@ -47,22 +47,9 @@ export const createServiceRequestSchema = z.strictObject({
   name: catalogNameSchema,
   publicDescription: z.string().trim().max(2000).nullable(),
   isPublic: z.boolean(),
-  /**
-   * The public address, and the one OPTIONAL field on either request.
-   *
-   * Optional rather than required-and-nullable, and the difference is a
-   * migration decision rather than a taste one. Every caller that existed
-   * before Milestone 9 — the manager service form and its Server Action — sends
-   * a body without this key, and a required field would turn each of them into
-   * `VALIDATION_FAILED` on the day the contract shipped. Omitted therefore
-   * means UNCHANGED on an update and ABSENT on a create, which is exactly what
-   * those callers mean.
-   *
-   * An explicit `null` is different and does mean "clear it" — which the
-   * database refuses once the URL has been publicly reachable
-   * (`PUBLIC_SLUG_IMMUTABLE`), for the reason a rename is refused.
-   */
-  publicSlug: publicSlugSchema.nullable().optional(),
+  // NO `publicSlug` (M10-A10, T-010): the database assigns every service its
+  // address when the row is created, and it never changes. `serviceSchema`
+  // reads it back for the manager to see.
   allowedDurationsMinutes: z.array(durationMinutesSchema).min(1),
 });
 
