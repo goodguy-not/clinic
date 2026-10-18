@@ -6,6 +6,7 @@ import {
   PublicPageEmpty,
   toPersianNumber,
 } from '@/components/public-content';
+import { PublicMediaImage } from '@/components/public-media-image';
 import { getPublicMetadataContext, getPublicServices } from '@/server/public-site';
 import { publicMetadata, publicPageTitle } from '@/server/public-seo';
 
@@ -53,7 +54,13 @@ export default async function ServicesPage() {
               className="public-focus b2-service-row"
             >
               <div className="b2-service-row__photo">
-                <span className="public-media-empty">تصویر عمومی برای این خدمت منتشر نشده است</span>
+                {service.image ? (
+                  <PublicMediaImage image={service.image} sizes="(max-width: 640px) 100vw, 38vw" />
+                ) : (
+                  <span className="public-media-empty">
+                    تصویر عمومی برای این خدمت منتشر نشده است
+                  </span>
+                )}
               </div>
               <div className="b2-service-row__copy">
                 <span>{toPersianNumber(String(index + 1).padStart(2, '0'))}</span>

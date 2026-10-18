@@ -1,6 +1,6 @@
 'use client';
 
-import type { CreateMediaAttachmentRequest, MediaFraming } from '@clinic/contracts';
+import type { CreateMediaAttachmentRequest, MediaAsset, MediaFraming } from '@clinic/contracts';
 import { useEffect, useId, useRef, useState, type ChangeEvent, type PointerEvent } from 'react';
 import {
   cropImageStyle,
@@ -16,7 +16,7 @@ import { CONTROL_CLASS, FOCUS_RING } from './styles';
 const DEFAULT_FRAMING: MediaFraming = { focalX: 0.5, focalY: 0.5, crop: null };
 
 type ApiAnswer = {
-  media?: { id: string; attachments: Array<{ id: string; framing: MediaFraming }> };
+  media?: MediaAsset;
   attachmentId?: string;
   error?: { code: string; message: string };
 };
@@ -82,10 +82,12 @@ export function MediaUploadFraming({
   csrfToken,
   targetShapes = DEFAULT_MEDIA_TARGET_SHAPES,
   attachmentTarget = { ownerType: 'CLINIC_SPACE', ownerId: null, position: 0 },
+  onComplete,
 }: {
   csrfToken: string;
   targetShapes?: readonly [MediaTargetShape, ...MediaTargetShape[]];
   attachmentTarget?: CreateMediaAttachmentRequest;
+  onComplete?: (media: MediaAsset) => void;
 }) {
   const idPrefix = useId();
   const focusHeadingId = `${idPrefix}-focus-heading`;
@@ -247,6 +249,7 @@ export function MediaUploadFraming({
         )?.framing;
         if (persisted !== undefined) setFraming(persisted);
         setFramingSaved(true);
+        onComplete?.(answer.media);
         setComplete(true);
       }
     } catch {

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MediaUploadFraming } from './media-upload-framing';
+import { MediaWorkspace } from '@/app/(internal)/media/media-workspace';
 
 const MEDIA_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d81';
 const ATTACHMENT_ID = '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d82';
@@ -29,8 +29,29 @@ describe('upload beside an unsaved form', () => {
             JSON.stringify({
               media: {
                 id: MEDIA_ID,
+                altText: 'نمای ساختگی اتاق',
+                status: 'ACTIVE',
+                width: 1200,
+                height: 800,
+                byteSize: 1000,
+                sourceContentType: 'image/webp',
+                sourceByteSize: 1000,
+                isPubliclyServed: false,
+                renditions: [],
+                createdAt: '2026-10-18T00:00:00.000Z',
+                archivedAt: null,
+                bytesPurgedAt: null,
                 attachments: [
-                  { id: ATTACHMENT_ID, framing: { focalX: 0.5, focalY: 0.5, crop: null } },
+                  {
+                    id: ATTACHMENT_ID,
+                    ownerType: 'CLINIC_SPACE',
+                    ownerId: null,
+                    position: 0,
+                    attachedAt: '2026-10-18T00:00:00.000Z',
+                    publishedAt: null,
+                    ownerIsPublic: false,
+                    framing: { focalX: 0.5, focalY: 0.5, crop: null },
+                  },
                 ],
               },
             }),
@@ -48,7 +69,13 @@ describe('upload beside an unsaved form', () => {
       root.render(
         <>
           <textarea aria-label="یادداشت ذخیره‌نشده" />
-          <MediaUploadFraming csrfToken="synthetic" />
+          <MediaWorkspace
+            media={[]}
+            csrfToken="synthetic"
+            canPublishMedia={false}
+            loadError={null}
+            notice={null}
+          />
         </>,
       ),
     );
@@ -79,6 +106,8 @@ describe('upload beside an unsaved form', () => {
     await act(async () => upload.click());
 
     expect(host.textContent).toContain('عکس و قاب آن ذخیره شد');
+    expect(host.textContent).toContain('نمای ساختگی اتاق');
+    expect(host.textContent).not.toContain('هنوز عکسی آماده نشده است');
     expect(unsaved.value).toBe('متن تایپ‌شده‌ای که هنوز ذخیره نشده است');
     expect(fetch).toHaveBeenCalledTimes(3);
     await act(async () => root.unmount());

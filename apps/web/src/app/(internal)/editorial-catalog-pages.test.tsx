@@ -259,12 +259,32 @@ describe('clinic profile boundary', () => {
     expect(html).toContain('عکس به‌صورت پهن پشت متن دیده می‌شود');
     expect(html).toContain('در گوشی ممکن است بخش‌های کناری عکس کمتر دیده');
     expect(html).toContain('عکس آمادهٔ انتشار');
-    expect(html).toContain('عکس منتشرشده');
+    expect(html).toContain('تصویر فعلی اشتراک‌گذاری سایت');
     expect(html).toContain('action="/api/media/publication"');
     expect(html).toContain('name="clinicProfile" value="true"');
 
     const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('identifies the sharing image actually selected when two are published', () => {
+    const first = syntheticClinicImage('CLINIC_OPEN_GRAPH', null, true, '81');
+    const second = syntheticClinicImage('CLINIC_OPEN_GRAPH', null, true, '91');
+    const draft = syntheticClinicImage('CLINIC_OPEN_GRAPH', null, false, '71');
+    const html = renderToStaticMarkup(
+      <ClinicContentEditor
+        entries={[]}
+        media={[second, first, draft]}
+        csrfToken={CSRF}
+        canPublishMedia
+        mediaLoadError={null}
+      />,
+    );
+
+    expect(html).toContain('چند عکس منتشر شده‌اند');
+    expect(html).toMatch(/عکس ساختگی 81[\s\S]*تصویر فعلی اشتراک‌گذاری سایت/);
+    expect(html).toMatch(/عکس ساختگی 91[\s\S]*منتشرشده؛ اکنون استفاده نمی‌شود/);
+    expect(html).toContain('برای انتشار این عکس، نخست تصویر فعلی اشتراک‌گذاری سایت را بردارید.');
   });
 });
 

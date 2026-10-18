@@ -143,7 +143,7 @@ describe('financial report presentation', () => {
     expect(markup).toContain(`/families/${FAMILY}/account`);
     expect(markup).toContain('غیرفعال');
     expect(markup).toContain(
-      'غیرفعال‌ها: بدهی و اعتبارشان با فیلتر جایگاهِ انتخاب‌شده نمایش داده می‌شود',
+      'خانواده‌های غیرفعالِ بدهکار یا دارای اعتبار همیشه در گزارش هستند. خانواده‌های غیرفعالِ بدون مانده نمایش داده نمی‌شوند.',
     );
   });
 

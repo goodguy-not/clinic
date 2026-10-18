@@ -1,4 +1,7 @@
+'use client';
+
 import { MEDIA_ARCHIVED_ERASURE_DAYS, type MediaAsset } from '@clinic/contracts';
+import { useState } from 'react';
 import { formatContentDate } from '@/app/(internal)/content/presentation';
 import {
   Alert,
@@ -40,6 +43,8 @@ export function MediaWorkspace({
   loadError: string | null;
   notice: string | null;
 }) {
+  const [visibleMedia, setVisibleMedia] = useState(media);
+
   return (
     <PageShell wide>
       <PageHeader
@@ -54,15 +59,20 @@ export function MediaWorkspace({
       {notice !== null ? <Alert tone="info">{notice}</Alert> : null}
 
       <Panel>
-        <MediaUploadFraming csrfToken={csrfToken} />
+        <MediaUploadFraming
+          csrfToken={csrfToken}
+          onComplete={(saved) =>
+            setVisibleMedia((current) => [saved, ...current.filter((item) => item.id !== saved.id)])
+          }
+        />
       </Panel>
 
       <Panel title="عکس‌های تازه">
-        {media.length === 0 ? (
+        {visibleMedia.length === 0 ? (
           <p className="text-sm text-slate-600">هنوز عکسی آماده نشده است.</p>
         ) : (
           <RecordList>
-            {media.map((item) => (
+            {visibleMedia.map((item) => (
               <RecordItem
                 key={item.id}
                 title={item.bytesPurgedAt !== null ? 'عکس پاک‌شده' : (item.altText ?? '')}

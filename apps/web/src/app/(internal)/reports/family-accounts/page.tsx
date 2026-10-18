@@ -81,7 +81,7 @@ export default async function FamilyAccountsReportPage({
         <ReportPrintContext
           items={[
             `جایگاه: ${query.standing ? STANDING_LABELS[query.standing] : 'همه'}`,
-            `غیرفعال‌ها: بدهی و اعتبارشان با فیلتر جایگاهِ انتخاب‌شده نمایش داده می‌شود؛ بدون مانده: ${query.includeInactive ? 'نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}`,
+            `خانواده‌های غیرفعالِ بدهکار یا دارای اعتبار همیشه در گزارش هستند. خانواده‌های غیرفعالِ بدون مانده ${query.includeInactive ? 'نیز نمایش داده می‌شوند' : 'نمایش داده نمی‌شوند'}.`,
             'ارقام جایگاه: همهٔ سوابق نگهداری‌شده در این سامانه',
           ]}
         />

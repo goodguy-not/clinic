@@ -50,6 +50,7 @@ const noStoreHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: { authInterrupts: true },
 
   // `experimental.serverActions.allowedOrigins` is deliberately NOT set. It
   // exists to let extra origins *bypass* the built-in Server Action CSRF check,

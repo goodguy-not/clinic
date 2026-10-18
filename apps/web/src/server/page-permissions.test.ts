@@ -28,8 +28,14 @@ const verifiedSession = vi.hoisted(() => vi.fn((): string | null => 'synthetic-t
 const redirected = vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`);
 });
+const refused = vi.fn(() => {
+  throw new Error('FORBIDDEN');
+});
 
-vi.mock('next/navigation', () => ({ redirect: (path: string) => redirected(path) }));
+vi.mock('next/navigation', () => ({
+  redirect: (path: string) => redirected(path),
+  forbidden: () => refused(),
+}));
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: () => ({ value: 'synthetic-cookie' }) }),
   headers: async () => new Headers(),
@@ -66,6 +72,7 @@ async function requireWith(
 
 afterEach(() => {
   redirected.mockClear();
+  refused.mockClear();
   sessionUser.mockClear();
   verifiedSession.mockReset();
   verifiedSession.mockReturnValue('synthetic-token');
@@ -83,7 +90,8 @@ describe('B8 manager draft-preview boundary', () => {
   it('refuses a Receptionist and admits a Manager', async () => {
     await requireWith([], undefined, 'RECEPTIONIST');
     const { requireManagerSession } = await import('./auth-session');
-    await expect(requireManagerSession()).rejects.toThrow('REDIRECT:/dashboard');
+    await expect(requireManagerSession()).rejects.toThrow('FORBIDDEN');
+    expect(refused).toHaveBeenCalledOnce();
 
     await requireWith([], undefined, 'MANAGER');
     await expect(requireManagerSession()).resolves.toEqual(
@@ -121,9 +129,9 @@ describe('a page may demand several permissions, and then demands all of them', 
     // AND, not OR. A future role with `charge.read` alone must not render an
     // account whose position the API will refuse to compute for it.
     await expect(requireWith(['charge.read'], FAMILY_ACCOUNT_READ_PERMISSIONS)).rejects.toThrow(
-      'REDIRECT:/dashboard',
+      'FORBIDDEN',
     );
-    expect(redirected).toHaveBeenCalledWith('/dashboard');
+    expect(refused).toHaveBeenCalledOnce();
   });
 
   it('still accepts a single permission, exactly as before', async () => {
@@ -131,9 +139,7 @@ describe('a page may demand several permissions, and then demands all of them', 
     expect(user.permissions).toEqual(['payment.read']);
     expect(redirected).not.toHaveBeenCalled();
 
-    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow(
-      'REDIRECT:/dashboard',
-    );
+    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow('FORBIDDEN');
   });
 });
 
@@ -186,7 +192,7 @@ describe('the dashboard page names every authority in its aggregated response', 
 
     await expect(
       requireWith(['appointment.read', 'payment.read', 'promise.read'], DASHBOARD_READ_PERMISSIONS),
-    ).rejects.toThrow('REDIRECT:/dashboard');
+    ).rejects.toThrow('FORBIDDEN');
   });
 
   it('uses the shared dashboard permission constant on the landing page', () => {
@@ -216,7 +222,7 @@ describe('clinic-wide financial reports are manager-only at the page boundary', 
         ['charge.read', 'payment.read', 'promise.read'],
         FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
       ),
-    ).rejects.toThrow('REDIRECT:/dashboard');
+    ).rejects.toThrow('FORBIDDEN');
   });
 
   it('pins both report pages to the same frozen lists their API routes use', () => {
@@ -237,13 +243,13 @@ describe('B6 editorial page authority follows the accepted draft/publish split',
     ).resolves.toEqual(expect.objectContaining({ role: 'RECEPTIONIST' }));
     await expect(
       requireWith(['therapist.draft_public_profile'], 'therapist.publish_profile'),
-    ).rejects.toThrow('REDIRECT:/dashboard');
+    ).rejects.toThrow('FORBIDDEN');
     await expect(requireWith(['service.draft_public_copy'], 'service.update')).rejects.toThrow(
-      'REDIRECT:/dashboard',
+      'FORBIDDEN',
     );
     await expect(
       requireWith(['media.read', 'media.upload', 'media.attach'], 'media.publish'),
-    ).rejects.toThrow('REDIRECT:/dashboard');
+    ).rejects.toThrow('FORBIDDEN');
   });
 
   it('pins the detail pages and clinic form to their narrow page gates', () => {
@@ -271,6 +277,6 @@ describe('B6 editorial page authority follows the accepted draft/publish split',
         ['media.read', 'media.upload', 'media.attach'],
         ['clinic_profile.read', 'clinic_profile.update'],
       ),
-    ).rejects.toThrow('REDIRECT:/dashboard');
+    ).rejects.toThrow('FORBIDDEN');
   });
 });

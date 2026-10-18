@@ -3,18 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PublicImage, PublicServiceDetail, PublicServiceSummary } from '@clinic/contracts';
 import { PublicServiceExplorer } from '@/components/public-service-explorer';
 
-const reads = vi.hoisted(() => ({ service: vi.fn(), context: vi.fn() }));
+const reads = vi.hoisted(() => ({ service: vi.fn(), services: vi.fn(), context: vi.fn() }));
 
 vi.mock('@/server/public-site', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/server/public-site')>();
   return {
     ...original,
     getPublicService: reads.service,
+    getPublicServices: reads.services,
     getPublicMetadataContext: reads.context,
   };
 });
 
 import ServiceDetailPage from './(public)/services/[slug]/page';
+import ServicesPage from './(public)/services/page';
 
 const IMAGE: PublicImage = {
   alt: 'اتاق روشن گفتاردرمانی با میز و صندلی',
@@ -50,11 +52,29 @@ const DETAIL: PublicServiceDetail = { ...SUMMARY, sessionDurationsMinutes: [45] 
 
 beforeEach(() => {
   reads.service.mockReset();
+  reads.services.mockReset();
   reads.context.mockReset();
   reads.context.mockResolvedValue({ clinicName: 'کلینیک نمونه', openGraphImage: null });
 });
 
 describe('A9 public service image rendering', () => {
+  it('renders a published image in the public services list', async () => {
+    reads.services.mockResolvedValue({ status: 'ready', data: [SUMMARY] });
+    const html = renderToStaticMarkup(await ServicesPage());
+
+    expect(html).toContain(IMAGE.alt);
+    expect(html).toContain(IMAGE.renditions[0]!.path);
+    expect(html).not.toContain('تصویر عمومی برای این خدمت منتشر نشده است');
+  });
+
+  it('keeps the list placeholder only for a service without a public image', async () => {
+    reads.services.mockResolvedValue({ status: 'ready', data: [{ ...SUMMARY, image: null }] });
+    const html = renderToStaticMarkup(await ServicesPage());
+
+    expect(html).toContain('تصویر عمومی برای این خدمت منتشر نشده است');
+    expect(html).not.toContain(IMAGE.renditions[0]!.path);
+  });
+
   it('renders the published responsive image in the existing home service slot', () => {
     const html = renderToStaticMarkup(<PublicServiceExplorer services={[SUMMARY]} />);
 

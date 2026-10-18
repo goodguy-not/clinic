@@ -427,6 +427,12 @@ const CLIENT_COMPONENT_ALLOWLIST = [
   // Phone gallery/camera selection, immediate object-URL preview and focal-point
   // controls are browser-only. Named BFF handlers still own all media writes.
   'src/components/media-upload-framing.tsx',
+  // The photo library inserts the completed API response into its list in the
+  // same render as the success notice; no session or API key enters the island.
+  'src/app/(internal)/media/media-workspace.tsx',
+  // Clinic content images also update in place after upload, while the existing
+  // BFF handlers remain the only mutation path.
+  'src/app/(internal)/content/clinic-profile/clinic-content-editor.tsx',
 ];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];

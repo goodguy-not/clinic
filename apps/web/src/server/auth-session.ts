@@ -1,6 +1,6 @@
 import 'server-only';
 import { cookies, headers } from 'next/headers';
-import { redirect } from 'next/navigation';
+import { forbidden, redirect } from 'next/navigation';
 import type { AuthenticatedUser, Permission } from '@clinic/contracts';
 import { loadServerEnv } from '@/env';
 import { api, type CallerContext } from './api-client';
@@ -102,9 +102,9 @@ export async function requireSession(options: SessionOptions = {}): Promise<Auth
         : options.requirePermission;
 
     if (!required.every((permission) => user.permissions.includes(permission))) {
-      // NestJS would refuse the underlying call anyway; this keeps a
-      // receptionist from rendering a management surface they cannot use.
-      redirect('/dashboard');
+      // NestJS would refuse the underlying call too. Return a real 403 before
+      // rendering the page, with a route back to the dashboard.
+      forbidden();
     }
   }
 
@@ -114,7 +114,7 @@ export async function requireSession(options: SessionOptions = {}): Promise<Auth
 /** A session gate for surfaces that are policy-level Manager tools. */
 export async function requireManagerSession(): Promise<AuthenticatedUser> {
   const user = await requireSession();
-  if (user.role !== 'MANAGER') redirect('/dashboard');
+  if (user.role !== 'MANAGER') forbidden();
   return user;
 }
 

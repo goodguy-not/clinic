@@ -1,9 +1,12 @@
+'use client';
+
 import type { ClinicContentEntry, ClinicContentSlot, MediaAsset } from '@clinic/contracts';
+import { useState } from 'react';
 import { MediaUploadFraming } from '@/components/media-upload-framing';
 import { MediaAltTextEditor } from '@/components/media-alt-text-editor';
 import { Alert, Badge, Field, FormActions, Panel, SubmitButton } from '@/components/ui';
-import { MEDIA_TARGET_SHAPE_PRESETS, type MediaTargetShape } from '@/media/framing';
-import { toPersianDigits } from '@/server/numerals-fa';
+import { cropImageStyle, MEDIA_TARGET_SHAPE_PRESETS, type MediaTargetShape } from '@/media/framing';
+import { toPersianDigits } from '@/shared/numerals-fa';
 
 type SlotPresentation = {
   page: 'صفحهٔ خانه' | 'صفحهٔ دربارهٔ کلینیک';
@@ -112,11 +115,13 @@ function AttachedImageList({
   csrfToken,
   canPublishMedia,
   returnTarget,
+  currentAttachmentId,
 }: {
   attachments: readonly AttachmentView[];
   csrfToken: string;
   canPublishMedia: boolean;
   returnTarget: { type: 'clinic-profile' };
+  currentAttachmentId?: string | null;
 }) {
   if (attachments.length === 0) return null;
 
@@ -128,26 +133,64 @@ function AttachedImageList({
           key={attachment.id}
           className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3"
         >
+          {asset.renditions.length > 0 ? (
+            <div className="relative aspect-[16/9] max-w-sm overflow-hidden rounded-lg bg-slate-100">
+              {/* Authenticated same-origin preview for this exact attachment. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/media/renditions/${asset.renditions[0]!.id}/preview`}
+                alt={asset.altText ?? ''}
+                className="size-full"
+                style={cropImageStyle(attachment.framing)}
+              />
+            </div>
+          ) : null}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-1">
               <span className="text-sm font-semibold text-slate-900">{asset.altText}</span>
-              <Badge tone={attachment.publishedAt === null ? 'warning' : 'success'}>
-                {attachment.publishedAt === null ? 'عکس آمادهٔ انتشار' : 'عکس منتشرشده'}
+              <Badge
+                tone={
+                  attachment.publishedAt === null ||
+                  (currentAttachmentId !== undefined && attachment.id !== currentAttachmentId)
+                    ? 'warning'
+                    : 'success'
+                }
+              >
+                {attachment.publishedAt === null
+                  ? 'عکس آمادهٔ انتشار'
+                  : currentAttachmentId === undefined
+                    ? 'عکس منتشرشده'
+                    : attachment.id === currentAttachmentId
+                      ? 'تصویر فعلی اشتراک‌گذاری سایت'
+                      : 'منتشرشده؛ اکنون استفاده نمی‌شود'}
               </Badge>
             </div>
-            <form method="post" action="/api/media/publication">
-              <input type="hidden" name="csrfToken" value={csrfToken} />
-              <input type="hidden" name="attachmentId" value={attachment.id} />
-              <input type="hidden" name="clinicProfile" value="true" />
-              <input
-                type="hidden"
-                name="isPublished"
-                value={attachment.publishedAt === null ? 'true' : 'false'}
-              />
-              <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
-                {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
-              </SubmitButton>
-            </form>
+            {canPublishMedia &&
+            !(
+              currentAttachmentId !== undefined &&
+              currentAttachmentId !== null &&
+              attachment.publishedAt === null
+            ) ? (
+              <form method="post" action="/api/media/publication">
+                <input type="hidden" name="csrfToken" value={csrfToken} />
+                <input type="hidden" name="attachmentId" value={attachment.id} />
+                <input type="hidden" name="clinicProfile" value="true" />
+                <input
+                  type="hidden"
+                  name="isPublished"
+                  value={attachment.publishedAt === null ? 'true' : 'false'}
+                />
+                <SubmitButton tone={attachment.publishedAt === null ? 'primary' : 'danger'}>
+                  {attachment.publishedAt === null ? 'انتشار عکس' : 'برداشتن عکس از سایت'}
+                </SubmitButton>
+              </form>
+            ) : currentAttachmentId !== undefined &&
+              currentAttachmentId !== null &&
+              attachment.publishedAt === null ? (
+              <p className="text-sm text-amber-900">
+                برای انتشار این عکس، نخست تصویر فعلی اشتراک‌گذاری سایت را بردارید.
+              </p>
+            ) : null}
           </div>
           <MediaAltTextEditor
             asset={asset}
@@ -170,6 +213,7 @@ function EntryEditor({
   media,
   csrfToken,
   canPublishMedia,
+  onImageSaved,
 }: {
   entry: ClinicContentEntry;
   ordinal: number;
@@ -178,6 +222,7 @@ function EntryEditor({
   media: readonly MediaAsset[];
   csrfToken: string;
   canPublishMedia: boolean;
+  onImageSaved: (media: MediaAsset) => void;
 }) {
   const presentation = SLOT_PRESENTATION[entry.slot];
   const formPrefix = `clinic-entry-${ordinal}`;
@@ -289,6 +334,7 @@ function EntryEditor({
             </div>
             <MediaUploadFraming
               csrfToken={csrfToken}
+              onComplete={onImageSaved}
               targetShapes={[targetShape]}
               attachmentTarget={{
                 ownerType: 'CLINIC_CONTENT_ENTRY',
@@ -322,6 +368,9 @@ export function ClinicContentEditor({
   canPublishMedia: boolean;
   mediaLoadError: string | null;
 }) {
+  const [visibleMedia, setVisibleMedia] = useState(media);
+  const imageSaved = (saved: MediaAsset) =>
+    setVisibleMedia((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
   const groups: Array<{ slot: ClinicContentSlot; entries: ClinicContentEntry[] }> = [];
   for (const entry of entries) {
     const current = groups.at(-1);
@@ -329,7 +378,17 @@ export function ClinicContentEditor({
     else groups.push({ slot: entry.slot, entries: [entry] });
   }
   let entryOrdinal = 0;
-  const openGraphAttachments = attachmentsFor(media, 'CLINIC_OPEN_GRAPH', null);
+  const openGraphAttachments = attachmentsFor(visibleMedia, 'CLINIC_OPEN_GRAPH', null);
+  const currentOpenGraph = openGraphAttachments
+    .filter(
+      ({ asset, attachment }) =>
+        asset.status === 'ACTIVE' && attachment.publishedAt !== null && attachment.ownerIsPublic,
+    )
+    .sort(
+      (left, right) =>
+        left.attachment.position - right.attachment.position ||
+        left.attachment.id.localeCompare(right.attachment.id),
+    )[0];
 
   return (
     <section
@@ -367,9 +426,10 @@ export function ClinicContentEditor({
                   ordinal={startOrdinal + index}
                   groupIndex={index}
                   groupSize={group.entries.length}
-                  media={media}
+                  media={visibleMedia}
                   csrfToken={csrfToken}
                   canPublishMedia={canPublishMedia}
+                  onImageSaved={imageSaved}
                 />
               ))}
             </div>
@@ -382,8 +442,16 @@ export function ClinicContentEditor({
           وقتی پیوند سایت در پیام‌رسان‌ها یا شبکه‌های اجتماعی فرستاده می‌شود، این عکس کنار معرفی
           سایت در قاب پهن دیده می‌شود. این عکس لوگو نیست.
         </p>
+        {openGraphAttachments.filter(({ attachment }) => attachment.publishedAt !== null).length >
+        1 ? (
+          <Alert>
+            چند عکس منتشر شده‌اند. سایت فقط «تصویر فعلی اشتراک‌گذاری سایت» را استفاده می‌کند؛ برای
+            انتخاب عکس دیگر، نخست عکس فعلی را از سایت بردارید.
+          </Alert>
+        ) : null}
         <MediaUploadFraming
           csrfToken={csrfToken}
+          onComplete={imageSaved}
           targetShapes={OPEN_GRAPH_SHAPES}
           attachmentTarget={{ ownerType: 'CLINIC_OPEN_GRAPH', ownerId: null, position: 0 }}
         />
@@ -392,6 +460,7 @@ export function ClinicContentEditor({
           csrfToken={csrfToken}
           canPublishMedia={canPublishMedia}
           returnTarget={{ type: 'clinic-profile' }}
+          currentAttachmentId={currentOpenGraph?.attachment.id ?? null}
         />
       </Panel>
     </section>
