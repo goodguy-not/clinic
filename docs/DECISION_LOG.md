@@ -6335,3 +6335,164 @@ creditToman }` (the account's own derivation, read after the family row is locke
   public read requires the address.
 - **Revisit when:** no production row is public without an address; then the CHECK can be
   added with a data step.
+
+## 2026-10-18 — No outcome for a session that has not happened yet
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (owner decision T-020, money-critical)
+
+- **Decision:** completion, attendance and no-show are refused for every role when the
+  session's clinic date (Asia/Tehran, database clock) is later than today —
+  `APPOINTMENT_OUTCOME_DATE_IN_FUTURE` (422). On the session's own date attendance is
+  accepted at any time, but completion and no-show only from the scheduled start —
+  `APPOINTMENT_OUTCOME_BEFORE_START` (422). An earlier date takes everything, as before.
+  Both carry `appointmentOutcomeTimingDetailsSchema` (`outcome`, `sessionDate`,
+  `startTime`, `startsAt`, `today`). Decided in `SchedulingRules.assertOutcomeIsDue` with
+  `transaction_timestamp()` under the appointment's `FOR UPDATE`, after the idempotent
+  no-op and the cancelled-session refusal, so a repeat of a valid completion stays a no-op.
+  Because completion of an attended seat posts the charge, this is what stops a session
+  next week being charged today.
+- **Alternatives:** Node's clock (a second clock, and the one that drifted in M10-A9);
+  refusing attendance before the start as well (the owner allowed an early arrival);
+  a database trigger (the appointment and seat writes are in one service, and a trigger
+  could not name the outcome kind in a code the Web can explain).
+- **Trade-off:** a session moved to a later date after its arrival was recorded keeps that
+  attendance; no charge follows, because completion is still refused until the new start.
+  Not refused by this rule — the owner may want it (open question).
+- **Existing data:** the two generators record outcomes only for past days
+  (`synthetic-clinic.ts` `day < today`, `clinic-simulation.ts` up to yesterday), and the
+  practice clinic built on 2026-10-18 has no violating row (query in
+  `docs/M10_A10_WEB_HANDOFF.md` §7, to run read-only on staging).
+- **Revisit when:** the clinic wants an outcome recorded ahead of time (a whole day's
+  group closed early), or no-show needs a grace period after the start.
+
+## 2026-10-18 — "This and future" may move the weekday
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (owner decision T-023)
+
+- **Decision:** `PATCH /appointment-series/:id/update-from` takes an optional `weekday`
+  (Saturday-first; null or absent keeps each occurrence's own date). With it, every
+  remaining `SCHEDULED` occurrence from the pivot onwards moves to that weekday inside its
+  own Saturday-first clinic week, at the new time — the same rows, no cancellation, the
+  rhythm and the count unchanged; earlier, completed and cancelled occurrences are not
+  touched. Every new placement goes through the rules a booking does (compatibility,
+  availability with its one override, child/therapist/room conflicts), all or nothing,
+  each moved occurrence audited as `appointment.updated` and the operation once as
+  `appointment_series.updated` (now with `weekday`). An occurrence that has not started is
+  never moved to an instant that has passed (`RECURRENCE_OCCURRENCE_IN_PAST`, 422).
+  `POST /appointment-series/:id/update-from/preview` (`appointment.update`) takes the same
+  body and returns `seriesUpdatePreviewResponseSchema`, computed by the same `targetOf`.
+  Changing the service stays "end the series and start a new one".
+- **Alternatives:** shifting every date by the pivot's day difference (the same result
+  when the move stays in one week, but undefined for an occurrence moved individually to
+  another weekday); new series plus cancel-from (the fake cancellation the owner ruled
+  out).
+- **Trade-off:** the series row keeps its original rule: `startsOn` and an `endsOn` bound
+  can be a few days off the moved occurrences (the bound was enforced when the
+  occurrences were generated; nothing extends a series).
+- **Revisit when:** a series needs two weekdays, or extending a series becomes a request.
+
+## 2026-10-18 — Scheduling refusals explain themselves
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (owner decisions T-024, T-025)
+
+- **Decision:** the three conflict codes are unchanged (the code is the first busy
+  dimension, in the order child, therapist, room) and now carry
+  `appointmentConflictDetailsSchema`: every busy dimension with every session in the way
+  (`resource`, `resourceId`, `appointmentId`, `startsAt`, `endsAt`). The check under the
+  advisory keys asks all three at once (`SchedulingRules.findConflicts`); a refusal the
+  exclusion constraint raises after a lost race is described the same way — the write runs
+  under a savepoint, is rolled back to it, and the question is asked again.
+  `APPOINTMENT_OUTSIDE_AVAILABILITY` carries `availabilityRefusalDetailsSchema`: `reason`
+  (`CLOSED_DAY`, then `PARTIAL_CLOSURE` when a closed range overlaps the session, else
+  `OUTSIDE_WORKING_HOURS`), the date and times, the resolved windows and closed ranges,
+  and `overridable` for this caller. The same for moves, series creation and update-from;
+  both previews carry `outsideAvailabilityReason` and `conflicts` per occurrence.
+- **Alternatives:** one `APPOINTMENT_CONFLICT` code (rejected in M4: each is fixed by a
+  different field); describing only what the constraint named (the receptionist then fixes
+  one field and is refused again).
+- **Trade-off:** one more read per booking; if the winner of a race is gone again by the
+  time the loser re-asks, the refusal has its code and no details.
+- **Revisit when:** a conflict needs the other family's name, which these details
+  deliberately do not carry.
+
+## 2026-10-18 — A public request's child age is 0 to 99
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (owner decision T-018)
+
+- **Decision:** `PUBLIC_REQUEST_MAX_CHILD_AGE_YEARS` is 99 (was 120): whole years, 0–99, on
+  new submissions. The column CHECK (0–120) and the staff read schema (no upper bound)
+  are unchanged, so stored requests read, list and erase exactly as before. No migration.
+- **Revisit when:** the clinic wants an eligibility bound, which this is still not.
+
+## 2026-10-18 — The system assigns every public address
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (owner decision T-010, revised). Supersedes
+the "may be corrected before publication" part of 2026-08-21 and makes 2026-10-16 "A
+service is public only with an address" true by construction.
+
+- **Decision:** `service`, `therapist` and `public_article` addresses are assigned by
+  PostgreSQL as the column default, `next_public_slug(table)`: eight characters from
+  `23456789bcdfghjkmnpqrstvwxz` (digits without 0/1, consonants without l — nothing reads
+  as another character and no word forms), randomness from `gen_random_uuid`, redrawn
+  until free in that table; ≈2.8 × 10¹¹ per table. The columns are `NOT NULL`, and
+  `enforce_public_slug_stability()` now refuses any change or clearing once an address is
+  assigned (it used to allow corrections before publication). Rows are never deleted and
+  each table's address is unique, so an address can never be released and reused. The
+  service, therapist-profile and article requests no longer accept `publicSlug`
+  (`VALIDATION_FAILED`); responses carry it, so the manager sees it. Spaces and
+  testimonials have no address and are unchanged.
+- **Migration** `20261018090000_m10_a10_assigned_public_addresses` — non-destructive,
+  rollback class **restore** (runbook 18.3: it tightens a trigger and a column). Every
+  existing address stays as it is, published or not. Rows without one get one, one
+  statement per row. A Milestone 2 service flagged public with no address (never on the
+  site) is made private first, so the migration publishes nothing; every changed row gets
+  a SYSTEM audit row in its form's action (`service.updated`,
+  `therapist.public_profile_updated`) naming the migration. Proved on a pre-A10 database
+  with the four legacy shapes (`docs/M10_A10_WEB_HANDOFF.md` §7).
+- **Alternatives:** a readable transliteration of the Persian name (ambiguous, and stale
+  the day the name changes while the address cannot); a sequence per kind (short, but it
+  publishes how many drafts exist); a registry table of retired addresses (unneeded while
+  rows are undeletable and addresses immutable).
+- **Trade-off:** addresses carry no meaning; `SERVICE_PUBLIC_ADDRESS_REQUIRED` and
+  `PUBLIC_SLUG_TAKEN` are now unreachable from the API (codes are never removed);
+  `PUBLIC_SLUG_IMMUTABLE` remains for a write that reaches the trigger.
+- **Revisit when:** the owner wants readable addresses — then as an alias table with
+  redirects, never by changing an assigned address.
+
+## 2026-10-18 — Overlapping writes serialise on a scope lock
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (follow-up from M10-A9)
+
+- **Decision:** PostgreSQL checks an exclusion constraint after writing the new index
+  entry, so simultaneous conflicting inserts can deadlock (40P01), which reached callers as 500. Measured with a barrier race on `tariff` (4 writers × 40 rounds): 57 of 120 losers
+  deadlocked; with a transaction advisory lock on the scope taken just before the insert,
+  none did — every loser got 23P01. `lockScope` (`common/scope-lock.ts`) is now taken by:
+  tariff creation (`tariff-scope:<service>:<duration>:<therapist|general>`, after the
+  service, therapist and superseded-tariff locks), share-rule creation
+  (`share-rule:<therapist>`), and booking/moving/series placement (`therapist-schedule:`
+  then `room-schedule:` after the child keys). The loser waits, then meets the winner's
+  row in the constraint: `TARIFF_OVERLAP`, `SHARE_RULE_OVERLAP`, or the conflict codes.
+  Proved by `overlap-races.int-spec.ts` (barrier per round, 12 rounds × 3 writers per
+  path): without the lock the tariff and share-rule races fail, with it all pass.
+- **Checked and already safe:** availability windows and exceptions (all four exclusion
+  constraints) — the therapist row is taken `FOR UPDATE` first; settlement periods — an
+  advisory lock per therapist since M8. The appointment race did not reproduce even
+  without the new keys; they are kept because it is the same constraint mechanism.
+- **Alternatives:** translating 40P01 into the overlap code (a deadlock is not proof of an
+  overlap); `FOR UPDATE` on the service or therapist row (would also serialise unrelated
+  bookings and deactivations); retrying on 40P01 (hides the cause).
+- **Trade-off:** writers of one scope — one therapist's diary, one room's — wait for each
+  other for the length of the transaction (a 52-week series holds them while it books).
+- **Revisit when:** booking throughput per therapist matters, which it does not at one clinic.
+
+## 2026-10-18 — The test clock: no tolerance needed
+
+**Status:** Accepted — Agent A, Milestone 10 A10 (clock follow-up to M10-A9)
+
+- **Decision:** with the Windows Time service running (owner, 2026-10-18), the Node–database
+  offset measured over a warm connection was within −6…+15 ms (median 0–1 ms, three runs of
+  40 samples), and `payment-void` passed 3/3 in UTC and 3/3 in Tehran time. No tolerance
+  was added to its "void instant between two Node readings" comparison, and no other
+  assertion changed. In production Node and PostgreSQL read one host clock.
+- **Revisit when:** that test fails again with a measured sub-second offset — then a bound
+  of the measured offset plus the round trip on that one comparison only.

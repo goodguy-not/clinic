@@ -2255,6 +2255,11 @@ see [Integration tests](#integration-tests) for the disposable-database setup:
 DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_test?schema=public' TEST_OWNER_DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory> pnpm test:int
 ```
 
+On Windows with Docker Desktop, write `127.0.0.1` rather than `localhost` in both
+URLs: `localhost` tries IPv6 first and each new connection then takes about two
+seconds, longer than Prisma waits to start a transaction, and the concurrency
+suites fail with `P2028` ("Unable to start a transaction in the given time").
+
 `INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are here because the operator CLI
 suites build a real NestJS context, which validates the whole API environment.
 The HTTP suites do not read either: the harness supplies its own synthetic key
