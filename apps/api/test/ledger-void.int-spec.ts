@@ -7,7 +7,7 @@ import {
   signIn,
 } from './appointments-support';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import {
   chargeRowsFor,
   insertAdjustment,
@@ -52,7 +52,7 @@ describe('session charge void and lifecycle reversal guards', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedPostedSession(harness);
   });
 
@@ -659,7 +659,7 @@ describe('session charge void and lifecycle reversal guards', () => {
       // reaches the table.
       expect(
         await sqlStateOf(
-          harness.prisma
+          ownerPrisma()
             .$executeRaw`DELETE FROM session_charge WHERE id = ${session.chargeId}::uuid`,
         ),
       ).toBe('23001');

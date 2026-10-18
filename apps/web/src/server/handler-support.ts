@@ -7,7 +7,7 @@ import { WEB_ONLY_ERROR_CODES, type DisplayableCode } from './errors-fa';
 import { csrfCopiesMatch, verifyCsrfToken, type CsrfBinding } from './csrf';
 import { assertBrowserWriteAllowed, OriginRejectedError } from './origin';
 import { verifySessionCookie } from './session-cookie';
-import { applySecurityHeaders, secureRedirect } from './security-headers';
+import { applySecurityHeaders, relativeRedirect, secureRedirect } from './security-headers';
 
 /**
  * The checks every state-changing Route Handler performs, in one place.
@@ -132,14 +132,19 @@ export function guardStateChanging(
  * rendering it, so the parameter cannot inject text into the page.
  */
 export function failureRedirect(
-  request: NextRequest,
+  _request: NextRequest,
   path: `/${string}`,
   code: DisplayableCode,
+  details?: unknown,
 ): NextResponse {
-  const target = new URL(path, new URL(request.url).origin);
+  const target = new URL(path, 'https://unused.invalid');
   target.searchParams.set('error', code);
+  if (details !== undefined) {
+    const encoded = JSON.stringify(details);
+    if (encoded.length <= 6000) target.searchParams.set('detail', encoded);
+  }
 
-  return applySecurityHeaders(NextResponse.redirect(target, 303));
+  return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
 }
 
 export function isKnownErrorCode(value: string | null): value is DisplayableCode {

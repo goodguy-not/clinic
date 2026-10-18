@@ -69,7 +69,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const cookies = cookieConfig();
   const { sessionToken, session, user } = result.data;
 
-  const response = secureRedirect(request, user.mustChangePassword ? '/change-password' : '/');
+  const response = secureRedirect(
+    request,
+    user.mustChangePassword ? '/change-password' : '/dashboard',
+  );
 
   // `cookieMaxAgeSeconds` is used verbatim. It was computed by PostgreSQL from
   // `absolute_expires_at - clock_timestamp()` minus a safety margin; deriving it

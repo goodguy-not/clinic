@@ -8,7 +8,8 @@ Persian RTL rehabilitation-clinic platform.
 
 See [CLAUDE.md](CLAUDE.md) for the architecture boundary and non-negotiable domain rules,
 [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for product rules, and
-[docs/DECISION_LOG.md](docs/DECISION_LOG.md) for accepted decisions.
+[docs/DECISION_LOG.md](docs/DECISION_LOG.md) for accepted decisions. Installing a server:
+[docs/DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md).
 
 ## Prerequisites
 
@@ -82,12 +83,13 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-| Endpoint                           | Purpose                                       |
-| ---------------------------------- | --------------------------------------------- |
-| `http://localhost:3001/health`     | API liveness; does not touch the database     |
-| `http://localhost:3001/health/db`  | Database reachability; needs the internal key |
-| `http://localhost:3000/api/health` | Web health, including API reachability        |
-| `http://localhost:3000/login`      | Sign in                                       |
+| Endpoint                             | Purpose                                         |
+| ------------------------------------ | ----------------------------------------------- |
+| `http://localhost:3001/health`       | API liveness; does not touch the database       |
+| `http://localhost:3001/health/ready` | Readiness: database and media directory; no key |
+| `http://localhost:3001/health/db`    | Database reachability; needs the internal key   |
+| `http://localhost:3000/api/health`   | Web health, including API reachability          |
+| `http://localhost:3000/login`        | Sign in                                         |
 
 The development database is published on host port **5433**, not 5432, so it does not
 collide with a locally installed PostgreSQL.
@@ -114,7 +116,37 @@ pnpm test:int
 
 It requires `DATABASE_URL` pointing at a disposable database — see
 [Integration tests](#integration-tests). CI runs both
-(see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
+(see [.github/workflows/ci.yml](.github/workflows/ci.yml)), but **CI is not a gate for this
+project** (owner decision, 2026-09-26): the required evidence is a local full run with its
+output.
+
+**Run the integration suite in two timezones before a milestone closes.** The production
+server runs in UTC; the clinic's business time is Asia/Tehran, and every business date is
+decided in Tehran explicitly in SQL (`clinic_date`, `clinic_day_start`, `clinic_moment`,
+`clinic_clock_time`). So the suite must pass both with the process and the database session
+in UTC — `TZ=UTC`, against a PostgreSQL whose `timezone` setting is its default `UTC` (a
+container started without `TZ`) — and in local Tehran time. `clinic-time-boundaries.int-spec.ts`
+additionally forces the database session into `Pacific/Kiritimati` and follows sessions
+either side of Tehran midnight, at a Gregorian month end and at the Jalali new year, through
+the diary, the posted charge and the session report.
+
+**The host clock must be correct.** Several suites compare an instant the test reads from
+Node (`Date.now()`) with one PostgreSQL wrote (`transaction_timestamp()`), and on Windows
+Node runs on the host while the database runs in the WSL/Docker VM — two clocks. Keep
+Windows' "Set time automatically" on (the Windows Time service, `w32time`, running) and the
+time zone correct. Before a full run, compare the two:
+
+```bash
+date -u && docker exec <test database container> date -u
+```
+
+They must show the same second. A skew of hours (a wrong Windows time or zone) fails
+`families-duplicates`, `payment-void` and `promise-create` outright, and a clock that steps
+backwards mid-run can fail `clinic-simulation` on the promise-successor trigger. The
+narrowest check, `payment-void`'s "the void instant falls between two Node readings", fails
+on any skew larger than the request's own duration — tens of milliseconds — which the VM
+can show for a while after the Windows clock is corrected. If only that test fails, measure
+the skew before suspecting the code.
 
 ## Architecture boundary
 
@@ -146,6 +178,608 @@ pnpm db:down
 
 Credentials in `docker-compose.yml` are synthetic and local-only. Production secrets never
 live in Git. Never use real clinic data in development, tests, seeds, or logs.
+
+The API does not connect as the container's superuser. Provision the runtime role once,
+migrate as the owner, then run the API as the runtime role — see
+[Database roles](#database-roles):
+
+```bash
+docker exec -i clinic-db psql -U clinic -d postgres -v database=clinic_dev -v runtime_password=clinic_app_dev_only -f - < apps/api/prisma/provision-roles.sql
+```
+
+```bash
+DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
+```
+
+Locally the container superuser `clinic` stays the owner of `clinic_dev`, because an
+existing development database already has every object owned by it. `.env` names
+`clinic_app`, the runtime login.
+
+## Database roles
+
+Milestone 10, checkpoint A1. **The API never connects as the owner of the schema.** An
+owner can `DROP`, `TRUNCATE` and `ALTER TABLE ... DISABLE TRIGGER`, so every append-only,
+immutability and erase-in-place guarantee in this schema would be one statement away from
+gone for anybody who could make the API run SQL.
+
+| Role             | Login | Owns                          | Used by                                                                   |
+| ---------------- | ----- | ----------------------------- | ------------------------------------------------------------------------- |
+| `clinic_owner`   | yes   | the database and every object | `prisma migrate deploy` only — and, in tests, the between-test reset      |
+| `clinic_runtime` | no    | nothing                       | holds the grants; no password, cannot sign in                             |
+| `clinic_app`     | yes   | nothing                       | member of `clinic_runtime`: the API server and every operator CLI command |
+| `clinic_backup`  | yes   | nothing                       | member of `pg_read_all_data` only: `scripts/backup/backup.sh`             |
+
+`clinic_runtime` is referenced by name in migrations; the two login names are conventions.
+A second login — say a separately attributable one for the CLI — needs only
+`GRANT clinic_runtime TO <login>`.
+
+### What each process connects as
+
+| Process                                                      | `DATABASE_URL` names |
+| ------------------------------------------------------------ | -------------------- |
+| `prisma migrate deploy` / `migrate status` / `migrate diff`  | `clinic_owner`       |
+| API server (`node dist/main.js`)                             | `clinic_app`         |
+| `cli bootstrap-manager`, `cli reset-password`                | `clinic_app`         |
+| `cli purge-website-requests` (the ninety-day erase-in-place) | `clinic_app`         |
+| `cli run-jobs` (the nightly jobs, Milestone 10 A3)           | `clinic_app`         |
+| Synthetic clinic seeder (development only)                   | `clinic_app`         |
+| Integration tests — the API under test                       | `clinic_app`         |
+| Integration tests — the reset (`TEST_OWNER_DATABASE_URL`)    | `clinic_owner`       |
+| `scripts/backup/backup.sh` (`BACKUP_DATABASE_URL`)           | `clinic_backup`      |
+| `scripts/backup/restore.sh` into an empty database           | `clinic_owner`       |
+
+Every CLI command runs through the same NestJS services as the API and needs nothing the
+API does not. The nightly jobs (Milestone 10, checkpoint A3; [Scheduled jobs](#scheduled-jobs))
+added exactly two privileges, each narrowed by a trigger to the one act a job performs:
+`DELETE` on `user_session` (only sessions over for thirty days) and `UPDATE` on
+`media_rendition` (only the erasure of a photograph that is due).
+
+### The privilege matrix
+
+Migration `20260925120000_m10_a1_runtime_role` grants, derived from the statements the
+application actually runs, as widened by `20260926090000_m10_a3_scheduled_jobs_and_erasure`
+for the nightly jobs:
+
+| Privileges                  | Tables                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SELECT, INSERT              | `audit_log`, `settlement_period`, `settlement_line` — append-only                                                                                                                                                                                                                                                                                                                                                                   |
+| SELECT, UPDATE              | `clinic_public_profile`, `clinic_content_entry`, `scheduled_job` — rows created by migrations                                                                                                                                                                                                                                                                                                                                       |
+| SELECT, INSERT, DELETE      | `therapist_service`, `room_service`, `service_duration`, `therapist_availability`, `therapist_availability_exception`, `guardian` — replaced by delete-and-insert                                                                                                                                                                                                                                                                   |
+| SELECT, INSERT, UPDATE, DEL | `registration_draft` — transient, consumed and removed; `user_session` — DELETE only of a session over for 30 days (trigger)                                                                                                                                                                                                                                                                                                        |
+| SELECT, INSERT, UPDATE      | every other table: users, catalog, families and children, appointments and series, charges, adjustments, payments, promises, share rules, ratings, public content, website requests, media assets and attachments; `media_rendition`, whose only permitted UPDATE is the erasure of a due photograph (trigger). Their immutable columns stay guarded by their own triggers; `appointment_series` holds UPDATE only for `FOR UPDATE` |
+| USAGE                       | `child_file_number_seq` — `nextval`, never `setval`                                                                                                                                                                                                                                                                                                                                                                                 |
+| nothing                     | `_prisma_migrations`; `TRUNCATE`, `REFERENCES` and `TRIGGER` on anything; `CREATE` on the schema or database; `TEMPORARY`                                                                                                                                                                                                                                                                                                           |
+
+So every historical table — money above all — refuses `DELETE` twice: by privilege for the
+runtime, and by its own trigger for anybody who does hold the privilege. Where the runtime
+may `UPDATE` a table with immutable columns (a charge, a payment, a published slug, an
+erased website request), the table's own trigger still refuses the forbidden change, exactly
+as before; the difference is that the runtime can no longer switch it off.
+`runtime-role.int-spec.ts` pins this matrix exactly and proves, from the API's own
+connection, that DDL, `TRUNCATE`, disabling or dropping any trigger or constraint,
+`session_replication_role`, `SET ROLE` to the owner and every domain-forbidden `DELETE` are
+refused.
+
+**Adding a table:** grant it in the same migration that creates it, and add it to
+`EXPECTED_TABLE_PRIVILEGES` with its reason. There are deliberately no default privileges —
+a default would hand every future table the widest shape without anybody deciding it — so a
+table added without a decision fails CI rather than failing in production.
+
+### Provisioning a deployment
+
+Once per cluster and database, by whoever administers PostgreSQL (a superuser or a
+`CREATEROLE` administrator), **before** the first migration. Passwords arrive as psql
+variables, typed or piped from the deployment's secret store — never written into the
+repository, a migration or a committed file:
+
+```bash
+psql -h <host> -U <administrator> -d postgres -v database=<database> -v owner_password=<secret> -v runtime_password=<secret> -f apps/api/prisma/provision-roles.sql
+```
+
+It creates `clinic_owner` (`NOSUPERUSER`, `NOCREATEROLE`), the database owned by it,
+`clinic_runtime` (`NOLOGIN`) and `clinic_app`, and revokes `CONNECT` and `TEMPORARY` on
+the database from `PUBLIC`. Re-running it is safe and is how a password is rotated. Then:
+
+1. migrate as the owner — `DATABASE_URL=<clinic_owner URL> prisma migrate deploy`. The
+   runtime migration refuses to run if `clinic_runtime` is missing, holds a cluster
+   attribute, or could become the migrating role;
+2. give the API and CLI processes the `clinic_app` URL, and no other. The owner's URL
+   belongs only to the migration step's environment.
+
+A PostgreSQL 13 or later server is required (`btree_gist` must be a trusted extension so a
+non-superuser owner can create it). Managed services whose "admin" user is not a superuser
+work unchanged.
+
+## Backup and restore
+
+Milestone 10, checkpoint A2. **The database and the media directory are backed up
+together or not at all, a backup is only trusted once a restore of it has been
+verified, and a restore only accepts an archive this clinic's server produced.**
+`scripts/backup/drill.sh` proves the whole cycle on every CI run (the `restore-drill`
+job).
+
+**Owner decisions** (DECISION_LOG, 2026-09-26): a backup **every night**, kept **30
+days**, on the server and on a **clinic computer that collects them automatically**,
+plus a **monthly copy to an external drive** kept by the manager. Cloud object storage
+may be added before public launch, as configuration.
+
+**Assumed:** the server is Linux with systemd and OpenSSH; the clinic computer is
+Windows 10 or 11 with the built-in OpenSSH client. Neither is decided by the hosting
+choice yet.
+
+### What one backup is
+
+`backup.sh` writes one file, `clinic-backup-<UTC time>.tar.gpg`, plus a `.sha256`
+beside it for checking a copy without the key. The file is **signed by the server's
+own key and encrypted to the owner's key**. Inside the encryption:
+
+| Member                   | What it is                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `FORMAT`                 | `clinic-backup/1`                                                                                                             |
+| `database.dump`          | `pg_dump --format=custom` of the whole database, including `_prisma_migrations`, every trigger, constraint and grant          |
+| `manifest/meta.txt`      | snapshot time, database, server and pg_dump versions, latest migration, backup login, encryption and signing key fingerprints |
+| `manifest/tables.txt`    | every table's row count and a row-order-independent checksum of its contents                                                  |
+| `manifest/sequences.txt` | every sequence's position                                                                                                     |
+| `manifest/schema.txt`    | every trigger (and whether it is enabled), constraint, index, function (body digest, pinned settings) and non-owner privilege |
+| `manifest/media.sha256`  | every stored file a row refers to, with the SHA-256 recorded in that row                                                      |
+| `media/`                 | exactly those files, at their storage keys                                                                                    |
+
+**Why the pair is consistent.** One `REPEATABLE READ` snapshot is exported,
+`pg_dump --snapshot` reads it, and the manifest is computed in the same snapshot —
+so the file list is exactly what the dumped rows refer to. The API writes a file
+before the row naming it commits, so each listed file already exists; the one thing
+that deletes a stored file — the nightly media erasure — must first take an advisory
+lock the backup holds from before its snapshot until its last file is copied, so each
+listed file still exists when it is copied ([Media erasure never breaks a
+backup](#media-erasure-never-breaks-a-backup)); the script then **checks**
+that, copying each one and comparing its hash with its row. A missing or altered
+file stops the backup before anything is written. Files no committed row names
+(a failed or in-flight upload) are not archived: they are not part of any
+restorable state.
+
+**Encryption.** To the owner's OpenPGP **public** key. The server never holds the
+private key, so neither it, the clinic computer, the external drive nor anybody who
+copies any of them can read a backup.
+
+**Authenticity.** Anybody with the owner's public key can encrypt a file to it, so
+encryption proves nothing about where an archive came from. Every archive is also
+**signed** with a key that exists only on the server, and `restore.sh` refuses any
+archive without a good signature from the key in `RESTORE_SIGNER_KEY_FILE` — the
+server's _public_ signing key, kept off-server with the decryption key. A file
+planted on the clinic computer or the external drive, even correctly encrypted, is
+refused before anything is restored.
+
+### Configuration
+
+Environment only, from a file only `root` and the backup user can read.
+
+| Variable                    | Required | Purpose                                                                                                                     |
+| --------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `BACKUP_DATABASE_URL`       | yes      | The `clinic_backup` login. The script refuses any login that could write, own, create or become another.                    |
+| `MEDIA_STORAGE_DIR`         | yes      | The API's media root, read only.                                                                                            |
+| `BACKUP_DESTINATION_DIR`    | yes      | The server's local backup directory. Never created by the script.                                                           |
+| `BACKUP_RECIPIENT_KEY_FILE` | yes      | The owner's public key file. A file holding a private key is refused.                                                       |
+| `BACKUP_SIGNING_KEY_DIR`    | yes      | A GnuPG home holding exactly one secret key: the server's signing key.                                                      |
+| `BACKUP_RETENTION_DAYS`     | yes      | `30`. After a successful backup, archives in the destination older than this are removed.                                   |
+| `BACKUP_WORK_DIR`           | no       | Where the plaintext staging directory is made (default `$TMPDIR`). Removed on exit; needs room for one dump plus the media. |
+
+Requirements on the host: bash, PostgreSQL client tools **16 or later and at least the
+server's major version**, GnuPG 2.2+, GNU tar and coreutils.
+
+### Setting up the server
+
+Users and directories (names are the defaults the systemd units use):
+
+| What                                   | Owner : group                    | Mode   | Who can do what                                                      |
+| -------------------------------------- | -------------------------------- | ------ | -------------------------------------------------------------------- |
+| `clinic-backup` (system user)          | member of the API's group        | —      | runs `backup.sh`; reads the media; writes the backup directory       |
+| `clinic-collector` (system user)       | its own group, `clinic-collect`  | —      | key-only SSH login for the clinic computer; no password, no DB       |
+| `/var/backups/clinic`                  | `clinic-backup : clinic-collect` | `2750` | the archives (`0640`): the collector can read, never write or delete |
+| `/var/lib/clinic-backup/signing-gnupg` | `clinic-backup`                  | `0700` | the server's signing key                                             |
+| `/var/lib/clinic/backup-status`        | `clinic-collector : <API group>` | `2750` | the collector writes its acknowledgement; the API reads it           |
+
+The collector login has no database role, is not in the API's group (so it cannot
+read the media), and cannot write to the backup directory: even if it escaped its
+forced command it could not delete or alter a backup.
+
+1. **Provision the backup login** (once; needs a superuser, or an administrator
+   holding `pg_read_all_data WITH ADMIN OPTION`). Re-running rotates its password:
+
+   ```bash
+   psql -h <host> -U <administrator> -d postgres -v database=<database> -v runtime_password=<secret> -v backup_password=<secret> -f apps/api/prisma/provision-roles.sql
+   ```
+
+   `clinic_backup` is a member of `pg_read_all_data` only — `SELECT` and schema
+   `USAGE`, never a write — and its sessions are read-only by default.
+
+2. **The owner's key pair** — on a trusted computer that is **not** the server, with
+   a passphrase. Only the public half goes to the server:
+
+   ```bash
+   gpg --quick-gen-key "Clinic backups" default default never
+   ```
+
+   ```bash
+   gpg --armor --export "Clinic backups" > clinic-backup-public.asc
+   ```
+
+3. **The server's signing key** — on the server, as `clinic-backup`, with no
+   passphrase (it must sign unattended), then its **public** half is exported and
+   handed to the owner to keep with the decryption key:
+
+   ```bash
+   sudo -u clinic-backup gpg --homedir /var/lib/clinic-backup/signing-gnupg --batch --passphrase '' --quick-gen-key "Clinic server backup signing" ed25519 sign never
+   ```
+
+   ```bash
+   sudo -u clinic-backup gpg --homedir /var/lib/clinic-backup/signing-gnupg --armor --export > clinic-server-signing-public.asc
+   ```
+
+4. **Run once by hand** and keep the output — through the service unit, so it
+   runs as `clinic-backup` with `/etc/clinic/backup.env` exactly as it will every
+   night: install `scripts/backup/systemd/clinic-backup.service` and
+   `clinic-backup.timer` in `/etc/systemd/system/`, adjust the paths, then
+   `systemctl start clinic-backup` and `journalctl -u clinic-backup`.
+
+5. **Nightly.** `systemctl enable --now clinic-backup.timer`. The timer runs at 02:30 Tehran time,
+   and `Persistent=true` runs a missed backup at the next boot. A failure exits
+   non-zero with the reason on stderr (`journalctl -u clinic-backup`); the manager
+   sees the consequence as a stale off-site copy within three days (below).
+
+### The clinic collector
+
+The clinic computer **pulls**: it is behind the clinic's router and is not always on,
+so the server cannot reach it, and a pull needs no inbound port at the clinic.
+
+**On the server**, once:
+
+1. Put the collector's public key (printed by the Windows install, below) in
+   `~clinic-collector/.ssh/authorized_keys`, exactly as one line. The file, its
+   directory and that home are owned by `root` (readable by `clinic-collect`), so
+   the login cannot rewrite its own restriction (docs/DEPLOYMENT_RUNBOOK.md, step 15):
+
+   ```text
+   restrict,command="env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh" ssh-ed25519 AAAA... clinic-collector@<computer>
+   ```
+
+2. Pin the same restriction in `sshd_config`, so a key added later without it is
+   still forced:
+
+   ```text
+   Match User clinic-collector
+       AuthenticationMethods publickey
+       DisableForwarding yes
+       PermitTTY no
+       ForceCommand env BACKUP_DESTINATION_DIR=/var/backups/clinic BACKUP_STATUS_DIR=/var/lib/clinic/backup-status /srv/clinic/scripts/backup/collector-serve.sh
+   ```
+
+`collector-serve.sh` answers exactly three requests — `list`, `get <archive>`, `ack
+<archive>` — and refuses everything else, including any name that is not a generated
+archive name.
+
+**On the clinic computer**, once, as Administrator (clinic staff do nothing,
+before or after). Read the server's host key fingerprint on the server first
+(`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`), then:
+
+```powershell
+.\scripts\backup\collector\install-collector.ps1 -Server <server address> -HostKeyFingerprint 'SHA256:<from the server>' -ManagerAccount '<manager Windows account>'
+```
+
+It creates the key and settings in `%ProgramData%\ClinicBackupCollector` (SYSTEM and
+Administrators only), pins the host key, and registers a scheduled task that runs as
+SYSTEM two minutes after every start-up and every hour while the computer is on —
+signed in or not — and catches up on missed runs. Each run downloads any backup it
+lacks to `<name>.partial`, checks its SHA-256, renames it into `C:\ClinicBackups`,
+tells the server the newest one it holds, and removes its own copies older than 30
+days (never the newest). Interrupted or repeated runs are harmless. Its log is
+`C:\ClinicBackups\collector.log`.
+
+**Monthly, the manager** copies the newest `clinic-backup-*.tar.gpg` from
+`C:\ClinicBackups` to the external drive, **replacing** last month's, and keeps the
+drive away from the clinic.
+
+### When the off-site copy is stale
+
+`GET /operations/backup-status` (manager-only, `user.read`; no new permission) reports
+how old the newest backup the clinic computer holds is, measured from when that backup
+was **taken** — so a server that stopped backing up and a computer that stopped
+collecting both show as the same warning. More than **72 hours** is `STALE`; no
+collector configured, nothing collected yet, or an unreadable status are warnings
+too. The API reads one file, `$BACKUP_STATUS_DIR/offsite-collection`, and nothing
+else. The dashboard banner is the web tier's
+(`docs/M10_A2_BACKUP_STATUS_WEB_HANDOFF.md`).
+
+### What must be kept off the server
+
+In plain words, for the owner:
+
+| What                                                                     | Who keeps it                   | Copies                                         | If it is lost                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **The backup key** (the private key file)                                | the owner                      | 2, in two different places (not at the clinic) | **Every backup becomes unreadable, forever.** Nobody — not the developers — can recover it. Make a new key and keep backing up; everything before is gone. If it is **stolen together with its passphrase**, anybody holding a backup can read it: make a new key at once.           |
+| **The key's passphrase**                                                 | the owner                      | 2, stored apart from the key                   | Same as losing the key.                                                                                                                                                                                                                                                              |
+| **The server's public signing key** (`clinic-server-signing-public.asc`) | the owner, with the backup key | 2, with the two copies of the key              | A restore refuses every archive, because it cannot confirm they came from the clinic's server. It is not secret: re-export it from the server if the server still exists; if the server is gone too, backups cannot be restored without a developer deliberately removing the check. |
+| **The clinic computer's backups** (`C:\ClinicBackups`)                   | automatic                      | the last 30 days                               | The server still has its own 30 days, and the drive has one monthly copy. The manager sees a stale warning within three days.                                                                                                                                                        |
+| **The external drive**                                                   | the manager                    | 1, replaced monthly                            | Only the monthly fallback is lost. It is encrypted: a lost or stolen drive reveals nothing without the backup key. Tell the owner.                                                                                                                                                   |
+
+Nothing else is needed to restore: database passwords, the internal API key and the
+cookie secret are created fresh on the new server.
+
+### Restoring (runbook)
+
+Into an **empty** environment only — a replacement server, or a fresh database and
+media directory beside the old ones. Going back from a failed upgrade restores on the same
+server, with the live database set aside first: `docs/DEPLOYMENT_RUNBOOK.md`, step
+18.2, through `scripts/ops/restore-on-server.sh`. `restore.sh` refuses a database that holds
+anything and a media directory that is not empty, so it cannot merge into or
+overwrite a live system.
+
+1. **Take the newest archive** from wherever it survives — the server, the clinic
+   computer, the external drive.
+2. **Use the release that took the backup.** `manifest/meta.txt` names its latest
+   migration; `verify.sh` refuses when the checkout's migrations differ. Upgrade only
+   after the restore is verified. Install dependencies (`pnpm install
+--frozen-lockfile`) and build as for a deployment.
+3. **Provision roles and an empty database**, exactly as for a new deployment, with
+   new passwords ([Provisioning a deployment](#provisioning-a-deployment)). Do
+   **not** run `prisma migrate deploy` — the migration history comes from the backup.
+4. **Make the two off-server keys available**: import the backup key into the
+   operator's GnuPG (or point `GNUPGHOME` at a keyring holding it) and copy the
+   server's public signing key file. Remove the private key from this machine
+   afterwards.
+5. **Restore**, as the user the API will run as (so the media files are its own):
+
+   ```bash
+   RESTORE_OWNER_DATABASE_URL=<clinic_owner URL> RESTORE_RUNTIME_DATABASE_URL=<clinic_app URL> MEDIA_STORAGE_DIR=<new, empty media root> RESTORE_SIGNER_KEY_FILE=<clinic-server-signing-public.asc> scripts/backup/restore.sh <archive>
+   ```
+
+   It checks the target is empty, decrypts the whole archive and checks its
+   signature and contents, restores the database **in one transaction** (complete
+   or not at all) and copies the media — readable by the API's group, through which
+   the backup user reads it — then runs `verify.sh`. It must end with
+   `RESTORE VERIFIED`. Any failure after the database step means: discard this
+   target and start again from step 3.
+
+6. **Re-apply erasures that happened after the backup was taken** — the backup
+   still holds website requests, photographs and testimonials the nightly jobs have
+   since erased. Run every job once; each one is safe to run at any time:
+
+   ```bash
+   pnpm --filter @clinic/api exec node dist/cli/main.js run-jobs
+   ```
+
+   It must print four `SUCCEEDED` lines. A testimonial withdrawal recorded after the
+   backup was taken is not in it: ask the manager to record it again.
+
+7. **Start the API**, and check it is ready — the database answers and the media
+   directory takes a write — with no credential:
+
+   ```bash
+   curl -fsS http://127.0.0.1:<API_PORT>/health/ready
+   ```
+
+   It must answer `{"status":"ok","checks":{"database":"ok","media":"ok"}}`. **Then
+   build and start the web** against it. Public listing pages
+   are prerendered at build time and revalidated every fifteen minutes; a web built
+   while the API was unreachable shows empty listings until then.
+
+8. **Check the live site** — every public page within two links of the home page
+   answers, every image they reference is served, and a colleague can sign in, reach
+   the dashboard and sign out (a real, audited sign-in; the password is read from
+   stdin):
+
+   ```bash
+   VERIFY_WEB_URL=<site origin> VERIFY_STAFF_USERNAME=<username> node scripts/backup/verify-site.mjs
+   ```
+
+   Set `VERIFY_MIN_PUBLIC_IMAGES=0` only for a clinic with no published photograph.
+
+9. **Set the new server up as in [Setting up the server](#setting-up-the-server)** —
+   with a new signing key, whose public half replaces the old one off-server (keep
+   the old one too, for older archives) — and re-point the clinic computer
+   (`install-collector.ps1` again, with the new host key).
+10. Point traffic at the restored system. Record the archive, the time and both
+    verification outputs.
+
+**What `verify.sh` proves** (it can be re-run against the same archive until the
+restored system takes its first request, because it compares records exactly):
+`prisma migrate status` and `migrate diff` report the schema in sync; every table's
+count and checksum, every sequence, every trigger with its enabled state, every
+constraint, index, function and grant equal the backup's; every file the restored
+rows refer to is on disk with its recorded hash, and the media are readable by their
+group (the next backup reads them that way); every object is owned by the
+non-superuser owner; and, from the API's own login, `TRUNCATE`, deleting a payment
+or a charge, disabling a trigger, `session_replication_role`, `SET ROLE` to the owner,
+DDL and touching the migration history are all refused, while the owner's delete of an
+audit row is refused by its trigger.
+
+### How much can be lost
+
+- **Normally, one day.** The backup runs at 02:30 and the clinic computer collects it
+  when it is next on. Losing the server loses everything entered since the last
+  backup the clinic computer holds: up to about 24 hours, plus however long the
+  computer stayed off after that night.
+- **At most three days before somebody is told.** Past 72 hours the manager is warned.
+  Beyond that the window grows for as long as the warning is ignored.
+- **If the server and the clinic computer are lost together** (both on-site, a fire):
+  up to **one month**, from the external drive — longer if the monthly copy was missed.
+- **Mistakes, not disasters:** a wrong change noticed later can be recovered from any
+  of the last 30 nightly backups, into a separate environment.
+
+There is no point-in-time recovery (WAL archiving): nothing between two nightly
+backups can be recovered.
+
+### How big it gets
+
+Every nightly backup is a **full** copy, so its size is the whole database plus every
+stored photograph. Measured here (synthetic data, compressed as the backup stores it):
+
+- **Records:** about **0.45 KB per appointment** with its charges, payments and audit
+  rows, plus 0.26 MB of schema. A clinic with 30 appointments a day, six days a week,
+  adds about **4 MB a year** — say **10 MB** allowing for richer use than the
+  synthetic data.
+- **Photographs:** each upload is stored as a master and twelve renditions, about
+  **2.4 MB** for a telephone photograph (measured on a synthetic 12-megapixel image;
+  real photographs are usually smaller). These are publicity photographs — portraits,
+  rooms, articles — not clinical ones: perhaps **50–150 a year**, **125–375 MB**.
+
+| After                        | One nightly backup | Server, 30 days (+ one in staging) | Clinic computer, 30 days | Downloaded per night |
+| ---------------------------- | ------------------ | ---------------------------------- | ------------------------ | -------------------- |
+| launch (≈ 30 photographs)    | ~ 80 MB            | ~ 2.5 GB                           | ~ 2.4 GB                 | ~ 80 MB              |
+| one year (≈ 180 photographs) | ~ 450 MB           | ~ 14 GB                            | ~ 13.5 GB                | ~ 450 MB             |
+
+Provision **at least 25 GB** for backups on the server and on the clinic computer for
+the first year, and check again after it: the photographs are what grows. The nightly
+download is the whole backup; if the clinic's connection cannot carry it, that is the
+trigger to revisit (DECISION_LOG).
+
+### Retention and privacy
+
+A backup keeps everything as it was when it was taken, including what the system
+later erases:
+
+- A website request is erased in place ninety days after it is closed (unless it
+  became a family). Every backup taken before that erasure still holds it until the
+  backup is removed: **30 days** on the server and the clinic computer, and **up to
+  about a month** on the external drive, whose copy is replaced monthly. So a request's
+  content can survive about **four months** after it was closed, not three.
+- The same holds for erased photographs (thirty days after upload if never attached,
+  thirty days after archiving) and erased testimonials (within seven days of a
+  withdrawal): each can survive in backups for up to 30 more days, about a month on the
+  external drive — and for every correction's previous value.
+- A restore brings erased content back until `run-jobs` runs again, which is why the
+  runbook runs it before the system is used.
+
+The owner has decided the privacy notice states the backup retention alongside the
+ninety days; the wording is the owner's.
+
+### The drill
+
+```bash
+DRILL_SOURCE_ADMIN_URL=<superuser URL, throwaway cluster> DRILL_TARGET_ADMIN_URL=<superuser URL, a second throwaway cluster> DRILL_WORK_DIR=<empty scratch directory> scripts/backup/drill.sh
+```
+
+After `pnpm build:contracts` and `pnpm --filter @clinic/api build`; needs PowerShell
+(`pwsh`, or Windows PowerShell) for the collector. It builds a synthetic clinic with
+uploaded images through the real API and CLI, backs it up, has the Windows collector
+fetch it through the real forced command (SSH itself is replaced by a local
+stand-in), **destroys the server** — database, roles, media and its own backups —
+provisions an empty target as a new deployment, restores **from the clinic
+computer's copy**, verifies, and runs the site check against the restored system.
+It also proves these are refused loudly: a backup as the owner or as the runtime
+login; a backup while a referenced image is missing; seven requests the collector key
+may not make, with the server's backups byte-for-byte unchanged; the wrong private
+key; a damaged archive; a **planted archive, correctly encrypted but unsigned**; a
+**planted archive signed by another key**; a signed archive missing a referenced
+image; an image lost after restore; and a restore over a database that is not empty.
+Synthetic data only; every password and key is generated for the run.
+
+### Limits
+
+- **The signing key is on the server.** An attacker who controls the server can sign
+  a forged archive; the signature proves an archive came from the clinic's server,
+  not that the server was healthy.
+- The staging directory holds one plaintext dump plus the referenced media while a
+  backup runs, on the same server that already holds both.
+- The database is read while the clinic works; the snapshot is consistent, and
+  PostgreSQL holds only `ACCESS SHARE` locks, so the only thing it blocks is DDL —
+  do not deploy a migration during a backup.
+- The external drive's copy is manual; nothing records whether it was made.
+
+## Scheduled jobs, health and logging (Milestone 10, checkpoint A3)
+
+### Scheduled jobs
+
+Four jobs keep promises nobody should have to remember. `cli run-jobs` runs them in this
+order, one line per job, counts only:
+
+| Job                     | What it does                                                                                                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WEBSITE_REQUEST_PURGE` | the ninety-day erase-in-place of closed, never-linked website requests (Milestone 9, A4)                                                                               |
+| `SESSION_PRUNE`         | deletes staff sessions that ended (expired or revoked) more than 30 days ago                                                                                           |
+| `TESTIMONIAL_ERASURE`   | for each testimonial whose family withdrew consent: erases the words and attribution, and the bytes of every photograph ever attached to it (owner: within seven days) |
+| `MEDIA_ERASURE`         | erases the bytes of a photograph never attached for 30 days, or archived for 30 days (owner decision); then removes anything an interrupted erasure left on disk       |
+
+**Owner decisions** (DECISION_LOG, 2026-09-26): never attached — erased after 30 days;
+archived — restorable for 30 days, then erased; testimonial consent withdrawn — the
+manager takes it off the site at once (`POST /content/testimonials/:id/consent-withdrawal`),
+and the words and photographs are erased within seven days.
+
+**What erasure leaves.** The row, in the `website_request` pattern: the library still lists
+an erased photograph with `bytesPurgedAt`, and it can no longer be attached, published or
+restored (`MEDIA_NOT_FOUND`); a withdrawn testimonial is gone from every staff read, and
+`GET /content/testimonials/consent-withdrawals` lists withdrawals by date only. The audit
+trail has `media.bytes_erased` (with the rule), `public_testimonial.consent_withdrawn` and
+`public_testimonial.content_erased` — never the content. The database refuses an erasure that
+is not due, and makes erasure and withdrawal final.
+
+**Safe to run twice**, concurrently or after a crash: every job re-checks each row under a
+lock, and what it has done no longer matches. `--dry-run` prints how much each job would do
+and writes nothing; `--only <JOB>` runs one.
+
+**Least privilege.** The jobs run as the API's OS user and `clinic_app`, through the same
+services as the API. They added `DELETE` on `user_session` and `UPDATE` on
+`media_rendition` to `clinic_runtime`, each narrowed by a trigger (see [Database
+roles](#database-roles)), and `SELECT, UPDATE` on `scheduled_job`.
+
+**Setting up the server.** Install `scripts/ops/systemd/clinic-jobs.service` and
+`clinic-jobs.timer` in `/etc/systemd/system/`, adjust the user, paths and environment file
+to the API's, then `systemctl enable --now clinic-jobs.timer`. It runs at 04:15 Tehran
+time, after the 02:30 backup; `Persistent=true` runs a missed night at boot. Run it once by
+hand first (`systemctl start clinic-jobs` and `journalctl -u clinic-jobs`). A failed job
+exits non-zero.
+
+**The manager sees it.** Each job that finishes all of its work records when
+(`scheduled_job.last_succeeded_at`, and a `scheduled_job.succeeded` audit row). `GET
+/operations/job-status` (`user.read`, manager-only) reports each job as `OK`, `STALE` (no
+success for 48 hours) or `NEVER_RUN`, beside the backup status; the dashboard banner is the
+Web's (`docs/M10_A3_WEB_HANDOFF.md`).
+
+### Media erasure never breaks a backup
+
+`backup.sql` takes `pg_advisory_lock_shared(4919, 10)` before its snapshot and holds it until
+`copy-media.sh` — run inside the same session — has copied the last file. An erasure takes
+the same lock exclusively before changing a row and commits while holding it, then unlinks
+the files. So no erasure commits while a backup could need its files, and later backups never
+look for them. If a backup is running, the job waits up to 30 minutes, then leaves the rest
+for the next night — that run is `INCOMPLETE` and not a success, so a job that keeps
+colliding shows as `STALE`.
+
+### Health checks
+
+| Route               | Credential   | Answers                                                                                |
+| ------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| `GET /health`       | none         | liveness: the process is up (uptime only)                                              |
+| `GET /health/ready` | none         | `200` or `503`, `{"status","checks":{"database","media"}}`, each `ok` or `unavailable` |
+| `GET /health/db`    | internal key | database reachability with latency, for the Web tier                                   |
+
+Readiness runs `SELECT 1` (2-second timeout) and writes and removes one probe file in the
+media root, which it never creates; concurrent probes share one check, reused for 2 seconds.
+It reveals no path, version, latency or error text — a failure's kind goes to the log, once
+per change of state. The deployment and restore runbooks, and the drill, use it.
+
+### Logging
+
+**Production logs carry no personal data, no request bodies, no photo descriptions or file
+names and no session tokens.** What is logged today:
+
+| Where                                   | What                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ErrorEnvelopeFilter`, 5xx only         | request id, the error's class, driver code, SQLSTATE, constraint name; stack frames |
+| `SecurityLog` (rejections, not audited) | event, reason, request id — no username, no address                                 |
+| Readiness, DB health, backup status     | which check failed and the error's kind                                             |
+| Start-up                                | the port; an invalid environment names variables, never values                      |
+| CLI (`run-jobs` and the others)         | counts; an error's kind                                                             |
+
+**An unexpected error's message is never logged** (`describe-error.ts`): PostgreSQL puts
+row values in it, Prisma puts call arguments in it, a parse error quotes the body. Find a
+production error by its request id, which the user sees and the audit row carries.
+`log-hygiene.int-spec.ts` and `describe-error.spec.ts` pin this.
+
+**Rotation.** Every process runs under systemd and logs to the journal. Install
+`scripts/ops/systemd/journald-clinic.conf` as `/etc/systemd/journald.conf.d/clinic.conf`
+and restart `systemd-journald`: at most 1 GB, at most one month, and no second copy in
+rsyslog's `/var/log/syslog`. nginx's access log records neither client addresses nor query
+strings (`scripts/ops/nginx/clinic.conf`), because a family search is a query string.
 
 ## Authentication and audit (Milestone 1)
 
@@ -242,7 +876,7 @@ Permission _names_ live in `@clinic/contracts` so the web tier can decide what t
 The authoritative role-to-permission map lives in `apps/api` and nowhere else.
 
 Four access classifications, one per route, deny-by-default: `PublicEndpoint` (`/health`
-only), `InternalOnly` (internal key, no session — `/health/db` and `/auth/login`),
+and `/health/ready` only), `InternalOnly` (internal key, no session — `/health/db` and `/auth/login`),
 `AuthenticatedOnly`, and `RequirePermissions`. A route carrying none is rejected by the
 first guard **and** fails a coverage test.
 
@@ -709,9 +1343,8 @@ constraints or triggers and would let one disappear silently.
 reasons: guardians are configuration replaced wholesale and recorded as audit values, and a
 draft is meant to be consumed and removed.
 
-As in both earlier migrations, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
-Closing that needs a runtime database role that does not own these tables, and remains a
-production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ## Appointments (Milestone 4)
 
@@ -940,9 +1573,8 @@ The two availability tables deliberately carry **no** delete trigger: they are
 current configuration recorded in `audit_log` as values, like `guardian` and
 `therapist_service`.
 
-As in every earlier migration, a table owner can still
-`ALTER TABLE ... DISABLE TRIGGER`. Closing that needs a runtime database role that
-does not own these tables, and remains a production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ## Family ledger (Milestone 5)
 
@@ -1123,9 +1755,8 @@ The lock order extends Milestone 4's rather than competing with it: `appointment
 for anything that can create a charge, then `session_charge`, then `charge_adjustment`.
 No path takes them the other way round.
 
-As in every earlier migration, a table owner can still `ALTER TABLE ... DISABLE TRIGGER`.
-Closing that needs a runtime database role that does not own these tables, and remains a
-production hardening item.
+A table owner can still `ALTER TABLE ... DISABLE TRIGGER`. Since Milestone 10 the API
+is not the owner and cannot — see [Database roles](#database-roles).
 
 ### Verification
 
@@ -1559,7 +2190,7 @@ pnpm --filter @clinic/api build
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --weeks 5 --families 12
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_dev?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --weeks 5 --families 12
 ```
 
 It refuses to run unless `NODE_ENV` is not production **and** the database name
@@ -1581,6 +2212,34 @@ One consequence worth knowing: every seeded payment carries the run's own
 empty for earlier days**. Back-dated `receivedOn` still exercises the two payment
 bases against each other.
 
+### The practice clinic
+
+The reconciled two-month clinic of Milestone 10 (A5), for the walkthrough, the
+operator guide screenshots and staff practice. It needs an **empty** disposable
+database with one manager from `bootstrap-manager`, and refuses otherwise:
+
+```bash
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_demo?schema=public' pnpm --filter @clinic/api exec node dist/dev/main.js --confirm --practice-clinic
+```
+
+It runs from three weeks before the previous Jalali month to yesterday, closes
+the previous Jalali month for settlement, acts through the staff services as a
+manager, two receptionists and a visitor (each act checked against the route ×
+role matrix), then reconciles every balance, day, month, settlement line and
+audit entry independently of the report code. It prints each check and exits
+non-zero on any discrepancy. See `docs/M10_A5_PERMISSION_REVIEW.md`. It is not a
+way to manage real website content.
+
+### The route × role matrix
+
+`docs/PERMISSION_MATRIX.md` is generated from the route decorators and the role
+map and pinned by `apps/api/src/auth/route-access-matrix.spec.ts`. After adding a
+route or changing what one requires, regenerate it and review the diff:
+
+```bash
+UPDATE_PERMISSION_MATRIX=1 pnpm --filter @clinic/api exec jest src/auth/route-access-matrix.spec.ts
+```
+
 ### Verifying Milestone 7 locally
 
 The repository-wide gate, which needs no database:
@@ -1593,19 +2252,30 @@ The database-backed suite, which is where the reporting invariants are proved �
 see [Integration tests](#integration-tests) for the disposable-database setup:
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> pnpm test:int
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_test?schema=public' TEST_OWNER_DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory> pnpm test:int
 ```
+
+On Windows with Docker Desktop, write `127.0.0.1` rather than `localhost` in both
+URLs: `localhost` tries IPv6 first and each new connection then takes about two
+seconds, longer than Prisma waits to start a transaction, and the concurrency
+suites fail with `P2028` ("Unable to start a transaction in the given time").
+
+`INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are here because the operator CLI
+suites build a real NestJS context, which validates the whole API environment.
+The HTTP suites do not read either: the harness supplies its own synthetic key
+and its own per-process temporary media root, so nothing a test writes lands in
+the directory named above.
 
 Migration status and schema drift, exactly as
 [CI](.github/workflows/ci.yml) runs them — `migrate status` catches an unapplied
 migration and `migrate diff` exits 2 if `schema.prisma` was edited without one:
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate status
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate status
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-schema-datasource prisma/schema.prisma --exit-code
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-schema-datasource prisma/schema.prisma --exit-code
 ```
 
 Neither sees the hand-written CHECKs, triggers or the protected-row function;
@@ -1746,6 +2416,508 @@ committed scope for a later milestone.
    test and the fix — read the instant from the database, as the fixtures already do
    (DECISION_LOG, 2026-08-06) — is left to whoever next touches that suite.
 
+## Therapist settlement (Milestone 8)
+
+What a completed session earned the therapist who delivered it, snapshotted at the
+moment it is decided and never recalculated afterwards. Settlement is **based on
+completed-session value regardless of whether or when the family pays**
+(CLAUDE.md), so nothing in this milestone reads a payment.
+
+```text
+GET  /settlement/share-rules                       the agreed percentages
+GET  /settlement/share-rule-resolution             which rule a date resolves to
+POST /settlement/share-rules                       write one
+POST /settlement/share-rules/{id}/void             withdraw one
+POST /settlement/session-charges/{id}/rating       decide one session
+GET  /settlement/session-charges/{id}/rating       read that decision
+POST /settlement/session-ratings/{id}/void         withdraw a decision
+POST /settlement/rating-corrections                void and replace, atomically
+GET  /settlement/statement                         a therapist, a date range
+GET  /settlement/statement/export                  CSV, audited
+POST /settlement/periods                           close a period, irreversibly
+GET  /settlement/periods                           what has been closed
+GET  /settlement/periods/{id}/lines                a closed period, line by line
+```
+
+### Scope, and what is deliberately absent
+
+Present: effective-dated share rules per therapist, a per-session settlement fact
+carrying the applied percentage as a snapshot, the therapist/clinic split of a
+session concession, a statement covering a therapist and a date range, its
+manager-only CSV, and irreversible period close with materialised lines.
+
+Absent, and each of these is a decision rather than an omission:
+
+- **no therapist-facing account, screen or permission.** A therapist cannot sign
+  in — there is no therapist portal in the initial scope (PROJECT_SPEC.md) — so a
+  permission naming them would describe a role that cannot log in. A therapist
+  sees their settlement because a manager shows it to them.
+- **no payment to the therapist.** The statement says what was earned. Money
+  leaving the clinic is not modelled anywhere in this product.
+- **no `therapist_share.update`.** A rule is never edited; a correction voids the
+  row and writes a replacement, exactly as a tariff does.
+- **no un-close.** A closed period is immutable and is never reopened, which is
+  why `settlement.close` is its own authority rather than a side effect of being
+  allowed to read a statement.
+- **no per-service or per-programme rate.** A share rule is scoped to the
+  therapist and to nothing else (DECISION_LOG, 2026-08-19).
+
+### Share rules
+
+A rule names a therapist, a percentage in basis points and an effective range. An
+exclusion constraint (`therapist_share_rule_no_overlap_excl`) makes overlapping
+ranges for one therapist impossible in the database rather than in a service, so
+"which rule applies on this date" always has exactly one answer or none. A rule
+may be written for an inactive therapist (DECISION_LOG, 2026-08-19), because
+settlement outlives employment.
+
+`SHARE_RULE_NOT_FOUND` is refused rather than defaulted. There is no fallback
+percentage anywhere: a share rule is the only source of settlement policy
+(DECISION_LOG, 2026-08-19).
+
+### The session settlement fact
+
+`session_settlement` records what one completed session earned, and it holds the
+applied percentage as a **snapshot** — not a foreign key that could be followed to
+a rule somebody later changed. It is bound to its charge by a composite foreign
+key over `(id, appointment_participant_id, therapist_id, service_date,
+amount_toman)`, so the charge's identifying facts cannot drift out from under the
+settlement that was computed from them.
+
+Voiding a charge leaves the applied share snapshot standing (DECISION_LOG,
+2026-08-19). The historical record of what was decided survives the correction of
+what it was decided about.
+
+### Concessions, and where the floor is
+
+A session discount may be borne entirely by the clinic, entirely by the therapist,
+or split (CLAUDE.md). The therapist-borne and clinic-borne amounts must sum to the
+family's total discount, and that is enforced by
+`enforce_charge_adjustment_bounds` and
+`enforce_session_settlement_allocation_guard` as database triggers, not as
+service-layer arithmetic.
+
+**Therapist net share is never negative and the family's effective charge is never
+negative.** **Clinic net may be negative**, and a negative clinic net is an
+explicit clinic subsidy that must stay visible in reports and fully audited
+(CLAUDE.md). For a therapist who does not participate in discounts, the
+therapist-borne amount is zero and the clinic bears the whole discount even when
+that makes clinic net negative.
+
+### Closing a period
+
+Closing materialises `settlement_line` rows — `PRIMARY` for each rated session and
+`CORRECTION` for each adjustment landing after an earlier close — and
+`settlement_line_one_primary_per_charge_uq` makes a second primary line for one
+charge impossible. A closed period is a record of what a close made final; nothing
+rewrites it (DECISION_LOG, 2026-08-19).
+
+### Permissions
+
+Seven manager-only names, and the receptionist holds none of them:
+`therapist_share.read`, `therapist_share.create`, `therapist_share.void`,
+`settlement.read`, `settlement.rate`, `settlement.void_rating`,
+`settlement.close`. Taking the statement out of the building is `settlement.read`
+**and** `report.export` — the Milestone 7 authority, not a second export name.
+
+### Persian pages
+
+`/settlements` lists therapists and their periods; `/settlements/{therapistId}` is
+the statement; `/settlements/periods/{id}` is a closed period line by line.
+
+### Database objects
+
+`therapist_share_rule` and `session_settlement` (Milestone 8's two facts),
+`settlement_period` and `settlement_line` (what a close materialises), the
+`session_rated_via` and `settlement_line_type` enums, two allocation triggers, and
+composite unique indexes on `session_charge` that exist only so the snapshot
+foreign keys above can be declared.
+
+## Public website (Milestone 9)
+
+The clinic's public site, the anonymous evaluation request behind it, and the
+internal inbox that answers one. This is the first surface in the product built
+for **people who are not its patients**, and the privacy consequences drive most
+of its design.
+
+```text
+GET  /public/services                     published services
+GET  /public/services/{slug}
+GET  /public/team                         therapists who opted in
+GET  /public/team/{slug}
+GET  /public/clinic-profile               address, telephone, hours
+GET  /public/articles                     published articles
+GET  /public/articles/{slug}
+GET  /public/testimonials                 approved and published
+GET  /public/sitemap                      kind and slug, never a path or a host
+POST /public/requests                     the anonymous evaluation request
+
+GET   /content/articles                   internal; drafts are unreadable elsewhere
+POST  /content/articles
+PATCH /content/articles/{id}
+PATCH /content/articles/{id}/publication
+GET   /content/testimonials
+POST  /content/testimonials
+PATCH /content/testimonials/{id}
+PATCH /content/testimonials/{id}/approval
+PATCH /content/testimonials/{id}/publication
+GET   /content/clinic-profile
+PATCH /catalog/therapists/{id}/public-profile
+PATCH /catalog/therapists/{id}/public-profile/visibility
+
+GET   /website-requests                   the inbox
+GET   /website-requests/{id}
+PATCH /website-requests/{id}/status
+POST  /website-requests/{id}/link         link to a family somebody registered
+```
+
+### Scope, and what is deliberately absent
+
+Present: the public read side, publication as two facts on the catalog row rather
+than a published copy of it, articles and testimonials as two tables that are not
+a CMS, the anonymous request with its abuse controls and consent columns, the
+inbox with its lifecycle and conversion, the ninety-day erasure command, and the
+public pages themselves in the frozen Hamrah visual direction.
+
+Absent, and each of these is a decision rather than an omission:
+
+- **no online booking and no online payment.** The public action registers
+  information; the clinic reviews it and contacts the family. It never implies a
+  booking and never promises a response time.
+- **no parent portal and no public account of any kind.** The public reads hold no
+  permissions and the public write creates no user.
+- **no internal identifier on any public contract.** The public projections are
+  purpose-built and carry slugs, never row ids (DECISION_LOG, 2026-08-21).
+- **no free-text search on the inbox.** Searching it by telephone number would
+  make it a way to ask "has this person contacted the clinic?" of a store the
+  clinic has promised to erase.
+- **no client metadata in the submission's audit row** — no IP address, no user
+  agent. The audit records the act and nothing else (DECISION_LOG, 2026-08-27).
+- **no `article.delete` and no `testimonial.delete`.** Published content is
+  withdrawn, not erased; the database refuses a DELETE on both tables.
+- **no CMS, no template system and no arbitrary content type.** Public copy is
+  plain text and the database refuses markup (DECISION_LOG, 2026-08-27).
+
+### Publication, and the opt-in
+
+A service is published by two facts on its catalog row — there is no published
+copy of it. A therapist is different: `therapist.is_public` is an **opt-in about a
+named human being**, taken with their agreement, which is why
+`therapist.publish_profile` is a separate authority from `therapist.update`.
+Anybody allowed to fix a misspelt specialty must not thereby be able to publish a
+colleague. Nothing falls back to the personnel record: a public therapist shows
+`public_display_name`, never `full_name` (DECISION_LOG, 2026-08-21).
+
+A published slug is immutable, and the first-published stamp is what decides
+(DECISION_LOG, 2026-08-21).
+
+### An article holds its copy twice
+
+`public_article` carries the draft copy and the published copy in separate
+columns, because publication authority cannot be represented once (DECISION_LOG,
+2026-08-27): somebody editing tomorrow's draft must not change what a visitor is
+reading today. A draft edit is therefore not a modification of the published page.
+A testimonial needs no such pair, and that asymmetry is deliberate.
+
+The audit records **that** public prose changed, not the prose (DECISION_LOG,
+2026-08-27).
+
+### The anonymous request
+
+`website_request` is the only purgeable table in the schema, and it is erased **in
+place** rather than deleted (DECISION_LOG, 2026-08-27) — a lifecycle row survives
+so that a colleague reading the inbox is told the content was erased rather than
+left to conclude the record was lost. Every inbox read is a discriminated union on
+`contentPurged`; there is no wire shape that can express "purged, and here is the
+telephone number".
+
+Consent is three columns and a frozen version list, not a boolean. Abuse control
+is a rolling duplicate window and a per-submitter throttle, both keyed-hashed and
+database-backed, and **nothing about a suppressed duplicate or a refused
+submission is observable to the caller** — the public response is the same either
+way. The duplicate identity is mobile, service, child age and child sex, and it is
+owner-approved and frozen.
+
+Child age is a whole-year triage value with the wide sanity bound `0..120`. It is
+**not** an eligibility rule.
+
+The ninety-day erasure is an operator command run against a deployed database with
+a `SYSTEM` actor and no session — which is why no permission names it.
+
+### Conversion
+
+Creating a family from a request is the **existing** registration workflow under
+the existing `family.create`, with its existing duplicate detection; the request
+is linked afterwards. There is no `website_request.convert`, because a second
+authority to create a family would be reachable from a screen where the duplicate
+check could be forgotten. Both end states of a request are final.
+
+### Permissions
+
+Manager-only: `therapist.publish_profile`, `clinic_profile.read`,
+`clinic_profile.update`, `article.publish`, `testimonial.approve`. Held by the
+receptionist as well: `article.read`, `article.draft`, `testimonial.read`,
+`testimonial.draft`, `website_request.read`, `website_request.process`. Linking a
+request additionally demands `family.read`, because it names a family and returns
+that family's name.
+
+Answering the clinic's contact form is front-desk work, exactly as the telephone
+is; a product where only the manager could return a parent's call would be one
+where nobody returns it.
+
+### Persian pages
+
+Public: `/`, `/services`, `/services/{slug}`, `/team`, `/team/{slug}`, `/about`,
+`/articles`, `/articles/{slug}`, `/testimonials`, `/contact`, `/privacy`,
+`/request` and `/request/received`, plus `/robots.txt` and `/sitemap.xml`. The
+public pages are Server Components; interactivity is limited to a small set of
+allow-listed, server-independent islands.
+
+Internal: `/website-requests` and `/website-requests/{id}`.
+
+### Database objects
+
+`clinic_public_profile` (one row, created empty), `public_article`,
+`public_testimonial`, `website_request`, the `testimonial_status`,
+`website_request_contact_time` and `website_request_status` enums, and public
+columns with their slug, length and publication-consistency checks on `service`
+and `therapist`.
+
+### What Milestone 9 did not deliver
+
+**The internal editorial forms.** The API owns the whole manager write side listed
+above, and the six `article.*` / `testimonial.*` permissions are defined,
+role-mapped and tested — but no screen in `apps/web` writes an article, a
+testimonial, a therapist public profile or the clinic profile. The only Milestone
+9 internal UI that exists is the website-request inbox.
+
+A manager therefore cannot publish a word of the public site from the product
+today; everything the public pages render reaches the database through the
+development seeder or a direct API call. Nothing is unsafe and nothing is broken —
+the authority model, the audit rows and the constraints are all in place and all
+exercised — but the promise is undelivered rather than deferred by design.
+
+**This gap transfers to Milestone 9.5**, the pre-pilot editorial and media
+extension, together with receptionist draft authority over routine public service
+and therapist copy, and API-owned media upload and serving. Milestone 9 is not
+reopened (DECISION_LOG, 2026-09-08).
+
+### Accepted risks and revisit triggers
+
+1. **All public photography is synthetic development material.** It lives under
+   `/public/dev/vala-synthetic` and every visible use is labelled as development
+   material rather than real people or spaces. Real owner-approved assets are a
+   launch prerequisite, not a code change.
+2. **The launch domain is an owner-supplied deployment value.**
+   `PUBLIC_SITE_ORIGIN` is required in production, must also appear in
+   `WEB_ALLOWED_ORIGINS`, and is deliberately not guessed in source control.
+3. **The public team lists therapists only.** Founder, manager and receptionist
+   public profiles are explicitly deferred, and no second public-person model
+   exists to hold them (DECISION_LOG, 2026-09-08).
+4. **Real public copy is owner-supplied.** Where approved wording has not arrived,
+   a page states a truthful boundary rather than filling the space.
+
+## Milestone 9.5 contracts — where each one is stated
+
+The shared schemas in `packages/contracts` are the wire contract for every
+checkpoint; the notes below say what each checkpoint promises and why. Where a
+note and a schema disagree, the schema and its pinning tests win and the note is
+the bug.
+
+| Checkpoint                             | Authoritative contract                                                                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A5 — media                             | [docs/M9_5_A5_MEDIA_CONTRACT.md](docs/M9_5_A5_MEDIA_CONTRACT.md) and [Media](#media-milestone-95-checkpoint-a5) below                                         |
+| Staff preview of draft media           | [A5 contract §10](docs/M9_5_A5_MEDIA_CONTRACT.md)                                                                                                             |
+| A6 — draft and published public copy   | [Draft and published public copy](#draft-and-published-public-copy-milestone-95-checkpoint-a6) below                                                          |
+| A7 — spaces, article imagery, notes    | [docs/M9_5_A7_PUBLIC_SPACES_CONTRACT.md](docs/M9_5_A7_PUBLIC_SPACES_CONTRACT.md)                                                                              |
+| A8 — the clinic's own public copy      | [The clinic's own public copy](#the-clinics-own-public-copy-milestone-95-checkpoint-a8) below                                                                 |
+| A9 — service imagery                   | [docs/M9_5_A9_SERVICE_IMAGERY_CONTRACT.md](docs/M9_5_A9_SERVICE_IMAGERY_CONTRACT.md) and [Service imagery](#service-imagery-milestone-95-checkpoint-a9) below |
+| Stabilisation — servability and upload | [Media](#media-milestone-95-checkpoint-a5) below, and DECISION_LOG 2026-09-23                                                                                 |
+
+## Draft and published public copy (Milestone 9.5, checkpoint A6)
+
+A service's public description and a therapist's public display name, title and
+biography exist twice on the same row: a **working draft** the front desk may
+prepare, and a **published copy** that is what the website says. Every public
+read selects the published columns only. Schemas:
+`packages/contracts/src/website/public-copy.ts` and
+`packages/contracts/src/website/therapist-public-profile.ts`.
+
+- **Drafting** is `service.draft_public_copy` and `therapist.draft_public_profile`
+  (receptionist and manager), under `/content/service-copy` and
+  `/content/therapist-profiles`. A draft changes no live page.
+- **Publishing** is the manager's. A service that becomes reachable through
+  `service.update` publishes its prepared description in the same transaction; a
+  later change to a live service is promoted explicitly with
+  `PATCH /content/service-copy/:id/publication`. For a therapist, the visibility
+  opt-in (`therapist.publish_profile`) copies the prepared copy onto the
+  published columns — there is no second route.
+- **Not draftable:** a service's `name` (it is the public name), a therapist's
+  slug, display order and `is_public`. (The legacy `public_photo_path` was
+  dropped in the Milestone 9.5 stabilisation; a portrait is a media attachment.)
+- `hasUnpublishedChanges` is derived per read, never stored.
+
+The reasoning is in DECISION_LOG, 2026-09-09 (six entries, "Milestone 9.5
+checkpoint A6").
+
+## Media (Milestone 9.5, checkpoint A5)
+
+Staff upload ordinary phone photographs; the API stores, sanitises and serves
+them. There is no developer file placement and no redeploy in the loop.
+
+**The API owns the bytes, on disk.** Not PostgreSQL — image data in a relational
+database bloats every dump, backup and replica for no query anybody makes — and
+not object storage, which is a dependency, a credential and a second failure
+domain a single-site clinic does not have yet. `MEDIA_STORAGE_DIR` is where they
+live, and `MediaStorageService` is the only class in `apps/api` that opens a media
+file.
+
+**The uploaded photograph is never written.** It exists in memory for the length
+of one request. What is stored is a _master_ — re-encoded, orientation applied to
+the pixels, every metadata block discarded — and the responsive renditions
+derived from it. An unedited telephone photograph carries the GPS coordinate of
+wherever it was taken, so the narrowest way to obey a rule about a category of
+data is not to hold the data: no EXIF exists anywhere in this system to leak, and
+`image-processing.spec.ts` proves the absence at byte level.
+
+**Three formats, decided from the bytes.** JPEG, PNG and WebP, sniffed from the
+magic number and confirmed by the decoder — never from a filename or a
+browser-supplied content type. SVG is refused: it is a document with a script
+engine attached, and serving one from the clinic's own origin would put
+uploader-authored markup on the clinic's own domain. The accepted brand and logo
+SVGs stay static in the web tier.
+
+**Two renditions per width, and nothing is ever enlarged.** WebP and JPEG at
+every ladder width below the master, plus one at the master's own width, so the
+largest rendition is exactly as sharp as the photograph that was uploaded.
+
+**Four conditions decide what a stranger may fetch**, re-evaluated from live rows
+on every request: the asset is `ACTIVE`, its attachment is undetached, a manager
+published that attachment, and the owner it hangs off is itself public. Every
+failure is the same `404 MEDIA_NOT_FOUND`, so nobody can enumerate the clinic's
+unpublished photographs one identifier at a time.
+
+**"The owner is public" means exactly "the owner is in its public read".** Each
+owner kind's conditions are one SQL fragment in
+`apps/api/src/common/public-reachability.ts`, used by the public projection and
+the serving predicate alike, so deactivating a therapist or a service,
+unpublishing an article or a space, withdrawing a testimonial's approval, or
+clearing a content block's heading refuses the owner's photographs on the very
+next request. `CLINIC_SPACE`, which no page reads, is never anonymously
+servable.
+
+**A retried upload does not duplicate.** Uploading the same bytes again returns
+the asset the same colleague already uploaded, keyed on a SHA-256 of the upload
+held in the database, so it survives any restart. Image processing runs one
+upload at a time per process, which caps peak memory at roughly one worst-case
+decode (≈290 MiB) plus 12 MiB per waiting upload (DECISION_LOG, 2026-09-23).
+
+**Publishing is manager-only.** `media.read`, `media.upload` and `media.attach`
+are the receptionist's — attaching is drafting, and the request has no field that
+could ask for visibility — while `media.publish` covers publishing, unpublishing,
+archiving and restoring. Detaching a published attachment is refused; unpublish
+first.
+
+**Revocation.** At this origin it is immediate. In any cache the clinic controls
+it is bounded by five minutes (`PUBLIC_MEDIA_REVOCATION_WINDOW_SECONDS`), which
+is what the `Cache-Control` header states. A copy that has already reached a
+browser, a scraper or a search index is bounded by nothing, and nobody may tell a
+family otherwise — content identity solves replacement, not revocation.
+
+**Nothing deletes a byte.** Archiving takes a photograph out of circulation
+everywhere at once and is reversible; the retention policy is an open owner
+decision, and all three media tables refuse `DELETE` and `TRUNCATE` until it
+arrives.
+
+## The clinic's own public copy (Milestone 9.5, checkpoint A8)
+
+The clinic's public identity, contact facts and routine home/about copy are data
+the manager owns. Changing a heading, a concern prompt, a paragraph or the
+picture a shared link unfurls into is a form submission — not a code edit, a
+seed or a deployment.
+
+**Two tables, and the split between them is facts against words.**
+`clinic_public_profile` is the single always-live row checkpoint A1 created: the
+display name, tagline, description, address, city, two telephone numbers,
+e-mail, opening-hours line, map pin and two social links.
+`clinic_content_entry` is checkpoint A8's addition: twenty-one editorial blocks
+of the home and about pages.
+
+**The blocks are fixed slots, not rows anybody creates.** Nine named slots, with
+the accepted design's own counts — five concern prompts, three first-session
+moments, three about highlights, three about points, three journey steps, and one
+block each for the home hero, the first-visit intro, the about intro and the
+space note. The migration inserts all twenty-one **empty**, exactly as A1
+inserted the profile row empty; `clinic_content_entry_slot_size_chk` and a
+`UNIQUE (slot, position)` index cap each slot permanently, and the table refuses
+`DELETE` and `TRUNCATE`. Filling a block in is routine content maintenance;
+adding one is a design decision and therefore a reviewed migration.
+
+**Editing is publishing.** This surface holds its copy once, unlike an article,
+a service description or a public space, each of which holds it twice because a
+receptionist may prepare it. There is no draft column, no `is_public` flag and no
+publication act here — the whole surface is manager-only under
+`clinic_profile.read` and `clinic_profile.update`, and what a manager saves is
+what the site says.
+
+**An unwritten block says nothing, and that is one rule with two readers.**
+`heading IS NULL` means the block is not on the site: the public projection omits
+it, and `LIVE_ATTACHMENT_PREDICATE` refuses any photograph attached to it. A
+manager clearing a heading takes the words and the picture down together, at the
+origin, on the very next request.
+
+**Photographs are the A5 system used unchanged.** Two new attachment owners:
+`CLINIC_CONTENT_ENTRY` names a block and behaves like `PUBLIC_SPACE`, and
+`CLINIC_OPEN_GRAPH` is ownerless like `CLINIC_SPACE` because it hangs off the
+always-live profile. No second storage path, no bytes in PostgreSQL, and every
+A5 invariant intact. **The Open Graph image is photographic, which is why it can
+go through this pipeline at all** — SVG is still refused, and the accepted Vala
+logo marks stay static in the web tier where a human reviewed them. There is no
+staff-manageable logo upload.
+
+**The clinic's public name has one source.** It is
+`PublicClinicProfile.displayName`, and nothing else in the API or the shared
+contracts holds a second production copy of it.
+
+**Two public reads, one surface, one cache tag.**
+`GET /public/clinic-profile` returns the facts and
+`GET /public/clinic-content` returns the blocks and the Open Graph photograph;
+both are dropped by `PUBLIC_CACHE_TAGS.clinicProfile`, because one manager act
+changes both.
+
+**Nothing operational can reach any of it.** `clinic_content_entry` holds no
+foreign key at all — no therapist, room, service, appointment, family or child —
+so a leak would need a new column and a reviewed migration rather than a widened
+`SELECT`.
+
+## Service imagery (Milestone 9.5, checkpoint A9)
+
+A service was the last record in this product with a published page and no way
+to illustrate it. `PUBLIC_SERVICE` is the eighth attachment owner and the sixth
+that names a row, `media_attachment.service_id` is the whole of the storage
+change, and `PublicServiceSummary` gains a nullable `image` that both service
+reads carry. No new permission, error code or route came with it.
+
+**The owner gate is three conditions, not a flag, and that is the checkpoint.**
+A service is on the website when `is_public` is set AND `status = 'ACTIVE'` AND
+it has a slug — what `GET /public/services` has required since Milestone 9
+checkpoint A1 — and `LIVE_ATTACHMENT_PREDICATE` now requires exactly the same
+three. Deactivating a service writes `status` alone and leaves `is_public`
+standing, so a photograph gated on the flag by itself would have outlived the
+page it illustrates. The picture and the page now appear and disappear together.
+
+**Two gates, both the manager's.** `media.publish` publishes the attachment;
+`service.update` and `service.update_status` decide whether the service is
+reachable at all. Closing either revokes the bytes at the origin on the very next
+request. A receptionist prepares — `media.upload`, `media.attach` — and can
+review a draft under `service.draft_public_copy`, the editorial read they already
+hold, which reaches nothing operational and publishes nothing.
+
+**One photograph, not a gallery.** `image` is a single nullable `PublicImage`,
+like a testimonial's; the attachment table can hold more and the projection
+returns the first by `position`. `null` is the ordinary state, and the internal
+service id is a join key that no response carries.
+
 ## Environment variables
 
 Never commit a real value for any of these. `.env` and `.env.local` are ignored; the
@@ -1753,23 +2925,35 @@ Never commit a real value for any of these. `.env` and `.env.local` are ignored;
 
 ### `apps/api` — repository-root `.env`
 
-| Variable                 | Required | Purpose                                                   |
-| ------------------------ | -------- | --------------------------------------------------------- |
-| `DATABASE_URL`           | yes      | PostgreSQL connection string. Never given to `apps/web`.  |
-| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server. |
-| `API_PORT`               | no       | Defaults to 3001.                                         |
-| `NODE_ENV`               | no       | Defaults to `development`.                                |
-| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.  |
+| Variable                 | Required | Purpose                                                                                                   |
+| ------------------------ | -------- | --------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | yes      | The runtime role (`clinic_app`), never the owner. Never given to `apps/web`.                              |
+| `INTERNAL_API_KEY`       | yes      | Shared secret proving a request came from the web server.                                                 |
+| `MEDIA_STORAGE_DIR`      | yes      | Directory the API stores uploaded media under.                                                            |
+| `API_PORT`               | no       | Defaults to 3001.                                                                                         |
+| `NODE_ENV`               | no       | Defaults to `development`.                                                                                |
+| `PASSWORD_BLOCKED_TERMS` | no       | Comma-separated clinic terms a password may not contain.                                                  |
+| `BACKUP_STATUS_DIR`      | no       | Where the backup collector records the newest off-site copy; read for the manager's stale-backup warning. |
+
+`MEDIA_STORAGE_DIR` has no default, and the reason is not the reason
+`INTERNAL_API_KEY` has none. A default here would not be a published credential —
+it would be a plausible-looking relative path, and a misconfigured deployment
+would start successfully and quietly write families' and colleagues' photographs
+into whatever directory the process was launched from, most likely inside a git
+working tree. In a deployment it must be a **persistent volume outside the
+application directory**, so a redeploy does not take the clinic's photographs
+with it. Locally, `.env.example` points it at the gitignored `.media-dev/`.
 
 ### `apps/web` — `apps/web/.env.local`
 
-| Variable                | Required | Purpose                                                   |
-| ----------------------- | -------- | --------------------------------------------------------- |
-| `DEPLOYMENT_MODE`       | yes      | `production` or `non-production`. No default, by design.  |
-| `API_BASE_URL`          | yes      | Where NestJS listens.                                     |
-| `INTERNAL_API_KEY`      | yes      | Must match the API's value.                               |
-| `SESSION_COOKIE_SECRET` | yes      | HMAC key for the session and CSRF cookie signatures.      |
-| `WEB_ALLOWED_ORIGINS`   | yes      | Comma-separated exact origins. All `https` in production. |
+| Variable                | Required        | Purpose                                                       |
+| ----------------------- | --------------- | ------------------------------------------------------------- |
+| `DEPLOYMENT_MODE`       | yes             | `production` or `non-production`. No default, by design.      |
+| `API_BASE_URL`          | yes             | Where NestJS listens.                                         |
+| `INTERNAL_API_KEY`      | yes             | Must match the API's value.                                   |
+| `SESSION_COOKIE_SECRET` | yes             | HMAC key for the session and CSRF cookie signatures.          |
+| `WEB_ALLOWED_ORIGINS`   | yes             | Comma-separated exact origins. All `https` in production.     |
+| `PUBLIC_SITE_ORIGIN`    | production only | Owner-approved HTTPS origin for canonical and discovery URLs. |
 
 `DEPLOYMENT_MODE` is independent of `NODE_ENV` on purpose. `next start` forces
 `NODE_ENV=production` even when you are testing a production build over plain HTTP on a LAN,
@@ -1777,6 +2961,12 @@ and that is a non-production _deployment_. Tying cookie security to `NODE_ENV` w
 break that case or invite an override flag that eventually gets set on a real server.
 Nothing is exposed through `NEXT_PUBLIC_*`, and a boundary check fails the build if a
 `NEXT_PUBLIC_` variable ever names a secret.
+
+`PUBLIC_SITE_ORIGIN` must be a bare origin, must also appear in
+`WEB_ALLOWED_ORIGINS`, and cannot be localhost in a production deployment. For
+local/LAN work it may be omitted; the first allowed origin is then used only as
+the preview canonical. The final launch domain is an owner-supplied deployment
+value and must not be guessed in source control.
 
 ## Bootstrapping the first manager
 
@@ -1814,20 +3004,35 @@ because by the time it runs the value is already in shell history and the proces
 ## Integration tests
 
 These run against real PostgreSQL. They truncate every table and temporarily disable the
-audit triggers, so they need a **disposable** database — which is also a live demonstration
-of the gap a separate non-owner runtime role would close in production.
+audit triggers between tests, so they need a **disposable** database — and that reset is
+the one thing in the suite that runs as the owner. The API under test connects as the
+runtime role, exactly as in a deployment, and the harness **refuses to start** if its
+connection is a superuser, owns anything, can become the owner, or can create objects.
+
+A throwaway cluster keeps the owner non-superuser, as in production:
 
 ```bash
-docker exec clinic-db psql -U clinic -d postgres -c "CREATE DATABASE clinic_test"
+docker exec -i clinic-db psql -U clinic -d postgres -v database=clinic_test -v owner_password=clinic_owner_test_only -v runtime_password=clinic_app_dev_only -f - < apps/api/prisma/provision-roles.sql
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
+DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' pnpm --filter @clinic/api exec prisma migrate deploy
 ```
 
 ```bash
-DATABASE_URL='postgresql://clinic:clinic_dev_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> pnpm test:int
+DATABASE_URL='postgresql://clinic_app:clinic_app_dev_only@localhost:5433/clinic_test?schema=public' TEST_OWNER_DATABASE_URL='postgresql://clinic_owner:clinic_owner_test_only@localhost:5433/clinic_test?schema=public' INTERNAL_API_KEY=<32+ synthetic characters> MEDIA_STORAGE_DIR=<a scratch directory outside the repository> pnpm test:int
 ```
+
+An existing `clinic_test` created by `clinic` keeps `clinic` as its owner; drop and
+re-provision it, or pass the `clinic` URL as `TEST_OWNER_DATABASE_URL`.
+`TEST_OWNER_DATABASE_URL` must name the same server and database as `DATABASE_URL` and a
+different role. Nothing in `src/` reads it.
+
+`INTERNAL_API_KEY` and `MEDIA_STORAGE_DIR` are both required: the operator CLI
+suites build a real NestJS context, which validates the whole API environment
+and refuses to start without either. The HTTP suites ignore both — the harness
+supplies its own synthetic key and a per-process temporary media root — so
+nothing a test writes lands in the directory you name.
 
 The harness accepts only a database whose name ends in `_test` or `_ci`. That is an
 allowlist, not a blocklist: excluding `clinic_dev` by name would protect one database and let

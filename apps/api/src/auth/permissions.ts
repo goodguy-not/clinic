@@ -56,6 +56,51 @@ import { PERMISSIONS, type Permission, type UserRole } from '@clinic/contracts';
  * The receptionist's list is therefore unchanged for the fourth milestone
  * running, and the test that states it exactly is what proves it.
  *
+ * MILESTONE 9, CHECKPOINT A2 IS THE FIRST TIME THE RECEPTIONIST'S LIST HAS
+ * GROWN SINCE MILESTONE 6, and it grows by exactly four names: `article.read`,
+ * `article.draft`, `testimonial.read` and `testimonial.draft`. Somebody at the
+ * front desk hears what families actually ask and is the right person to write
+ * a first draft of an answer, so drafting public content is theirs — and
+ * nothing they draft can reach a visitor, because `article.publish` and
+ * `testimonial.approve` are withheld and the public reads return published
+ * content only. That is the A1 promise kept in the role map rather than in a
+ * comment: the permission that publishes is not the permission that writes, and
+ * a test pins both halves.
+ *
+ * MILESTONE 9 ADDS THREE NAMES AND GRANTS THE RECEPTIONIST NONE OF THEM. The
+ * public website is what the clinic says to people who are not its patients:
+ * publishing a named colleague's photograph and biography
+ * (`therapist.publish_profile`) and setting the address, telephone number and
+ * links the site prints (`clinic_profile.read`, `clinic_profile.update`) are
+ * manager authorities, and the checkpoint that let a receptionist DRAFT public
+ * content reached none of them — draft authority does not imply publish
+ * authority, which is why the A2 drafting names sit beside these three rather
+ * than inside them.
+ * The PUBLIC reads themselves hold no permission at all: they are classified
+ * `internal`, reachable only across the internal-key boundary from the Next.js
+ * server, and they can return nothing that is not already published.
+ *
+ * MILESTONE 9.5, CHECKPOINT A6 GROWS THE RECEPTIONIST'S LIST BY TWO, AND THE
+ * FROZEN HALF IS THE HALF THAT DID NOT MOVE. `service.draft_public_copy` and
+ * `therapist.draft_public_profile` let the front desk prepare public copy;
+ * `service.update`, `service.update_status`, `therapist.update`,
+ * `therapist.update_status`, `therapist.publish_profile`, `tariff.create`,
+ * `tariff.void` and `availability.manage` are all exactly as withheld as they
+ * were the day before. Durations, operational status, restrictions,
+ * availability, tariffs, settlement configuration, personnel data and the
+ * decision that a named colleague appears on a public website are untouched by
+ * this checkpoint, and the test that states the receptionist's list exactly is
+ * what proves a third name cannot arrive here without a decision.
+ *
+ * MILESTONE 9.5, CHECKPOINT A7 GROWS THE RECEPTIONIST'S LIST BY TWO MORE, AND
+ * THE OPERATIONAL HALF IS AGAIN THE HALF THAT DID NOT MOVE.
+ * `public_space.read` and `public_space.draft` let the front desk describe the
+ * building; `public_space.publish` stays with the manager, exactly as
+ * `article.publish` does. `room.create`, `room.update` and `room.update_status`
+ * are as withheld as they were the day before — a public space is editorial
+ * content, an operational room is scheduling configuration, and the checkpoint
+ * that let this role write the first cannot be a back door to the second.
+ *
  * MILESTONE 7 ADDS TWO NAMES AND GRANTS THE RECEPTIONIST NEITHER. The
  * operational reads — the dashboard, the session report, the therapist activity
  * report, the promise report — are the diary, the ledger read and the promise
@@ -121,6 +166,90 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'promise.read',
     'promise.create',
     'promise.resolve',
+
+    // Milestone 9, checkpoint A2: drafting public content, and reading the
+    // drafts in order to edit them. NOT `article.publish` and NOT
+    // `testimonial.approve` — a draft this role writes becomes visible to the
+    // world only when a manager performs a separate, separately audited act,
+    // and the public reads cannot return an unpublished row at all.
+    //
+    // `clinic_profile.read` is deliberately NOT here either. The address and
+    // telephone number the site prints are not draftable content: there is one
+    // profile, it is always live, and editing it IS publishing.
+    'article.read',
+    'article.draft',
+    'testimonial.read',
+    'testimonial.draft',
+
+    // Milestone 9, checkpoint A4. The receptionist's list grows by two, and the
+    // role map follows the WORK rather than the sensitivity of the data:
+    // answering the clinic's contact form is front-desk work, exactly as the
+    // telephone is, and a product in which only the manager could return a
+    // parent's call is one in which nobody returns it. PROJECT_SPEC.md 4 keeps
+    // configuration, financial correction and security administration from this
+    // role; a message asking for a call back is none of those.
+    //
+    // `website_request.process` INCLUDES LINKING A REQUEST TO A FAMILY, which
+    // this role can already do the harder half of — it registers families. The
+    // link route additionally demands `family.read`, which it also holds.
+    'website_request.read',
+    'website_request.process',
+
+    // Milestone 9.5, checkpoint A5. Three of the four media names, and the one
+    // withheld is the one that makes a photograph visible. Photographing the new
+    // therapy room and putting it on the draft list of clinic spaces is
+    // front-desk work; deciding that the world may see it is not.
+    // `media.publish` — which covers publishing an attachment, unpublishing one,
+    // archiving an asset and restoring it — stays with the manager, exactly as
+    // `article.publish` and `testimonial.approve` do, and for the same reason:
+    // the permission that prepares a change is not the permission that moves the
+    // page.
+    //
+    // NOTHING THESE THREE GRANT IS REACHABLE BY A VISITOR. An upload produces no
+    // public byte, and an attachment is created unpublished with no field on the
+    // request that could say otherwise, so the strongest thing a receptionist can
+    // do here is present a manager with something ready to approve.
+    'media.read',
+    'media.upload',
+    'media.attach',
+
+    // Milestone 9.5, checkpoint A6. Two names, and they are the A2 drafting
+    // authority extended to the two records that also have a public face: the
+    // service description a family reads before ringing, and a colleague's
+    // public display name, title and biography. The front desk hears what
+    // families actually ask and is the right author of a first draft
+    // (DECISION_LOG, 2026-09-08 — Editorial authority and operational authority
+    // are split).
+    //
+    // NEITHER NAME WIDENS ANYTHING OPERATIONAL, AND THAT IS WHY THEY ARE NEW
+    // NAMES RATHER THAN A GRANT OF `service.update` OR `therapist.update`.
+    // Those two carry the durations, the active status, the room and service
+    // restrictions and the specialty — configuration PROJECT_SPEC.md 4 keeps
+    // with the manager — and this role still holds neither of them, which the
+    // negative half of `permissions.spec.ts` states.
+    //
+    // NEITHER NAME PUBLISHES. Both write draft columns; every public read
+    // selects the published ones; and the statements that copy one onto the
+    // other are reachable only under `service.update` and
+    // `therapist.publish_profile`, which stay with the manager. A receptionist
+    // holding both of these still cannot change one word a visitor sees, and
+    // still cannot put a named colleague on the website.
+    'service.draft_public_copy',
+    'therapist.draft_public_profile',
+
+    // Milestone 9.5, checkpoint A7. Two of the three public-space names, and
+    // the one withheld is the one that puts words on the website. Describing
+    // the waiting area for a family who has never been to the clinic is front
+    // desk work; deciding that the description is what the clinic says is not.
+    //
+    // NEITHER NAME IS `room.*`, AND THAT IS THE POINT OF THE CHECKPOINT. A
+    // public space is editorial content and an operational room is scheduling
+    // configuration; this role holds `room.read` and has never held
+    // `room.create`, `room.update` or `room.update_status`, and none of that
+    // moves. Drafting a space grants nothing operational, and the two tables
+    // share no reference, so writing one cannot alter the other.
+    'public_space.read',
+    'public_space.draft',
   ],
 };
 
@@ -194,3 +323,15 @@ export {
   SETTLEMENT_EXPORT_PERMISSIONS,
   SETTLEMENT_RATING_CORRECTION_PERMISSIONS,
 } from '@clinic/contracts';
+
+/**
+ * What linking a website request to a family requires: BOTH names.
+ *
+ * Re-exported for the reason the others are — the conversion screen has to
+ * demand exactly what the route demands, and one list stated in
+ * `@clinic/contracts` is the only way the two cannot drift.
+ *
+ * It grants nothing: manager and receptionist both hold `website_request.process`
+ * and `family.read`, and `permissions.spec.ts` pins that.
+ */
+export { WEBSITE_REQUEST_LINK_PERMISSIONS } from '@clinic/contracts';

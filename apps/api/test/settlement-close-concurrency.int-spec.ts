@@ -40,7 +40,7 @@ describe('settlement close concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedCloseClinic(harness);
   });
 

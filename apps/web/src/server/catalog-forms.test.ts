@@ -71,6 +71,12 @@ describe('service form', () => {
     expect(serviceFormToRequest({ ...base, isPublic: '' })['isPublic']).toBe(false);
   });
 
+  it('never sends an address, which the API assigns (M10-A10)', () => {
+    expect(
+      serviceFormToRequest({ ...base, isPublic: 'true', publicSlug: 'typed' }),
+    ).not.toHaveProperty('publicSlug');
+  });
+
   it('fails validation when the duration list has a typo', () => {
     const parsed = createServiceRequestSchema.safeParse(
       serviceFormToRequest({ ...base, durations: '30, thirty' }),

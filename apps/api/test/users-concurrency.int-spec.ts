@@ -32,7 +32,7 @@ describe('last-manager concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   async function twoManagers() {

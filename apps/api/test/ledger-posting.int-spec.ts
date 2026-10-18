@@ -56,7 +56,7 @@ describe('session charge posting (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedBookedSession(harness);
   });
 

@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { FamilyFinancialPosition, PaymentSummary } from '@clinic/contracts';
+import type { FamilyFinancialPosition, PaymentSummary, RecordStatus } from '@clinic/contracts';
 import {
   PAYMENT_ORDER,
   PAYMENT_SUMMARY_COLUMNS,
@@ -60,13 +60,16 @@ import { CHARGE_TOTALS_COLUMNS, CHARGE_TOTALS_SOURCE, type LedgerClient } from '
 /**
  * The parts a position is made of, per family, as PostgreSQL returns them.
  *
- * `family_name` rides along because the clinic-wide report prints it and orders
- * by it, and the single-family account simply ignores it — one statement is
- * cheaper than a statement plus a join the other caller does not need.
+ * `family_name` and `family_status` ride along because the clinic-wide report
+ * prints them, orders by the name and decides by the status which settled
+ * families to list; the single-family account simply ignores them — one
+ * statement is cheaper than a statement plus a join the other caller does not
+ * need. The status selects nothing here and changes no amount.
  */
 export type FamilyPositionPartsRow = {
   family_id: string;
   family_name: string;
+  family_status: RecordStatus;
   net_charged_total: bigint;
   paid_total: bigint;
   amount_due_total: bigint;
@@ -117,6 +120,7 @@ export function familyPositionParts(narrowing: Prisma.Sql): Prisma.Sql {
     SELECT
       f.id AS family_id,
       f.family_name,
+      f.status::text AS family_status,
       (charges.charged_total - charges.adjustment_total)::bigint AS net_charged_total,
       payments.paid_total,
       greatest(
@@ -255,6 +259,7 @@ export async function readFamilyPosition(
       {
         family_id: familyId,
         family_name: '',
+        family_status: 'ACTIVE',
         net_charged_total: 0n,
         paid_total: 0n,
         amount_due_total: 0n,

@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { appointmentStatusSchema, attendanceOutcomeSchema } from '../appointments/common';
 import { isoDateSchema } from '../dates';
-import { chargeChildSummarySchema, ledgerPageQuerySchema, pageInfoSchema } from '../ledger/common';
+import {
+  chargeChildSummarySchema,
+  ledgerPageQuerySchema,
+  noShowDecisionStateSchema,
+  pageInfoSchema,
+} from '../ledger/common';
 import {
   reportFamilySummarySchema,
   reportNamedSchema,
@@ -136,6 +141,13 @@ export const sessionReportRowSchema = z.strictObject({
   therapist: reportTherapistSummarySchema,
   service: reportNamedSchema,
   room: reportNamedSchema,
+  /**
+   * M10.5 phase 1: an absent seat of a completed session reads "awaiting
+   * decision", "no penalty" or "penalty N%"; null for every other seat. A
+   * percentage and a decision, never an amount — this report still carries no
+   * money.
+   */
+  noShowDecision: noShowDecisionStateSchema.nullable(),
 });
 
 export type SessionReportRow = z.infer<typeof sessionReportRowSchema>;

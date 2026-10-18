@@ -1,0 +1,16 @@
+# Milestone 10, checkpoint A3 — NIGHTLY, after the backup (02:30) has had time
+# to finish. A media erasure never breaks a backup either way: it waits for a
+# running backup to release the files lock, and leaves its work for the next
+# night if one is still running after thirty minutes. Persistent=true runs a
+# missed night at the next boot. The manager is warned when any job has not
+# succeeded for two days (GET /operations/job-status).
+[Unit]
+Description=Nightly clinic jobs
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 Asia/Tehran
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

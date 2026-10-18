@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { asUser } from './appointments-support';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import {
   closePeriodOverHttp,
   seedCloseClinic,
@@ -36,7 +36,7 @@ describe('the closed settlement period schema (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedCloseClinic(harness);
   });
 
@@ -157,13 +157,13 @@ describe('the closed settlement period schema (real PostgreSQL)', () => {
       // to withdrawn; this one permits none, because a closed period cannot be
       // taken back.
       await expect(
-        harness.prisma.$executeRaw`
+        ownerPrisma().$executeRaw`
           UPDATE settlement_period SET settled_toman = 1 WHERE id = ${periodId}::uuid
         `,
       ).rejects.toThrow(/immutable/);
 
       await expect(
-        harness.prisma.$executeRaw`
+        ownerPrisma().$executeRaw`
           UPDATE settlement_period SET period_end = period_end WHERE id = ${periodId}::uuid
         `,
       ).rejects.toThrow(/immutable/);
@@ -174,7 +174,7 @@ describe('the closed settlement period schema (real PostgreSQL)', () => {
       const lineId = lineIds[0];
 
       await expect(
-        harness.prisma.$executeRaw`
+        ownerPrisma().$executeRaw`
           UPDATE settlement_line SET therapist_net_toman = 0 WHERE id = ${lineId}::uuid
         `,
       ).rejects.toThrow(/immutable/);
@@ -184,17 +184,15 @@ describe('the closed settlement period schema (real PostgreSQL)', () => {
       const { periodId, lineIds } = await closedMonthOne();
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM settlement_line WHERE id = ${lineIds[0]}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM settlement_line WHERE id = ${lineIds[0]}::uuid`,
       ).rejects.toThrow();
 
       await expect(
-        harness.prisma.$executeRaw`DELETE FROM settlement_period WHERE id = ${periodId}::uuid`,
+        ownerPrisma().$executeRaw`DELETE FROM settlement_period WHERE id = ${periodId}::uuid`,
       ).rejects.toThrow();
 
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE settlement_line')).rejects.toThrow();
-      await expect(
-        harness.prisma.$executeRawUnsafe('TRUNCATE settlement_period'),
-      ).rejects.toThrow();
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE settlement_line')).rejects.toThrow();
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE settlement_period')).rejects.toThrow();
     });
 
     it('exposes no reopen, edit or delete route anywhere in the API', async () => {

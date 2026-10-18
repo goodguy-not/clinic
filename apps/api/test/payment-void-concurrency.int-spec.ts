@@ -56,7 +56,7 @@ describe('payment void concurrency (real PostgreSQL)', () => {
   let fixture: PaymentFixture;
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedPayingFamily(harness);
   });
 
@@ -146,7 +146,7 @@ describe('payment void concurrency (real PostgreSQL)', () => {
 
     it('keeps that true across repeated rounds', async () => {
       for (let round = 0; round < 5; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const payment = await record();
@@ -265,7 +265,7 @@ describe('payment void concurrency (real PostgreSQL)', () => {
       // Repeated, because a race that lands the same way every time proves only
       // one of the two branches.
       for (let round = 0; round < 6; round += 1) {
-        await resetDatabase(harness.prisma);
+        await resetDatabase();
         fixture = await seedPayingFamily(harness);
 
         const payment = await record();

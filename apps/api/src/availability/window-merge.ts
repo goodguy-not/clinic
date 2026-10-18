@@ -51,6 +51,42 @@ export function mergeWindows(windows: readonly ClockWindow[]): ClockWindow[] {
 }
 
 /**
+ * Removes closed ranges from working windows (M10-A9, partial closures).
+ *
+ * Half-open throughout, as everywhere in availability: closing 12:00–14:00 out
+ * of 09:00–18:00 leaves 09:00–12:00 and 14:00–18:00, and a window that only
+ * touches a closed range at one end is untouched. A window wholly inside a
+ * closed range disappears; nothing of zero length is ever returned.
+ *
+ * The result is in the order the input windows were, split pieces in time
+ * order; `mergeWindows` sorts and joins it afterwards.
+ */
+export function subtractWindows(
+  windows: readonly ClockWindow[],
+  closed: readonly ClockWindow[],
+): ClockWindow[] {
+  const cuts = mergeWindows(closed);
+  const remaining: ClockWindow[] = [];
+
+  for (const window of windows) {
+    let start = window.startTime;
+
+    for (const cut of cuts) {
+      if (cut.endTime <= start) continue;
+      if (cut.startTime >= window.endTime) break;
+
+      if (cut.startTime > start) remaining.push({ startTime: start, endTime: cut.startTime });
+      start = cut.endTime;
+      if (start >= window.endTime) break;
+    }
+
+    if (start < window.endTime) remaining.push({ startTime: start, endTime: window.endTime });
+  }
+
+  return remaining;
+}
+
+/**
  * The first pair of submitted windows that the database would refuse.
  *
  * Two windows conflict when they name the same weekday and their hours overlap.

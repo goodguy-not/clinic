@@ -7,6 +7,8 @@ import { AvailabilityModule } from './availability/availability.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { FamiliesModule } from './families/families.module';
 import { LedgerModule } from './ledger/ledger.module';
+import { MediaModule } from './media/media.module';
+import { OperationsModule } from './operations/operations.module';
 import { PaymentsModule } from './payments/payments.module';
 import { InternalKeyGuard } from './auth/guards/internal-key.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
@@ -19,6 +21,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
 import { SettlementModule } from './settlement/settlement.module';
 import { UsersModule } from './users/users.module';
+import { WebsiteModule } from './website/website.module';
 
 /**
  * Root of the modular monolith.
@@ -30,7 +33,7 @@ import { UsersModule } from './users/users.module';
  * is denied by the first guard rather than silently exposed.
  *
  * Domain modules (users, catalog, family, appointment, ledger, payment, report,
- * settlement, website) are added one milestone at a time; each owns its own tables and is
+ * settlement, media, website) are added one milestone at a time; each owns its own tables and is
  * the only code that queries them.
  */
 @Module({
@@ -48,6 +51,9 @@ import { UsersModule } from './users/users.module';
     FamiliesModule,
     ReportsModule,
     SettlementModule,
+    MediaModule,
+    WebsiteModule,
+    OperationsModule,
     HealthModule,
   ],
   providers: [

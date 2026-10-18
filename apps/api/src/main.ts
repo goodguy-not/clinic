@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { configureApp } from './bootstrap';
 import { loadDotEnvIfPresent, loadEnv } from './config/env';
-import { redactSecrets } from './common/redact';
+import { describeError } from './common/describe-error';
 
 async function bootstrap(): Promise<void> {
   loadDotEnvIfPresent();
@@ -22,8 +22,10 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch((error: unknown) => {
-  // Redacted: PrismaService connects during module initialisation, so a startup
-  // failure here can be a driver error carrying the full connection string.
-  Logger.error(redactSecrets(error instanceof Error ? error.message : String(error)), 'Bootstrap');
+  // The kind of failure, never its message: PrismaService connects during
+  // module initialisation, so a startup failure here can be a driver error
+  // carrying the full connection string. An invalid environment is the one
+  // message that is let through — it names variables, never their values.
+  Logger.error(describeError(error), 'Bootstrap');
   process.exit(1);
 });

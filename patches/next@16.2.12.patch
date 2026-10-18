@@ -1,0 +1,26 @@
+diff --git a/dist/server/dev/turbopack-utils.js b/dist/server/dev/turbopack-utils.js
+index b8d2370a9ac876d8df38b1538770e6f440b94e27..abae861096a795c96f8008d54bbd45b6b6cec214 100644
+--- a/dist/server/dev/turbopack-utils.js
++++ b/dist/server/dev/turbopack-utils.js
+@@ -453,6 +453,7 @@ async function handleEntrypoints({ entrypoints, currentEntrypoints, currentEntry
+         await handleEntrypointsDevCleanup({
+             currentEntryIssues,
+             currentEntrypoints,
++            manifestLoader,
+             ...dev
+         });
+     }
+@@ -553,11 +554,12 @@ async function handleEntrypoints({ entrypoints, currentEntrypoints, currentEntry
+     await dev.hooks.propagateServerField('actualMiddlewareFile', dev.serverFields.actualMiddlewareFile);
+     await dev.hooks.propagateServerField('middleware', dev.serverFields.middleware);
+ }
+-async function handleEntrypointsDevCleanup({ currentEntryIssues, currentEntrypoints, assetMapper, changeSubscriptions, clients, clientStates, hooks }) {
++async function handleEntrypointsDevCleanup({ currentEntryIssues, currentEntrypoints, manifestLoader, assetMapper, changeSubscriptions, clients, clientStates, hooks }) {
+     // this needs to be first as `hasEntrypointForKey` uses the `assetMapper`
+     for (const key of assetMapper.keys()){
+         if (!hasEntrypointForKey(currentEntrypoints, key, assetMapper)) {
+             assetMapper.delete(key);
++            manifestLoader.delete(key);
+         }
+     }
+     for (const key of changeSubscriptions.keys()){

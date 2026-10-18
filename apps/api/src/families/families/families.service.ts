@@ -3,18 +3,20 @@ import { Prisma } from '@prisma/client';
 import type {
   CreateFamilyRequest,
   DuplicateCandidate,
+  FamilyBalance,
   FamilyDetailResponse,
   FamilyListResponse,
   FamilySearchRequest,
   FamilyWriteResponse,
   NoticeCode,
-  RecordStatus,
   UpdateFamilyRequest,
+  UpdateFamilyStatusRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
 import { AppError } from '../../common/app-error';
 import type { RequestContext, ResolvedSession } from '../../common/request-context';
 import { uuidv7 } from '../../common/uuid';
+import { readFamilyPosition } from '../../ledger/family-position';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext } from '../../catalog/catalog-support';
 import { auditSafeDuplicateOverride, auditSafeFamily } from '../audit-safe';
@@ -489,19 +491,39 @@ export class FamiliesService {
    * keeps its own status, so reactivating the family restores exactly the state
    * it had rather than a state this method invented; the appointment milestone
    * refuses to book against an inactive family regardless.
+   *
+   * NOT SILENTLY WHILE IT HOLDS MONEY (DECISION_LOG, 2026-10-01). Deactivating a
+   * family that owes money or holds credit needs `acknowledgedBalance` equal to
+   * the balance derived here, inside the transaction, after the family row is
+   * locked; otherwise nothing is written and the refusal carries the balance to
+   * show. The position is `readFamilyPosition` — the account's own derivation —
+   * so the warning quotes the figure the family's account shows.
+   *
+   * The `FOR UPDATE` on the family conflicts with the key-share lock a new
+   * payment or charge takes on it, so neither can land between this read and the
+   * commit. A void or a concession touches no family row and can; it is audited
+   * on its own, and the reports list the family whatever its status, which is the
+   * guarantee — this acknowledgement is the warning in front of it.
    */
   async changeStatus(
     id: string,
-    status: RecordStatus,
+    request: UpdateFamilyStatusRequest,
     actor: ResolvedSession,
     context: RequestContext,
   ): Promise<FamilyDetailResponse> {
+    const { status } = request;
+
     await this.prisma.$transaction(async (tx) => {
       const before = await this.lockFamily(tx, id);
 
       // Already in the requested state: return it unchanged rather than writing
       // an audit row whose before and after are identical.
       if (before.status === status) return;
+
+      const held = status === 'INACTIVE' ? await heldBalance(tx, id) : null;
+      if (held !== null && !sameBalance(request.acknowledgedBalance, held)) {
+        throw new AppError('FAMILY_BALANCE_UNACKNOWLEDGED', held);
+      }
 
       await tx.$executeRaw`
         UPDATE family SET
@@ -519,6 +541,15 @@ export class FamiliesService {
         before: { status: before.status },
         after: { status },
       });
+
+      if (held !== null) {
+        await this.audit.record(tx, actorContext(actor, context), {
+          action: 'family.deactivated_with_balance',
+          entityType: 'family',
+          entityId: id,
+          metadata: { amountDueToman: held.amountDueToman, creditToman: held.creditToman },
+        });
+      }
     });
 
     return this.get(id);
@@ -906,4 +937,26 @@ export class FamiliesService {
       ),
     );
   }
+}
+
+/**
+ * What the family owes or holds, or `null` when it is settled — the account's
+ * own position, never a second derivation.
+ */
+async function heldBalance(
+  tx: Prisma.TransactionClient,
+  familyId: string,
+): Promise<FamilyBalance | null> {
+  const { amountDueToman, creditToman } = await readFamilyPosition(tx, familyId);
+  if (amountDueToman === '0' && creditToman === '0') return null;
+  return { amountDueToman, creditToman };
+}
+
+/** Canonical decimal strings, so equal amounts are equal strings. */
+function sameBalance(acknowledged: FamilyBalance | undefined, held: FamilyBalance): boolean {
+  return (
+    acknowledged !== undefined &&
+    acknowledged.amountDueToman === held.amountDueToman &&
+    acknowledged.creditToman === held.creditToman
+  );
 }

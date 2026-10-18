@@ -12,6 +12,7 @@ import { ReportExportController } from './report-export.controller';
 import { ReportExportService } from './report-export.service';
 import { SessionReportService } from './session-report.service';
 import { TherapistActivityService } from './therapist-activity.service';
+import { WebsiteModule } from '../website/website.module';
 
 /**
  * Reporting: the clinic-wide READ of facts Milestones 4, 5 and 6 already own.
@@ -31,6 +32,13 @@ import { TherapistActivityService } from './therapist-activity.service';
  * plain read helpers they already are (`ledger/charge-detail`,
  * `payments/payment-detail`) — the same one-way, read-only reach
  * `FamilyAccountService` already has into `payment` and `payment_promise`.
+ *
+ * MILESTONE 9 CHECKPOINT A4 ADDS ONE MORE SUCH REACH. `WebsiteModule` is
+ * imported for `WebsiteRequestsService.newRequestCount`, so that the dashboard's
+ * website-request badge and the inbox behind it count the same rows through the
+ * same predicate. A second `SELECT count(*) WHERE status = 'NEW'` written here
+ * would be a second place for "waiting" to start meaning something slightly
+ * different, which is the mistake `AppointmentReadService` is imported to avoid.
  *
  * THE DEPENDENCIES POINT ONE WAY AND NO CYCLE EXISTS. Nothing in appointments,
  * the ledger or payments imports this module, and nothing here is exported: a
@@ -80,7 +88,7 @@ import { TherapistActivityService } from './therapist-activity.service';
  * a file is built on the request that asks for it and is never seen again.
  */
 @Module({
-  imports: [AppointmentsModule, AuditModule],
+  imports: [AppointmentsModule, AuditModule, WebsiteModule],
   controllers: [
     DashboardController,
     OperationalReportsController,

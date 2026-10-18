@@ -9,6 +9,7 @@ import {
   sessionTokenFrom,
 } from '@/server/handler-support';
 import { secureRedirect } from '@/server/security-headers';
+import { invalidateTherapistPublication } from '@/server/public-cache-invalidation';
 
 export const runtime = 'nodejs';
 
@@ -36,6 +37,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const result = await api.changeTherapistStatus(body['id'] ?? '', status.data, { sessionToken });
 
   if (!result.ok) return failureRedirect(request, '/therapists', result.code);
+
+  // The operational response intentionally does not expose public-profile
+  // fields. Resolve the stable address through the authenticated internal read;
+  // a failure still drops the collection and sitemap rather than hiding the
+  // already-successful status mutation behind a second error.
+  const profile = await api.getTherapistPublicProfile(result.data.therapist.id, { sessionToken });
+  if (!profile.ok) invalidateTherapistPublication(null);
+  else if (profile.data.profile.isPublic)
+    invalidateTherapistPublication(profile.data.profile.publicSlug);
 
   return secureRedirect(request, '/therapists');
 }

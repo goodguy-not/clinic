@@ -1,7 +1,7 @@
 import { AuditService } from '../src/audit/audit.service';
 import { AuditPayloadError } from '../src/audit/audit-payload';
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, seedUser, type Harness } from './harness';
+import { createHarness, resetDatabase, seedUser, type Harness, ownerPrisma } from './harness';
 
 describe('audit runtime (real PostgreSQL)', () => {
   let harness: Harness;
@@ -17,7 +17,7 @@ describe('audit runtime (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const context = (userId?: string) => ({
@@ -173,16 +173,19 @@ describe('audit runtime (real PostgreSQL)', () => {
       return user.id;
     }
 
+    // As the OWNER, deliberately: the runtime role is refused all of these by
+    // privilege before any trigger fires (runtime-role.int-spec.ts). What is
+    // proved here is that the triggers hold even for a role that owns the table.
     it('rejects UPDATE on audit_log', async () => {
       await writeOneRow();
       await expect(
-        harness.prisma.$executeRawUnsafe(`UPDATE audit_log SET action = 'user.created'`),
+        ownerPrisma().$executeRawUnsafe(`UPDATE audit_log SET action = 'user.created'`),
       ).rejects.toThrow(/protected|not permitted/i);
     });
 
     it('rejects DELETE on audit_log', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('DELETE FROM audit_log')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('DELETE FROM audit_log')).rejects.toThrow(
         /protected|not permitted/i,
       );
       expect(await harness.prisma.auditLog.count()).toBe(1);
@@ -190,7 +193,7 @@ describe('audit runtime (real PostgreSQL)', () => {
 
     it('rejects TRUNCATE on audit_log, which bypasses row triggers', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE audit_log')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE audit_log')).rejects.toThrow(
         /protected|not permitted/i,
       );
       expect(await harness.prisma.auditLog.count()).toBe(1);
@@ -199,13 +202,13 @@ describe('audit runtime (real PostgreSQL)', () => {
     it('rejects DELETE on app_user', async () => {
       const id = await writeOneRow();
       await expect(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${id}'`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${id}'`),
       ).rejects.toThrow(/protected|not permitted/i);
     });
 
     it('rejects TRUNCATE on app_user', async () => {
       await writeOneRow();
-      await expect(harness.prisma.$executeRawUnsafe('TRUNCATE app_user CASCADE')).rejects.toThrow(
+      await expect(ownerPrisma().$executeRawUnsafe('TRUNCATE app_user CASCADE')).rejects.toThrow(
         /protected|not permitted/i,
       );
     });
@@ -232,12 +235,20 @@ describe('audit runtime (real PostgreSQL)', () => {
         return session;
       });
 
-      // user_session carries no protective trigger: it is operational state a
-      // retention policy must be able to purge.
-      await harness.prisma.$executeRaw`
-        DELETE FROM user_session WHERE id = ${issued.sessionId}::uuid
+      // user_session is operational state the nightly SESSION_PRUNE job removes
+      // once it has been over for thirty days (Milestone 10, checkpoint A3).
+      // The session is aged past that as the owner — the only way a test can
+      // move time — and then pruned by the runtime, exactly as the job does.
+      await ownerPrisma().$executeRaw`
+        UPDATE user_session
+        SET created_at = created_at - interval '40 days',
+            last_seen_at = last_seen_at - interval '40 days',
+            idle_expires_at = idle_expires_at - interval '40 days',
+            absolute_expires_at = absolute_expires_at - interval '40 days'
+        WHERE id = ${issued.sessionId}::uuid
       `;
 
+      expect(await harness.sessions.pruneEnded()).toBe(1);
       expect(await harness.prisma.userSession.count()).toBe(0);
 
       const row = await harness.prisma.auditLog.findFirstOrThrow();

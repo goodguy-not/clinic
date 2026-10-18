@@ -37,9 +37,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const parsed = createChargeAdjustmentRequestSchema.safeParse({
     amountToman: toWesternDigits(body['amountToman'] ?? ''),
     reason: body['reason'] ?? '',
-    ...(body['therapistDiscountToman'] === undefined || body['therapistDiscountToman'] === ''
-      ? {}
-      : { therapistDiscountToman: toWesternDigits(body['therapistDiscountToman']) }),
+    // M10.5 D10: both portions are required and forwarded as typed (Agent A,
+    // mechanical; the form gains its clinic field in Agent B's phase-1 Web).
+    therapistDiscountToman: toWesternDigits(body['therapistDiscountToman'] ?? ''),
+    clinicDiscountToman: toWesternDigits(body['clinicDiscountToman'] ?? ''),
   });
   if (!parsed.success) return failureRedirect(request, accountPath, 'VALIDATION_FAILED');
 

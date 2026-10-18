@@ -72,6 +72,9 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // the domain permits.
   FAMILY_PRIMARY_GUARDIAN_INVALID: 422,
   FAMILY_INACTIVE: 422,
+  // 409, like the duplicate warning: the request is legitimate once the person
+  // has seen what the family still holds, and the details say what that is.
+  FAMILY_BALANCE_UNACKNOWLEDGED: 409,
   CHILD_BIRTH_DATE_IN_FUTURE: 422,
   // 404 for missing, expired, consumed, wrong user, wrong session and wrong
   // purpose alike. A draft token is a bearer credential; distinguishing those
@@ -94,6 +97,11 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // 409: the row is in a state that does not allow this transition, which a
   // retry against a re-read row may well resolve.
   APPOINTMENT_TRANSITION_INVALID: 409,
+  // 422, like `PAYMENT_DATE_IN_FUTURE`: nothing conflicts, the outcome is
+  // simply not yet a true thing to say about the session.
+  APPOINTMENT_OUTCOME_DATE_IN_FUTURE: 422,
+  APPOINTMENT_OUTCOME_BEFORE_START: 422,
+  RECURRENCE_OCCURRENCE_IN_PAST: 422,
   APPOINTMENT_OUTSIDE_AVAILABILITY: 422,
   RECURRENCE_RULE_INVALID: 422,
   AVAILABILITY_WINDOW_INVALID: 422,
@@ -173,6 +181,94 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   RATING_REPLACEMENT_REQUIRED: 409,
   RATING_SCOPE_MISMATCH: 422,
 
+  // The public website (Milestone 9, checkpoint A2).
+  //
+  // 409 for the two slug refusals: both are well-formed requests that conflict
+  // with a record's own history or with another row, which is exactly
+  // `SERVICE_NAME_TAKEN`'s reasoning. `PUBLIC_SLUG_IMMUTABLE` is a conflict
+  // with a promise the clinic has already made to everybody holding the URL.
+  PUBLIC_SLUG_IMMUTABLE: 409,
+  PUBLIC_SLUG_TAKEN: 409,
+  // 422, as for a therapist's incomplete profile: nothing conflicts, the
+  // combination — public, with no address — is one the rules do not permit.
+  SERVICE_PUBLIC_ADDRESS_REQUIRED: 422,
+  // 422: nothing conflicts and nothing is missing from the request. The
+  // combination — publish this person, with no approved name to publish them
+  // under — is one the recorded content does not permit.
+  THERAPIST_PUBLIC_PROFILE_INCOMPLETE: 422,
+  ARTICLE_NOT_FOUND: 404,
+  TESTIMONIAL_NOT_FOUND: 404,
+  // 409 for both: the row is in a state that does not allow this act, and a
+  // refreshed screen explains why. Exactly `CHARGE_ALREADY_VOIDED`'s reasoning.
+  TESTIMONIAL_APPROVED: 409,
+  TESTIMONIAL_NOT_APPROVED: 409,
+  PUBLIC_SPACE_NOT_FOUND: 404,
+  CLINIC_CONTENT_ENTRY_NOT_FOUND: 404,
+
+  // Milestone 9, checkpoint A3. 429 is the only one of its kind on this
+  // surface, and it is the honest status: the request is well formed, permitted
+  // and would otherwise have been accepted — the caller has simply made too
+  // many of them. A 403 would say "not allowed", which is false, and a 400
+  // would say "your form is wrong", which is worse: a visitor would go on
+  // editing text that was never the problem.
+  PUBLIC_REQUEST_THROTTLED: 429,
+
+  // The inbox (Milestone 9, checkpoint A4). A missing request is a 404; an
+  // illegal move and a second link are both 409 — the request exists and the
+  // caller may read it, but the state it is in refuses the act. A 400 would say
+  // "your request is malformed", which is false: the same body would have been
+  // accepted a moment earlier, and on a race it is the caller's SCREEN that is
+  // stale rather than their input.
+  WEBSITE_REQUEST_NOT_FOUND: 404,
+  WEBSITE_REQUEST_TRANSITION_INVALID: 409,
+  WEBSITE_REQUEST_ALREADY_LINKED: 409,
+
+  // The media subsystem (Milestone 9.5, checkpoint A5). FIVE STATUSES OVER NINE
+  // CODES, and each one is the honest answer to a different question.
+  //
+  // 404 for `MEDIA_NOT_FOUND` on BOTH surfaces, and the sameness is deliberate.
+  // A colleague asking for an asset that does not exist gets it, and so does an
+  // anonymous request for a rendition that exists but is not public — see the
+  // note in `@clinic/contracts`. Two statuses would be an oracle.
+  //
+  // 413 rather than 400 for an oversized upload: the request is well formed and
+  // the caller may legitimately want it, the entity is simply larger than this
+  // endpoint accepts. It is raised while the body is still arriving.
+  //
+  // 415 for an unsupported type, which is the one status on this whole surface
+  // that says "I understood your request and cannot process this media type" —
+  // exactly what an SVG or a PDF renamed to `.jpg` is.
+  //
+  // 422 for the two that are properties of the file's CONTENT rather than of
+  // its envelope: a decoder could not read it, or it decoded to something the
+  // clinic will not publish. An identical retry always fails identically, which
+  // is what separates these from the 409s below.
+  //
+  // 409 for the four lifecycle refusals: the request is well formed and
+  // something else already happened to the row, which a refreshed screen
+  // explains. Exactly `CHARGE_ALREADY_VOIDED`'s reasoning.
+  MEDIA_NOT_FOUND: 404,
+  MEDIA_TYPE_UNSUPPORTED: 415,
+  MEDIA_FILE_TOO_LARGE: 413,
+  MEDIA_FILE_CORRUPT: 422,
+  MEDIA_IMAGE_UNUSABLE: 422,
+  MEDIA_ARCHIVED: 409,
+  MEDIA_ATTACHMENT_NOT_FOUND: 404,
+  MEDIA_ALREADY_ATTACHED: 409,
+  MEDIA_ATTACHMENT_PUBLISHED: 409,
+
+  // M10.5 phase 1. The same split: 404 for a record that is not there, 409 for
+  // a well-formed act against a row already in another state, 422 for values
+  // the domain does not permit, where an identical retry fails identically.
+  APPOINTMENT_OUTCOME_ALREADY_RECORDED: 409,
+  ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP: 422,
+  NO_SHOW_DECISION_NOT_FOUND: 404,
+  NO_SHOW_DECISION_EXISTS: 409,
+  NO_SHOW_DECISION_ALREADY_WITHDRAWN: 409,
+  NO_SHOW_NOT_DECIDABLE: 422,
+  NO_SHOW_PENALTY_ON_FREE_SESSION: 422,
+  NO_SHOW_PENALTY_VOID_THROUGH_DECISION: 409,
+
   INTERNAL_ERROR: 500,
 };
 
@@ -222,6 +318,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   FAMILY_PRIMARY_GUARDIAN_INVALID:
     'Exactly one guardian must be the primary contact, with a mobile or a landline',
   FAMILY_INACTIVE: 'The family is inactive',
+  FAMILY_BALANCE_UNACKNOWLEDGED:
+    'The family owes money or holds credit; deactivating it requires acknowledging the amount',
   CHILD_BIRTH_DATE_IN_FUTURE: 'The birth date is after the current date at the clinic',
   DRAFT_NOT_FOUND: 'Registration draft not found or no longer valid',
 
@@ -235,6 +333,11 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   APPOINTMENT_DURATION_NOT_ALLOWED: 'The service does not offer this session length',
   APPOINTMENT_TRANSITION_INVALID:
     'The current status of the appointment does not allow this change',
+  APPOINTMENT_OUTCOME_DATE_IN_FUTURE:
+    'No outcome can be recorded for a session on a date that has not come yet',
+  APPOINTMENT_OUTCOME_BEFORE_START:
+    'Completion and no-show can be recorded only once the session has started',
+  RECURRENCE_OCCURRENCE_IN_PAST: 'An occurrence would be placed at a time that has already passed',
   APPOINTMENT_OUTSIDE_AVAILABILITY: 'The therapist is not available in this time range',
   RECURRENCE_RULE_INVALID: 'A series must state either an occurrence count or an end date',
   AVAILABILITY_WINDOW_INVALID: 'The availability window is not a valid time range',
@@ -284,9 +387,46 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   SETTLEMENT_PERIOD_OVERLAP:
     'The range overlaps a settlement period already closed for this therapist',
   SETTLEMENT_PERIOD_NOT_FOUND: 'Settlement period not found',
+  PUBLIC_SLUG_IMMUTABLE: 'A public slug cannot change once it has been publicly reachable',
+  PUBLIC_SLUG_TAKEN: 'Public slug is already in use',
+  SERVICE_PUBLIC_ADDRESS_REQUIRED: 'A service can be public only with a public address',
+  THERAPIST_PUBLIC_PROFILE_INCOMPLETE:
+    'A therapist cannot be published without a public slug and an approved display name',
+  ARTICLE_NOT_FOUND: 'Article not found',
+  TESTIMONIAL_NOT_FOUND: 'Testimonial not found',
+  TESTIMONIAL_APPROVED: 'An approved testimonial cannot be edited',
+  TESTIMONIAL_NOT_APPROVED: 'A testimonial cannot be published before it is approved',
+  PUBLIC_SPACE_NOT_FOUND: 'Public space not found',
+  CLINIC_CONTENT_ENTRY_NOT_FOUND: 'Clinic content entry not found',
   RATING_REPLACEMENT_REQUIRED:
     'This rating is settled in a closed period and may only be corrected with a replacement in the same request',
   RATING_SCOPE_MISMATCH: 'The replacement rating must name the same session charge',
+  PUBLIC_REQUEST_THROTTLED: 'Too many requests have been submitted from here recently',
+  WEBSITE_REQUEST_NOT_FOUND: 'Website request not found',
+  WEBSITE_REQUEST_TRANSITION_INVALID: 'This website request cannot move to that status',
+  WEBSITE_REQUEST_ALREADY_LINKED: 'This website request is already linked to a family',
+
+  MEDIA_NOT_FOUND: 'Media not found',
+  MEDIA_TYPE_UNSUPPORTED: 'The uploaded file is not a supported photograph format',
+  MEDIA_FILE_TOO_LARGE: 'The uploaded file is larger than this endpoint accepts',
+  MEDIA_FILE_CORRUPT: 'The uploaded file could not be decoded as an image',
+  MEDIA_IMAGE_UNUSABLE: 'The image dimensions are outside the range this product publishes',
+  MEDIA_ARCHIVED: 'This media has been archived and may not be attached or published',
+  MEDIA_ATTACHMENT_NOT_FOUND: 'Media attachment not found',
+  MEDIA_ALREADY_ATTACHED: 'This media is already attached to that owner',
+  MEDIA_ATTACHMENT_PUBLISHED: 'A published attachment must be unpublished before it is detached',
+
+  APPOINTMENT_OUTCOME_ALREADY_RECORDED: 'This session already has a different recorded outcome',
+  ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP:
+    'The therapist and clinic portions must add up to the discount amount',
+  NO_SHOW_DECISION_NOT_FOUND: 'No-show decision not found',
+  NO_SHOW_DECISION_EXISTS: 'A no-show decision already stands for this participant',
+  NO_SHOW_DECISION_ALREADY_WITHDRAWN: 'This no-show decision has already been withdrawn',
+  NO_SHOW_NOT_DECIDABLE:
+    'Only an absent participant of a completed session can be given a no-show decision',
+  NO_SHOW_PENALTY_ON_FREE_SESSION: 'A session priced as free cannot carry a no-show penalty',
+  NO_SHOW_PENALTY_VOID_THROUGH_DECISION:
+    'A no-show penalty is withdrawn by withdrawing its decision, not by voiding the charge',
 
   INTERNAL_ERROR: 'Internal error',
 };

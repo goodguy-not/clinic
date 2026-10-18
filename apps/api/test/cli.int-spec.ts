@@ -21,7 +21,7 @@ describe('operator CLI (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(prisma);
+    await resetDatabase();
   });
 
   function captureIo(stdin = ''): CliIo & { stdout: string[]; stderr: string[] } {
@@ -280,6 +280,31 @@ describe('operator CLI (real PostgreSQL)', () => {
       const password = printedPassword(io);
       expect(password).toBeDefined();
       expect(process.argv.join(' ')).not.toContain(password as string);
+    });
+  });
+
+  // Milestone 10, checkpoint A3. The jobs themselves are proved in
+  // `scheduled-jobs.int-spec.ts`; here, the command systemd runs.
+  describe('run-jobs', () => {
+    it('prints one line per job, counts only, and writes nothing on a dry run', async () => {
+      const io = captureIo();
+
+      expect(await runCli(['run-jobs', '--dry-run'], io)).toBe(0);
+
+      expect(io.stdout).toEqual([
+        'WEBSITE_REQUEST_PURGE DRY_RUN eligible=0',
+        'SESSION_PRUNE DRY_RUN eligible=0',
+        'TESTIMONIAL_ERASURE DRY_RUN eligible=0',
+        'MEDIA_ERASURE DRY_RUN eligible=0',
+      ]);
+      expect(await prisma.auditLog.count()).toBe(0);
+    });
+
+    it('refuses a job that does not exist, before doing anything', async () => {
+      const io = captureIo();
+
+      expect(await runCli(['run-jobs', '--only', 'EVERYTHING'], io)).toBe(2);
+      expect(io.stderr).toEqual(['Unknown job: EVERYTHING']);
     });
   });
 });

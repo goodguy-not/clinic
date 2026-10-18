@@ -5,6 +5,7 @@ import {
   updateServiceRequestSchema,
   type CreateServiceRequest,
   type ServiceListResponse,
+  type ServiceMutationResponse,
   type ServiceResponse,
   type UpdateCatalogStatusRequest,
   type UpdateServiceRequest,
@@ -49,8 +50,8 @@ export class ServicesController {
     @Body(new ZodBodyPipe(createServiceRequestSchema)) body: CreateServiceRequest,
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
-  ): Promise<ServiceResponse> {
-    return { service: await this.services.create(body, session, context) };
+  ): Promise<ServiceMutationResponse> {
+    return this.services.create(body, session, context);
   }
 
   @Patch(':id')
@@ -60,8 +61,8 @@ export class ServicesController {
     @Body(new ZodBodyPipe(updateServiceRequestSchema)) body: UpdateServiceRequest,
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
-  ): Promise<ServiceResponse> {
-    return { service: await this.services.update(id, body, session, context) };
+  ): Promise<ServiceMutationResponse> {
+    return this.services.update(id, body, session, context);
   }
 
   /**
@@ -76,7 +77,7 @@ export class ServicesController {
     @Body(new ZodBodyPipe(updateCatalogStatusRequestSchema)) body: UpdateCatalogStatusRequest,
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
-  ): Promise<ServiceResponse> {
-    return { service: await this.services.changeStatus(id, body.status, session, context) };
+  ): Promise<ServiceMutationResponse> {
+    return this.services.changeStatus(id, body.status, session, context);
   }
 }

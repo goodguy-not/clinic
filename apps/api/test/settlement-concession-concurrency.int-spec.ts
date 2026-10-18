@@ -47,7 +47,7 @@ describe('therapist-borne concession concurrency (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedChargedSession(harness, { shareBasisPoints: 4000 });
   });
 

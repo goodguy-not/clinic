@@ -46,7 +46,7 @@ describe('family account', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     ledger = await seedFamilyLedger(harness);
   });
 

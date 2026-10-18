@@ -1,0 +1,165 @@
+import type { Metadata } from 'next';
+import type { DuplicateCandidate } from '@clinic/contracts';
+import { z } from 'zod';
+import { api } from '@/server/api-client';
+import { readCsrfCookie, requireSession, readSessionToken } from '@/server/auth-session';
+import { readDraftToken } from '@/server/draft-cookie';
+import { persianMessage } from '@/server/errors-fa';
+import {
+  Alert,
+  Badge,
+  ButtonLink,
+  PageHeader,
+  PageShell,
+  Panel,
+  SubmitButton,
+} from '@/components/ui';
+import { FOCUS_RING } from '@/components/styles';
+import { COPY } from '@/server/copy-fa';
+import { AppHeader } from '@/components/app-header';
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { robots: { index: false, follow: false } };
+
+const CONFIRM_ACTION: Record<string, `/api/${string}`> = {
+  FAMILY_CREATE: '/api/families/confirm-registration',
+  FAMILY_UPDATE: '/api/families/confirm-update',
+  CHILD_CREATE: '/api/children/confirm-registration',
+  CHILD_UPDATE: '/api/children/confirm-update',
+};
+
+/**
+ * The comparison screen a blocked family or child registration lands on.
+ *
+ * The draft token lives only in this server's own HttpOnly cookie
+ * (`draft-cookie.ts`) — it never appears in this page's markup or in the
+ * confirm/discard form actions, which is what keeps it out of the browser's
+ * hands entirely.
+ */
+export default async function ConfirmRegistrationPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await requireSession({ requirePermission: 'family.read' });
+
+  const draftToken = await readDraftToken();
+
+  if (draftToken === null) {
+    return (
+      <>
+        <AppHeader />
+        <PageShell>
+          <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
+          <Alert>{persianMessage('DRAFT_NOT_FOUND')}</Alert>
+          <ButtonLink href="/families">{COPY.back}</ButtonLink>
+        </PageShell>
+      </>
+    );
+  }
+
+  const sessionToken = await readSessionToken();
+  const result = await api.currentDraft({ sessionToken: sessionToken ?? undefined, draftToken });
+
+  if (!result.ok) {
+    return (
+      <>
+        <AppHeader />
+        <PageShell>
+          <PageHeader title={COPY.duplicateTitle} backHref="/families" backLabel={COPY.back} />
+          <Alert>{persianMessage(result.code)}</Alert>
+          <ButtonLink href="/families">{COPY.back}</ButtonLink>
+        </PageShell>
+      </>
+    );
+  }
+
+  const draft = result.data;
+  const isChild = draft.purpose === 'CHILD_CREATE' || draft.purpose === 'CHILD_UPDATE';
+  const csrfToken = (await readCsrfCookie()) ?? '';
+  const query = await searchParams;
+  const rawRequestId = query['fromWebsiteRequest'];
+  const parsedRequestId = z
+    .uuid()
+    .safeParse(typeof rawRequestId === 'string' ? rawRequestId : undefined);
+  const websiteRequestId = parsedRequestId.success ? parsedRequestId.data : null;
+
+  return (
+    <>
+      <AppHeader />
+      <PageShell>
+        <PageHeader title={COPY.duplicateTitle} />
+
+        <Alert tone="info">{isChild ? COPY.duplicateChildIntro : COPY.duplicateFamilyIntro}</Alert>
+
+        <form method="post" action={CONFIRM_ACTION[draft.purpose]} className="flex flex-col gap-4">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          {websiteRequestId !== null ? (
+            <input type="hidden" name="websiteRequestId" value={websiteRequestId} />
+          ) : null}
+
+          {draft.candidates.map((candidate) => (
+            <CandidatePanel key={acknowledgementId(candidate)} candidate={candidate} />
+          ))}
+
+          <SubmitButton>{COPY.duplicateConfirmAction}</SubmitButton>
+        </form>
+
+        <form method="post" action="/api/registration-drafts/discard">
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <SubmitButton tone="secondary">{COPY.duplicateDiscardAction}</SubmitButton>
+        </form>
+      </PageShell>
+    </>
+  );
+}
+
+function acknowledgementId(candidate: DuplicateCandidate): string {
+  return candidate.childId ?? candidate.familyId;
+}
+
+function CandidatePanel({ candidate }: { candidate: DuplicateCandidate }) {
+  const id = acknowledgementId(candidate);
+  const checkboxId = `acknowledge-${id}`;
+
+  return (
+    <Panel>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-slate-900">{candidate.familyName}</span>
+          <Badge tone="danger">{COPY.duplicateBlockingBadge}</Badge>
+        </div>
+
+        {candidate.primaryGuardianName !== null ? (
+          <p className="text-sm text-slate-600">{candidate.primaryGuardianName}</p>
+        ) : null}
+
+        <p dir="ltr" className="text-start text-sm text-slate-600">
+          {[candidate.maskedMobile, candidate.maskedLandline].filter((v) => v !== null).join(' — ')}
+        </p>
+
+        {candidate.childNames.length > 0 ? (
+          <p className="text-sm text-slate-600">
+            {COPY.duplicateChildrenInFamilyLabel}: {candidate.childNames.join('، ')}
+          </p>
+        ) : null}
+
+        <label
+          htmlFor={checkboxId}
+          className="mt-2 flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm font-medium"
+        >
+          <input
+            id={checkboxId}
+            type="checkbox"
+            name="acknowledgedDuplicateIds"
+            value={id}
+            required
+            className={`mt-1 size-4 shrink-0 accent-brand-700 ${FOCUS_RING}`}
+          />
+          {COPY.duplicateAcknowledgeLabel}
+        </label>
+      </div>
+    </Panel>
+  );
+}

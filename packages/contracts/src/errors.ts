@@ -69,6 +69,10 @@ export const ERROR_CODES = [
   // landline.
   'FAMILY_PRIMARY_GUARDIAN_INVALID',
   'FAMILY_INACTIVE',
+  // Deactivating a family that owes money or holds credit, without acknowledging
+  // the amount (or acknowledging an amount that is no longer true). The details
+  // carry the family's current balance (`familyBalanceSchema`); nothing changed.
+  'FAMILY_BALANCE_UNACKNOWLEDGED',
   // Measured against the clinic's own calendar day in Asia/Tehran, never the
   // server's.
   'CHILD_BIRTH_DATE_IN_FUTURE',
@@ -100,6 +104,18 @@ export const ERROR_CODES = [
   // The requested status change is not a permitted transition from the current
   // one — completing a cancelled appointment, cancelling a completed one.
   'APPOINTMENT_TRANSITION_INVALID',
+  // An outcome recorded too early (M10-A10, T-020), in Asia/Tehran by the
+  // database clock, for every role. A session on a later date than today takes
+  // no outcome at all; on its own date attendance may be recorded at any time,
+  // but completion and no-show only from its scheduled start. Two codes because
+  // the fixes differ: "wait for that day" and "wait until it starts". Details:
+  // `appointmentOutcomeTimingDetailsSchema`.
+  'APPOINTMENT_OUTCOME_DATE_IN_FUTURE',
+  'APPOINTMENT_OUTCOME_BEFORE_START',
+  // A this-and-future change that would place an occurrence at an instant that
+  // has already passed (M10-A10, T-023) — typically moving the weekday earlier
+  // in the current week. The series is planning; the past is not re-planned.
+  'RECURRENCE_OCCURRENCE_IN_PAST',
   // Booked outside the therapist's recurring windows, or on a day a dated
   // exception closes. PROJECT_SPEC.md 5 requires this to be prevented or
   // explicitly authorized: it is refused unless the caller holds
@@ -308,6 +324,200 @@ export const ERROR_CODES = [
   // There is no `SETTLEMENT_PERIOD_CLOSED` either — a closed period is never
   // reopened, so there is no operation on it to refuse — and no code of any kind
   // about a therapist payout, which this milestone does not record.
+
+  // The public website (Milestone 9, checkpoint A2). SEVEN CODES, AND EVERY ONE
+  // OF THEM IS A REFUSAL A MANAGER CAN READ AND ACT ON.
+  //
+  // `PUBLIC_SLUG_IMMUTABLE` IS WHERE THE A1 DATABASE TRIGGER BECOMES A
+  // SENTENCE. A slug that has been publicly reachable cannot be changed or
+  // cleared, because this product has no redirect, alias or URL-history
+  // machinery and a moved URL would silently break every link anybody has
+  // already followed (DECISION_LOG, 2026-08-21). The honest answer is a refusal
+  // that says so, not a 500 from a trigger and not a silent success that
+  // rewrote a promise.
+  //
+  // `PUBLIC_SLUG_TAKEN` is the unique index seen from the manager's side, and
+  // it is deliberately not `SERVICE_NAME_TAKEN`: the slug is unique across
+  // EVERY published thing of that kind including private and retired rows, so
+  // the conflicting record may be one the manager cannot see in the list they
+  // are looking at.
+  'PUBLIC_SLUG_IMMUTABLE',
+  'PUBLIC_SLUG_TAKEN',
+  // A service is public only with an address to be public AT (M10-A9). Refused
+  // on create and on the state an update would leave, rather than stored as a
+  // flag the website silently ignores.
+  'SERVICE_PUBLIC_ADDRESS_REQUIRED',
+  // A therapist cannot be published without the approved content the opt-in is
+  // an opt-in TO: an address and a name they agreed to appear under. Refused
+  // rather than filled in from the personnel record, which would be a
+  // publication decision nobody made.
+  'THERAPIST_PUBLIC_PROFILE_INCOMPLETE',
+  'ARTICLE_NOT_FOUND',
+  'TESTIMONIAL_NOT_FOUND',
+  // The words of an approved testimonial are frozen. Editing them would leave
+  // text on a public page that nobody reviewed, so the fix is to withdraw the
+  // approval first — which also takes it off the site — and approve the new
+  // wording deliberately.
+  'TESTIMONIAL_APPROVED',
+  // Publishing something the privacy review has not passed. It is the state
+  // PROJECT_SPEC.md 11 exists to require, surfacing as a refusal: approval is
+  // never inferred from a record existing.
+  'TESTIMONIAL_NOT_APPROVED',
+  // A public space that is not there (Milestone 9.5, checkpoint A7). Its own
+  // code rather than a shared one, because every entity in this list has its
+  // own and because the sentence a manager needs names the thing they were
+  // looking for.
+  //
+  // THERE IS DELIBERATELY NO CODE FOR A HANDWRITTEN TESTIMONIAL WITHOUT A
+  // TRANSCRIPTION. The transcription is the `body`, `body` is required by the
+  // request contract and by a NOT NULL column, and a handwritten testimonial
+  // with nothing written down is refused as `VALIDATION_FAILED` — a malformed
+  // request rather than a domain state. A second code would suggest there is a
+  // legitimate half-written state that this product will hold, and there is
+  // not: the picture is never the meaning.
+  'PUBLIC_SPACE_NOT_FOUND',
+  // An editorial slot on the clinic profile that is not there (Milestone 9.5,
+  // checkpoint A8). It can only be reached by addressing an id that does not
+  // exist, because the slots themselves are created by a migration and neither
+  // created nor deleted at runtime.
+  //
+  // THERE IS DELIBERATELY NO CODE FOR AN EMPTY SLOT. An entry with no heading
+  // is not an error state: it is a block the clinic has not written yet, the
+  // public read omits it, and the manager read shows it as the empty box it is.
+  'CLINIC_CONTENT_ENTRY_NOT_FOUND',
+  // There is deliberately NO `ARTICLE_SLUG_REQUIRED` or `ARTICLE_INCOMPLETE`:
+  // an article's slug, title and body are NOT NULL from creation, so a draft is
+  // always publishable and there is no half-written state to refuse.
+
+  // The public request form (Milestone 9, checkpoint A3). ONE CODE, AND IT IS
+  // THE ONLY REFUSAL A STRANGER CAN BE TOLD ABOUT BEYOND `VALIDATION_FAILED`.
+  //
+  // `PUBLIC_REQUEST_THROTTLED` is the abuse control seen from the visitor's
+  // side: too many submissions from one place in too short a time. It says
+  // "later", it names no limit, no counter and no window, and it is deliberately
+  // indifferent to WHAT was submitted — the point of a rate limit that cannot be
+  // used as an oracle is that the answer turns only on the caller.
+  //
+  // THERE IS DELIBERATELY NO `PUBLIC_REQUEST_DUPLICATE`. A repeated submission
+  // succeeds, with the ordinary success body, and stores nothing. A code saying
+  // otherwise would let anybody holding a mobile number ask this endpoint
+  // whether that person has already contacted the clinic, which is a disclosure
+  // about a real family made to a stranger — see
+  // `publicRequestSubmissionResponseSchema`.
+  //
+  // AND NO CODE ABOUT AN INBOX, A REQUEST STATUS, A CONVERSION OR A RETENTION
+  // RUN. Those are checkpoint A4, and none of them is a refusal an anonymous
+  // visitor could ever receive.
+  'PUBLIC_REQUEST_THROTTLED',
+
+  // The website request inbox (Milestone 9, checkpoint A4). THREE CODES, ALL
+  // THREE INTERNAL, AND NO ANONYMOUS CALLER CAN EVER RECEIVE ONE. The A3 comment
+  // above said a code about an inbox, a status or a conversion would belong to
+  // this checkpoint; these are those codes, and they are refusals shown to a
+  // COLLEAGUE processing a message, never to the person who sent it.
+  //
+  // `WEBSITE_REQUEST_NOT_FOUND` is the ordinary miss. It is the answer for an id
+  // that never existed and for one that does — there is no state in which a
+  // request is hidden from a caller holding `website_request.read`, so the code
+  // never has to distinguish "gone" from "not yours".
+  //
+  // `WEBSITE_REQUEST_TRANSITION_INVALID` is the accepted lifecycle refusing a
+  // move: back to `NEW`, out of `CLOSED`, out of `CONVERTED_TO_FAMILY`, or into
+  // the status a request is already in. It names no status and no rule, because
+  // the legal moves are stated in `WEBSITE_REQUEST_LEGAL_TRANSITIONS` and the
+  // screen offers exactly those — a caller receiving this has raced somebody
+  // else, and the honest answer is "reload and look at it again".
+  //
+  // `WEBSITE_REQUEST_ALREADY_LINKED` is the one-family rule seen from the
+  // colleague's side, and it is deliberately the same answer whether the second
+  // link names the SAME family or a different one. A link is a claim about whose
+  // message this was; re-pointing it at another family would rewrite that claim,
+  // and confirming "yes, it is already that family" would make this route a way
+  // to test family membership against a request id.
+  //
+  // THERE IS NO CODE FOR THE RETENTION RUN. It is an operator command with no
+  // caller to answer: it purges what is eligible, says how many, and refuses
+  // nothing.
+  'WEBSITE_REQUEST_NOT_FOUND',
+  'WEBSITE_REQUEST_TRANSITION_INVALID',
+  'WEBSITE_REQUEST_ALREADY_LINKED',
+
+  // The media subsystem (Milestone 9.5, checkpoint A5). NINE CODES, AND THE
+  // SPLIT BETWEEN THEM IS THE SPLIT BETWEEN "your file is wrong" AND "your
+  // screen is stale".
+  //
+  // THE FIRST FOUR ARE ABOUT BYTES, AND EVERY ONE OF THEM IS DECIDED FROM THE
+  // BYTES. A filename and a browser-supplied content type are things the caller
+  // chose; neither is consulted, so a `.jpg` that is really a PDF is
+  // `MEDIA_TYPE_UNSUPPORTED` and not a corrupt JPEG.
+  //
+  // `MEDIA_TYPE_UNSUPPORTED` covers SVG explicitly, and that is the case worth
+  // naming: this workflow is for photographs, and an SVG is a document with a
+  // script engine attached. `MEDIA_FILE_CORRUPT` is a file of an accepted type
+  // that no decoder can read — truncated in transit, or never an image at all.
+  // `MEDIA_FILE_TOO_LARGE` is raised WHILE the body is arriving, so the process
+  // never holds an oversized upload. `MEDIA_IMAGE_UNUSABLE` is a decodable
+  // photograph the clinic will not publish: smaller than the minimum on either
+  // side, or a decompression bomb whose pixel count exceeds the ceiling. One
+  // code for both, because the fix is the same — send a different photograph —
+  // and because telling a caller which internal ceiling they hit tells them how
+  // to sit exactly beneath it.
+  'MEDIA_NOT_FOUND',
+  'MEDIA_TYPE_UNSUPPORTED',
+  'MEDIA_FILE_TOO_LARGE',
+  'MEDIA_FILE_CORRUPT',
+  'MEDIA_IMAGE_UNUSABLE',
+  // The remaining four are about the LIFECYCLE, and all four are conflicts with
+  // a state somebody else already put the row in.
+  //
+  // `MEDIA_ARCHIVED` refuses attaching or publishing an asset a manager has
+  // taken out of circulation. `MEDIA_ATTACHMENT_NOT_FOUND` covers a missing
+  // attachment and one already detached alike — the fix is the same, attach it
+  // again. `MEDIA_ALREADY_ATTACHED` is the same photograph offered twice to one
+  // owner. `MEDIA_ATTACHMENT_PUBLISHED` refuses DETACHING something the public
+  // can currently see: unpublish first, which is a manager act, so that taking
+  // an image off a live page can never be done by the weaker authority that put
+  // it there.
+  //
+  // THERE IS DELIBERATELY NO `MEDIA_FORBIDDEN`, NO `MEDIA_NOT_PUBLISHED` AND NO
+  // `MEDIA_UNATTACHED`. An anonymous request for something that is not public
+  // receives `MEDIA_NOT_FOUND` and nothing else, whatever the reason —
+  // unattached, drafted, unpublished, archived, owner unpublished, or simply
+  // never existed. Distinguishing them would let a stranger enumerate the
+  // clinic's unpublished photographs one identifier at a time, which is exactly
+  // the disclosure the publication rule exists to prevent. It is the reasoning
+  // behind `DRAFT_NOT_FOUND` and `AUTH_INVALID_CREDENTIALS`, applied to bytes.
+  'MEDIA_ARCHIVED',
+  'MEDIA_ATTACHMENT_NOT_FOUND',
+  'MEDIA_ALREADY_ATTACHED',
+  'MEDIA_ATTACHMENT_PUBLISHED',
+
+  // Session outcomes and no-show penalties (M10.5 phase 1, T-028 and T-022).
+  // Each has a details schema stated beside the contract that raises it.
+  //
+  // A different one-click answer for a session that is already closed or
+  // cancelled. Details: `appointmentOutcomeAlreadyRecordedDetailsSchema`.
+  'APPOINTMENT_OUTCOME_ALREADY_RECORDED',
+  // A discount whose two stated portions do not add up to it (D10). Details:
+  // `adjustmentPortionsDetailsSchema`.
+  'ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP',
+  // The decision named does not exist. No details.
+  'NO_SHOW_DECISION_NOT_FOUND',
+  // A decision already stands for this seat: a different second decision, an
+  // absence corrected to present, or a reopen. Withdraw it first. Details:
+  // `noShowDecisionExistsDetailsSchema`.
+  'NO_SHOW_DECISION_EXISTS',
+  // Withdrawing a decision already withdrawn: the screen is stale. No details.
+  'NO_SHOW_DECISION_ALREADY_WITHDRAWN',
+  // Only an absent seat of a completed session can be decided. Details:
+  // `noShowNotDecidableDetailsSchema`.
+  'NO_SHOW_NOT_DECIDABLE',
+  // A penalty on a session priced FREE: any percentage of zero is zero, so only
+  // "no penalty" is possible. No details.
+  'NO_SHOW_PENALTY_ON_FREE_SESSION',
+  // A penalty charge is withdrawn by withdrawing its decision, never voided
+  // directly. Details: `penaltyVoidThroughDecisionDetailsSchema`.
+  'NO_SHOW_PENALTY_VOID_THROUGH_DECISION',
 
   'INTERNAL_ERROR',
 ] as const;

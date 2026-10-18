@@ -3,13 +3,30 @@ import { randomUUID } from 'node:crypto';
 import {
   availabilityExceptionListResponseSchema,
   availabilityExceptionResponseSchema,
+  closureConflictResponseSchema,
   availabilityWindowListResponseSchema,
+  articleListResponseSchema,
+  articleResponseSchema,
   dashboardResponseSchema,
   familyAccountReportResponseSchema,
   paymentReportResponseSchema,
   sessionReportResponseSchema,
   promiseReportResponseSchema,
+  mediaAssetListResponseSchema,
+  mediaAssetResponseSchema,
+  mediaAltTextResponseSchema,
+  mediaPublicationResponseSchema,
+  clinicContentEntryResponseSchema,
+  clinicContentResponseSchema,
+  publicClinicProfileResponseSchema,
+  servicePublicCopyListResponseSchema,
+  servicePublicCopyResponseSchema,
+  therapistProfileCopyListResponseSchema,
+  therapistProfileCopyResponseSchema,
+  therapistPublicProfileResponseSchema,
   therapistActivityResponseSchema,
+  websiteRequestDetailSchema,
+  websiteRequestInboxResponseSchema,
   appointmentDayResponseSchema,
   appointmentSeriesOperationResponseSchema,
   appointmentSeriesResponseSchema,
@@ -21,6 +38,7 @@ import {
   promiseListResponseSchema,
   promiseResponseSchema,
   recurrencePreviewResponseSchema,
+  seriesUpdatePreviewResponseSchema,
   rescheduledPromiseResponseSchema,
   createUserResponseSchema,
   errorEnvelopeSchema,
@@ -32,18 +50,27 @@ import {
   roomResponseSchema,
   serviceListResponseSchema,
   serviceResponseSchema,
+  serviceMutationResponseSchema,
+  spaceListResponseSchema,
+  spaceResponseSchema,
   sessionResponseSchema,
   sessionChargeResponseSchema,
   tariffListResponseSchema,
   tariffResponseSchema,
   therapistListResponseSchema,
   therapistResponseSchema,
+  testimonialListResponseSchema,
+  testimonialResponseSchema,
+  testimonialConsentWithdrawalListResponseSchema,
+  backupStatusResponseSchema,
+  jobStatusResponseSchema,
   userListResponseSchema,
   userResponseSchema,
   type CatalogStatus,
   type AvailabilityExceptionListQuery,
   type AvailabilityExceptionListResponse,
   type AvailabilityExceptionResponse,
+  type ClosureConflictResponse,
   type AvailabilityWindowListResponse,
   type AppointmentDayQuery,
   type AppointmentDayResponse,
@@ -51,6 +78,8 @@ import {
   type AppointmentSeriesOperationResponse,
   type AppointmentSeriesResponse,
   type AppointmentViewResponse,
+  type ArticleListResponse,
+  type ArticleResponse,
   type CancelAppointmentRequest,
   type CancelAppointmentSeriesFromRequest,
   type ChildDetailResponse,
@@ -59,12 +88,15 @@ import {
   type CreateAvailabilityExceptionRequest,
   type CreateAppointmentRequest,
   type CreateAppointmentSeriesRequest,
+  type CreateArticleRequest,
   type CreateChildRequest,
   type CreateFamilyRequest,
   type CreateRoomRequest,
   type CreateServiceRequest,
+  type CreateSpaceRequest,
   type CreateTariffRequest,
   type CreateTherapistRequest,
+  type CreateTestimonialRequest,
   type CreateUserRequest,
   type CreateUserResponse,
   type DashboardQuery,
@@ -84,6 +116,11 @@ import {
   type TherapistActivityQuery,
   type TherapistActivityExportQuery,
   type TherapistActivityResponse,
+  type WebsiteRequestDetail,
+  type WebsiteRequestInboxQuery,
+  type WebsiteRequestInboxResponse,
+  type ChangeWebsiteRequestStatusRequest,
+  type LinkWebsiteRequestRequest,
   type ErrorCode,
   familyAccountResponseSchema,
   type FamilyAccountQuery,
@@ -95,6 +132,30 @@ import {
   type LoginRequest,
   type LoginResponse,
   type MoveAppointmentRequest,
+  type CreateMediaAttachmentRequest,
+  type MediaAssetListResponse,
+  type MediaAssetResponse,
+  type MediaAltTextResponse,
+  type MediaPublicationResponse,
+  type ClinicContentEntryResponse,
+  type ClinicContentResponse,
+  type UpdateMediaFramingRequest,
+  type UpdateMediaAltTextRequest,
+  type UpdateMediaArchiveRequest,
+  type UpdateMediaPublicationRequest,
+  type PublicClinicProfileResponse,
+  type ServicePublicCopyListResponse,
+  type ServicePublicCopyResponse,
+  type TherapistProfileCopyListResponse,
+  type TherapistProfileCopyResponse,
+  type TherapistPublicProfileResponse,
+  type UpdateClinicProfileRequest,
+  type UpdateClinicContentEntryRequest,
+  type UpdateServicePublicCopyRequest,
+  type UpdateServicePublicCopyPublicationRequest,
+  type UpdateTherapistProfileCopyRequest,
+  type UpdateTherapistPublicProfileRequest,
+  type UpdateTherapistPublicVisibilityRequest,
   type PostSessionChargeResponse,
   type PaymentListQuery,
   type PaymentListResponse,
@@ -104,6 +165,7 @@ import {
   type PromiseResponse,
   type PasswordResetResponse,
   type RecordStatus,
+  type UpdateFamilyStatusRequest,
   type RecordAttendanceRequest,
   type RegistrationDraftResponse,
   type ReplaceAvailabilityWindowsRequest,
@@ -112,10 +174,14 @@ import {
   type RevokeSessionsResponse,
   type ReopenAppointmentRequest,
   type RecurrencePreviewResponse,
+  type SeriesUpdatePreviewResponse,
   type RoomListResponse,
   type RoomResponse,
   type ServiceListResponse,
   type ServiceResponse,
+  type ServiceMutationResponse,
+  type SpaceListResponse,
+  type SpaceResponse,
   type SessionResponse,
   type SessionChargeDetail,
   type SessionChargeResponse,
@@ -124,12 +190,24 @@ import {
   type TariffResponse,
   type TherapistListResponse,
   type TherapistResponse,
+  type TestimonialListResponse,
+  type TestimonialResponse,
+  type TestimonialConsentWithdrawalListResponse,
+  type BackupStatusResponse,
+  type JobStatusResponse,
   type UpdateChildRequest,
   type UpdateFamilyRequest,
   type UpdateAppointmentSeriesFromRequest,
+  type UpdateArticlePublicationRequest,
+  type UpdateArticleRequest,
   type UpdateRoomRequest,
   type UpdateServiceRequest,
+  type UpdateSpacePublicationRequest,
+  type UpdateSpaceRequest,
   type UpdateTherapistRequest,
+  type UpdateTestimonialApprovalRequest,
+  type UpdateTestimonialPublicationRequest,
+  type UpdateTestimonialRequest,
   type UserListResponse,
   type UserResponse,
   type UserRole,
@@ -211,11 +289,8 @@ export type ApiFailure = {
   status: number;
   requestId: string;
   /**
-   * The envelope's `error.details`, unparsed. Populated only for the two
-   * codes that carry one — `FAMILY_POSSIBLE_DUPLICATE` and
-   * `CHILD_POSSIBLE_DUPLICATE` — so a caller can parse it against
-   * `duplicateBlockedDetailsSchema` and read the draft token out of it. Every
-   * other failure leaves this undefined.
+   * The envelope's `error.details`, unparsed. Callers validate details against
+   * the schema for the error code before using them.
    */
   details?: unknown;
 };
@@ -230,6 +305,7 @@ export type ReportExportQuery =
   | SettlementStatementExportQuery;
 
 const REQUEST_TIMEOUT_MS = 8000;
+export const MEDIA_UPLOAD_TIMEOUT_MS = 60_000;
 const MAX_USER_AGENT_LENGTH = 256;
 
 /**
@@ -337,7 +413,59 @@ async function call<T>(
   // Parsed against the strict contract. An unexpected field in a NestJS
   // response — a serialised password hash above all — fails here rather than
   // reaching a page.
-  return { ok: true, data: schema.parse(payload), requestId };
+  try {
+    return { ok: true, data: schema.parse(payload), requestId };
+  } catch {
+    // A schema error can contain upstream field values. Do not let Next log it.
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
+}
+
+/**
+ * The one non-JSON staff write. `fetch` owns the multipart boundary; setting a
+ * content type here would omit it and make an otherwise valid photograph look
+ * malformed to NestJS.
+ */
+async function callMultipart<T>(
+  path: string,
+  schema: { parse: (value: unknown) => T },
+  context: CallerContext,
+  form: FormData,
+): Promise<ApiResult<T>> {
+  const { API_BASE_URL } = loadServerEnv();
+  const requestId = randomUUID();
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: buildHeaders(context, requestId, false),
+      body: form,
+      // A5 serialises image derivation per API process. This covers the
+      // current upload plus one ordinary upload already ahead in the queue.
+      signal: AbortSignal.timeout(MEDIA_UPLOAD_TIMEOUT_MS),
+      cache: 'no-store',
+    });
+  } catch {
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const envelope = errorEnvelopeSchema.safeParse(payload);
+    return {
+      ok: false,
+      code: envelope.success ? envelope.data.error.code : 'API_UNREACHABLE',
+      status: response.status,
+      requestId: envelope.success ? envelope.data.error.requestId : requestId,
+    };
+  }
+
+  try {
+    return { ok: true, data: schema.parse(payload), requestId };
+  } catch {
+    return { ok: false, code: 'API_UNREACHABLE', status: 503, requestId };
+  }
 }
 
 /** Frozen report filters only: dates, closed enums, opaque ids, and paging. */
@@ -403,7 +531,97 @@ async function exportReportCsv(
 }
 
 export const api = {
+  backupStatus: (context: CallerContext): Promise<ApiResult<BackupStatusResponse>> =>
+    call('/operations/backup-status', 'GET', backupStatusResponseSchema, context),
+
+  jobStatus: (context: CallerContext): Promise<ApiResult<JobStatusResponse>> =>
+    call('/operations/job-status', 'GET', jobStatusResponseSchema, context),
+
   exportReportCsv,
+
+  // --- reusable media workspace -------------------------------------------
+
+  listMedia: (context: CallerContext): Promise<ApiResult<MediaAssetListResponse>> =>
+    call('/media', 'GET', mediaAssetListResponseSchema, context),
+
+  getMedia: (id: string, context: CallerContext): Promise<ApiResult<MediaAssetResponse>> =>
+    call(`/media/${encodeURIComponent(id)}`, 'GET', mediaAssetResponseSchema, context),
+
+  uploadMedia: (
+    file: Blob,
+    altText: string,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> => {
+    const form = new FormData();
+    form.set('file', file, 'photograph');
+    form.set('altText', altText);
+    return callMultipart('/media', mediaAssetResponseSchema, context, form);
+  },
+
+  createMediaAttachment: (
+    mediaId: string,
+    body: CreateMediaAttachmentRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/${encodeURIComponent(mediaId)}/attachments`,
+      'POST',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaFraming: (
+    attachmentId: string,
+    body: UpdateMediaFramingRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/attachments/${encodeURIComponent(attachmentId)}/framing`,
+      'PATCH',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaAltText: (
+    mediaId: string,
+    body: UpdateMediaAltTextRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAltTextResponse>> =>
+    call(
+      `/media/${encodeURIComponent(mediaId)}/alt-text`,
+      'PATCH',
+      mediaAltTextResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaPublication: (
+    attachmentId: string,
+    body: UpdateMediaPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaPublicationResponse>> =>
+    call(
+      `/media/attachments/${encodeURIComponent(attachmentId)}/publication`,
+      'PATCH',
+      mediaPublicationResponseSchema,
+      context,
+      body,
+    ),
+
+  updateMediaArchive: (
+    mediaId: string,
+    body: UpdateMediaArchiveRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<MediaAssetResponse>> =>
+    call(
+      `/media/${encodeURIComponent(mediaId)}/archive`,
+      'PATCH',
+      mediaAssetResponseSchema,
+      context,
+      body,
+    ),
 
   paymentReport: (
     query: PaymentReportQuery,
@@ -564,6 +782,51 @@ export const api = {
     return call(`/dashboard${suffix}`, 'GET', dashboardResponseSchema, context);
   },
 
+  websiteRequestInbox: (
+    query: WebsiteRequestInboxQuery,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestInboxResponse>> => {
+    const search = new URLSearchParams();
+    for (const status of query.statuses ?? []) search.append('statuses', status);
+    if (query.page !== undefined) search.set('page', String(query.page));
+    if (query.pageSize !== undefined) search.set('pageSize', String(query.pageSize));
+    const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+
+    return call(`/website-requests${suffix}`, 'GET', websiteRequestInboxResponseSchema, context);
+  },
+
+  getWebsiteRequest: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(`/website-requests/${encodeURIComponent(id)}`, 'GET', websiteRequestDetailSchema, context),
+
+  changeWebsiteRequestStatus: (
+    id: string,
+    body: ChangeWebsiteRequestStatusRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(
+      `/website-requests/${encodeURIComponent(id)}/status`,
+      'PATCH',
+      websiteRequestDetailSchema,
+      context,
+      body,
+    ),
+
+  linkWebsiteRequest: (
+    id: string,
+    body: LinkWebsiteRequestRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<WebsiteRequestDetail>> =>
+    call(
+      `/website-requests/${encodeURIComponent(id)}/link`,
+      'POST',
+      websiteRequestDetailSchema,
+      context,
+      body,
+    ),
+
   login: (body: LoginRequest, context: CallerContext): Promise<ApiResult<LoginResponse>> =>
     call('/auth/login', 'POST', loginResponseSchema, context, body),
 
@@ -629,6 +892,289 @@ export const api = {
       context,
     ),
 
+  // --- internal editorial workspace ---------------------------------------
+  //
+  // Draft and authority-changing calls stay as distinct named methods. The
+  // browser cannot smuggle `isPublic` or `approved` through a draft write, and
+  // there is no generic content proxy that could reach a route not listed here.
+
+  listArticles: (context: CallerContext): Promise<ApiResult<ArticleListResponse>> =>
+    call('/content/articles', 'GET', articleListResponseSchema, context),
+
+  getArticle: (id: string, context: CallerContext): Promise<ApiResult<ArticleResponse>> =>
+    call(`/content/articles/${encodeURIComponent(id)}`, 'GET', articleResponseSchema, context),
+
+  createArticle: (
+    body: CreateArticleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call('/content/articles', 'POST', articleResponseSchema, context, body),
+
+  updateArticle: (
+    id: string,
+    body: UpdateArticleRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call(
+      `/content/articles/${encodeURIComponent(id)}`,
+      'PATCH',
+      articleResponseSchema,
+      context,
+      body,
+    ),
+
+  listSpaces: (context: CallerContext): Promise<ApiResult<SpaceListResponse>> =>
+    call('/content/spaces', 'GET', spaceListResponseSchema, context),
+
+  getSpace: (id: string, context: CallerContext): Promise<ApiResult<SpaceResponse>> =>
+    call(`/content/spaces/${encodeURIComponent(id)}`, 'GET', spaceResponseSchema, context),
+
+  createSpace: (
+    body: CreateSpaceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call('/content/spaces', 'POST', spaceResponseSchema, context, body),
+
+  updateSpace: (
+    id: string,
+    body: UpdateSpaceRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call(`/content/spaces/${encodeURIComponent(id)}`, 'PATCH', spaceResponseSchema, context, body),
+
+  updateSpacePublication: (
+    id: string,
+    body: UpdateSpacePublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SpaceResponse>> =>
+    call(
+      `/content/spaces/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      spaceResponseSchema,
+      context,
+      body,
+    ),
+
+  listServicePublicCopies: (
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyListResponse>> =>
+    call('/content/service-copy', 'GET', servicePublicCopyListResponseSchema, context),
+
+  getServicePublicCopy: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}`,
+      'GET',
+      servicePublicCopyResponseSchema,
+      context,
+    ),
+
+  updateServicePublicCopy: (
+    id: string,
+    body: UpdateServicePublicCopyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}`,
+      'PATCH',
+      servicePublicCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  updateServicePublicCopyPublication: (
+    id: string,
+    body: UpdateServicePublicCopyPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ServicePublicCopyResponse>> =>
+    call(
+      `/content/service-copy/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      servicePublicCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  listTherapistProfileCopies: (
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyListResponse>> =>
+    call('/content/therapist-profiles', 'GET', therapistProfileCopyListResponseSchema, context),
+
+  getTherapistProfileCopy: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyResponse>> =>
+    call(
+      `/content/therapist-profiles/${encodeURIComponent(id)}`,
+      'GET',
+      therapistProfileCopyResponseSchema,
+      context,
+    ),
+
+  updateTherapistProfileCopy: (
+    id: string,
+    body: UpdateTherapistProfileCopyRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistProfileCopyResponse>> =>
+    call(
+      `/content/therapist-profiles/${encodeURIComponent(id)}`,
+      'PATCH',
+      therapistProfileCopyResponseSchema,
+      context,
+      body,
+    ),
+
+  getTherapistPublicProfile: (
+    id: string,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile`,
+      'GET',
+      therapistPublicProfileResponseSchema,
+      context,
+    ),
+
+  updateTherapistPublicProfile: (
+    id: string,
+    body: UpdateTherapistPublicProfileRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile`,
+      'PATCH',
+      therapistPublicProfileResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTherapistPublicVisibility: (
+    id: string,
+    body: UpdateTherapistPublicVisibilityRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TherapistPublicProfileResponse>> =>
+    call(
+      `/catalog/therapists/${encodeURIComponent(id)}/public-profile/visibility`,
+      'PATCH',
+      therapistPublicProfileResponseSchema,
+      context,
+      body,
+    ),
+
+  getClinicProfile: (context: CallerContext): Promise<ApiResult<PublicClinicProfileResponse>> =>
+    call('/content/clinic-profile', 'GET', publicClinicProfileResponseSchema, context),
+
+  updateClinicProfile: (
+    body: UpdateClinicProfileRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<PublicClinicProfileResponse>> =>
+    call('/content/clinic-profile', 'PUT', publicClinicProfileResponseSchema, context, body),
+
+  listClinicContentEntries: (context: CallerContext): Promise<ApiResult<ClinicContentResponse>> =>
+    call('/content/clinic-profile/entries', 'GET', clinicContentResponseSchema, context),
+
+  updateClinicContentEntry: (
+    id: string,
+    body: UpdateClinicContentEntryRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ClinicContentEntryResponse>> =>
+    call(
+      `/content/clinic-profile/entries/${encodeURIComponent(id)}`,
+      'PUT',
+      clinicContentEntryResponseSchema,
+      context,
+      body,
+    ),
+
+  updateArticlePublication: (
+    id: string,
+    body: UpdateArticlePublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<ArticleResponse>> =>
+    call(
+      `/content/articles/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      articleResponseSchema,
+      context,
+      body,
+    ),
+
+  listTestimonials: (context: CallerContext): Promise<ApiResult<TestimonialListResponse>> =>
+    call('/content/testimonials', 'GET', testimonialListResponseSchema, context),
+
+  listTestimonialConsentWithdrawals: (
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialConsentWithdrawalListResponse>> =>
+    call(
+      '/content/testimonials/consent-withdrawals',
+      'GET',
+      testimonialConsentWithdrawalListResponseSchema,
+      context,
+    ),
+
+  withdrawTestimonialConsent: (id: string, context: CallerContext): Promise<ApiResult<void>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/consent-withdrawal`,
+      'POST',
+      { parse: () => undefined },
+      context,
+    ),
+
+  getTestimonial: (id: string, context: CallerContext): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}`,
+      'GET',
+      testimonialResponseSchema,
+      context,
+    ),
+
+  createTestimonial: (
+    body: CreateTestimonialRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call('/content/testimonials', 'POST', testimonialResponseSchema, context, body),
+
+  updateTestimonial: (
+    id: string,
+    body: UpdateTestimonialRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTestimonialApproval: (
+    id: string,
+    body: UpdateTestimonialApprovalRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/approval`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
+    ),
+
+  updateTestimonialPublication: (
+    id: string,
+    body: UpdateTestimonialPublicationRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<TestimonialResponse>> =>
+    call(
+      `/content/testimonials/${encodeURIComponent(id)}/publication`,
+      'PATCH',
+      testimonialResponseSchema,
+      context,
+      body,
+    ),
+
   // --- clinic reference data -------------------------------------------------
   //
   // One typed method per endpoint, listed by hand. There is no generic
@@ -644,18 +1190,18 @@ export const api = {
   createService: (
     body: CreateServiceRequest,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
-    call('/catalog/services', 'POST', serviceResponseSchema, context, body),
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
+    call('/catalog/services', 'POST', serviceMutationResponseSchema, context, body),
 
   updateService: (
     id: string,
     body: UpdateServiceRequest,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
     call(
       `/catalog/services/${encodeURIComponent(id)}`,
       'PATCH',
-      serviceResponseSchema,
+      serviceMutationResponseSchema,
       context,
       body,
     ),
@@ -664,11 +1210,11 @@ export const api = {
     id: string,
     status: CatalogStatus,
     context: CallerContext,
-  ): Promise<ApiResult<ServiceResponse>> =>
+  ): Promise<ApiResult<ServiceMutationResponse>> =>
     call(
       `/catalog/services/${encodeURIComponent(id)}/status`,
       'PATCH',
-      serviceResponseSchema,
+      serviceMutationResponseSchema,
       context,
       { status },
     ),
@@ -779,6 +1325,18 @@ export const api = {
       context,
     );
   },
+
+  getClosureConflicts: (
+    therapistId: string,
+    query: { from: string; to: string },
+    context: CallerContext,
+  ): Promise<ApiResult<ClosureConflictResponse>> =>
+    call(
+      `/availability/therapists/${encodeURIComponent(therapistId)}/closure-conflicts?${new URLSearchParams(query)}`,
+      'GET',
+      closureConflictResponseSchema,
+      context,
+    ),
 
   addAvailabilityException: (
     therapistId: string,
@@ -899,6 +1457,19 @@ export const api = {
       `/appointment-series/${encodeURIComponent(id)}/update-from`,
       'PATCH',
       appointmentSeriesOperationResponseSchema,
+      context,
+      body,
+    ),
+
+  previewAppointmentSeriesUpdateFrom: (
+    id: string,
+    body: UpdateAppointmentSeriesFromRequest,
+    context: CallerContext,
+  ): Promise<ApiResult<SeriesUpdatePreviewResponse>> =>
+    call(
+      `/appointment-series/${encodeURIComponent(id)}/update-from/preview`,
+      'POST',
+      seriesUpdatePreviewResponseSchema,
       context,
       body,
     ),
@@ -1230,7 +1801,7 @@ export const api = {
 
   changeFamilyStatus: (
     id: string,
-    status: RecordStatus,
+    body: UpdateFamilyStatusRequest,
     context: CallerContext,
   ): Promise<ApiResult<FamilyDetailResponse>> =>
     call(
@@ -1238,9 +1809,7 @@ export const api = {
       'PATCH',
       familyDetailResponseSchema,
       context,
-      {
-        status,
-      },
+      body,
     ),
 
   confirmFamilyRegistration: (
@@ -1312,30 +1881,19 @@ export const api = {
     call('/registration-drafts/discard', 'POST', { parse: () => undefined }, context),
 };
 
-export type ApiLiveness = {
-  status: string;
-  service: string;
-  uptimeSeconds: number;
-  timestamp: string;
-};
-
-/** Liveness only; `/health` is the one route NestJS exposes without the key. */
-export async function fetchApiLiveness(): Promise<
-  { ok: true; data: ApiLiveness } | { ok: false; reason: 'unreachable' | 'unhealthy' }
-> {
+/** Readiness is deliberately reduced to a single public boolean. */
+export async function fetchApiReadiness(): Promise<boolean> {
   const { API_BASE_URL } = loadServerEnv();
 
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetch(`${API_BASE_URL}/health/ready`, {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(3000),
       cache: 'no-store',
     });
 
-    if (!response.ok) return { ok: false, reason: 'unhealthy' };
-
-    return { ok: true, data: (await response.json()) as ApiLiveness };
+    return response.ok;
   } catch {
-    return { ok: false, reason: 'unreachable' };
+    return false;
   }
 }

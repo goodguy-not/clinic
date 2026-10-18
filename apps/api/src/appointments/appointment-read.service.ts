@@ -4,8 +4,11 @@ import type {
   AppointmentDayQuery,
   AppointmentDayResponse,
   AppointmentDaySummary,
+  AppointmentStatus,
   AppointmentTariffSuggestion,
   AppointmentView,
+  AttendanceOutcome,
+  IndividualOutcome,
   TariffPriceMode,
 } from '@clinic/contracts';
 import { resolveTariffSql } from '../catalog/tariffs/tariff-resolution';
@@ -68,7 +71,7 @@ type SeatRow = {
   id: string;
   appointment_id: string;
   child_id: string;
-  attendance: string;
+  attendance: AttendanceOutcome;
   attendance_recorded_at: Date | null;
   family_id: string;
   first_name: string;
@@ -260,26 +263,59 @@ export class AppointmentReadService {
 }
 
 function toView(row: DayRow, seats: readonly SeatRow[]): AppointmentView {
+  const own = seats.filter((seat) => seat.appointment_id === row.id);
+  const appointment = toAppointment(row);
+
   return {
-    appointment: toAppointment(row),
-    participants: seats
-      .filter((seat) => seat.appointment_id === row.id)
-      .map((seat) => ({
-        participant: toParticipant(seat),
-        child: {
-          id: seat.child_id,
-          familyId: seat.family_id,
-          firstName: seat.first_name,
-          lastName: seat.last_name,
-          fileNumber: seat.file_number,
-        },
-      })),
+    appointment,
+    participants: own.map((seat) => ({
+      participant: toParticipant(seat),
+      child: {
+        id: seat.child_id,
+        familyId: seat.family_id,
+        firstName: seat.first_name,
+        lastName: seat.last_name,
+        fileNumber: seat.file_number,
+      },
+      // M10.5 P1.0: before the decision table exists, every absent seat of a
+      // completed session is awaiting the manager. P1.3 reads the decisions.
+      noShowDecision:
+        appointment.status === 'COMPLETED' && seat.attendance === 'NO_SHOW'
+          ? { state: 'AWAITING' as const }
+          : null,
+    })),
     service: { id: row.service_id, name: row.service_name },
     therapist: { id: row.therapist_id, fullName: row.therapist_name },
     room: { id: row.room_id, name: row.room_name },
     tariffSuggestion: toSuggestion(row),
     outcomeUnresolved: row.outcome_unresolved,
+    individualOutcome: individualOutcomeOf(
+      appointment.status,
+      own.map((seat) => seat.attendance),
+    ),
+    // T-020: present and did-not-come are accepted from the scheduled start.
+    outcomeOpensAt: appointment.startsAt,
   };
+}
+
+/**
+ * The "What happened?" answer of an individual session (M10.5, T-028), derived
+ * from the booking's status and its one seat. Null for a session with any other
+ * number of seats: a group session answers per child (phase 2).
+ *
+ * A seat marked present on a session not yet completed is still `PENDING` —
+ * the early arrival is confirmed by the one-click "present", which completes
+ * the session — and so is a completed session nobody entered an attendance for.
+ */
+export function individualOutcomeOf(
+  status: AppointmentStatus,
+  attendances: readonly AttendanceOutcome[],
+): IndividualOutcome | null {
+  if (attendances.length !== 1) return null;
+  if (status === 'CANCELLED_BY_FAMILY' || status === 'CANCELLED_BY_CLINIC') return status;
+  if (status !== 'COMPLETED') return 'PENDING';
+  const attendance = attendances[0];
+  return attendance === 'ATTENDED' || attendance === 'NO_SHOW' ? attendance : 'PENDING';
 }
 
 /**

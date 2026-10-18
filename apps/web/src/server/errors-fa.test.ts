@@ -161,4 +161,41 @@ describe('Persian error mapping', () => {
       expect(persianMessage(code)).not.toMatch(/[A-Za-z]{4,}/);
     }
   });
+
+  describe('media refusal copy', () => {
+    const codes = [
+      'MEDIA_TYPE_UNSUPPORTED',
+      'MEDIA_FILE_TOO_LARGE',
+      'MEDIA_FILE_CORRUPT',
+      'MEDIA_IMAGE_UNUSABLE',
+      'MEDIA_NOT_FOUND',
+      'MEDIA_ARCHIVED',
+      'MEDIA_ATTACHMENT_NOT_FOUND',
+      'MEDIA_ALREADY_ATTACHED',
+      'MEDIA_ATTACHMENT_PUBLISHED',
+    ] as const;
+
+    it('gives every backend refusal its own recoverable Persian sentence', () => {
+      const messages = codes.map((code) => persianMessage(code));
+      expect(new Set(messages).size).toBe(messages.length);
+      for (const message of messages) {
+        expect(message).toMatch(/[.!؟]$/);
+        expect(message).not.toMatch(/aspect|resolution|LCP|SEO|px|codec|compression|HEIC/i);
+      }
+    });
+
+    it('explains an unsupported phone photograph without promising device conversion', () => {
+      const message = persianMessage('MEDIA_TYPE_UNSUPPORTED');
+      expect(message).toContain('عکس');
+      expect(message).toContain('انتخاب کنید');
+      expect(message).not.toContain('آیفون');
+    });
+
+    it('makes a published framing refusal actionable for the manager boundary', () => {
+      const message = persianMessage('MEDIA_ATTACHMENT_PUBLISHED');
+      expect(message).toContain('مدیر');
+      expect(message).toContain('قاب');
+      expect(message).toContain('از سایت بردارد');
+    });
+  });
 });

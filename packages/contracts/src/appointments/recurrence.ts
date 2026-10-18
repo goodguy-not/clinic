@@ -12,6 +12,7 @@ import {
   weekdaySchema,
 } from './common';
 import { cancellationPartySchema } from './lifecycle';
+import { appointmentConflictSchema, availabilityRefusalReasonSchema } from './refusals';
 
 /**
  * Weekly recurrence: previewing a pattern, creating the series it describes, and
@@ -136,6 +137,9 @@ export type CreateAppointmentSeriesRequest = z.infer<typeof createAppointmentSer
  * whichever rule this list happens to check first.
  */
 export const RECURRENCE_BLOCK_CODES = [
+  // Only a this-and-future preview reports this one: an occurrence that has not
+  // started yet would be moved to an instant that has already passed.
+  'RECURRENCE_OCCURRENCE_IN_PAST',
   'APPOINTMENT_OUTSIDE_AVAILABILITY',
   'APPOINTMENT_CHILD_CONFLICT',
   'APPOINTMENT_THERAPIST_CONFLICT',
@@ -167,6 +171,13 @@ export const recurrencePreviewOccurrenceSchema = z.strictObject({
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),
   outsideAvailability: z.boolean(),
+  /** Why the week is outside the therapist's availability (M10-A10, T-025); null when inside. */
+  outsideAvailabilityReason: availabilityRefusalReasonSchema.nullable(),
+  /**
+   * Every session in the way, per dimension, in the order child, therapist,
+   * room (M10-A10, T-024) — the same list the booking's refusal would carry.
+   */
+  conflicts: z.array(appointmentConflictSchema),
   blockedBy: recurrenceBlockCodeSchema.nullable(),
 });
 
@@ -275,13 +286,17 @@ export type CancelAppointmentSeriesFromRequest = z.infer<
  * Re-placing the rest of a series: a new therapist, room, length or hour, from
  * one occurrence onwards.
  *
- * THE HOUR MOVES; THE WEEKDAY AND THE RHYTHM DO NOT. `startTime` is a wall-clock
- * time applied to each remaining occurrence's OWN clinic date, so "Saturdays at
- * ten becomes Saturdays at eleven" is one operation and the dates are untouched.
- * Moving a series to a different weekday would change every date it generated
- * and is a new series plus a cancellation of this one, which keeps both facts
- * visible; the approved model is one weekday per series and this request cannot
- * express a second.
+ * THE HOUR MOVES, AND SO MAY THE WEEKDAY (M10-A10, T-023). `startTime` is a
+ * wall-clock time applied to each remaining occurrence's clinic date. With
+ * `weekday` null or absent that date is the occurrence's OWN, so "Saturdays at
+ * ten becomes Saturdays at eleven" leaves every date alone. With `weekday` set,
+ * each remaining occurrence moves to that weekday INSIDE ITS OWN Saturday-first
+ * clinic week — "Saturdays at ten becomes Mondays at four" — so the rhythm, the
+ * number of sessions and the week each one belongs to are kept, nothing is
+ * cancelled, and earlier occurrences are untouched. Every new placement is
+ * decided exactly as a booking is, and `update-from/preview` shows the same
+ * findings first. An occurrence that has not started yet is never moved to an
+ * instant that has already passed (`RECURRENCE_OCCURRENCE_IN_PAST`).
  *
  * THE SERVICE AND THE CHILD ARE NOT HERE, exactly as they are absent from a
  * single move: changing either makes it a different booking wearing the same id.
@@ -298,6 +313,8 @@ export const updateAppointmentSeriesFromRequestSchema = z.strictObject({
   durationMinutes: durationMinutesSchema,
   therapistId: z.uuid(),
   roomId: z.uuid(),
+  /** Saturday-first. Null or absent keeps each occurrence on its own date. */
+  weekday: weekdaySchema.nullable().optional(),
   startTime: clockTimeSchema,
   note: appointmentNoteSchema.nullable(),
   availabilityOverrideReason: appointmentReasonSchema.nullable(),
@@ -306,3 +323,38 @@ export const updateAppointmentSeriesFromRequestSchema = z.strictObject({
 export type UpdateAppointmentSeriesFromRequest = z.infer<
   typeof updateAppointmentSeriesFromRequestSchema
 >;
+
+/**
+ * One remaining occurrence a this-and-future change would re-place, and what
+ * the diary says about its new placement right now (M10-A10, T-023).
+ *
+ * Advisory exactly as the creation preview is: the update re-decides every rule
+ * under its own locks. `unchanged` occurrences are already where the change
+ * would put them and would be skipped.
+ */
+export const seriesUpdatePreviewOccurrenceSchema = z.strictObject({
+  appointmentId: z.uuid(),
+  currentStartsAt: z.iso.datetime(),
+  date: isoDateSchema,
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  unchanged: z.boolean(),
+  outsideAvailability: z.boolean(),
+  outsideAvailabilityReason: availabilityRefusalReasonSchema.nullable(),
+  conflicts: z.array(appointmentConflictSchema),
+  blockedBy: recurrenceBlockCodeSchema.nullable(),
+});
+
+export type SeriesUpdatePreviewOccurrence = z.infer<typeof seriesUpdatePreviewOccurrenceSchema>;
+
+/**
+ * The dry run of `update-from`: the same request, nothing written.
+ * `applicable` is true when no occurrence is blocked — advisory, as `bookable`.
+ */
+export const seriesUpdatePreviewResponseSchema = z.strictObject({
+  occurrences: z.array(seriesUpdatePreviewOccurrenceSchema),
+  blockedCount: z.number().int().nonnegative(),
+  applicable: z.boolean(),
+});
+
+export type SeriesUpdatePreviewResponse = z.infer<typeof seriesUpdatePreviewResponseSchema>;

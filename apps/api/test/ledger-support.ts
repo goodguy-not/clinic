@@ -179,7 +179,11 @@ export function voidChargeOverHttp(
     .send({ reason });
 }
 
-/** The manager-only concession: the charge is named by the path, both fields are required. */
+/**
+ * The manager-only concession, borne wholly by the clinic. Since M10.5 (D10)
+ * the manager states both portions, so "clinic-borne" is sent explicitly: the
+ * therapist bears 0 and the clinic the whole amount.
+ */
 export function adjustOverHttp(
   harness: Harness,
   token: string,
@@ -190,7 +194,7 @@ export function adjustOverHttp(
   return request(harness.app.getHttpServer())
     .post(`/session-charges/${chargeId}/adjustments`)
     .set(asUser(token))
-    .send({ amountToman, reason });
+    .send({ amountToman, reason, therapistDiscountToman: '0', clinicDiscountToman: amountToman });
 }
 
 /** Withdrawing a concession: both ids in the path, the reason required. */

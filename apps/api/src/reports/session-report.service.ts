@@ -291,6 +291,12 @@ export class SessionReportService {
       therapist: { id: row.therapist_id, fullName: row.therapist_name },
       service: { id: row.service_id, name: row.service_name },
       room: { id: row.room_id, name: row.room_name },
+      // M10.5 P1.0: before the decision table exists every absent seat of a
+      // completed session is awaiting the manager. P1.3 reads the decisions.
+      noShowDecision:
+        row.status === 'COMPLETED' && row.attendance === 'NO_SHOW'
+          ? { state: 'AWAITING' as const }
+          : null,
     }));
   }
 }

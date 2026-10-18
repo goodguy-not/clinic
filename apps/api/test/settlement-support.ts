@@ -179,10 +179,9 @@ export async function seedChargedSession(
  *
  * Deliberately separate from `adjustOverHttp` in `ledger-support.ts` rather than
  * an extra parameter on it: that helper is what every Milestone 5 and 6 suite
- * calls to state a clinic-borne concession, and its body must keep OMITTING the
- * field so those suites go on proving that the default is unchanged. The clinic
- * portion is never sent — it is the server's residual, and the request schema
- * refuses it.
+ * calls to state a clinic-borne concession. Since M10.5 (D10) both portions are
+ * sent; the clinic's is the remainder the TEST states, as the manager would type
+ * it — the server checks that the pair adds up and computes nothing.
  */
 export function allocateOverHttp(
   harness: Harness,
@@ -195,7 +194,12 @@ export function allocateOverHttp(
   return request(harness.app.getHttpServer())
     .post(`/session-charges/${chargeId}/adjustments`)
     .set(asUser(token))
-    .send({ amountToman, reason, therapistDiscountToman });
+    .send({
+      amountToman,
+      reason,
+      therapistDiscountToman,
+      clinicDiscountToman: (BigInt(amountToman) - BigInt(therapistDiscountToman)).toString(),
+    });
 }
 
 export function rateOverHttp(
@@ -624,7 +628,9 @@ export const MONTH_ONE_DAY = '2026-09-05';
  * than a fourth hour. */
 export const MONTH_ONE_DAY_TWO = '2026-09-12';
 export const MONTH_TWO_DAY = '2026-10-03';
-export const MONTH_THREE_DAY = '2026-10-31';
+/** A Saturday inside MONTH_THREE that has already happened: since M10-A10 (T-020) no
+ * outcome can be recorded for a session on a later date than today. */
+export const MONTH_THREE_DAY = '2026-10-17';
 
 /** The three closes the suites perform, as inclusive ranges. */
 export const MONTH_ONE = { from: '2026-09-01', to: '2026-09-30' };

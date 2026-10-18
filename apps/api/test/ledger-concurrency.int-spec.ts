@@ -50,7 +50,7 @@ describe('ledger concurrency (real PostgreSQL)', () => {
   let fixture: LedgerFixture;
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedChargeableSession(harness);
   });
 

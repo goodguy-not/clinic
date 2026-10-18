@@ -80,7 +80,7 @@ export class AuthService {
     const normalized = normalizePassword(input.password);
 
     if (!normalized.ok) {
-      throw this.loginRejection(context, 'MALFORMED_PASSWORD_INPUT', input.username);
+      throw this.loginRejection(context, 'MALFORMED_PASSWORD_INPUT');
     }
 
     const user = await this.prisma.$queryRaw<UserLookupRow[]>`
@@ -101,7 +101,7 @@ export class AuthService {
       // No account changed state, so nothing is audited: `audit_log` is
       // append-only and unprunable, and an unauthenticated caller must not be
       // able to grow it without bound.
-      throw this.loginRejection(context, 'UNKNOWN_USERNAME', input.username);
+      throw this.loginRejection(context, 'UNKNOWN_USERNAME');
     }
 
     const outcome = await this.prisma.$transaction((tx) =>
@@ -111,7 +111,7 @@ export class AuthService {
     if (outcome.kind === 'rejected') {
       // Thrown after the transaction commits, so a failure counter and its
       // audit row survive the failed request.
-      throw this.loginRejection(context, outcome.reason, input.username);
+      throw this.loginRejection(context, outcome.reason);
     }
 
     return outcome.response;
@@ -435,14 +435,11 @@ export class AuthService {
       | 'BAD_PASSWORD'
       | 'ACCOUNT_LOCKED'
       | 'ACCOUNT_DISABLED',
-    usernameAttempted: string,
   ): AppError {
     logSecurityRejection({
       event: 'auth.login.rejected',
       reason,
       requestId: context.requestId,
-      clientIp: context.clientIp,
-      usernameAttempted,
     });
 
     return new AppError('AUTH_INVALID_CREDENTIALS');

@@ -1,11 +1,15 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { publicSiteOrigin } from '@/env';
 import { COPY } from '@/server/copy-fa';
 import './globals.css';
 
-export const metadata: Metadata = {
-  title: COPY.appTitle,
-};
+export function generateMetadata(): Metadata {
+  return {
+    metadataBase: new URL(publicSiteOrigin()),
+    title: COPY.appTitle,
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -13,8 +17,7 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  // Persian, right-to-left, Vazirmatn self-hosted via globals.css. Brand assets
-  // beyond the wordmark arrive with the public-site milestone.
+  // Persian, right-to-left, Vazirmatn self-hosted via globals.css.
   return (
     <html lang="fa" dir="rtl">
       <body className="min-h-dvh">{children}</body>

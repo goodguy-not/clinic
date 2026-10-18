@@ -62,7 +62,7 @@ describe('payment BFF handlers', () => {
     );
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/families/${FAMILY_ID}/account?success=payment-created`,
+      `/families/${FAMILY_ID}/account?success=payment-created`,
     );
   });
 
@@ -148,7 +148,7 @@ describe('payment BFF handlers', () => {
     );
     expect(success.status).toBe(303);
     expect(success.headers.get('location')).toBe(
-      `${ORIGIN}/families/${FAMILY_ID}/payments?success=payment-voided`,
+      `/families/${FAMILY_ID}/payments?success=payment-voided`,
     );
 
     const badOrigin = await createPayment(

@@ -2,6 +2,7 @@ import request from 'supertest';
 import {
   loginResponseSchema,
   serviceListResponseSchema,
+  serviceMutationResponseSchema,
   serviceResponseSchema,
 } from '@clinic/contracts';
 import { uuidv7 } from '../src/common/uuid';
@@ -32,7 +33,7 @@ describe('catalog services (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const server = () => harness.app.getHttpServer();
@@ -52,7 +53,9 @@ describe('catalog services (real PostgreSQL)', () => {
     return {
       name: 'Synthetic Service',
       publicDescription: 'Synthetic description.',
-      isPublic: true,
+      // Private by default: a public service needs an address (M10-A9), and
+      // only the tests about publication supply one.
+      isPublic: false,
       allowedDurationsMinutes: [30, 45],
       ...overrides,
     };
@@ -136,6 +139,65 @@ describe('catalog services (real PostgreSQL)', () => {
   });
 
   describe('creation', () => {
+    it('returns whether the exact public cache identity was affected', async () => {
+      const { token } = await signIn('MANAGER');
+
+      const unpublished = serviceMutationResponseSchema.parse(
+        (await createService(token, { name: 'Unpublished synthetic service' })).body,
+      );
+      const published = serviceMutationResponseSchema.parse(
+        (await createService(token, { name: 'Published synthetic service', isPublic: true })).body,
+      );
+
+      // Both have an address from creation (M10-A10, T-010); only the public
+      // one is on the website.
+      expect(unpublished.publication).toEqual({
+        publicSlug: unpublished.service.publicSlug,
+        affectsPublicCache: false,
+      });
+      expect(published.publication).toEqual({
+        publicSlug: published.service.publicSlug,
+        affectsPublicCache: true,
+      });
+    });
+
+    it('assigns every service its address, and no request may carry one', async () => {
+      const { token } = await signIn('MANAGER');
+
+      const created = serviceResponseSchema.parse(
+        (await createService(token, { name: 'Addressed by the system' })).body,
+      ).service;
+      expect(created.publicSlug).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+
+      const typed = await createService(token, { name: 'Typed', publicSlug: 'typed-address' });
+      expect(typed.status).toBe(400);
+      expect(typed.body.error.code).toBe('VALIDATION_FAILED');
+
+      const patch = (body: Record<string, unknown>) =>
+        request(server())
+          .patch(`/catalog/services/${created.id}`)
+          .set(asUser(token))
+          .send({
+            name: created.name,
+            publicDescription: null,
+            allowedDurationsMinutes: [30, 45],
+            isPublic: false,
+            ...body,
+          });
+
+      expect((await patch({ publicSlug: 'typed-address' })).status).toBe(400);
+
+      // Publishing, withdrawing and republishing never move it.
+      expect((await patch({ isPublic: true })).status).toBe(200);
+      expect((await patch({ isPublic: false })).status).toBe(200);
+      expect((await patch({ isPublic: true, name: 'Renamed by the system' })).status).toBe(200);
+
+      const row = await harness.prisma.service.findUniqueOrThrow({ where: { id: created.id } });
+      expect(row.isPublic).toBe(true);
+      expect(row.publicSlug).toBe(created.publicSlug);
+      expect(row.publicFirstPublishedAt).not.toBeNull();
+    });
+
     it('creates a service with its durations and records who created it', async () => {
       const { user, token } = await signIn('MANAGER');
 
@@ -145,7 +207,7 @@ describe('catalog services (real PostgreSQL)', () => {
       const { service } = serviceResponseSchema.parse(response.body);
 
       expect(service.name).toBe('Synthetic Service');
-      expect(service.isPublic).toBe(true);
+      expect(service.isPublic).toBe(false);
       expect(service.status).toBe('ACTIVE');
       expect(service.deactivatedAt).toBeNull();
       expect(service.allowedDurationsMinutes).toEqual([30, 45]);

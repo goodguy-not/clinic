@@ -21,7 +21,9 @@ import {
  * Every value here is synthetic.
  */
 
-const APP_ROOT = join(__dirname, '..', 'app');
+const APP_ROOT = join(__dirname, '..', 'app', '(internal)');
+
+const verifiedSession = vi.hoisted(() => vi.fn((): string | null => 'synthetic-token'));
 
 const redirected = vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`);
@@ -33,12 +35,17 @@ vi.mock('next/headers', () => ({
   headers: async () => new Headers(),
 }));
 vi.mock('@/env', () => ({ loadServerEnv: () => ({ SESSION_COOKIE_SECRET: 'synthetic-secret' }) }));
-vi.mock('@/server/session-cookie', () => ({ verifySessionCookie: () => 'synthetic-token' }));
+vi.mock('@/server/session-cookie', () => ({ verifySessionCookie: () => verifiedSession() }));
 
 const sessionUser = vi.fn();
 vi.mock('@/server/api-client', () => ({ api: { session: () => sessionUser() } }));
 
-async function requireWith(permissions: readonly Permission[], required: unknown) {
+async function requireWith(
+  permissions: readonly Permission[],
+  required: unknown,
+  role: 'MANAGER' | 'RECEPTIONIST' = 'RECEPTIONIST',
+) {
+  verifiedSession.mockReturnValue('synthetic-token');
   sessionUser.mockResolvedValue({
     ok: true,
     data: {
@@ -46,7 +53,7 @@ async function requireWith(permissions: readonly Permission[], required: unknown
         id: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d01',
         username: 'synthetic',
         displayName: 'کاربر آزمایشی',
-        role: 'RECEPTIONIST',
+        role,
         mustChangePassword: false,
         permissions,
       },
@@ -59,6 +66,44 @@ async function requireWith(permissions: readonly Permission[], required: unknown
 
 afterEach(() => {
   redirected.mockClear();
+  sessionUser.mockClear();
+  verifiedSession.mockReset();
+  verifiedSession.mockReturnValue('synthetic-token');
+});
+
+describe('B8 manager draft-preview boundary', () => {
+  it('refuses an anonymous request before any internal content read', async () => {
+    verifiedSession.mockReturnValueOnce(null);
+    const { requireManagerSession } = await import('./auth-session');
+
+    await expect(requireManagerSession()).rejects.toThrow('REDIRECT:/session-expired');
+    expect(sessionUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Receptionist and admits a Manager', async () => {
+    await requireWith([], undefined, 'RECEPTIONIST');
+    const { requireManagerSession } = await import('./auth-session');
+    await expect(requireManagerSession()).rejects.toThrow('REDIRECT:/dashboard');
+
+    await requireWith([], undefined, 'MANAGER');
+    await expect(requireManagerSession()).resolves.toEqual(
+      expect.objectContaining({ role: 'MANAGER' }),
+    );
+  });
+
+  it('keeps preview dynamic, noindex, and free of the anonymous public API lane', () => {
+    const layout = readFileSync(join(APP_ROOT, 'content', 'preview', 'layout.tsx'), 'utf8');
+    const page = readFileSync(
+      join(APP_ROOT, 'content', 'preview', '[kind]', '[id]', 'page.tsx'),
+      'utf8',
+    );
+    expect(layout).toContain("dynamic = 'force-dynamic'");
+    expect(layout).toContain('revalidate = 0');
+    expect(layout).toContain('index: false');
+    expect(`${layout}\n${page}`).not.toContain('/public/');
+    expect(page).toContain('api.getArticle');
+    expect(page).toContain('api.getServicePublicCopy');
+  });
 });
 
 describe('a page may demand several permissions, and then demands all of them', () => {
@@ -76,9 +121,9 @@ describe('a page may demand several permissions, and then demands all of them', 
     // AND, not OR. A future role with `charge.read` alone must not render an
     // account whose position the API will refuse to compute for it.
     await expect(requireWith(['charge.read'], FAMILY_ACCOUNT_READ_PERMISSIONS)).rejects.toThrow(
-      'REDIRECT:/',
+      'REDIRECT:/dashboard',
     );
-    expect(redirected).toHaveBeenCalledWith('/');
+    expect(redirected).toHaveBeenCalledWith('/dashboard');
   });
 
   it('still accepts a single permission, exactly as before', async () => {
@@ -86,7 +131,9 @@ describe('a page may demand several permissions, and then demands all of them', 
     expect(user.permissions).toEqual(['payment.read']);
     expect(redirected).not.toHaveBeenCalled();
 
-    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow('REDIRECT:/');
+    await expect(requireWith(['payment.read'], 'payment.void')).rejects.toThrow(
+      'REDIRECT:/dashboard',
+    );
   });
 });
 
@@ -129,6 +176,9 @@ describe('the dashboard page names every authority in its aggregated response', 
       'charge.read',
       'payment.read',
       'promise.read',
+      // Milestone 9, checkpoint A4: the dashboard states how many website
+      // requests are waiting, so it names the authority to read one.
+      'website_request.read',
     ]);
 
     const user = await requireWith([...DASHBOARD_READ_PERMISSIONS], DASHBOARD_READ_PERMISSIONS);
@@ -136,11 +186,11 @@ describe('the dashboard page names every authority in its aggregated response', 
 
     await expect(
       requireWith(['appointment.read', 'payment.read', 'promise.read'], DASHBOARD_READ_PERMISSIONS),
-    ).rejects.toThrow('REDIRECT:/');
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 
   it('uses the shared dashboard permission constant on the landing page', () => {
-    const page = readFileSync(join(APP_ROOT, 'page.tsx'), 'utf8');
+    const page = readFileSync(join(APP_ROOT, 'dashboard', 'page.tsx'), 'utf8');
     expect(page).toContain('requirePermission: DASHBOARD_READ_PERMISSIONS');
   });
 });
@@ -166,7 +216,7 @@ describe('clinic-wide financial reports are manager-only at the page boundary', 
         ['charge.read', 'payment.read', 'promise.read'],
         FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS,
       ),
-    ).rejects.toThrow('REDIRECT:/');
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 
   it('pins both report pages to the same frozen lists their API routes use', () => {
@@ -174,5 +224,53 @@ describe('clinic-wide financial reports are manager-only at the page boundary', 
     const accounts = readFileSync(join(APP_ROOT, 'reports', 'family-accounts', 'page.tsx'), 'utf8');
     expect(payments).toContain('requirePermission: PAYMENT_REPORT_READ_PERMISSIONS');
     expect(accounts).toContain('requirePermission: FAMILY_ACCOUNT_REPORT_READ_PERMISSIONS');
+  });
+});
+
+describe('B6 editorial page authority follows the accepted draft/publish split', () => {
+  it('admits the receptionist drafting authorities but refuses manager publication controls', async () => {
+    await expect(
+      requireWith(
+        ['service.draft_public_copy', 'therapist.draft_public_profile'],
+        'service.draft_public_copy',
+      ),
+    ).resolves.toEqual(expect.objectContaining({ role: 'RECEPTIONIST' }));
+    await expect(
+      requireWith(['therapist.draft_public_profile'], 'therapist.publish_profile'),
+    ).rejects.toThrow('REDIRECT:/dashboard');
+    await expect(requireWith(['service.draft_public_copy'], 'service.update')).rejects.toThrow(
+      'REDIRECT:/dashboard',
+    );
+    await expect(
+      requireWith(['media.read', 'media.upload', 'media.attach'], 'media.publish'),
+    ).rejects.toThrow('REDIRECT:/dashboard');
+  });
+
+  it('pins the detail pages and clinic form to their narrow page gates', () => {
+    const service = readFileSync(join(APP_ROOT, 'content', 'services', '[id]', 'page.tsx'), 'utf8');
+    const therapist = readFileSync(
+      join(APP_ROOT, 'content', 'therapists', '[id]', 'page.tsx'),
+      'utf8',
+    );
+    const clinic = readFileSync(join(APP_ROOT, 'content', 'clinic-profile', 'page.tsx'), 'utf8');
+    expect(service).toContain("requirePermission: 'service.draft_public_copy'");
+    expect(therapist).toContain("requirePermission: 'therapist.draft_public_profile'");
+    expect(clinic).toContain("requirePermission: ['clinic_profile.read', 'clinic_profile.update']");
+    expect(clinic).toContain('api.listClinicContentEntries(context)');
+  });
+
+  it('keeps the A8 clinic content surface behind the existing manager-only profile permissions', async () => {
+    await expect(
+      requireWith(
+        ['clinic_profile.read', 'clinic_profile.update'],
+        ['clinic_profile.read', 'clinic_profile.update'],
+      ),
+    ).resolves.toEqual(expect.objectContaining({ permissions: expect.any(Array) }));
+    await expect(
+      requireWith(
+        ['media.read', 'media.upload', 'media.attach'],
+        ['clinic_profile.read', 'clinic_profile.update'],
+      ),
+    ).rejects.toThrow('REDIRECT:/dashboard');
   });
 });

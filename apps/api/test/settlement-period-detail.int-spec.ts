@@ -59,7 +59,7 @@ describe('reading the lines of a closed settlement period', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedCloseClinic(harness);
   });
 

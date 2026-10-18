@@ -373,13 +373,18 @@ describe('response handling', () => {
 
   it('rejects a response carrying an unexpected field', async () => {
     // A serialised password hash is the case that matters. The strict schema
-    // turns it into a thrown error rather than something rendered.
+    // turns it into a safe failure rather than something rendered or logged.
     mockFetch(200, {
       ...LOGIN_RESPONSE,
       user: { ...LOGIN_RESPONSE.user, passwordHash: '$argon2id$leaked' },
     });
 
-    await expect(api.login({ username: 'a', password: 'b' }, {})).rejects.toThrow();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const result = await api.login({ username: 'a', password: 'b' }, {});
+    expect(result).toMatchObject({ ok: false, code: 'API_UNREACHABLE' });
+    expect(JSON.stringify(result)).not.toContain('$argon2id$leaked');
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 
   it('surfaces a contract error code', async () => {
@@ -434,6 +439,8 @@ describe('frozen dashboard endpoint', () => {
     },
     promises: { dueTodayCount: 0, missedCount: 0 },
     dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+    newWebsiteRequestCount: 0,
+    noShowsToDecideCount: 0,
     reconciliation: {
       scope: 'RECORDED_BY_ME',
       dateBasis: 'PAYMENT_RECORDED_AT',
@@ -472,7 +479,10 @@ describe('frozen dashboard endpoint', () => {
   it('rejects an own-scoped response that leaks a clinic financial key', async () => {
     mockFetch(200, { ...ownDashboard, clinicFinancial: null });
 
-    await expect(api.dashboard({}, { sessionToken: 'verified-token' })).rejects.toThrow();
+    expect(await api.dashboard({}, { sessionToken: 'verified-token' })).toMatchObject({
+      ok: false,
+      code: 'API_UNREACHABLE',
+    });
   });
 });
 
@@ -519,6 +529,7 @@ describe('availability endpoints', () => {
         reason: 'مرخصی',
         createdAt: '2026-08-13T00:00:00.000Z',
       },
+      affectedAppointments: [],
     });
     await api.addAvailabilityException(
       therapistId,
@@ -543,6 +554,7 @@ describe('availability endpoints', () => {
         weekday: 0,
         isClosed: true,
         closedReason: 'مرخصی',
+        closedRanges: [],
         windows: [{ startTime: '15:00', endTime: '18:00' }],
       },
     });
@@ -580,6 +592,10 @@ describe('frozen ledger endpoints', () => {
     tariffId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b09',
     priceMode: 'PAID',
     amountToman: '1500000',
+    kind: 'SESSION',
+    penaltyPercent: null,
+    sessionPriceToman: null,
+    noShowDecisionId: null,
     createdAt: '2026-08-14T01:00:00.000Z',
     createdByUserId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4b10',
     voidedAt: null,
@@ -685,7 +701,12 @@ describe('frozen ledger endpoints', () => {
     await api.voidSessionCharge(chargeId, { reason: 'wrong session' }, { sessionToken: 'token' });
     await api.createChargeAdjustment(
       chargeId,
-      { amountToman: '250000', reason: 'clinic waiver' },
+      {
+        amountToman: '250000',
+        reason: 'clinic waiver',
+        therapistDiscountToman: '0',
+        clinicDiscountToman: '250000',
+      },
       { sessionToken: 'token' },
     );
     await api.voidChargeAdjustment(
@@ -704,7 +725,12 @@ describe('frozen ledger endpoints', () => {
       [`/session-charges/${chargeId}/void`, { reason: 'wrong session' }],
       [
         `/session-charges/${chargeId}/adjustments`,
-        { amountToman: '250000', reason: 'clinic waiver' },
+        {
+          amountToman: '250000',
+          reason: 'clinic waiver',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '250000',
+        },
       ],
       [
         `/session-charges/${chargeId}/adjustments/${adjustmentId}/void`,
@@ -883,12 +909,12 @@ describe('frozen payment and promise endpoints', () => {
     ]);
 
     mockFetch(200, { payment: { ...payment, status: 'VOIDED' } });
-    await expect(
-      api.createPayment(
+    expect(
+      await api.createPayment(
         familyId,
         { amountToman: '1', method: 'CASH', receivedOn: '2026-08-15' },
         {},
       ),
-    ).rejects.toThrow();
+    ).toMatchObject({ ok: false, code: 'API_UNREACHABLE' });
   });
 });

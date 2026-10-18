@@ -5,7 +5,9 @@ import { isoDateSchema } from '../dates';
 import { tomanAmountSchema } from '../money';
 import {
   adjustmentAmountTomanSchema,
+  clinicDiscountPortionTomanSchema,
   ledgerReasonSchema,
+  penaltyPercentSchema,
   therapistDiscountPortionTomanSchema,
 } from './common';
 
@@ -95,6 +97,26 @@ export type ChargeAdjustment = z.infer<typeof chargeAdjustmentSchema>;
  * A CORRECTION IS VOID-AND-RE-POST, NEVER AN EDIT. There is no update request
  * for this record anywhere in this package.
  */
+
+/**
+ * WHICH KIND OF CHARGE A ROW IS (M10.5 phase 1, D1).
+ *
+ * `SESSION` is the primary session charge every earlier milestone describes:
+ * an attended seat of a completed session. `NO_SHOW_PENALTY` is the manager's
+ * decided penalty on an ABSENT seat of a completed session — a percentage of
+ * the session price on the session's date, rated with the session-date share
+ * and settled like any charge. A seat carries at most one valid charge of
+ * either kind (`session_charge_one_valid_per_participant_uq`, unchanged): it was
+ * attended or it was not.
+ *
+ * Must stay identical to the `session_charge_kind` PostgreSQL enum.
+ */
+export const SESSION_CHARGE_KINDS = ['SESSION', 'NO_SHOW_PENALTY'] as const;
+
+export type SessionChargeKind = (typeof SESSION_CHARGE_KINDS)[number];
+
+export const sessionChargeKindSchema = z.enum(SESSION_CHARGE_KINDS);
+
 export const sessionChargeSchema = z.strictObject({
   id: z.uuid(),
   familyId: z.uuid(),
@@ -109,6 +131,18 @@ export const sessionChargeSchema = z.strictObject({
   tariffId: z.uuid(),
   priceMode: tariffPriceModeSchema,
   amountToman: tomanAmountSchema,
+  /**
+   * `SESSION` or `NO_SHOW_PENALTY`. The three fields after it are null on a
+   * session charge and present on a penalty: the manager's percentage, the full
+   * session price on the session's date it was applied to (`tariffId` names that
+   * tariff), and the decision that raised it. `amountToman` is the penalty
+   * itself, round-half-up of price × percent / 100, and the database re-derives
+   * it.
+   */
+  kind: sessionChargeKindSchema,
+  penaltyPercent: penaltyPercentSchema.nullable(),
+  sessionPriceToman: tomanAmountSchema.nullable(),
+  noShowDecisionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   createdByUserId: z.uuid(),
   voidedAt: z.iso.datetime().nullable(),
@@ -117,6 +151,28 @@ export const sessionChargeSchema = z.strictObject({
 });
 
 export type SessionCharge = z.infer<typeof sessionChargeSchema>;
+
+/**
+ * The kind and its three companion fields agree, exactly as
+ * `session_charge_kind_shape_chk` requires of the row: a session charge carries
+ * none of them, a penalty all three and is always `PAID`.
+ */
+function chargeKindShapeHolds(value: SessionCharge): boolean {
+  if (value.kind === 'SESSION') {
+    return (
+      value.penaltyPercent === null &&
+      value.sessionPriceToman === null &&
+      value.noShowDecisionId === null
+    );
+  }
+
+  return (
+    value.penaltyPercent !== null &&
+    value.sessionPriceToman !== null &&
+    value.noShowDecisionId !== null &&
+    value.priceMode === 'PAID'
+  );
+}
 
 /**
  * A charge with the adjustments against it and the two sums nobody should be
@@ -156,6 +212,10 @@ export const sessionChargeDetailSchema = sessionChargeSchema
     (value) =>
       value.priceMode !== 'FREE' || value.adjustments.every((one) => one.voidedAt !== null),
     'a free session charge cannot carry an active adjustment',
+  )
+  .refine(
+    chargeKindShapeHolds,
+    'a session charge carries no penalty fields; a penalty carries all three and is PAID',
   );
 
 export type SessionChargeDetail = z.infer<typeof sessionChargeDetailSchema>;
@@ -270,25 +330,56 @@ export type VoidSessionChargeRequest = z.infer<typeof voidSessionChargeRequestSc
  * A `FREE` charge cannot be adjusted at all. There is no concession to record on
  * a session that was never priced, and the attempt is refused as
  * `ADJUSTMENT_EXCEEDS_CHARGE` — any positive amount exceeds a zero charge.
+ *
+ * ------------------------------------------------------------------------
+ * M10.5 PHASE 1 (D10) REPLACES THE TWO PARAGRAPHS ABOVE ABOUT THE PORTIONS.
+ * The owner ruled (R1-1) that the manager states BOTH portions of every
+ * discount — individual or group, session or penalty — with no default and
+ * nothing pre-filled. So `therapistDiscountToman` and `clinicDiscountToman` are
+ * both REQUIRED. An omitted portion no longer means "the clinic bears all"; it
+ * is refused by this schema as `VALIDATION_FAILED`. A pair that does not add up
+ * to `amountToman` is refused by the server as `ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP`
+ * (422, `adjustmentPortionsDetailsSchema`) — a refusal with the three amounts,
+ * never a reinterpretation — and portions that add up but break a floor stay
+ * `ADJUSTMENT_SPLIT_INVALID`. The add-up rule lives on the server rather than in
+ * a refinement here so that a mismatch is always the one explained refusal,
+ * whichever client sent it. A therapist who does not take part in discounts is
+ * recorded by the manager typing 0 for the therapist, explicitly.
  */
-export const createChargeAdjustmentRequestSchema = z
-  .strictObject({
-    amountToman: adjustmentAmountTomanSchema,
-    reason: ledgerReasonSchema,
-    therapistDiscountToman: therapistDiscountPortionTomanSchema.optional(),
-  })
-  // The digit shape is re-tested before each conversion, because Zod runs
-  // remaining checks after a failed one and `BigInt('')` throws.
-  .refine(
-    (value) =>
-      value.therapistDiscountToman == null ||
-      !/^\d+$/.test(value.therapistDiscountToman) ||
-      !/^\d+$/.test(value.amountToman) ||
-      BigInt(value.therapistDiscountToman) <= BigInt(value.amountToman),
-    'the therapist portion must not exceed the concession it is part of',
-  );
+export const createChargeAdjustmentRequestSchema = z.strictObject({
+  amountToman: adjustmentAmountTomanSchema,
+  reason: ledgerReasonSchema,
+  therapistDiscountToman: therapistDiscountPortionTomanSchema,
+  clinicDiscountToman: clinicDiscountPortionTomanSchema,
+});
 
 export type CreateChargeAdjustmentRequest = z.infer<typeof createChargeAdjustmentRequestSchema>;
+
+/**
+ * The `details` of `ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP`: the three amounts as
+ * submitted, so the form can say "18,000 + 2,000 is not 25,000" without
+ * computing anything itself.
+ */
+export const adjustmentPortionsDetailsSchema = z.strictObject({
+  amountToman: tomanAmountSchema,
+  therapistDiscountToman: tomanAmountSchema,
+  clinicDiscountToman: tomanAmountSchema,
+});
+
+export type AdjustmentPortionsDetails = z.infer<typeof adjustmentPortionsDetailsSchema>;
+
+/**
+ * The `details` of `NO_SHOW_PENALTY_VOID_THROUGH_DECISION`: a penalty is
+ * withdrawn by withdrawing the decision that raised it
+ * (`POST /no-show-decisions/:id/withdraw`), which this names.
+ */
+export const penaltyVoidThroughDecisionDetailsSchema = z.strictObject({
+  noShowDecisionId: z.uuid(),
+});
+
+export type PenaltyVoidThroughDecisionDetails = z.infer<
+  typeof penaltyVoidThroughDecisionDetailsSchema
+>;
 
 /**
  * Withdrawing a concession, which restores the amount it had removed.

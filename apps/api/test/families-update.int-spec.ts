@@ -38,7 +38,7 @@ describe('family update and status (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     token = (await signIn(harness, 'RECEPTIONIST')).token;
   });
 

@@ -80,6 +80,8 @@ const quietDashboard = {
   availabilityOverrideCount: 0,
   promises: { dueTodayCount: 0, missedCount: 0 },
   dataIssues: { missingTariffCount: 0, unchargedCompletedSessionCount: 0 },
+  newWebsiteRequestCount: 0,
+  noShowsToDecideCount: 0,
   reconciliation: emptyReconciliation,
 };
 
@@ -100,6 +102,7 @@ const clinicFinancial = {
     chargeCount: 3,
     netChargedTotalToman: '600000',
     voidedChargeCount: 0,
+    penaltyChargeCount: 0,
   },
 };
 
@@ -264,6 +267,7 @@ describe('the operational reports, which both roles read', () => {
       therapist: { id: UUID, fullName: 'درمانگر نمونه' },
       service: { id: OTHER_UUID, name: 'خدمت نمونه' },
       room: { id: THIRD_UUID, name: 'اتاق نمونه' },
+      noShowDecision: null,
     };
 
     const response = {
@@ -431,6 +435,11 @@ describe('the dashboard', () => {
         'availabilityOverrideCount',
         'promises',
         'dataIssues',
+        // Milestone 9, checkpoint A4: the website-request item PROJECT_SPEC.md 10
+        // lists and Milestone 7 could not implement, closed with the inbox.
+        'newWebsiteRequestCount',
+        // M10.5 phase 1: absent seats awaiting the manager — a count, not money.
+        'noShowsToDecideCount',
         'reconciliation',
       ].sort(),
     );
@@ -662,18 +671,39 @@ describe('the manager-only financial reports', () => {
         totalAmountDueToman: '250000',
         totalCreditToman: '0',
       },
-      families: [{ family, position }],
+      families: [
+        {
+          family: { ...family, status: 'INACTIVE' as const },
+          position,
+          penaltyNetChargedTotalToman: '0',
+        },
+      ],
       page: { page: 1, pageSize: 25, total: 1, hasMore: false },
     };
 
     expect(familyAccountReportResponseSchema.safeParse(response).success).toBe(true);
+
+    // Every row says whether the family is active: an inactive family that holds
+    // money is listed by default and must be read as inactive (Milestone 10, A6).
+    expect(
+      familyAccountReportResponseSchema.safeParse({
+        ...response,
+        families: [{ family, position, penaltyNetChargedTotalToman: '0' }],
+      }).success,
+    ).toBe(false);
 
     // The position's own invariant travels with it: a family owes money or is
     // owed money, never both.
     expect(
       familyAccountReportResponseSchema.safeParse({
         ...response,
-        families: [{ family, position: { ...position, creditToman: '100000' } }],
+        families: [
+          {
+            family: { ...family, status: 'ACTIVE' as const },
+            position: { ...position, creditToman: '100000' },
+            penaltyNetChargedTotalToman: '0',
+          },
+        ],
       }).success,
     ).toBe(false);
   });

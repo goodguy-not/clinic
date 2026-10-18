@@ -1,4 +1,5 @@
 import {
+  adjustmentPortionsDetailsSchema,
   BIGINT_MAX,
   CHARGE_POST_OUTCOMES,
   chargeAdjustmentSchema,
@@ -52,6 +53,10 @@ const charge = {
   tariffId: OTHER_UUID,
   priceMode: 'PAID' as const,
   amountToman: '250000',
+  kind: 'SESSION' as const,
+  penaltyPercent: null,
+  sessionPriceToman: null,
+  noShowDecisionId: null,
   createdAt: '2026-08-15T09:00:00.000Z',
   createdByUserId: UUID,
   voidedAt: null,
@@ -82,47 +87,66 @@ const detail = {
 
 describe('ledger contracts', () => {
   describe('the adjustment request', () => {
-    it('accepts an amount and a reason, and nothing else', () => {
-      expect(
-        createChargeAdjustmentRequestSchema.parse({ amountToman: '50000', reason: 'تخفیف' }),
-      ).toEqual({ amountToman: '50000', reason: 'تخفیف' });
-    });
+    const both = { therapistDiscountToman: '0', clinicDiscountToman: '50000' };
 
-    it('takes an optional therapist portion, and clinic-borne stays the default', () => {
-      // Milestone 8, checkpoint C1. Through Milestone 5 the request had no place
-      // to say a therapist bore part of a concession, because no approved share
-      // existed to bear it against (DECISION_LOG, 2026-08-14). Milestone 8
-      // approves one, so the field arrives — OPTIONAL, and omitting it is still
-      // the clinic-borne concession this request has always meant.
+    it('takes an amount, a reason and both portions, and nothing else', () => {
       expect(
         createChargeAdjustmentRequestSchema.parse({
           amountToman: '50000',
           reason: 'تخفیف',
-          therapistDiscountToman: '20000',
+          ...both,
         }),
-      ).toEqual({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '20000' });
+      ).toEqual({ amountToman: '50000', reason: 'تخفیف', ...both });
+    });
 
-      // Zero is legitimate and is not the same shape as omitting it: a therapist
-      // who does not participate in discounts bears nothing, stated explicitly,
-      // and the clinic takes all of it even where that makes the clinic net
-      // negative (CLAUDE.md).
+    it('requires both portions: nothing is defaulted to the clinic (M10.5 D10)', () => {
+      // The owner's R1-1: the manager states both portions of every discount.
+      // Through M10 an omitted therapist portion meant "the clinic bears all";
+      // that silent default is gone, and the clinic's portion — unsubmittable
+      // before — is now required beside it.
+      for (const body of [
+        { amountToman: '50000', reason: 'تخفیف' },
+        { amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '0' },
+        { amountToman: '50000', reason: 'تخفیف', clinicDiscountToman: '50000' },
+      ]) {
+        expect(createChargeAdjustmentRequestSchema.safeParse(body).success).toBe(false);
+      }
+
+      // Zero is legitimate on either side: a therapist who does not take part in
+      // discounts is recorded by the manager typing 0, explicitly.
       expect(
         createChargeAdjustmentRequestSchema.safeParse({
           amountToman: '50000',
           reason: 'تخفیف',
-          therapistDiscountToman: '0',
+          therapistDiscountToman: '50000',
+          clinicDiscountToman: '0',
         }).success,
       ).toBe(true);
     });
 
-    it('makes an invalid split unrepresentable rather than merely refused', () => {
-      // The two portions must sum to the total, always (CLAUDE.md). The request
-      // therefore carries the TOTAL and the THERAPIST'S SHARE OF IT and the
-      // server writes the clinic's as the exact residual — so there is no pair of
-      // numbers a caller can send that fails to add up, and the clinic's half is
-      // refused outright rather than ignored.
+    it('leaves "do the portions add up" to the server, which explains the refusal', () => {
+      // A pair that does not add up is well formed here and refused by the
+      // server as ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP with the three amounts, so a
+      // mismatch is always that one explained refusal whichever client sent it.
+      expect(
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '30000',
+          clinicDiscountToman: '30000',
+        }).success,
+      ).toBe(true);
+      expect(
+        adjustmentPortionsDetailsSchema.parse({
+          amountToman: '50000',
+          therapistDiscountToman: '30000',
+          clinicDiscountToman: '30000',
+        }),
+      ).toBeDefined();
+    });
+
+    it('refuses any other way of stating a split', () => {
       for (const field of [
-        'clinicDiscountToman',
         'therapistShareToman',
         'therapistSharePercent',
         'therapistShareBasisPoints',
@@ -133,62 +157,49 @@ describe('ledger contracts', () => {
           createChargeAdjustmentRequestSchema.safeParse({
             amountToman: '50000',
             reason: 'تخفیف',
+            ...both,
             [field]: '10000',
           }).success,
         ).toBe(false);
       }
     });
 
-    it('refuses a therapist portion larger than the concession it is part of', () => {
-      // The one relationship the request itself can check. Whether the session
-      // has a rating to bear the portion against, and whether bearing it leaves
-      // the therapist net at or above zero, only the server knows — those are
-      // `ADJUSTMENT_SPLIT_INVALID`.
-      expect(
-        createChargeAdjustmentRequestSchema.safeParse({
-          amountToman: '50000',
-          reason: 'تخفیف',
-          therapistDiscountToman: '50001',
-        }).success,
-      ).toBe(false);
-
-      // Equal is allowed: a therapist may bear the whole of a concession.
-      expect(
-        createChargeAdjustmentRequestSchema.safeParse({
-          amountToman: '50000',
-          reason: 'تخفیف',
-          therapistDiscountToman: '50000',
-        }).success,
-      ).toBe(true);
-    });
-
-    it('refuses a therapist portion that is not canonical or is out of bounds', () => {
+    it('refuses a portion that is not canonical or is out of bounds', () => {
       for (const portion of ['-1', '5000.5', '۵۰۰۰', '05000', '5 000', '', '2000000000']) {
-        expect(
-          createChargeAdjustmentRequestSchema.safeParse({
-            amountToman: '50000',
-            reason: 'تخفیف',
-            therapistDiscountToman: portion,
-          }).success,
-        ).toBe(false);
+        for (const key of ['therapistDiscountToman', 'clinicDiscountToman']) {
+          expect(
+            createChargeAdjustmentRequestSchema.safeParse({
+              amountToman: '50000',
+              reason: 'تخفیف',
+              ...both,
+              [key]: portion,
+            }).success,
+          ).toBe(false);
+        }
       }
     });
 
     it('requires a reason that is not blank', () => {
-      expect(createChargeAdjustmentRequestSchema.safeParse({ amountToman: '50000' }).success).toBe(
-        false,
-      );
       expect(
-        createChargeAdjustmentRequestSchema.safeParse({ amountToman: '50000', reason: '   ' })
-          .success,
+        createChargeAdjustmentRequestSchema.safeParse({ amountToman: '50000', ...both }).success,
+      ).toBe(false);
+      expect(
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '50000',
+          reason: '   ',
+          ...both,
+        }).success,
       ).toBe(false);
     });
 
     it('refuses an amount that reduces nothing or is not canonical', () => {
       for (const amount of ['0', '-5000', '5000.5', '۵۰۰۰', '05000', '5 000', '']) {
         expect(
-          createChargeAdjustmentRequestSchema.safeParse({ amountToman: amount, reason: 'تخفیف' })
-            .success,
+          createChargeAdjustmentRequestSchema.safeParse({
+            amountToman: amount,
+            reason: 'تخفیف',
+            ...both,
+          }).success,
         ).toBe(false);
       }
     });
@@ -202,6 +213,8 @@ describe('ledger contracts', () => {
         createChargeAdjustmentRequestSchema.safeParse({
           amountToman: TARIFF_MAX_PRICE_TOMAN,
           reason: 'تخفیف',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: TARIFF_MAX_PRICE_TOMAN,
         }).success,
       ).toBe(true);
 
@@ -211,8 +224,11 @@ describe('ledger contracts', () => {
         BIGINT_MAX,
       ]) {
         expect(
-          createChargeAdjustmentRequestSchema.safeParse({ amountToman: amount, reason: 'تخفیف' })
-            .success,
+          createChargeAdjustmentRequestSchema.safeParse({
+            amountToman: amount,
+            reason: 'تخفیف',
+            ...both,
+          }).success,
         ).toBe(false);
       }
     });
@@ -222,8 +238,12 @@ describe('ledger contracts', () => {
       // THIS charge's remainder is decided by the server under a lock on the
       // parent row and reported as ADJUSTMENT_EXCEEDS_CHARGE.
       expect(
-        createChargeAdjustmentRequestSchema.safeParse({ amountToman: '999999999', reason: 'تخفیف' })
-          .success,
+        createChargeAdjustmentRequestSchema.safeParse({
+          amountToman: '999999999',
+          reason: 'تخفیف',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '999999999',
+        }).success,
       ).toBe(true);
     });
 
@@ -255,7 +275,7 @@ describe('ledger contracts', () => {
       ).toBe(false);
     });
 
-    it('reports both halves of the split, of which only the therapist’s is submittable', () => {
+    it('reports both halves of the split, both of which the manager states', () => {
       const parsed = chargeAdjustmentSchema.parse(adjustment);
 
       expect(parsed.therapistDiscountToman).toBe('0');

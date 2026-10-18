@@ -44,7 +44,8 @@ export const appointmentStatusSchema = z.enum(APPOINTMENT_STATUSES);
  *
  * `NO_SHOW` lives here rather than on the booking, because it is a fact about
  * one child and not about the room, the therapist or the hour. It creates no
- * charge until the clinic approves a policy (CLAUDE.md, non-negotiable rules).
+ * charge by itself; the manager decides "no penalty" or a percentage of the
+ * session price afterwards (M10.5 phase 1, owner decisions A2–A5).
  *
  * Must stay identical to the `attendance_outcome` PostgreSQL enum.
  */
@@ -53,6 +54,31 @@ export const ATTENDANCE_OUTCOMES = ['PENDING', 'ATTENDED', 'NO_SHOW'] as const;
 export type AttendanceOutcome = (typeof ATTENDANCE_OUTCOMES)[number];
 
 export const attendanceOutcomeSchema = z.enum(ATTENDANCE_OUTCOMES);
+
+/**
+ * WHAT HAPPENED TO AN INDIVIDUAL SESSION, AS ONE WORD (M10.5 phase 1, T-028).
+ *
+ * Derived by the server from the booking's status and the one seat's
+ * attendance, never stored: `COMPLETED` + `ATTENDED` is `ATTENDED`,
+ * `COMPLETED` + `NO_SHOW` is `NO_SHOW`, a cancellation is its own status, and
+ * everything else — a scheduled session, an early arrival not yet confirmed, a
+ * completed session whose attendance nobody entered — is `PENDING`, the state
+ * in which the "What happened?" block still asks its question.
+ *
+ * The same four answers are what `recordAppointmentOutcomeRequestSchema`
+ * accepts; `PENDING` is only ever read.
+ */
+export const INDIVIDUAL_OUTCOMES = [
+  'PENDING',
+  'ATTENDED',
+  'NO_SHOW',
+  'CANCELLED_BY_FAMILY',
+  'CANCELLED_BY_CLINIC',
+] as const;
+
+export type IndividualOutcome = (typeof INDIVIDUAL_OUTCOMES)[number];
+
+export const individualOutcomeSchema = z.enum(INDIVIDUAL_OUTCOMES);
 
 /**
  * How a recurring series is bounded.

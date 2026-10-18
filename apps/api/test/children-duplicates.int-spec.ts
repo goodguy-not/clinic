@@ -38,7 +38,7 @@ describe('child duplicates (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     token = (await signIn(harness, 'RECEPTIONIST')).token;
     familyId = await seedFamily(harness, token, familyPayload());
   });

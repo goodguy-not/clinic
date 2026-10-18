@@ -45,7 +45,7 @@ describe('charge void and lifecycle reversal concurrency (real PostgreSQL)', () 
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedPostedSession(harness);
   });
 

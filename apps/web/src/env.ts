@@ -50,6 +50,18 @@ const serverEnvSchema = z
      * Matching is exact — no suffix rules, no wildcards.
      */
     WEB_ALLOWED_ORIGINS: z.string().min(1, 'is required'),
+
+    /**
+     * The one owner-approved public origin used in canonicals, Open Graph and
+     * discovery documents. It is optional for local/LAN work, where the first
+     * allowed origin is a safe preview fallback, but mandatory in a real
+     * deployment so localhost can never become the production canonical.
+     */
+    PUBLIC_SITE_ORIGIN: z
+      .string()
+      .min(1, 'must not be empty')
+      .refine(httpUrl, 'must be an http:// or https:// URL')
+      .optional(),
   })
   .superRefine((env, ctx) => {
     const origins = parseAllowedOrigins(env.WEB_ALLOWED_ORIGINS);
@@ -97,6 +109,61 @@ const serverEnvSchema = z
         });
       }
     }
+
+    if (env.PUBLIC_SITE_ORIGIN === undefined) {
+      if (env.DEPLOYMENT_MODE === 'production') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['PUBLIC_SITE_ORIGIN'],
+          message: 'is required in a production deployment',
+        });
+      }
+      return;
+    }
+
+    let publicOrigin: URL;
+    try {
+      publicOrigin = new URL(env.PUBLIC_SITE_ORIGIN);
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PUBLIC_SITE_ORIGIN'],
+        message: 'must be a valid URL origin',
+      });
+      return;
+    }
+
+    if (publicOrigin.origin !== env.PUBLIC_SITE_ORIGIN) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PUBLIC_SITE_ORIGIN'],
+        message: 'must be a bare origin with no path, query, or trailing slash',
+      });
+    }
+
+    if (!origins.includes(publicOrigin.origin)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PUBLIC_SITE_ORIGIN'],
+        message: 'must also appear in WEB_ALLOWED_ORIGINS',
+      });
+    }
+
+    if (env.DEPLOYMENT_MODE === 'production') {
+      const hostname = publicOrigin.hostname.toLowerCase();
+      const localHostname =
+        hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]';
+      if (publicOrigin.protocol !== 'https:' || localHostname) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['PUBLIC_SITE_ORIGIN'],
+          message: 'must be a non-localhost https origin in a production deployment',
+        });
+      }
+    }
   });
 
 export type WebServerEnv = z.infer<typeof serverEnvSchema>;
@@ -131,4 +198,8 @@ export function loadServerEnv(
 /** Convenience for code that only needs the origin allowlist. */
 export function allowedOrigins(env: WebServerEnv): readonly string[] {
   return parseAllowedOrigins(env.WEB_ALLOWED_ORIGINS);
+}
+
+export function publicSiteOrigin(env: WebServerEnv = loadServerEnv()): string {
+  return env.PUBLIC_SITE_ORIGIN ?? allowedOrigins(env)[0]!;
 }

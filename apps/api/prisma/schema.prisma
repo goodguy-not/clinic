@@ -11,6 +11,23 @@
 // Milestone 7 — dashboard and reports: NO new table, column or rule. Clinic-wide
 //               date-keyed reading is a new access pattern over existing rows,
 //               so the milestone adds three B-tree indexes and nothing else.
+// Milestone 9, checkpoint A1 — the public website's foundation: a public slug
+//               on `service`, an opt-in public profile on `therapist`, and the
+//               single-row `clinic_public_profile`. NO public content table,
+//               NO publishing workflow and NO request inbox — those are later
+//               checkpoints.
+// Milestone 9, checkpoint A3 — the public request form: ONE table,
+//               `website_request`, holding what a stranger typed. Protected
+//               against DELETE and TRUNCATE like every other historical table
+//               here; the ninety-day retention rule is satisfied by an UPDATE
+//               that CLEARS the intake columns and leaves a minimal lifecycle
+//               row behind, never by removing the row.
+// Milestone 9.5, checkpoint A5 — the media subsystem: the photograph a member
+//               of staff uploads, the servable copies derived from it, and the
+//               single place it has been put. THREE TABLES AND THREE ENUMS.
+//               NO IMAGE BYTE IS STORED IN POSTGRESQL — the columns here are
+//               keys into a directory the API owns — and NO ROW HERE NAMES THE
+//               UPLOADED FILE, because the uploaded file is never written.
 // Milestone 8, checkpoint C2 — therapist settlement configuration: the
 //               effective-dated share percentage a therapist takes. ONE table,
 //               and it is configuration rather than a settlement fact — nothing
@@ -155,6 +172,64 @@ enum ChildSex {
   @@map("child_sex")
 }
 
+/// When a parent would rather the clinic telephoned them back.
+///
+/// Milestone 9, checkpoint A3. FOUR VALUES, AND THEY EXPRESS A PREFERENCE AND
+/// NOTHING ELSE. Not an SLA, not a promise that the call happens in that period,
+/// and not a commitment of any kind: nothing in this application schedules,
+/// queues, reminds, prioritises or measures anything from this column.
+///
+/// NO CLOCK RANGES ARE ATTACHED TO THESE, HERE OR ANYWHERE. `MORNING` is not
+/// 08:00-12:00. Binding them to times would put a second, quieter answer to
+/// "when is the clinic open?" into the schema, one the real opening hours in
+/// `clinic_public_profile` could contradict. Reading clinic hours out of them is
+/// equally wrong: they say when a PARENT is free, which is not a fact about the
+/// clinic.
+///
+/// `NO_PREFERENCE` IS A REAL ANSWER, and the pair to `ChildSex.UNSPECIFIED`.
+/// The column is nullable as well, and the two are different facts: "any time
+/// suits us" is what a parent said, NULL is a form that did not ask.
+enum WebsiteRequestContactTime {
+  MORNING
+  AFTERNOON
+  EVENING
+  NO_PREFERENCE
+
+  @@map("website_request_contact_time")
+}
+
+/// How far the clinic has got with a message somebody left on the website.
+///
+/// Milestone 9, checkpoint A4. FIVE VALUES, FROZEN BY PROJECT_SPEC.md 11, AND
+/// THE SENTENCE AFTER THEM IN THE SPECIFICATION IS PART OF THE DEFINITION:
+/// "this is not a full CRM". There is no owner, no assignee, no reminder, no
+/// priority, no pipeline stage and no lead score here or anywhere near here.
+///
+/// `NEW` IS THE ARRIVAL STATE AND NOTHING RETURNS TO IT. It means "nobody at the
+/// clinic has touched this yet", which stops being true the moment somebody
+/// does; a status that could be restored would let the inbox claim a request had
+/// never been looked at.
+///
+/// `CONTACTED` AND `FOLLOW_UP_NEEDED` ARE THE WORKING PAIR and move freely in
+/// both directions — ring, leave a message, mark it for another try, ring again.
+///
+/// `CONVERTED_TO_FAMILY` IS NOT A STATUS SOMEBODY TYPES. It is what LINKING
+/// produces, and `website_request_link_chk` makes the two one fact: a converted
+/// request always names a family and a linked request is always converted.
+///
+/// `CLOSED` IS TERMINAL BECAUSE THE RETENTION CLOCK IS. The accepted rule erases
+/// a closed, never-linked request ninety days after CLOSURE, and a closure that
+/// could be undone would be an erasure that could be deferred for ever.
+enum WebsiteRequestStatus {
+  NEW
+  CONTACTED
+  FOLLOW_UP_NEEDED
+  CONVERTED_TO_FAMILY
+  CLOSED
+
+  @@map("website_request_status")
+}
+
 /// The lifecycle of an appointment as a booking.
 ///
 /// Level one of the two-level model: this describes the SHARED BOOKING — one
@@ -284,6 +359,122 @@ enum SessionRatedVia {
 /// `CORRECTION` is a signed movement reconciling a session already carried by a
 /// `PRIMARY` line with what that session is worth now; it lands in a later
 /// period, because a closed period is never reopened.
+/// The privacy review a testimonial has or has not passed.
+///
+/// Milestone 9, checkpoint A2. TWO VALUES, AND `DRAFT` IS WHAT EVERY ROW
+/// STARTS AS whoever wrote it. Approval is a manager act, never an inference
+/// from a record existing (PROJECT_SPEC.md 11), and `public_testimonial_
+/// approval_chk` refuses `isPublic` on anything that is not `APPROVED`.
+///
+/// There is deliberately no `REJECTED` and no `ARCHIVED`. A testimonial the
+/// clinic decides against simply stays a draft; inventing a state to record a
+/// refusal would be a workflow nobody has asked for, and the reason a manager
+/// declined somebody's words is not a fact this system should hold.
+enum TestimonialStatus {
+  DRAFT
+  APPROVED
+
+  @@map("testimonial_status")
+}
+
+/// How the family gave the clinic the words.
+///
+/// Milestone 9.5, checkpoint A7. TWO VALUES, AND THE SECOND EXISTS TO MAKE ONE
+/// RULE STATEABLE IN THE DATABASE: a handwritten testimonial may not be
+/// published from pixels alone.
+///
+/// `TYPED` is the A2 case, unchanged, and the default for every row.
+/// `HANDWRITTEN` is a note the family wrote and the clinic photographed — and
+/// `public_testimonial_handwritten_body_chk` demands a transcription in `body`
+/// regardless, so the photograph is an illustration of a meaning that is
+/// already stored rather than the meaning itself.
+///
+/// NO COLUMN ANYWHERE HOLDS MACHINE-READ TEXT. There is no OCR in this product,
+/// no field for its output and no flag saying a machine was consulted. A
+/// transcription is what a human read, corrected and saved through the ordinary
+/// draft route.
+enum TestimonialKind {
+  TYPED
+  HANDWRITTEN
+
+  @@map("testimonial_kind")
+}
+
+/// Milestone 9.5, checkpoint A5.
+///
+/// `ARCHIVED` IS NOT DELETED AND IS NOT A SECOND UNPUBLISH. Archiving takes a
+/// photograph out of circulation everywhere at once, whatever it is attached
+/// to, and it is reversible. Unpublishing takes ONE attachment off ONE page.
+/// A manager holds both, and they are separate because "this picture was the
+/// wrong choice for this article" and "this picture should not be on the
+/// internet at all" are different sentences with different blast radii.
+enum MediaAssetStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("media_asset_status")
+}
+
+/// The places the public website has a photograph.
+///
+/// `CLINIC_SPACE` is the one with no owner row: see `MediaAttachment.ownerType`.
+/// `PUBLIC_SPACE` — Milestone 9.5, checkpoint A7 — is the fifth value A5 said a
+/// new published surface would have to be, and it names a real `public_space`
+/// row like the first three. `PUBLIC_SERVICE` — checkpoint A9 — is the last
+/// published page in this product to gain one, and names a real `service` row.
+enum MediaAttachmentOwner {
+  THERAPIST_PROFILE
+  PUBLIC_ARTICLE
+  PUBLIC_TESTIMONIAL
+  CLINIC_SPACE
+  PUBLIC_SPACE
+  /// Milestone 9.5, checkpoint A8. A `clinic_content_entry` row; an owner id is
+  /// required, and the photograph is reachable only while that block has been
+  /// written.
+  CLINIC_CONTENT_ENTRY
+  /// Milestone 9.5, checkpoint A8. The site's Open Graph photograph. Ownerless
+  /// like `CLINIC_SPACE`: it hangs off the always-live clinic profile, so
+  /// manager publication of the attachment is the whole of the control.
+  CLINIC_OPEN_GRAPH
+  /// Milestone 9.5, checkpoint A9. A `service` row; an owner id is required,
+  /// and the photograph is reachable only while that service is itself
+  /// publicly reachable — published, active AND addressable, which is the
+  /// SAME three conditions the public service reads have always applied.
+  PUBLIC_SERVICE
+
+  @@map("media_attachment_owner")
+}
+
+/// WHICH EDITORIAL BLOCK OF THE PUBLIC SITE A `clinic_content_entry` ROW IS.
+///
+/// Milestone 9.5, checkpoint A8. Nine names, one per block the accepted home
+/// and about pages render, and the declaration order below IS the order the
+/// public read returns them in — home first, about second, each page top to
+/// bottom. A tenth is a design decision and arrives as a reviewed migration
+/// with its slot size beside it.
+enum ClinicContentSlot {
+  HOME_HERO
+  HOME_CONCERN
+  HOME_FIRST_VISIT
+  HOME_FIRST_VISIT_STEP
+  ABOUT_INTRO
+  ABOUT_HIGHLIGHT
+  ABOUT_SPACE_NOTE
+  ABOUT_SPACE_POINT
+  ABOUT_JOURNEY_STEP
+
+  @@map("clinic_content_slot")
+}
+
+/// WebP first, JPEG as the floor that cannot fail. See
+/// `MEDIA_RENDITION_FORMATS` in `@clinic/contracts` for why AVIF is not here.
+enum MediaRenditionFormat {
+  WEBP
+  JPEG
+
+  @@map("media_rendition_format")
+}
+
 enum SettlementLineType {
   PRIMARY
   CORRECTION
@@ -354,6 +545,32 @@ model AppUser {
   voidedPayments          Payment[]        @relation("PaymentVoidedBy")
   createdPaymentPromises  PaymentPromise[] @relation("PaymentPromiseCreatedBy")
   resolvedPaymentPromises PaymentPromise[] @relation("PaymentPromiseResolvedBy")
+
+  createdArticles     PublicArticle[]
+  createdTestimonials PublicTestimonial[] @relation("PublicTestimonialCreatedBy")
+  createdSpaces       PublicSpace[]
+
+  /// Milestone 10, checkpoint A3. The manager who recorded that a family
+  /// withdrew consent. A standing claim about the row, like `archivedMedia`.
+  withdrawnTestimonials PublicTestimonial[] @relation("PublicTestimonialConsentWithdrawnBy")
+
+  /// Milestone 9, checkpoint A4. The colleague who tied a stranger's message to
+  /// a family. It is the ONLY actor column on `website_request`: who moved a
+  /// status is `audit_log`'s answer, and a link is different because it is a
+  /// standing claim about whose message this was rather than a past act.
+  linkedWebsiteRequests WebsiteRequest[]
+
+  /// Milestone 9.5, checkpoint A5. FIVE ACTOR COLUMNS ACROSS TWO MEDIA TABLES,
+  /// and every one of them is a STANDING CLAIM rather than a past act — who
+  /// currently stands behind this photograph being in the library, out of
+  /// circulation, on this article, or visible to the world. `audit_log` remains
+  /// the record of what happened and when; these are the columns a colleague
+  /// reading one row needs in order to know whom to ask.
+  uploadedMedia  MediaAsset[]      @relation("MediaAssetCreatedBy")
+  archivedMedia  MediaAsset[]      @relation("MediaAssetArchivedBy")
+  attachedMedia  MediaAttachment[] @relation("MediaAttachmentAttachedBy")
+  publishedMedia MediaAttachment[] @relation("MediaAttachmentPublishedBy")
+  detachedMedia  MediaAttachment[] @relation("MediaAttachmentDetachedBy")
 
   @@map("app_user")
 }
@@ -454,6 +671,54 @@ model Therapist {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId String        @map("created_by_user_id") @db.Uuid
 
+  /// Milestone 9, checkpoint A1 — the public website's view of this person.
+  ///
+  /// `isPublic` DEFAULTS FALSE AND IS THE ONLY THING THAT PUBLISHES ANYBODY.
+  /// Being an active therapist does not put a person on the website: that is a
+  /// decision about a named human being, taken with their agreement, and the
+  /// migration adds `therapist_public_profile_chk` so the flag cannot be set
+  /// without the approved public identity beside it.
+  ///
+  /// The public fields NEVER FALL BACK to `fullName` or `specialty`. A
+  /// therapist with no approved display name is not published at all, because
+  /// substituting the personnel record would be a publication decision nobody
+  /// made.
+  isPublic                   Boolean   @default(false) @map("is_public")
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug                 String    @unique @default(dbgenerated("next_public_slug('therapist'::text)")) @map("public_slug")
+  /// When this therapist FIRST became publicly reachable — public and carrying
+  /// a slug. Stamped once by `enforce_public_slug_stability()` and never
+  /// rewritten; while it is set, `publicSlug` is immutable, so a URL that has
+  /// been real cannot silently become a different one. Internal: no public read
+  /// projects it.
+  publicFirstPublishedAt     DateTime? @map("public_first_published_at") @db.Timestamptz
+  /// Milestone 9, checkpoint A2 — when the PUBLISHED content of this row last
+  /// changed, and the only thing the sitemap's last-modified is built from.
+  /// Written by the manager write paths of that checkpoint; NOT a second change
+  /// history, which `audit_log` remains. Null while the row has never been
+  /// published, and null on a row the A1 synthetic seeder published, which
+  /// correctly reports no last-modified until a manager next edits it.
+  publicRevisedAt            DateTime? @map("public_revised_at") @db.Timestamptz
+  /// Milestone 9.5, checkpoint A6 — the WORKING DRAFT of the public copy.
+  /// A manager writes all three here; a receptionist may write the title and
+  /// the biography through the editorial surface. NO PUBLIC READ SELECTS ANY
+  /// OF THEM, which is what lets a draft be prepared on a colleague whose page
+  /// is already live without that page moving.
+  publicDisplayName          String?   @map("public_display_name")
+  publicTitle                String?   @map("public_title")
+  publicBio                  String?   @map("public_bio")
+  /// What the website actually says. Written by exactly one act — the opt-in,
+  /// which copies the draft across in the same statement that sets `isPublic`
+  /// — and selected by every public read. `therapist_public_profile_chk` reads
+  /// the display name here rather than in the draft, so publication is refused
+  /// when there would be no name on the live page.
+  publishedPublicDisplayName String?   @map("published_public_display_name")
+  publishedPublicTitle       String?   @map("published_public_title")
+  publishedPublicBio         String?   @map("published_public_bio")
+  /// Ascending, ties broken by display name and then id, so the team page has
+  /// one order rather than whatever PostgreSQL returns.
+  publicDisplayOrder         Int       @default(0) @map("public_display_order")
+
   createdBy              AppUser                          @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supportedServices      TherapistService[]
   tariffs                Tariff[]
@@ -463,6 +728,10 @@ model Therapist {
   availabilityExceptions TherapistAvailabilityException[]
   shareRules             TherapistShareRule[]
   settlementPeriods      SettlementPeriod[]
+
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
 
   @@index([status])
   @@map("therapist")
@@ -474,14 +743,40 @@ model Therapist {
 /// this milestone; the public website is a later one. They live on the service
 /// because that is where the fact belongs.
 model Service {
-  id                String        @id @default(uuid(7)) @db.Uuid
-  name              String        @unique
-  publicDescription String?       @map("public_description")
-  isPublic          Boolean       @default(false) @map("is_public")
-  status            CatalogStatus @default(ACTIVE)
-  deactivatedAt     DateTime?     @map("deactivated_at") @db.Timestamptz
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  createdByUserId   String        @map("created_by_user_id") @db.Uuid
+  id                         String        @id @default(uuid(7)) @db.Uuid
+  name                       String        @unique
+  /// Milestone 9.5, checkpoint A6 — the WORKING DRAFT of the public
+  /// description, which is what this column has meant since the split. It may
+  /// be rewritten at any time, by a manager on the service form or by a
+  /// receptionist on the editorial surface, and NO PUBLIC READ SELECTS IT.
+  publicDescription          String?       @map("public_description")
+  /// What the website actually says. Written by exactly one statement in the
+  /// application — the manager publication act — and selected by every public
+  /// read. A service published before A6 carries the copy it was published
+  /// with, backfilled by that checkpoint's migration.
+  publishedPublicDescription String?       @map("published_public_description")
+  isPublic                   Boolean       @default(false) @map("is_public")
+  /// Milestone 9, checkpoint A1 — the service's public identity, and the only
+  /// name the website ever uses for it.
+  ///
+  /// Nullable, and a public read requires it: `isPublic` is the INTENT to
+  /// publish and the slug is the ADDRESS, and a service that has one without
+  /// the other is simply not reachable from the site. Unique across every
+  /// service, including private and inactive ones, so a slug that ever
+  /// addressed one page can never quietly address another.
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug                 String        @unique @default(dbgenerated("next_public_slug('service'::text)")) @map("public_slug")
+  /// When this service FIRST became publicly reachable. Same rule, same
+  /// trigger, same reason as the therapist's: a published URL is a promise to
+  /// everybody who has already followed it.
+  publicFirstPublishedAt     DateTime?     @map("public_first_published_at") @db.Timestamptz
+  /// Milestone 9, checkpoint A2. Same column, same meaning and same nullability
+  /// as the therapist's: the sitemap's last-modified, and nothing else.
+  publicRevisedAt            DateTime?     @map("public_revised_at") @db.Timestamptz
+  status                     CatalogStatus @default(ACTIVE)
+  deactivatedAt              DateTime?     @map("deactivated_at") @db.Timestamptz
+  createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId            String        @map("created_by_user_id") @db.Uuid
 
   createdBy        AppUser            @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   durations        ServiceDuration[]
@@ -490,6 +785,15 @@ model Service {
   tariffs          Tariff[]
   appointments     Appointment[]
   sessionCharges   SessionCharge[]
+  /// Milestone 9, checkpoint A3. The service a stranger named on the public
+  /// form, which is the ONLY direction this relation goes: a website request
+  /// points at a service, and nothing about a service depends on one.
+  websiteRequests  WebsiteRequest[]
+  /// Milestone 9.5, checkpoint A9. The photographs prepared for this service's
+  /// public page. ON DELETE RESTRICT on the other side, like every other
+  /// attachment owner: a service row is never deleted anyway, and the
+  /// photograph must not be the thing that makes one deletable.
+  mediaAttachments MediaAttachment[]
 
   @@index([status])
   @@map("service")
@@ -694,16 +998,21 @@ model Family {
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz
   createdByUserId  String       @map("created_by_user_id") @db.Uuid
 
-  createdBy      AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  guardians      Guardian[]
-  children       Child[]
-  drafts         RegistrationDraft[]
-  sessionCharges SessionCharge[]
+  createdBy       AppUser             @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  guardians       Guardian[]
+  children        Child[]
+  drafts          RegistrationDraft[]
+  sessionCharges  SessionCharge[]
   /// Money is received from a FAMILY, never from a child: charges identify the
   /// child, payments move the family's position as a whole (DECISION_LOG,
   /// 2026-08-15 — A payment is a family fact).
-  payments       Payment[]
-  promises       PaymentPromise[]
+  payments        Payment[]
+  promises        PaymentPromise[]
+  /// Milestone 9, checkpoint A4. The website messages that turned out to be this
+  /// family. A family may have several — a parent who wrote in twice before
+  /// anybody rang back is one family and two messages — and a request has at
+  /// most one family, which is the direction that matters.
+  websiteRequests WebsiteRequest[]
 
   @@index([status])
   @@index([searchFamilyName])
@@ -1802,4 +2111,855 @@ model SettlementLine {
   @@index([sessionSettlementId])
   @@index([correctsSettlementLineId])
   @@map("settlement_line")
+}
+
+/// The clinic's own public profile: ONE ROW, FOR EVER.
+///
+/// Milestone 9, checkpoint A1. There is exactly one clinic, so this is a
+/// singleton rather than a collection: `singletonKey` is pinned to 1 by a
+/// CHECK in the migration, which is what makes "the profile" a phrase with one
+/// referent and lets the public read be a lookup that cannot miss. The
+/// migration inserts that row EMPTY — every column is nullable, and every real
+/// value is owner-supplied through the manager surface a later checkpoint
+/// builds.
+///
+/// Nothing here is clinical, financial or personal. It is what a visitor would
+/// read on the door.
+model ClinicPublicProfile {
+  singletonKey     Int     @id @default(1) @map("singleton_key")
+  displayName      String? @map("display_name")
+  tagline          String?
+  about            String?
+  addressLine      String? @map("address_line")
+  cityLabel        String? @map("city_label")
+  phonePrimary     String? @map("phone_primary")
+  phoneSecondary   String? @map("phone_secondary")
+  email            String?
+  /// One owner-written line, not a machine-readable schedule. Therapist
+  /// availability is internal scheduling configuration and is never published.
+  workingHoursNote String? @map("working_hours_note")
+  /// Degrees, WGS 84, bounded by CHECK constraints in the migration.
+  mapLatitude      Float?  @map("map_latitude")
+  mapLongitude     Float?  @map("map_longitude")
+  instagramUrl     String? @map("instagram_url")
+  telegramUrl      String? @map("telegram_url")
+
+  /// NO `updatedAt` AND NO `updatedByUserId`, for the reason no catalog table
+  /// has them: `audit_log` is the authoritative change history, and a second,
+  /// application-written copy of it would be the quieter and less trustworthy
+  /// one.
+  @@map("clinic_public_profile")
+}
+
+/// One editorial block of the public home or about page.
+///
+/// Milestone 9.5, checkpoint A8. Checkpoint A1 froze the clinic's FACTS and
+/// said copy blocks were not among them because "inventing a column for each
+/// would freeze a page layout in the database". This is the checkpoint that
+/// builds them, and it answers that objection with ONE TABLE OF NAMED SLOTS
+/// rather than thirty columns on the profile.
+///
+/// THE ROWS ARE STRUCTURE, NOT RECORDS SOMEBODY MADE. The migration inserts
+/// exactly the accepted design's blocks — five concern prompts, three first
+/// session moments, three about highlights and the six single blocks around
+/// them — with every copy column NULL, precisely as A1 inserted the profile row
+/// empty. Nothing in the application inserts or deletes one; `slot` and
+/// `position` are identity and are never written. That is why there is no
+/// `createdAt` and no `createdByUserId` here, and no `id` a manager ever types.
+///
+/// EDITING IS PUBLISHING. There is no draft column pair and no `isPublic` flag:
+/// this surface belongs to `clinic_profile.update`, which is manager-only, and
+/// what a manager saves is what the site says. That is deliberately unlike
+/// `PublicArticle` and `PublicSpace`, both of which hold their copy twice
+/// because a receptionist may prepare it.
+///
+/// AN UNWRITTEN BLOCK SAYS NOTHING. `heading IS NULL` is the whole of that
+/// rule: the public projection omits the row, and `LIVE_ATTACHMENT_PREDICATE`
+/// refuses any photograph attached to it. One rule, two readers.
+///
+/// NO OPERATIONAL COLUMN EXISTS HERE AND NONE COULD ARRIVE BY WIDENING A QUERY.
+/// This table names no therapist, room, service, appointment, family or child,
+/// and has no foreign key to any of them.
+///
+/// NOTHING IN THE MIGRATION BEHIND IT CONTAINS A WORD OF CLINIC COPY.
+model ClinicContentEntry {
+  id       String            @id @default(uuid(7)) @db.Uuid
+  slot     ClinicContentSlot
+  /// Ascending from zero within the slot, capped per slot by
+  /// `clinic_content_entry_slot_size_chk` so the accepted design's counts are a
+  /// property of the database.
+  position Int               @db.SmallInt
+
+  /// The prompt or short label, where the block has one.
+  label   String?
+  /// The kicker above the heading, where the block has one.
+  eyebrow String?
+  /// What the block is called — AND WHETHER IT IS ON THE SITE AT ALL.
+  heading String?
+  /// The paragraph, where the block has one.
+  body    String?
+
+  attachments MediaAttachment[]
+
+  @@unique([slot, position])
+  @@map("clinic_content_entry")
+}
+
+/// An article the clinic publishes.
+///
+/// Milestone 9, checkpoint A2. THE NARROWEST MODEL THAT SUPPORTS A
+/// DRAFT/PUBLISHED WORKFLOW WITH A READABLE UNIQUE URL (PROJECT_SPEC.md 11),
+/// and deliberately nothing more: no block model, no template, no taxonomy, no
+/// tag, no cover image, no author byline, no scheduled publication, no revision
+/// table and no co-authoring. Each of those is a product decision nobody has
+/// taken.
+///
+/// `publicSlug` IS NOT NULL, unlike a service's. A service exists for internal
+/// reasons and gains a public identity later; an article exists only to be
+/// read. The A1 stability rule applies through the same trigger function: the
+/// slug may be corrected freely until the first publication makes it a promise,
+/// and never afterwards.
+///
+/// `isPublic` IS THE DRAFT FLAG. There is no status enum, because an
+/// unpublished article IS the draft and a third state would be one the product
+/// has never described.
+///
+/// THE COPY IS HELD TWICE, AND THAT IS THE PUBLICATION AUTHORITY. The draft
+/// columns are the receptionist's; the `published*` columns are what the
+/// website reads, and only the manager-only publication act writes them. An
+/// article that has been live for a month can therefore be rewritten by
+/// anybody holding `article.draft` without the page moving, which is the
+/// accepted product rule and is not representable with one set of columns.
+///
+/// All six are PLAIN TEXT: the migration refuses a less-than sign in every one
+/// of them, so no markup can be stored and the web tier never needs a
+/// sanitiser.
+model PublicArticle {
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  /// Assigned by the database, never typed, never changed (M10-A10, T-010).
+  publicSlug             String    @unique @default(dbgenerated("next_public_slug('public_article'::text)")) @map("public_slug")
+  /// THE WORKING DRAFT. A receptionist may edit these three at any time,
+  /// including while the article is live, and nothing they write here is
+  /// visible to anybody outside the clinic.
+  title                  String
+  summary                String?
+  body                   String
+  /// WHAT THE WEBSITE SAYS. Written by the manager-only publication act and by
+  /// nothing else, and read by every public projection instead of the three
+  /// above. The pair is what makes "a receptionist prepares a change and the
+  /// page does not move until a manager publishes it" representable at all:
+  /// one set of columns could hold the live version or the pending one, never
+  /// both.
+  publishedTitle         String?   @map("published_title")
+  publishedSummary       String?   @map("published_summary")
+  publishedBody          String?   @map("published_body")
+  /// The intent to publish. `public_article_published_copy_chk` refuses it on a
+  /// row whose published copy nobody has written, so this flag alone can never
+  /// put a draft on the website.
+  isPublic               Boolean   @default(false) @map("is_public")
+  /// Stamped once by `enforce_public_slug_stability()` at the first
+  /// publication, never rewritten, and — unlike a service's — projected
+  /// publicly, as the date a reader judges an article by.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  /// The sitemap's last-modified. See `Service.publicRevisedAt`.
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
+
+  /// NO `updatedAt` AND NO `updatedByUserId`: `audit_log` is the change
+  /// history, and `publicRevisedAt` is a public fact rather than a second copy
+  /// of one.
+  ///
+  /// NO LISTING INDEX EITHER, for the A1 reason: a clinic writes tens of
+  /// articles, the unique slug index serves every lookup, and an index tuned
+  /// for a list read nobody has measured is tuning nobody has measured.
+  @@map("public_article")
+}
+
+/// An approved, anonymised testimonial.
+///
+/// Milestone 9, checkpoint A2.
+///
+/// IT HOLDS NO IDENTITY AND NO CLINICAL FACT — no family, no child, no service,
+/// no therapist, no date of treatment, no age, no diagnosis, no outcome. Not
+/// projected away: ABSENT. PROJECT_SPEC.md 11 forbids publishing identifying
+/// child or clinical data, and the narrowest way to obey a rule about a
+/// category of data is not to hold it.
+///
+/// IT HAS NO SLUG AND NO URL. An addressable testimonial is a page about one
+/// family — linkable, quotable and indexable on its own. A list on one page
+/// implies nothing about anybody.
+///
+/// `status` IS THE PRIVACY REVIEW AND `isPublic` IS PLACEMENT ON A PAGE, and
+/// the two are separate because withdrawing a quotation from the website is not
+/// the same act as declaring that its review was wrong. The database enforces
+/// the order between them: `isPublic` requires `APPROVED`.
+model PublicTestimonial {
+  id                     String            @id @default(uuid(7)) @db.Uuid
+  /// An anonymised description of who is speaking — never a name — or nothing
+  /// at all. Reviewed by the manager who approves the row.
+  authorLabel            String?           @map("author_label")
+  /// THE AUTHORITATIVE WORDS, FOR BOTH KINDS. For a `HANDWRITTEN` testimonial
+  /// this is the transcription a human read off the note and typed; the
+  /// photograph beside it is an illustration of a meaning already stored here.
+  ///
+  /// NULL ONLY ONCE ERASED (Milestone 10, checkpoint A3):
+  /// `public_testimonial_erasure_chk` ties it to `contentErasedAt` in both
+  /// directions, so the words are present exactly until they are erased.
+  body                   String?
+  /// Milestone 9.5, checkpoint A7. How the words arrived — NOT who wrote them,
+  /// not which child they concern, and nothing clinical. See `TestimonialKind`
+  /// for why a handwritten note still requires the transcription above, and for
+  /// why no column in this schema holds machine-read text.
+  kind                   TestimonialKind   @default(TYPED)
+  status                 TestimonialStatus @default(DRAFT)
+  /// Set exactly when `status` is `APPROVED`; a CHECK pins the two together.
+  approvedAt             DateTime?         @map("approved_at") @db.Timestamptz
+  isPublic               Boolean           @default(false) @map("is_public")
+  /// Stamped once by `stamp_first_publication()`. Internal: no public read
+  /// projects it, and it exists so a public list has a stable order.
+  publicFirstPublishedAt DateTime?         @map("public_first_published_at") @db.Timestamptz
+  publicRevisedAt        DateTime?         @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String            @map("created_by_user_id") @db.Uuid
+
+  /// --- consent withdrawn, and the content erased (Milestone 10, A3). ---
+  ///
+  /// THE ERASE-IN-PLACE PATTERN `website_request.purgedAt` ESTABLISHED. A
+  /// family withdrawing consent is recorded by a manager, which takes the
+  /// testimonial off the site in the same statement and hides it from every
+  /// staff read; the nightly erasure then clears `body` and `authorLabel` and
+  /// erases the bytes of every photograph ever attached to it. The ROW stays,
+  /// saying that a testimonial existed, when consent was withdrawn, by whose
+  /// record and when its content was erased — and nothing it said.
+  ///
+  /// BOTH ARE FINAL. `public_testimonial_withdrawal_is_final` refuses every
+  /// change to a withdrawn row except the erasure itself, and every change at
+  /// all once erased.
+  consentWithdrawnAt       DateTime? @map("consent_withdrawn_at") @db.Timestamptz
+  consentWithdrawnByUserId String?   @map("consent_withdrawn_by_user_id") @db.Uuid
+  contentErasedAt          DateTime? @map("content_erased_at") @db.Timestamptz
+
+  createdBy          AppUser  @relation("PublicTestimonialCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  consentWithdrawnBy AppUser? @relation("PublicTestimonialConsentWithdrawnBy", fields: [consentWithdrawnByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Milestone 9.5, checkpoint A5. Uploaded photographs put on this record.
+  /// A row here is not a published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
+
+  @@map("public_testimonial")
+}
+
+/// Part of the building, as the clinic describes it to a visitor.
+///
+/// Milestone 9.5, checkpoint A7.
+///
+/// A PUBLIC SPACE IS EDITORIAL CONTENT AND AN OPERATIONAL ROOM IS SCHEDULING
+/// CONFIGURATION. THEY ARE TWO CONCEPTS, AND THIS TABLE HOLDS NO REFERENCE TO
+/// THE OTHER ONE.
+///
+/// There is no `room_id` here and no `space_id` on `room`; the two tables share
+/// no foreign key and cannot be joined. That single absence is what makes every
+/// frozen A7 outcome a property of the SCHEMA rather than a discipline somebody
+/// has to keep:
+///
+///   - creating, renaming, restricting or DEACTIVATING a room cannot create,
+///     alter, publish or unpublish a space, because there is no path from one
+///     row to the other;
+///   - no room id, room status, service restriction, availability window or
+///     other operational metadata can reach a visitor through a space, because
+///     no such column exists here and no join can produce one;
+///   - the clinic may publish a corridor, a garden or a description covering
+///     three rooms at once, and may run six rooms while publishing none.
+///
+/// A nullable manager-set link was CONSIDERED AND REJECTED for this checkpoint:
+/// nothing in the accepted product asks a space which room it is, and a column
+/// that answers an unasked question is the first half of the coupling this
+/// checkpoint exists to prevent. REVISIT IF a decision arrives that genuinely
+/// needs the join, at which point it is one nullable column, a migration, and
+/// an explicit statement that it publishes nothing.
+///
+/// THE COPY IS HELD TWICE, AND THAT IS THE PUBLICATION AUTHORITY — the same
+/// shape `public_article` has carried since Milestone 9 checkpoint A2, and for
+/// the same reason. `name`, `description` and `display_order` are the
+/// receptionist's working draft; the `published_*` columns are what the website
+/// reads, and only the manager-only publication act writes them. One set of
+/// columns could hold the live version or the pending one, never both.
+///
+/// `display_order` IS SPLIT TOO, AND DELIBERATELY. Reordering a published
+/// gallery is a change a visitor sees, so it has to wait for the same manager
+/// act the words wait for. Publication copies all three at once, which is what
+/// keeps "publish" one decision rather than three.
+///
+/// NO SLUG AND NO URL, for the reason `public_testimonial` has none: a space is
+/// an entry in a gallery, not a page. Nothing here appears in the sitemap.
+///
+/// WHAT IS DELIBERATELY ABSENT: no capacity, no equipment list, no floor, no
+/// area, no opening hours, no accessibility claim, no service link and no
+/// statement about what treatment happens here. Each is either operational
+/// configuration that belongs to `room`, or a claim the clinic's owner has to
+/// make rather than a schema.
+///
+/// THE ROW IS NEVER DELETED. `no_delete` and `no_truncate`, like every other
+/// content table here; a space is unpublished, which is immediate.
+model PublicSpace {
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  /// THE WORKING DRAFT. Anybody holding `public_space.draft` may edit these
+  /// three at any time, including while the space is live, and nothing they
+  /// write here is visible to anybody outside the clinic.
+  name                   String
+  description            String?
+  displayOrder           Int       @default(0) @map("display_order") @db.SmallInt
+  /// WHAT THE WEBSITE SAYS. Written by the manager-only publication act and by
+  /// nothing else, and read by the public projection instead of the three
+  /// above.
+  publishedName          String?   @map("published_name")
+  publishedDescription   String?   @map("published_description")
+  publishedDisplayOrder  Int?      @map("published_display_order") @db.SmallInt
+  /// The intent to publish. `public_space_published_copy_chk` refuses it on a
+  /// row whose published copy nobody has written, so this flag alone can never
+  /// put a draft on the website.
+  isPublic               Boolean   @default(false) @map("is_public")
+  /// Stamped once by `stamp_first_publication()`. Internal: no public read
+  /// projects it, and it exists so the gallery has a stable tie-break.
+  publicFirstPublishedAt DateTime? @map("public_first_published_at") @db.Timestamptz
+  publicRevisedAt        DateTime? @map("public_revised_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId        String    @map("created_by_user_id") @db.Uuid
+
+  createdBy AppUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Milestone 9.5, checkpoint A5's system, used unchanged. A row here is not a
+  /// published picture: see `MediaAttachment`.
+  mediaAttachments MediaAttachment[]
+
+  /// The gallery read, in published order.
+  @@index([isPublic, publishedDisplayOrder])
+  /// NO `updatedAt` AND NO `updatedByUserId`: `audit_log` is the change history.
+  @@map("public_space")
+}
+
+/// An unsolicited request from a stranger on the public website.
+///
+/// Milestone 9, checkpoint A3. THE FIRST ROW IN THIS SCHEMA WRITTEN BY SOMEBODY
+/// WHO IS NOT A MEMBER OF STAFF, and almost everything unusual about it follows
+/// from that.
+///
+/// IT IS NOT A FAMILY, AND IT NAMES NONE. There is no `familyId`, no `childId`
+/// and no relation to either — not projected away, ABSENT. A stranger who fills
+/// in a web form has not become a clinic record, and the step between the two is
+/// a member of staff deciding so (PROJECT_SPEC.md 11). The conversion path A4
+/// owns will add its link; until it does, no anonymous request path in this
+/// application can create or mutate a family, because there is no column
+/// through which one could.
+///
+/// THE ROW IS NEVER DELETED. THE CONTENT IS ERASED IN PLACE. This table carries
+/// the same `no_delete` and `no_truncate` triggers every other historical table
+/// in this schema carries, and the accepted M9 retention rule is satisfied by an
+/// UPDATE rather than by a DELETE: after ninety days the intake columns are
+/// CLEARED and a minimal lifecycle row remains — the id, when it arrived, the
+/// consent evidence, and `purgedAt`.
+///
+/// THOSE TWO RULES ARE NOT IN TENSION, AND IT IS WORTH SAYING WHY. What the
+/// clinic promised the submitter is that it will not keep their NAME, their
+/// TELEPHONE NUMBER and what they wrote about their child. It did not promise to
+/// forget that a request arrived, and forgetting that would be worse than
+/// useless: the lifecycle row is what lets anybody afterwards say how many
+/// requests came in, how many were converted, and that this particular one was
+/// dealt with rather than quietly dropped. Erasing the row entirely would also
+/// mean a routine job holding a real DELETE grant on a table full of personal
+/// data, which is exactly the operation this schema refuses everywhere else.
+///
+/// `purgedAt` IS THE MARKER THAT MAKES BOTH INVARIANTS ENFORCEABLE AT ONCE.
+/// While it is NULL the four required intake columns are NOT NULL — so "the
+/// contract's required fields are required" stays a database guarantee rather
+/// than a service-layer promise. Once it is set every purgeable column must be
+/// NULL. `website_request_purge_chk` states exactly that, in both directions.
+///
+/// A3 ADDS THE SHAPE, NOT THE POLICY. Nothing in this checkpoint sets
+/// `purgedAt`, and there is no schedule, no CLI and no ninety-day arithmetic
+/// anywhere in it. A4 owns when a request is purged and what closes it; what A3
+/// owes is a table on which that can be an UPDATE.
+///
+/// NO INTAKE CONTENT SURVIVES A PURGE, HERE OR ANYWHERE ELSE. `audit_log`
+/// records that a request was received, when, and under which id — and NOTHING
+/// about who sent it or what they said. That asymmetry is the whole privacy
+/// design: this row holds the content and can be emptied, the permanent store
+/// holds the act and never held the content.
+///
+/// THE TWO ABUSE-CONTROL COLUMNS ARE KEYED HASHES, NEVER THE THING THEY DERIVE
+/// FROM. `submitterFingerprint` is derived from the caller's IP address and the
+/// raw address is stored NOWHERE — not here, not in the audit row. `dedupeKey`
+/// is derived from the submission itself. Both are HMACs under a server-held
+/// key, so neither can be reversed by anybody holding a database dump: an
+/// unkeyed hash of an IPv4 address is four billion guesses, and an unkeyed hash
+/// of a mobile number is fewer. Both are nullable so a narrower cleanup can age
+/// them out ahead of the request itself — they stop being useful long before it
+/// does — and both are purgeable columns, so the ninety-day erasure clears them
+/// with everything else.
+model WebsiteRequest {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz
+
+  /// --- what the visitor told us. EVERY COLUMN IN THIS BLOCK IS PURGEABLE. ---
+  ///
+  /// All ten are nullable in Prisma's eyes and none of them is optional in the
+  /// contract's: `website_request_purge_chk` requires the four required ones to
+  /// be present while `purgedAt` is NULL, and requires every one of them to be
+  /// absent once it is set. Nullability here is the ERASURE, not the contract.
+  contactName          String?                    @map("contact_name")
+  contactMobile        String?                    @map("contact_mobile")
+  /// The published service they named, or NULL for the accepted "not sure".
+  /// A slug reaches the API and an id is stored: the slug is the public
+  /// address, the id is what a colleague triaging the inbox needs to join on,
+  /// and resolving one to the other is the only thing this row borrows from the
+  /// catalog.
+  ///
+  /// Purgeable with everything else, so the lifecycle row that survives is
+  /// genuinely minimal. Keeping it would make request VOLUME BY SERVICE
+  /// answerable forever, which is a reporting decision nobody has taken — and
+  /// the honest way to take it later is a derived aggregate, not by holding back
+  /// part of an erasure.
+  requestedServiceId   String?                    @map("requested_service_id") @db.Uuid
+  childName            String?                    @map("child_name")
+  /// Whole years, as the parent typed it. A STAFF-TRIAGE FACT and nothing else:
+  /// nothing in this application decides anything from it, and the CHECK
+  /// bounding it is a sanity bound rather than an eligibility rule.
+  childAgeYears        Int?                       @map("child_age_years") @db.SmallInt
+  /// The existing vocabulary, reused. Required at submission and with NO
+  /// DEFAULT, unlike `child.sex`: a registration taken over the telephone may
+  /// legitimately not have reached the question yet, but a form either asked it
+  /// or did not, and a default here would silently record an answer nobody gave.
+  childSex             ChildSex?                  @map("child_sex")
+  /// From the frozen four. See `WebsiteRequestContactTime`: a preference, no
+  /// clock ranges, and nothing in this application acts on it.
+  ///
+  /// A PostgreSQL enum rather than bounded text, for the reason `child_sex` is
+  /// one: a colleague scanning an inbox needs a value they can sort by, not a
+  /// sentence somebody has to read and interpret. Purgeable with the rest of the
+  /// content.
+  preferredContactTime WebsiteRequestContactTime? @map("preferred_contact_time")
+  note                 String?
+
+  /// --- the consent evidence. Also purged, with the content it covers. ---
+  ///
+  /// Three columns rather than one flag. `consentGiven` is what they did,
+  /// `consentVersion` names the wording they did it under, and
+  /// `consentRecordedAt` is when — and a CHECK refuses a row where the first is
+  /// false. Storing only a boolean would record a consent nobody could later
+  /// say the terms of, which is not evidence.
+  consentGiven      Boolean  @map("consent_given")
+  consentVersion    String   @map("consent_version")
+  consentRecordedAt DateTime @map("consent_recorded_at") @db.Timestamptz
+
+  /// --- abuse control. Keyed hashes, never raw values. See the note above. ---
+  ///
+  /// Purgeable, and separately clearable ahead of the purge.
+  submitterFingerprint String? @map("submitter_fingerprint")
+  dedupeKey            String? @map("dedupe_key")
+
+  /// When the intake content was erased in place, and NULL for as long as it is
+  /// still held. Written by A4's retention run and by nothing in A3.
+  ///
+  /// It is a lifecycle fact rather than a second change history: `audit_log`
+  /// remains the authoritative record of acts, and no read of this column names
+  /// an actor. It is written once and never rewritten or cleared — an erasure
+  /// that could be un-declared would make the row say the content is present
+  /// when it is gone.
+  purgedAt DateTime? @map("purged_at") @db.Timestamptz
+
+  /// --- the lifecycle A4 adds. NONE OF IT IS PURGEABLE, AND NONE OF IT IS
+  /// --- CONTENT: it says what the CLINIC did, never what the visitor said. ---
+  ///
+  /// HOW FAR THE CLINIC HAS GOT. `NEW` on arrival, and the legal moves are in
+  /// `website_request_status_transition` — a trigger rather than a service rule,
+  /// because a status that could be edited by a data fix would make the closure
+  /// instant below, and therefore the retention clock, unenforceable.
+  status          WebsiteRequestStatus @default(NEW)
+  /// When the request was last moved, and NULL exactly while it is still `NEW`.
+  ///
+  /// IT IS NOT A SECOND AUDIT TRAIL. It names no actor, carries no reason and
+  /// keeps only the latest move; `audit_log` remains the authoritative record of
+  /// who did what. It exists because a colleague looking at a list of requests
+  /// marked "follow up needed" has to know which of them has been sitting there
+  /// since last month, and asking the audit log that on every row would serve
+  /// audit internals as ordinary request fields.
+  statusChangedAt DateTime?            @map("status_changed_at") @db.Timestamptz
+  /// When the clinic finished with it. Present exactly when `status` is
+  /// `CLOSED`, and THE INSTANT THE NINETY-DAY RETENTION CLOCK STARTS FROM.
+  ///
+  /// Written once and never rewritten or cleared, which is the same discipline
+  /// `purgedAt` is under and for a stronger reason: this one is an input to an
+  /// irreversible erasure, so a closure that could move would be a deadline that
+  /// could be postponed indefinitely by anybody with an UPDATE.
+  closedAt        DateTime?            @map("closed_at") @db.Timestamptz
+
+  /// --- the family link. THE COLUMN A3 DELIBERATELY DID NOT HAVE. ---
+  ///
+  /// A3 said this table names no family and that the step between a stranger's
+  /// form and a clinic record is a member of staff deciding so. THAT IS STILL
+  /// TRUE, AND THIS COLUMN IS HOW THE DECISION IS RECORDED — not how it is
+  /// bypassed. Nothing in the anonymous submission path can write it: it is set
+  /// only by a signed-in colleague holding `website_request.process`, naming a
+  /// family that already exists, and creating a family from a request remains
+  /// the ordinary registration workflow with its ordinary duplicate detection.
+  ///
+  /// AT MOST ONE FAMILY, EVER. One nullable column is the shape of that rule, and
+  /// the immutability trigger makes it write-once so a link cannot be quietly
+  /// re-pointed at somebody else afterwards. There is still NO `childId`: a
+  /// child is a record with a confirmed birth date, and "he is six" is not one.
+  ///
+  /// A LINKED REQUEST IS NEVER PURGED. `website_request_purge_eligibility_chk`
+  /// states that as a constraint rather than as a predicate the retention run is
+  /// trusted to remember: a converted request is part of a family's history, and
+  /// the ninety-day promise was made about strangers the clinic never heard from
+  /// again.
+  linkedFamilyId String?   @map("linked_family_id") @db.Uuid
+  linkedAt       DateTime? @map("linked_at") @db.Timestamptz
+  /// The one actor column on this table. See `AppUser.linkedWebsiteRequests`.
+  linkedByUserId String?   @map("linked_by_user_id") @db.Uuid
+
+  requestedService Service? @relation(fields: [requestedServiceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  linkedFamily     Family?  @relation(fields: [linkedFamilyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  linkedBy         AppUser? @relation(fields: [linkedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The throttle read: everything one submitter sent recently.
+  @@index([submitterFingerprint, receivedAt])
+  /// The duplicate read, and the retention run's own read after it.
+  @@index([dedupeKey, receivedAt])
+  /// The inbox read: a page of one or more statuses, newest first. It also
+  /// serves the dashboard's `NEW` count and the retention run's scan for closed
+  /// requests, both of which are this index with a narrower predicate.
+  @@index([status, receivedAt])
+  @@map("website_request")
+}
+
+/// A photograph the clinic uploaded, after the product got hold of it.
+///
+/// Milestone 9.5, checkpoint A5.
+///
+/// THE UPLOADED FILE IS NOT HERE, AND THERE IS NO COLUMN THROUGH WHICH IT COULD
+/// BE. `sourceContentType` and `sourceByteSize` describe what arrived, because
+/// a colleague asking "did that upload work?" needs them; the bytes themselves
+/// lived in one process's memory for the length of one request and were never
+/// written to disk. That is what makes "no original phone photograph is
+/// publicly reachable" a property of the storage rather than of a predicate
+/// somebody has to remember — and it is also why no EXIF, and therefore no GPS
+/// coordinate of a family's home or of the clinic itself, exists anywhere in
+/// this system to be leaked, backed up, or handed over.
+///
+/// WHAT IS STORED IS A MASTER AND ITS RENDITIONS. The master is a re-encoded,
+/// re-oriented, metadata-free copy bounded by `MEDIA_MASTER_MAX_DIMENSION`; it
+/// is the only thing a later rendition can be derived from, and it is NEVER
+/// SERVED. The serving route can name a `media_rendition` and nothing else, so
+/// the master's unreachability is structural rather than a missing branch.
+///
+/// ORIENTATION IS APPLIED BEFORE METADATA IS DISCARDED, and the order is the
+/// whole of it. A telephone photograph taken sideways is stored upright with
+/// nothing left to say it was ever rotated; discarding the metadata first would
+/// leave a picture on its side that no renderer could correct.
+///
+/// `masterStorageKey` AND `MediaRendition.storageKey` ARE RELATIVE PATHS UNDER
+/// ONE CONFIGURED ROOT. They are stored rather than derived so that a future
+/// layout change does not orphan what is already on disk, and they are resolved
+/// against the root with an explicit containment check at every read, so a
+/// value edited into the database by hand cannot address a file outside it.
+///
+/// NOTHING IN THIS CHECKPOINT DELETES A BYTE. There is no `deletedAt`, no purge
+/// column and no retention clock, and their absence is deliberate: how long the
+/// clinic keeps a photograph nobody publishes any more is a decision the owner
+/// has not taken, and a schema that guessed either way — erasing on archive, or
+/// promising to keep forever — would pre-empt it. The table carries the
+/// `no_delete` and `no_truncate` triggers every historical table here carries,
+/// so when that decision arrives it arrives as a reviewed migration.
+model MediaAsset {
+  id      String           @id @default(uuid(7)) @db.Uuid
+  /// The Persian text a screen reader says instead of the photograph. Required,
+  /// plain, and markup-free — see `mediaAltTextSchema` — for as long as the
+  /// photograph exists. NULL EXACTLY WHEN ERASED: it can name a child, so it
+  /// goes with the bytes (Milestone 9.5 A10); `media_asset_description_erasure_chk`
+  /// ties it to `bytesPurgedAt` in both directions.
+  altText String?          @map("alt_text")
+  status  MediaAssetStatus @default(ACTIVE)
+
+  /// --- what arrived. DESCRIBED, NEVER STORED. ---
+  ///
+  /// The content type is what the BYTES were, sniffed from their magic number
+  /// and confirmed by the decoder. The filename and the browser-supplied
+  /// content type reach no column here: both are chosen by the caller, and a
+  /// product that recorded either would be recording a claim as a fact.
+  sourceContentType String  @map("source_content_type")
+  sourceByteSize    Int     @map("source_byte_size")
+  /// SHA-256 of the bytes AS UPLOADED — a digest, never the photograph. The
+  /// retry identity: a colleague re-sending the same photograph gets back the
+  /// asset they already created (Milestone 9.5 stabilisation). NULL on assets
+  /// uploaded before it existed, which therefore never match a retry.
+  sourceContentHash String? @map("source_content_hash")
+
+  /// --- the master. THE ONLY COPY THE CLINIC KEEPS, AND NEVER SERVED. ---
+  /// NULLABLE ONLY SO THAT ERASURE IS REPRESENTABLE, never because an asset may
+  /// legitimately lack one: `media_asset_purge_chk` ties it to `bytesPurgedAt`
+  /// in both directions, so the key is present exactly while the bytes are.
+  masterStorageKey  String? @unique @map("master_storage_key")
+  /// SHA-256 of the master bytes. Content IDENTITY — what makes a replaced
+  /// photograph unmistakably a different photograph — and NOT a revocation
+  /// mechanism; see `PUBLIC_MEDIA_CACHE_CONTROL`.
+  masterContentHash String  @map("master_content_hash")
+  masterByteSize    Int     @map("master_byte_size")
+  /// POST-ORIENTATION dimensions, which are the dimensions a page will occupy.
+  masterWidth       Int     @map("master_width")
+  masterHeight      Int     @map("master_height")
+
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
+  archivedByUserId String?   @map("archived_by_user_id") @db.Uuid
+
+  /// WHEN THE STORED BYTES WERE PHYSICALLY ERASED.
+  ///
+  /// Written since Milestone 10, checkpoint A3 by the nightly erasure
+  /// (`MediaErasureService`), under the owner's retention rules and the
+  /// database's `media_asset_erasure_guard`. What follows is the A5 reasoning
+  /// that made it cheap. NOTHING IN THAT CHECKPOINT WROTE IT. There is no schedule, no duration,
+  /// no route and no permission for erasure anywhere in Milestone 9.5, because
+  /// the retention policy is an owner decision nobody has taken. What this
+  /// column does is keep that decision cheap: when it is taken, an erasure is
+  /// an UPDATE that sets this and clears the storage keys, plus an unlink of
+  /// the files — with no new table, no model change, and no migration that has
+  /// to make a NOT NULL column nullable on a live table full of a clinic's
+  /// photographs.
+  ///
+  /// IT IS THE `website_request.purgedAt` PATTERN. The row that remains says a
+  /// photograph existed and where it was used; the bytes and, since A10, the
+  /// description are gone. `audit_log` keeps the acts and never held the content.
+  bytesPurgedAt DateTime? @map("bytes_purged_at") @db.Timestamptz
+
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+
+  createdBy  AppUser  @relation("MediaAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  archivedBy AppUser? @relation("MediaAssetArchivedBy", fields: [archivedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  renditions  MediaRendition[]
+  attachments MediaAttachment[]
+
+  /// The library read: newest first, optionally narrowed to what is still in
+  /// circulation.
+  @@index([status, id])
+  /// The retry lookup: this uploader, this photograph. Not unique — see the
+  /// migration for why.
+  @@index([createdByUserId, sourceContentHash])
+  @@map("media_asset")
+}
+
+/// One servable copy of one photograph, at one width in one format.
+///
+/// Milestone 9.5, checkpoint A5. THIS IS THE ONLY TABLE IN THE SCHEMA WHOSE
+/// ROWS AN ANONYMOUS REQUEST CAN NAME, and the serving route selects from it
+/// alone. The master is deliberately not a row here: it is a column on the
+/// asset, so "the original-quality file is not servable" is enforced by there
+/// being nothing to select rather than by a predicate that could be widened.
+///
+/// A ROW HERE IS NOT A PERMISSION TO SERVE IT. Existence says the bytes were
+/// produced; whether a stranger may have them is re-derived on every request
+/// from the asset's status, the attachment's publication and the owner's own
+/// publication — see `MediaAttachment`.
+///
+/// `contentHash` IS SERVED AS THE `ETag`, so a cache that already holds these
+/// exact bytes revalidates with a 304 rather than a re-download. It is per
+/// rendition rather than per asset because two widths of one photograph are two
+/// different resources.
+model MediaRendition {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  mediaAssetId  String               @map("media_asset_id") @db.Uuid
+  format        MediaRenditionFormat
+  /// Intrinsic pixels, post-orientation. `width` is the `w` descriptor a
+  /// `srcset` carries.
+  width         Int
+  height        Int
+  byteSize      Int                  @map("byte_size")
+  contentHash   String               @map("content_hash")
+  /// Nullable for the reason `MediaAsset.masterStorageKey` is: erasure has to be
+  /// representable. `media_rendition_purge_chk` ties it to `bytesPurgedAt`.
+  storageKey    String?              @unique @map("storage_key")
+  /// Per rendition rather than only on the asset, so a future policy can erase
+  /// the large renditions of an unpublished photograph while keeping a small
+  /// one — or erase everything. Neither is decided here; both are expressible.
+  bytesPurgedAt DateTime?            @map("bytes_purged_at") @db.Timestamptz
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  asset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// One rendition per photograph per format per width, so a re-derivation
+  /// cannot quietly produce a second row that some reads find and others do not.
+  @@unique([mediaAssetId, format, width])
+  @@map("media_rendition")
+}
+
+/// One place a photograph has been put, and how far along it is.
+///
+/// Milestone 9.5, checkpoint A5. THE TABLE THAT DECIDES WHAT THE WORLD SEES.
+///
+/// TWO SEPARATE FACTS HAVE TO BE TRUE, AND THEY BELONG TO TWO SEPARATE PEOPLE.
+/// `publishedAt` is a manager's decision about this photograph in this place;
+/// the OWNER's own publication — `therapist.is_public`,
+/// `public_article.is_public`, `public_testimonial.is_public` — is a decision
+/// about the page. An anonymous request is served only when both hold, so a
+/// receptionist may attach illustrations to a live article without moving the
+/// live page, and a manager unpublishing the article takes its pictures down
+/// with it.
+///
+/// `CLINIC_SPACE` IS THE EXCEPTION AND IT IS AN HONEST ONE. There is no owner
+/// row to consult: `clinic_public_profile` is a single row that is always live,
+/// because editing it IS publishing (Milestone 9, checkpoint A2). A
+/// clinic-space photograph is therefore visible exactly while `publishedAt` is
+/// set, and the manager-only authority over that column is the whole of the
+/// control.
+///
+/// THE OWNER IS A DISCRIMINATOR PLUS THREE REAL FOREIGN KEYS, NOT A LOOSE
+/// `owner_id`. `media_attachment_owner_chk` requires exactly the column
+/// matching `ownerType` to be present and the other two to be absent, so a
+/// polymorphic reference cannot dangle: an attachment naming an article that
+/// does not exist is refused by PostgreSQL rather than by a service that
+/// remembered to check. The alternative — one nullable UUID with no constraint
+/// — would make "which pictures does this article have?" a query whose
+/// correctness depends on nobody ever writing the wrong `ownerType`.
+///
+/// A ROW IS NEVER DELETED; IT IS DETACHED. `detachedAt` is what taking a
+/// photograph off a page means, and the row that remains is how anybody
+/// afterwards can say that this picture was on that article between these two
+/// instants. Detaching a PUBLISHED attachment is refused outright
+/// (`MEDIA_ATTACHMENT_PUBLISHED`): it must be unpublished first, which is a
+/// manager act, so removing something from a live page can never be done by the
+/// weaker authority that put it there.
+model MediaAttachment {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  mediaAssetId String               @map("media_asset_id") @db.Uuid
+  ownerType    MediaAttachmentOwner @map("owner_type")
+
+  /// Exactly one of these six is set, and none of them is set for the two
+  /// ownerless types. Pinned by `media_attachment_owner_chk`.
+  therapistId    String? @map("therapist_id") @db.Uuid
+  articleId      String? @map("article_id") @db.Uuid
+  testimonialId  String? @map("testimonial_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A7. The fourth real foreign key, and it makes
+  /// `PUBLIC_SPACE` behave like the first three rather than like `CLINIC_SPACE`:
+  /// a photograph of the waiting area is visible only while the space it
+  /// describes is itself published.
+  spaceId        String? @map("space_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A8. The editorial block this illustrates.
+  contentEntryId String? @map("content_entry_id") @db.Uuid
+  /// Milestone 9.5, checkpoint A9. The SIXTH real foreign key, and the last
+  /// published page in this product to get one. `PUBLIC_SERVICE` behaves like
+  /// `PUBLIC_SPACE` and not like `CLINIC_SPACE`: a photograph illustrating a
+  /// service is visible only while that service is itself publicly reachable,
+  /// which is `is_public` AND `status = 'ACTIVE'` AND a non-null
+  /// `public_slug` — the three conditions the public service reads have
+  /// applied since Milestone 9, checkpoint A1, and NOT the flag alone.
+  /// Deactivating a service writes `status` and leaves `is_public` where it
+  /// was, so reading the flag alone would take the page down and leave the
+  /// photograph servable.
+  serviceId      String? @map("service_id") @db.Uuid
+
+  /// Ascending, so a gallery has one order rather than whatever PostgreSQL
+  /// returns. Ties are broken by id, which is time-ordered.
+  position Int @default(0) @db.SmallInt
+
+  /// --- FRAMING. HOW THIS USE OF THE PHOTOGRAPH IS COMPOSED. ---
+  ///
+  /// NONE OF IT EVER TOUCHES A PIXEL, and that is the whole design. The stored
+  /// renditions are always the WHOLE FRAME; these six numbers tell a renderer
+  /// which part of it matters. Three product requirements fall straight out:
+  /// framing changes without re-uploading the source, re-framing can never
+  /// destroy or rewrite the master, and the web tier can preview a crop live
+  /// because applying a normalised rectangle is CSS rather than a request.
+  ///
+  /// IT IS ON THE ATTACHMENT AND NOT ON THE ASSET. One photograph of the
+  /// therapy room may be a wide banner in one place and a square tile in
+  /// another; those are two attachments with two framings over one master.
+  /// Framing on the asset would make the second use silently re-frame the first.
+  ///
+  /// FRACTIONS OF THE FRAME, NEVER PIXELS. A pixel rectangle would mean
+  /// something different on each of the five rendition widths, so a crop chosen
+  /// against one would be wrong on the rest.
+  ///
+  /// The focal point defaults to the centre, which is exactly what a browser
+  /// does to an unframed image, so an attachment nobody has framed behaves as it
+  /// always did. The crop is NULL unless somebody drew one.
+  focalX     Float  @default(0.5) @map("focal_x")
+  focalY     Float  @default(0.5) @map("focal_y")
+  cropX      Float? @map("crop_x")
+  cropY      Float? @map("crop_y")
+  cropWidth  Float? @map("crop_width")
+  cropHeight Float? @map("crop_height")
+
+  attachedAt        DateTime  @default(now()) @map("attached_at") @db.Timestamptz
+  attachedByUserId  String    @map("attached_by_user_id") @db.Uuid
+  /// The manager's decision, and the instant it took effect. NULL is a draft.
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz
+  publishedByUserId String?   @map("published_by_user_id") @db.Uuid
+  detachedAt        DateTime? @map("detached_at") @db.Timestamptz
+  detachedByUserId  String?   @map("detached_by_user_id") @db.Uuid
+
+  asset        MediaAsset          @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  therapist    Therapist?          @relation(fields: [therapistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  article      PublicArticle?      @relation(fields: [articleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  testimonial  PublicTestimonial?  @relation(fields: [testimonialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  space        PublicSpace?        @relation(fields: [spaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  contentEntry ClinicContentEntry? @relation(fields: [contentEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  service      Service?            @relation(fields: [serviceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  attachedBy  AppUser  @relation("MediaAttachmentAttachedBy", fields: [attachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedBy AppUser? @relation("MediaAttachmentPublishedBy", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  detachedBy  AppUser? @relation("MediaAttachmentDetachedBy", fields: [detachedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// The three owner reads, each of which is "what does this owner currently
+  /// show?" narrowed by the partial predicate the serving rule applies.
+  @@index([therapistId, position])
+  @@index([articleId, position])
+  @@index([testimonialId, position])
+  /// The space gallery read: "what does this space currently show?"
+  @@index([spaceId, position])
+  /// The editorial block read: "what does this block currently show?"
+  @@index([contentEntryId, position])
+  /// The service page read: "what does this service currently show?"
+  @@index([serviceId, position])
+  /// The clinic-space gallery, and the library's "where is this used?" read.
+  @@index([ownerType, position])
+  @@index([mediaAssetId])
+  @@map("media_attachment")
+}
+
+/// The unattended jobs, and when each last finished all of its work.
+///
+/// Milestone 10, checkpoint A3. One row per job, created by the migration and
+/// never inserted or deleted by the application; `lastSucceededAt` is the one
+/// value that moves. The manager's operational status reads it, and a job whose
+/// last success is too old is a warning — the same shape as the off-site backup
+/// age, for the same reason: a job that exists but never runs gives false
+/// safety.
+///
+/// Each success is also an audit row (`scheduled_job.succeeded`) naming this
+/// row, with what the run did as counts. This column is the fast read; the
+/// audit trail is the history.
+model ScheduledJob {
+  id              String           @id @db.Uuid
+  name            ScheduledJobName @unique
+  lastSucceededAt DateTime?        @map("last_succeeded_at") @db.Timestamptz
+
+  @@map("scheduled_job")
+}
+
+/// Milestone 10, checkpoint A3. A fifth job is a migration that adds its row.
+enum ScheduledJobName {
+  WEBSITE_REQUEST_PURGE
+  SESSION_PRUNE
+  MEDIA_ERASURE
+  TESTIMONIAL_ERASURE
+
+  @@map("scheduled_job_name")
 }

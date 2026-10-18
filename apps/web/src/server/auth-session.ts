@@ -104,10 +104,17 @@ export async function requireSession(options: SessionOptions = {}): Promise<Auth
     if (!required.every((permission) => user.permissions.includes(permission))) {
       // NestJS would refuse the underlying call anyway; this keeps a
       // receptionist from rendering a management surface they cannot use.
-      redirect('/');
+      redirect('/dashboard');
     }
   }
 
+  return user;
+}
+
+/** A session gate for surfaces that are policy-level Manager tools. */
+export async function requireManagerSession(): Promise<AuthenticatedUser> {
+  const user = await requireSession();
+  if (user.role !== 'MANAGER') redirect('/dashboard');
   return user;
 }
 

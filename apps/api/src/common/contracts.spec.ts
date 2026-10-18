@@ -28,6 +28,7 @@ import {
   createChildRequestSchema,
   createFamilyRequestSchema,
   errorEnvelopeSchema,
+  updateFamilyStatusRequestSchema,
   iranLandlineSchema,
   iranMobileSchema,
   loginResponseSchema,
@@ -557,15 +558,35 @@ describe('Milestone 4 contracts', () => {
       expect(createAvailabilityExceptionRequestSchema.safeParse(closed).success).toBe(true);
       expect(createAvailabilityExceptionRequestSchema.safeParse(open).success).toBe(true);
 
-      // A closed day with times, and an extra window without them, are both
-      // half-stated facts that the database CHECK refuses as well.
+      // A closure with both times is a partial closure (M10-A9); with one, or
+      // with a range that does not move forward, it is half-stated, as is an
+      // extra window without times. The database CHECK refuses the same.
       expect(
         createAvailabilityExceptionRequestSchema.safeParse({
           ...closed,
           startTime: '16:00',
           endTime: '19:00',
         }).success,
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        createAvailabilityExceptionRequestSchema.safeParse({
+          ...closed,
+          startTime: null,
+          endTime: null,
+        }).success,
+      ).toBe(true);
+      for (const range of [
+        { startTime: '16:00' },
+        { endTime: '19:00' },
+        { startTime: '16:00', endTime: null },
+        { startTime: '19:00', endTime: '16:00' },
+        { startTime: '16:00', endTime: '16:00' },
+        { startTime: '16:00', endTime: '24:00' },
+      ]) {
+        expect(
+          createAvailabilityExceptionRequestSchema.safeParse({ ...closed, ...range }).success,
+        ).toBe(false);
+      }
 
       expect(
         createAvailabilityExceptionRequestSchema.safeParse({
@@ -583,7 +604,11 @@ describe('Milestone 4 contracts', () => {
         weekday: 3,
         isClosed: false,
         closedReason: null,
-        windows: [{ startTime: '09:00', endTime: '13:00' }],
+        closedRanges: [{ startTime: '11:00', endTime: '12:00', reason: null }],
+        windows: [
+          { startTime: '09:00', endTime: '11:00' },
+          { startTime: '12:00', endTime: '13:00' },
+        ],
       };
 
       expect(resolvedAvailabilitySchema.safeParse(resolved).success).toBe(true);
@@ -594,7 +619,7 @@ describe('Milestone 4 contracts', () => {
       expect(
         resolvedAvailabilitySchema.safeParse({
           ...resolved,
-          windows: [{ startTime: '09:00', endTime: '13:00', source: 'recurring' }],
+          windows: [{ startTime: '09:00', endTime: '11:00', source: 'recurring' }],
         }).success,
       ).toBe(false);
     });
@@ -956,16 +981,34 @@ describe('Milestone 4 contracts', () => {
       for (const code of RECURRENCE_BLOCK_CODES) expect(ERROR_CODES).toContain(code);
     });
 
-    it('moves the hour of a series without moving its weekday', () => {
+    it('moves the hour and, optionally, the weekday of a series, never its rhythm', () => {
       const shape = Object.keys(updateAppointmentSeriesFromRequestSchema.shape);
 
-      // A wall-clock time applied to each occurrence's own date. There is no
-      // `startsAt`, no `weekday` and no recurrence rule: changing the rhythm is
-      // a new series, and shortening one is `cancel-from`.
+      // A wall-clock time, and since M10-A10 (T-023) an optional weekday inside
+      // each occurrence's own week. There is no `startsAt` and no recurrence
+      // rule: changing the rhythm is a new series, and shortening one is
+      // `cancel-from`.
       expect(shape).toContain('startTime');
+      expect(shape).toContain('weekday');
       expect(shape).not.toContain('startsAt');
-      expect(shape).not.toContain('weekday');
       expect(shape).not.toContain('recurrence');
+      // Absent and null both keep each occurrence on its own date.
+      const base = {
+        fromAppointmentId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        durationMinutes: 45,
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+        roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+        startTime: '10:00',
+        note: null,
+        availabilityOverrideReason: null,
+      };
+      expect(updateAppointmentSeriesFromRequestSchema.safeParse(base).success).toBe(true);
+      expect(
+        updateAppointmentSeriesFromRequestSchema.safeParse({ ...base, weekday: null }).success,
+      ).toBe(true);
+      expect(
+        updateAppointmentSeriesFromRequestSchema.safeParse({ ...base, weekday: 7 }).success,
+      ).toBe(false);
       // The service and the child are absent for the reason they are absent
       // from a single move: either would make it a different booking.
       expect(shape).not.toContain('serviceId');
@@ -991,5 +1034,41 @@ describe('Milestone 4 contracts', () => {
     expect(clockTimeSchema.safeParse('24:00').success).toBe(false);
     // Not an instant: a working window is a time of day, not a moment.
     expect(clockTimeSchema.safeParse('2026-09-01T09:00:00Z').success).toBe(false);
+  });
+});
+
+describe('the family status request (Milestone 10, A6)', () => {
+  const balance = { amountDueToman: '250000', creditToman: '0' };
+
+  it('accepts a deactivation with or without an acknowledged balance', () => {
+    expect(updateFamilyStatusRequestSchema.safeParse({ status: 'INACTIVE' }).success).toBe(true);
+    expect(
+      updateFamilyStatusRequestSchema.safeParse({
+        status: 'INACTIVE',
+        acknowledgedBalance: balance,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('refuses an acknowledgement on an activation, where it would acknowledge nothing', () => {
+    expect(updateFamilyStatusRequestSchema.safeParse({ status: 'ACTIVE' }).success).toBe(true);
+    expect(
+      updateFamilyStatusRequestSchema.safeParse({ status: 'ACTIVE', acknowledgedBalance: balance })
+        .success,
+    ).toBe(false);
+  });
+
+  it('takes the amounts as canonical toman strings and nothing else', () => {
+    for (const acknowledgedBalance of [
+      { amountDueToman: 250000, creditToman: '0' },
+      { amountDueToman: '0250000', creditToman: '0' },
+      { amountDueToman: '250000' },
+      { ...balance, note: 'x' },
+    ]) {
+      expect(
+        updateFamilyStatusRequestSchema.safeParse({ status: 'INACTIVE', acknowledgedBalance })
+          .success,
+      ).toBe(false);
+    }
   });
 });

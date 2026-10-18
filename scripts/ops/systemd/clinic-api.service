@@ -1,0 +1,43 @@
+# Milestone 10, checkpoint A7 — the NestJS API (docs/DEPLOYMENT_RUNBOOK.md).
+# Installed to /etc/systemd/system/. Paths and the user below are the
+# documented defaults; change them to match the deployment.
+[Unit]
+Description=Clinic API (NestJS)
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=clinic-api
+Group=clinic-api
+# DATABASE_URL (clinic_app, never the owner), INTERNAL_API_KEY,
+# MEDIA_STORAGE_DIR, BACKUP_STATUS_DIR. Readable only by root and clinic-api.
+# Never in this file, never in the repository.
+EnvironmentFile=/etc/clinic/api.env
+# Plain text in the journal, without terminal colour codes.
+Environment=NO_COLOR=1
+WorkingDirectory=/srv/clinic/apps/api
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5s
+# Media files are created group-readable, so the backup user (a member of
+# clinic-api) can read them; nobody else can.
+UMask=0027
+# Writes nothing but the media directory; the database is over the network
+# socket. Everything else is read-only to it.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/clinic/media
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SyslogIdentifier=clinic-api
+
+[Install]
+WantedBy=multi-user.target

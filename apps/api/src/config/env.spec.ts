@@ -5,6 +5,7 @@ const validEnv = {
   API_PORT: '3001',
   DATABASE_URL: 'postgresql://user:pass@localhost:5433/db?schema=public',
   INTERNAL_API_KEY: 'synthetic_test_internal_key_0123456789',
+  MEDIA_STORAGE_DIR: '/tmp/synthetic-media-root',
 };
 
 describe('loadEnv', () => {
@@ -20,6 +21,7 @@ describe('loadEnv', () => {
     const env = loadEnv({
       DATABASE_URL: validEnv.DATABASE_URL,
       INTERNAL_API_KEY: validEnv.INTERNAL_API_KEY,
+      MEDIA_STORAGE_DIR: validEnv.MEDIA_STORAGE_DIR,
     });
 
     expect(env.NODE_ENV).toBe('development');
@@ -29,6 +31,15 @@ describe('loadEnv', () => {
 
   it('fails fast when DATABASE_URL is missing', () => {
     expect(() => loadEnv({ NODE_ENV: 'test' })).toThrow(/DATABASE_URL/);
+  });
+
+  it('fails fast when MEDIA_STORAGE_DIR is missing', () => {
+    // No default, deliberately. A plausible relative default would let a
+    // misconfigured deployment start and write families' photographs into
+    // whatever directory the process was launched from.
+    const { MEDIA_STORAGE_DIR: _omitted, ...withoutRoot } = validEnv;
+
+    expect(() => loadEnv(withoutRoot)).toThrow(/MEDIA_STORAGE_DIR/);
   });
 
   it('fails fast when INTERNAL_API_KEY is missing', () => {

@@ -4,6 +4,7 @@ import type {
   CatalogStatus,
   CreateServiceRequest,
   Service,
+  ServiceMutationResponse,
   UpdateServiceRequest,
 } from '@clinic/contracts';
 import { AuditService } from '../../audit/audit.service';
@@ -13,9 +14,19 @@ import type { RequestContext, ResolvedSession } from '../../common/request-conte
 import { uuidv7 } from '../../common/uuid';
 import { PrismaService } from '../../prisma/prisma.service';
 import { actorContext, canonicalOptionalText, canonicalText } from '../catalog-support';
+import { promoteServicePublicCopy } from './service-public-copy';
 
 /**
  * Clinic services and the session lengths each may be booked for.
+ *
+ * MILESTONE 9.5, CHECKPOINT A6 NARROWED WHAT `publicDescription` MEANS HERE
+ * WITHOUT CHANGING WHAT THIS METHOD WRITES. The column this form writes is now
+ * the WORKING DRAFT of the public description; `published_public_description`
+ * beside it is what the website says, and `service-public-copy.ts` holds the
+ * only two statements that write it. A manager correcting a description on this
+ * form therefore no longer moves a live page on its own — the promotion is a
+ * separate, separately audited act — EXCEPT on the write that first makes the
+ * service reachable, which IS that decision being taken. See `update` below.
  *
  * Two invariants shape every method:
  *
@@ -29,7 +40,10 @@ type ServiceRow = {
   id: string;
   name: string;
   public_description: string | null;
+  published_public_description: string | null;
   is_public: boolean;
+  public_slug: string | null;
+  public_first_published_at: Date | null;
   status: CatalogStatus;
   deactivated_at: Date | null;
   created_at: Date;
@@ -47,7 +61,10 @@ const SERVICE_COLUMNS = Prisma.sql`
   s.id,
   s.name,
   s.public_description,
+  s.published_public_description,
   s.is_public,
+  s.public_slug,
+  s.public_first_published_at,
   s.status::text AS status,
   s.deactivated_at,
   s.created_at,
@@ -90,7 +107,7 @@ export class ServicesService {
     input: CreateServiceRequest,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const id = uuidv7();
     const name = canonicalText(input.name);
     const publicDescription = canonicalOptionalText(input.publicDescription);
@@ -98,11 +115,16 @@ export class ServicesService {
 
     const created = await this.prisma.$transaction(async (tx) => {
       try {
+        // NO `public_slug`: the column's default, `next_public_slug`, assigns
+        // the address (M10-A10, T-010). Nobody types one, so every service has
+        // one from its first row, and a public service is always addressable.
         await tx.$executeRaw`
           INSERT INTO service (
-            id, name, public_description, is_public, status, created_at, created_by_user_id
+            id, name, public_description, is_public, public_revised_at,
+            status, created_at, created_by_user_id
           ) VALUES (
             ${id}::uuid, ${name}, ${publicDescription}, ${input.isPublic},
+            ${input.isPublic ? Prisma.sql`transaction_timestamp()` : Prisma.sql`NULL`},
             'ACTIVE'::catalog_status, transaction_timestamp(), ${actor.userId}::uuid
           )
         `;
@@ -115,6 +137,13 @@ export class ServicesService {
 
       await this.insertDurations(tx, id, durations);
 
+      // A service CREATED public is published by this statement, so its
+      // prepared description is published with it. The ordinary case creates a
+      // private service and promotes nothing.
+      if (input.isPublic) {
+        await promoteServicePublicCopy(tx, id);
+      }
+
       const row = await this.readForUpdate(tx, id);
 
       await this.audit.record(tx, actorContext(actor, context), {
@@ -124,7 +153,9 @@ export class ServicesService {
         after: {
           name: row.name,
           publicDescription: row.public_description,
+          publishedPublicDescription: row.published_public_description,
           isPublic: row.is_public,
+          publicSlug: row.public_slug,
           status: row.status,
           allowedDurationsMinutes: row.durations,
         },
@@ -133,7 +164,14 @@ export class ServicesService {
       return row;
     });
 
-    return toService(created);
+    const service = toService(created);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache: isPubliclyReachable(created),
+      },
+    };
   }
 
   async update(
@@ -141,7 +179,7 @@ export class ServicesService {
     input: UpdateServiceRequest,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const name = canonicalText(input.name);
     const publicDescription = canonicalOptionalText(input.publicDescription);
     const durations = normalizeDurations(input.allowedDurationsMinutes);
@@ -149,10 +187,40 @@ export class ServicesService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
 
+      // The address is the system's (M10-A10, T-010): assigned when the row was
+      // created — or by the M10-A10 backfill for an older one — and never
+      // written here, so this edit cannot move a public URL.
+      const reachableAfter = input.isPublic && before.public_slug !== null;
+
+      // THE ONE WRITE ON THIS FORM THAT PUBLISHES COPY, AND IT PUBLISHES IT
+      // BECAUSE IT IS THE PUBLICATION. A service crossing from unreachable to
+      // reachable is the manager deciding that what is prepared should be seen,
+      // which is the same act `article.setPublication(true)` performs — so the
+      // draft description crosses with it, and a service does not go onto the
+      // website with a blank space where its description was prepared.
+      //
+      // A LATER EDIT TO A SERVICE THAT IS ALREADY LIVE PROMOTES NOTHING, and
+      // that asymmetry is the whole protection. Otherwise a manager changing a
+      // duration would publish whatever unreviewed sentence happened to be in
+      // the draft, which is exactly the defect the A2 article model was built to
+      // prevent. Promoting a prepared change is an explicit act on its own
+      // route (`ServicePublicCopyService.setPublication`).
+      const reachableBefore = before.is_public && before.public_slug !== null;
+      const publishesCopy = !reachableBefore && reachableAfter;
+
       try {
         await tx.$executeRaw`
           UPDATE service
-          SET name = ${name}, public_description = ${publicDescription}, is_public = ${input.isPublic}
+          SET name = ${name},
+              public_description = ${publicDescription},
+              is_public = ${input.isPublic},
+              -- The sitemap's last-modified, and only while the row is public
+              -- after this write: a private service has no published content
+              -- for an edit to have revised.
+              public_revised_at = CASE
+                WHEN ${reachableAfter} THEN transaction_timestamp()
+                ELSE public_revised_at
+              END
           WHERE id = ${id}::uuid
         `;
       } catch (error) {
@@ -160,10 +228,18 @@ export class ServicesService {
         throw error;
       }
 
+      if (publishesCopy) await promoteServicePublicCopy(tx, id);
+
       await this.replaceDurations(tx, id, before.durations, durations);
 
       const after = await this.readForUpdate(tx, id);
 
+      // ONE ACTION, NOT TWO. Publishing a service is not a separate act from
+      // editing one: it is the same form, the same authority and the same state
+      // change, and the payload below carries the before and after of every
+      // public-facing column. A `service.published` beside this would describe
+      // one write as two facts a reader would have to pair up (DECISION_LOG,
+      // 2026-08-27).
       await this.audit.record(tx, actorContext(actor, context), {
         action: 'service.updated',
         entityType: 'service',
@@ -171,21 +247,37 @@ export class ServicesService {
         before: {
           name: before.name,
           publicDescription: before.public_description,
+          // The PUBLISHED description is on both sides from A6, because this
+          // write can move it — on the one transition that publishes — and a
+          // reader must be able to see whether it did without inferring it from
+          // the flag.
+          publishedPublicDescription: before.published_public_description,
           isPublic: before.is_public,
+          publicSlug: before.public_slug,
           allowedDurationsMinutes: before.durations,
         },
         after: {
           name: after.name,
           publicDescription: after.public_description,
+          publishedPublicDescription: after.published_public_description,
           isPublic: after.is_public,
+          publicSlug: after.public_slug,
           allowedDurationsMinutes: after.durations,
         },
       });
 
-      return after;
+      return { before, after };
     });
 
-    return toService(updated);
+    const service = toService(updated.after);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache:
+          isPubliclyReachable(updated.before) || isPubliclyReachable(updated.after),
+      },
+    };
   }
 
   async changeStatus(
@@ -193,7 +285,7 @@ export class ServicesService {
     status: CatalogStatus,
     actor: ResolvedSession,
     context: RequestContext,
-  ): Promise<Service> {
+  ): Promise<ServiceMutationResponse> {
     const updated = await this.prisma.$transaction(async (tx) => {
       const before = await this.lock(tx, id);
 
@@ -201,7 +293,7 @@ export class ServicesService {
       // an audit row for a change that did not happen. Makes the endpoint
       // idempotent and keeps the trail free of entries whose before and after
       // are identical.
-      if (before.status === status) return before;
+      if (before.status === status) return { before, after: before, changed: false };
 
       // `transaction_timestamp()` rather than a value from Node: it is constant
       // for the whole transaction, so this timestamp and the `occurred_at` of
@@ -233,10 +325,19 @@ export class ServicesService {
         after: { status: after.status },
       });
 
-      return after;
+      return { before, after, changed: true };
     });
 
-    return toService(updated);
+    const service = toService(updated.after);
+    return {
+      service,
+      publication: {
+        publicSlug: service.publicSlug,
+        affectsPublicCache:
+          updated.changed &&
+          (isPubliclyReachable(updated.before) || isPubliclyReachable(updated.after)),
+      },
+    };
   }
 
   private async insertDurations(
@@ -316,6 +417,10 @@ export class ServicesService {
   }
 }
 
+function isPubliclyReachable(row: ServiceRow): boolean {
+  return row.is_public && row.public_slug !== null && row.status === 'ACTIVE';
+}
+
 /** Deduplicated and ordered, so two spellings of the same set behave the same. */
 function normalizeDurations(durations: number[]): number[] {
   return [...new Set(durations)].sort((a, b) => a - b);
@@ -327,6 +432,9 @@ export function toService(row: ServiceRow): Service {
     name: row.name,
     publicDescription: row.public_description,
     isPublic: row.is_public,
+    publicSlug: row.public_slug,
+    publicFirstPublishedAt:
+      row.public_first_published_at === null ? null : row.public_first_published_at.toISOString(),
     status: row.status,
     deactivatedAt: row.deactivated_at === null ? null : row.deactivated_at.toISOString(),
     allowedDurationsMinutes: row.durations,

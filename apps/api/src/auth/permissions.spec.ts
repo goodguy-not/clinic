@@ -64,6 +64,38 @@ describe('role to permission map', () => {
         'promise.read',
         'promise.create',
         'promise.resolve',
+        // Milestone 9, checkpoint A2: DRAFTING public content, and reading the
+        // drafts in order to edit them. Publishing an article and approving a
+        // testimonial are withheld, and the negative half below states that.
+        'article.read',
+        'article.draft',
+        'testimonial.read',
+        'testimonial.draft',
+        // Milestone 9, checkpoint A4: answering the clinic's contact form.
+        // Reading the inbox, moving a request along the accepted lifecycle, and
+        // linking one to a family this role can already register itself.
+        'website_request.read',
+        'website_request.process',
+        // Milestone 9.5, checkpoint A5: the media library, minus the name that
+        // makes a photograph visible. Uploading and attaching are front-desk
+        // work and neither can put anything in front of a visitor; publishing,
+        // unpublishing and archiving are `media.publish`, which is withheld and
+        // which the negative half below states.
+        'media.read',
+        'media.upload',
+        'media.attach',
+        // Milestone 9.5, checkpoint A6: preparing public copy for a service and
+        // for a colleague's profile. Publishing either is withheld, and the
+        // negative half below states that alongside every operational name this
+        // checkpoint deliberately did not move.
+        'service.draft_public_copy',
+        'therapist.draft_public_profile',
+        // Milestone 9.5, checkpoint A7: reading and drafting the clinic's
+        // public spaces. `public_space.publish` is withheld and the negative
+        // half below states it, beside the operational room names this
+        // checkpoint deliberately did not move.
+        'public_space.read',
+        'public_space.draft',
       ].sort(),
     );
   });
@@ -112,9 +144,186 @@ describe('role to permission map', () => {
       'settlement.rate',
       'settlement.void_rating',
       'settlement.close',
+      // Milestone 9.5: the one media authority that changes what the world
+      // sees. It covers publishing an attachment, unpublishing one, archiving
+      // an asset and restoring it, and this role holds none of those.
+      'media.publish',
+      // Milestone 9.5, checkpoint A6: the authority that decides a named
+      // colleague appears on a public website. Drafting their title and
+      // biography is now this role's; deciding they are published is not.
+      'therapist.publish_profile',
+      // Milestone 9.5, checkpoint A7: the authority that puts a description of
+      // the clinic's building on the website. Drafting one is now this role's;
+      // publishing it is not.
+      'public_space.publish',
     ] as const) {
       expect(granted).not.toContain(forbidden);
     }
+  });
+
+  describe('public spaces are not operational rooms', () => {
+    // Milestone 9.5, checkpoint A7. THE WHOLE POINT OF THE CHECKPOINT, STATED
+    // AS AUTHORITY. A public space is editorial content about the building; a
+    // room is scheduling configuration. The permission model has to say so, or
+    // "they are different concepts" is a claim with nothing enforcing it.
+    it('carries exactly the three approved public-space names', () => {
+      expect(
+        PERMISSIONS.filter((permission) => permission.startsWith('public_space.')).sort(),
+      ).toEqual(['public_space.draft', 'public_space.publish', 'public_space.read'].sort());
+    });
+
+    it('leaves the four room names exactly where they were', () => {
+      // Not "a room permission was not added": the EXISTING four are unchanged,
+      // and the receptionist still holds the read alone. A checkpoint that let
+      // the front desk describe the waiting area must not have let them
+      // configure the room it is next to.
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('room.')).sort()).toEqual(
+        ['room.create', 'room.read', 'room.update', 'room.update_status'].sort(),
+      );
+
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('room.read');
+      expect(granted).not.toContain('room.create');
+      expect(granted).not.toContain('room.update');
+      expect(granted).not.toContain('room.update_status');
+    });
+
+    it('splits drafting from publishing, as every other content permission does', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('public_space.read');
+      expect(granted).toContain('public_space.draft');
+      expect(granted).not.toContain('public_space.publish');
+      expect(permissionsForRole('MANAGER')).toContain('public_space.publish');
+    });
+
+    it('grants nothing operational, financial or scheduling', () => {
+      // A7 widens no existing authority. Stated as an exact list of the names a
+      // reader might fear a "spaces" checkpoint had quietly touched.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'room.create',
+        'room.update',
+        'room.update_status',
+        'service.update',
+        'service.update_status',
+        'therapist.update',
+        'therapist.publish_profile',
+        'availability.manage',
+        'tariff.create',
+        'tariff.void',
+        'appointment.reopen',
+        'charge.void',
+        'charge.adjust',
+        'payment.void',
+        'media.publish',
+        'article.publish',
+        'testimonial.approve',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
+  });
+
+  describe('the media subsystem', () => {
+    // Milestone 9.5, checkpoint A5. The same draft-versus-publish boundary the
+    // A2 content permissions drew, stated here so that widening it later has to
+    // be a deliberate edit to a test rather than a quiet edit to a role map.
+    it('carries exactly the four approved media names', () => {
+      expect(PERMISSIONS.filter((permission) => permission.startsWith('media.')).sort()).toEqual(
+        ['media.attach', 'media.publish', 'media.read', 'media.upload'].sort(),
+      );
+    });
+
+    it('lets a receptionist prepare a photograph and never publish one', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('media.read');
+      expect(granted).toContain('media.upload');
+      expect(granted).toContain('media.attach');
+      expect(granted).not.toContain('media.publish');
+    });
+
+    it('adds no media authority over anything that is not a photograph', () => {
+      // The frozen boundary for this checkpoint: a receptionist may upload
+      // media, and NO operational, financial, scheduling or clinical authority
+      // moves with it. Stated against the names that would represent such a
+      // widening, so that a future edit granting one fails here.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'article.publish',
+        'testimonial.approve',
+        'therapist.publish_profile',
+        'clinic_profile.update',
+        'charge.void',
+        'appointment.reopen',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
+  });
+
+  describe('the editorial split (checkpoint A6)', () => {
+    // The frozen boundary of this checkpoint, stated in both directions so that
+    // widening it later has to be a deliberate edit to a test rather than a
+    // quiet edit to a role map.
+    it('carries exactly the two approved drafting names', () => {
+      expect(
+        PERMISSIONS.filter((permission) => permission.endsWith('draft_public_copy')).concat(
+          PERMISSIONS.filter((permission) => permission.endsWith('draft_public_profile')),
+        ),
+      ).toEqual(['service.draft_public_copy', 'therapist.draft_public_profile']);
+    });
+
+    it('lets a receptionist prepare public copy and never publish it', () => {
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      expect(granted).toContain('service.draft_public_copy');
+      expect(granted).toContain('therapist.draft_public_profile');
+      // The two names that promote a draft onto a live page. Neither moves.
+      expect(granted).not.toContain('service.update');
+      expect(granted).not.toContain('therapist.publish_profile');
+    });
+
+    it('moves no operational, financial, scheduling or personnel authority', () => {
+      // The half of the frozen boundary that is about what did NOT change.
+      // Durations, active status, restrictions, availability, tariffs,
+      // settlement configuration and the personnel record are all reached by
+      // names this role still does not hold.
+      const granted = permissionsForRole('RECEPTIONIST');
+
+      for (const unchanged of [
+        'service.create',
+        'service.update',
+        'service.update_status',
+        'therapist.create',
+        'therapist.update',
+        'therapist.update_status',
+        'therapist.publish_profile',
+        'tariff.create',
+        'tariff.void',
+        'availability.manage',
+        'clinic_profile.read',
+        'clinic_profile.update',
+        'media.publish',
+        'article.publish',
+        'testimonial.approve',
+      ] as const) {
+        expect(granted).not.toContain(unchanged);
+      }
+    });
+
+    it('gives a manager both drafting names as well', () => {
+      // Drafting is not a lesser role's consolation prize: a manager writes
+      // copy too, and the publication act is what is exclusive.
+      const granted = permissionsForRole('MANAGER');
+
+      expect(granted).toContain('service.draft_public_copy');
+      expect(granted).toContain('therapist.draft_public_profile');
+    });
   });
 
   describe('the ledger', () => {
@@ -260,11 +469,20 @@ describe('role to permission map', () => {
       }
     });
 
-    it('lets both roles read the dashboard, under four authorities they already hold', () => {
+    it('lets both roles read the dashboard, under five authorities they already hold', () => {
       // The shared operational screen. Nothing here is new access: the point of
       // the list is that the route names every module it aggregates.
       expect([...DASHBOARD_READ_PERMISSIONS].sort()).toEqual(
-        ['appointment.read', 'charge.read', 'payment.read', 'promise.read'].sort(),
+        [
+          'appointment.read',
+          'charge.read',
+          'payment.read',
+          'promise.read',
+          // Milestone 9, checkpoint A4: `newWebsiteRequestCount` is
+          // `website_request` counted, so the route names the authority to read
+          // one. Both internal roles hold it, so nobody's access changed.
+          'website_request.read',
+        ].sort(),
       );
 
       // `charge.read` IS PART OF IT, and its absence would be a side channel.
@@ -514,6 +732,146 @@ describe('role to permission map', () => {
         expect(
           list.some((permission) => permissionsForRole('RECEPTIONIST').includes(permission)),
         ).toBe(false);
+      }
+    });
+  });
+
+  describe('the public website', () => {
+    // Milestone 9, checkpoint A1. The permission model is frozen before any
+    // publishing behaviour exists, for the reason the settlement model was: the
+    // surfaces built in the later checkpoints must not each decide what
+    // authority they need.
+    const WEBSITE_PERMISSIONS = [
+      'therapist.publish_profile',
+      'clinic_profile.read',
+      'clinic_profile.update',
+    ] as const;
+
+    /**
+     * Milestone 9, checkpoint A2. The content vocabulary, added with the acts
+     * that make it real — not before them, which is the rule A1 stated when it
+     * deliberately left drafting unnameable.
+     */
+    const CONTENT_DRAFT_PERMISSIONS = [
+      'article.read',
+      'article.draft',
+      'testimonial.read',
+      'testimonial.draft',
+    ] as const;
+
+    const CONTENT_PUBLISH_PERMISSIONS = ['article.publish', 'testimonial.approve'] as const;
+
+    it('defines exactly the three approved names', () => {
+      for (const permission of WEBSITE_PERMISSIONS) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+
+      expect(
+        PERMISSIONS.filter((permission) => permission.startsWith('clinic_profile.')).sort(),
+      ).toEqual(['clinic_profile.read', 'clinic_profile.update'].sort());
+    });
+
+    it('names nothing this checkpoint did not approve', () => {
+      for (const absent of [
+        // A2 named the six content permissions that describe acts it actually
+        // built. These are the ones it did NOT: a catch-all over all public
+        // content, and a create name where `article.draft` is the act.
+        'article.create',
+        'content.publish',
+        'content.draft',
+        'website.manage',
+        // A4 named the two inbox authorities that describe acts it built. These
+        // are the ones it did NOT: a conversion name would be a second authority
+        // to create a family, reachable from a screen where the duplicate check
+        // could be skipped, and there is no separate authority for the retention
+        // run because no signed-in user performs it.
+        'website_request.convert',
+        'website_request.purge',
+        'website_request.delete',
+        // The public reads carry no permission at all — they are classified
+        // `internal` and hold none.
+        'public.read',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names drafting and publishing as different permissions', () => {
+      // THE FROZEN A1 RULE, PINNED. "Draft authority does not imply publish
+      // authority, so the permission that publishes will never be the
+      // permission that writes." Six names, and no name appears in both lists.
+      for (const permission of [...CONTENT_DRAFT_PERMISSIONS, ...CONTENT_PUBLISH_PERMISSIONS]) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+
+      for (const drafting of CONTENT_DRAFT_PERMISSIONS) {
+        expect(CONTENT_PUBLISH_PERMISSIONS).not.toContain(drafting as never);
+      }
+    });
+
+    it('gives the receptionist every draft name and no publication name', () => {
+      // BOTH HALVES, because either alone would be a lie. A receptionist may
+      // write every word of an article and may make none of it visible.
+      const receptionist = permissionsForRole('RECEPTIONIST');
+      const manager = permissionsForRole('MANAGER');
+
+      for (const permission of CONTENT_DRAFT_PERMISSIONS) {
+        expect(receptionist).toContain(permission);
+        expect(manager).toContain(permission);
+      }
+
+      for (const permission of CONTENT_PUBLISH_PERMISSIONS) {
+        expect(receptionist).not.toContain(permission);
+        expect(manager).toContain(permission);
+      }
+    });
+
+    it('names one authority over a testimonial public life, not four', () => {
+      // Approving, withdrawing approval, publishing and unpublishing are four
+      // acts and one authority: nothing in the product ever grants one without
+      // the others, and no route demands a pair of them at once — which is what
+      // made the settlement rate/void split load-bearing and makes this one
+      // unnecessary.
+      for (const absent of [
+        'testimonial.publish',
+        'testimonial.unpublish',
+        'testimonial.revoke_approval',
+      ] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('gives every one of them to the manager and none of them to the receptionist', () => {
+      // Draft authority does not imply publish authority, and this role holds
+      // neither today. Publishing a colleague photograph and biography, and
+      // setting the address and telephone number a public site prints, are
+      // manager decisions.
+      const manager = permissionsForRole('MANAGER');
+      const receptionist = permissionsForRole('RECEPTIONIST');
+
+      for (const permission of WEBSITE_PERMISSIONS) {
+        expect(manager).toContain(permission);
+        expect(receptionist).not.toContain(permission);
+      }
+    });
+
+    it('keeps publishing a therapist separate from editing one', () => {
+      // The opt-in model in one assertion: `therapist.update` maintains the
+      // personnel row, `therapist.publish_profile` decides whether a named
+      // human being appears on a public website. One name covering both would
+      // mean anybody who may fix a misspelt specialty may publish a colleague.
+      expect(PERMISSIONS).toContain('therapist.update');
+      expect(PERMISSIONS).toContain('therapist.publish_profile');
+      expect(permissionsForRole('RECEPTIONIST')).not.toContain('therapist.update');
+      expect(permissionsForRole('RECEPTIONIST')).not.toContain('therapist.publish_profile');
+    });
+
+    it('adds no second name for publishing a service', () => {
+      // A service public description, its slug and its visibility are columns
+      // on the catalog row, written under `service.update`, which has been
+      // manager-only since Milestone 2.
+      for (const absent of ['service.publish', 'service.update_public_profile'] as const) {
+        expect(PERMISSIONS).not.toContain(absent as never);
       }
     });
   });

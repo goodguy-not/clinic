@@ -1,5 +1,5 @@
 import { uuidv7 } from '../src/common/uuid';
-import { createHarness, resetDatabase, type Harness } from './harness';
+import { createHarness, resetDatabase, type Harness, ownerPrisma } from './harness';
 import { sqlStateOf } from './ledger-support';
 import {
   cancelPromise,
@@ -328,7 +328,7 @@ describe('payment schema objects', () => {
     let fixture: PaymentFixture;
 
     beforeEach(async () => {
-      await resetDatabase(harness.prisma);
+      await resetDatabase();
       fixture = await seedPayingFamily(harness);
     });
 
@@ -532,8 +532,8 @@ describe('payment schema objects', () => {
         const paymentId = await insertPayment(harness, fixture);
 
         for (const statement of [
-          harness.prisma.$executeRaw`DELETE FROM payment WHERE id = ${paymentId}::uuid`,
-          harness.prisma.$executeRawUnsafe('TRUNCATE payment CASCADE'),
+          ownerPrisma().$executeRaw`DELETE FROM payment WHERE id = ${paymentId}::uuid`,
+          ownerPrisma().$executeRawUnsafe('TRUNCATE payment CASCADE'),
         ]) {
           expect(await sqlStateOf(statement)).toBe('23001');
         }
@@ -1022,8 +1022,8 @@ describe('payment schema objects', () => {
         await reschedulePromise(harness, fixture, originalId, successorId);
 
         for (const statement of [
-          harness.prisma.$executeRaw`DELETE FROM payment_promise WHERE id = ${successorId}::uuid`,
-          harness.prisma.$executeRaw`DELETE FROM payment_promise WHERE id = ${originalId}::uuid`,
+          ownerPrisma().$executeRaw`DELETE FROM payment_promise WHERE id = ${successorId}::uuid`,
+          ownerPrisma().$executeRaw`DELETE FROM payment_promise WHERE id = ${originalId}::uuid`,
         ]) {
           expect(await sqlStateOf(statement)).toBe('23001');
         }
@@ -1264,8 +1264,8 @@ describe('payment schema objects', () => {
 
       it('refuses DELETE and TRUNCATE on the promise table', async () => {
         for (const statement of [
-          harness.prisma.$executeRaw`DELETE FROM payment_promise WHERE id = ${promiseId}::uuid`,
-          harness.prisma.$executeRawUnsafe('TRUNCATE payment_promise CASCADE'),
+          ownerPrisma().$executeRaw`DELETE FROM payment_promise WHERE id = ${promiseId}::uuid`,
+          ownerPrisma().$executeRawUnsafe('TRUNCATE payment_promise CASCADE'),
         ]) {
           expect(await sqlStateOf(statement)).toBe('23001');
         }

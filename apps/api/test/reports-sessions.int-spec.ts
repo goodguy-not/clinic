@@ -59,7 +59,7 @@ describe('the session report (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const sessions = (token: string, query: Record<string, string | number>) =>

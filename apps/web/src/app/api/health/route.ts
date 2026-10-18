@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchApiLiveness } from '@/server/api-client';
+import { fetchApiReadiness } from '@/server/api-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,15 +11,12 @@ export const dynamic = 'force-dynamic';
  * mechanically by scripts/check-web-boundary.mjs.
  */
 export async function GET() {
-  const api = await fetchApiLiveness();
+  const ready = await fetchApiReadiness();
 
   return NextResponse.json(
     {
-      status: api.ok ? 'ok' : 'degraded',
-      service: 'web',
-      api: api.ok ? 'reachable' : api.reason,
-      timestamp: new Date().toISOString(),
+      status: ready ? 'ok' : 'unavailable',
     },
-    { status: api.ok ? 200 : 503 },
+    { status: ready ? 200 : 503, headers: { 'cache-control': 'no-store' } },
   );
 }

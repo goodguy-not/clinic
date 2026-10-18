@@ -39,7 +39,7 @@ describe('therapist availability (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const server = () => harness.app.getHttpServer();
@@ -770,7 +770,7 @@ describe('therapist availability (real PostgreSQL)', () => {
   });
 
   describe('the database is the authority, not the service', () => {
-    it('holds the two availability exclusion constraints by name', async () => {
+    it('holds the four availability exclusion constraints by name', async () => {
       const rows = await harness.prisma.$queryRaw<{ conname: string; definition: string }[]>`
         SELECT conname, pg_get_constraintdef(oid) AS definition
         FROM pg_constraint
@@ -783,6 +783,8 @@ describe('therapist availability (real PostgreSQL)', () => {
       const byName = new Map(rows.map((row) => [row.conname, row.definition]));
 
       expect([...byName.keys()].sort()).toEqual([
+        'therapist_availability_exception_closure_no_overlap_excl',
+        'therapist_availability_exception_closure_window_excl',
         'therapist_availability_exception_no_overlap_excl',
         'therapist_availability_no_overlap_excl',
       ]);
@@ -797,18 +799,31 @@ describe('therapist availability (real PostgreSQL)', () => {
       expect(byName.get('therapist_availability_no_overlap_excl')).not.toContain('daterange');
       expect(byName.get('therapist_availability_no_overlap_excl')).not.toContain('effective');
 
-      // Extra windows only. A closure is one row per date, enforced by a partial
-      // unique index, and may legitimately sit alongside a dated window.
+      // Extra windows only, among themselves.
       expect(byName.get('therapist_availability_exception_no_overlap_excl')).toContain(
         'is_available = true',
       );
 
-      const closure = await harness.prisma.$queryRaw<{ indexdef: string }[]>`
+      // Closures among themselves (M10-A9). A whole-day closure is read as the
+      // whole day, so it overlaps every closure of its date — which is what the
+      // one-closure-per-date unique index used to say, and that index is gone.
+      const closures = byName.get('therapist_availability_exception_closure_no_overlap_excl');
+      expect(closures).toContain('is_available = false');
+      expect(closures).toContain("'24:00:00'");
+      expect(closures).toContain("'[)'");
+
+      // A partial closure against an extra window; whole-day closures are left
+      // out, because a closed day beside an extra window is a permitted pair.
+      const pair = byName.get('therapist_availability_exception_closure_window_excl');
+      expect(pair).toContain('<>');
+      expect(pair).toContain('start_time IS NOT NULL');
+
+      const closureIndex = await harness.prisma.$queryRaw<{ indexdef: string }[]>`
         SELECT indexdef FROM pg_indexes
         WHERE indexname = 'therapist_availability_exception_one_closure_idx'
       `;
 
-      expect(closure[0]?.indexdef).toMatch(/UNIQUE.*is_available = false/s);
+      expect(closureIndex).toEqual([]);
     });
 
     it('refuses an overlapping window written straight to SQL', async () => {

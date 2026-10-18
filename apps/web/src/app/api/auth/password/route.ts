@@ -66,7 +66,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const cookies = cookieConfig();
   const { sessionToken: rotated, session } = result.data;
 
-  const response = secureRedirect(request, '/');
+  const response = secureRedirect(request, '/dashboard');
 
   setCookie(
     response,

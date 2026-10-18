@@ -46,7 +46,7 @@ describe('the promise report (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const promises = (token: string, query: Record<string, string | number>) =>

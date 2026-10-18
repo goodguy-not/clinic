@@ -33,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return failureRedirect(request, returnPath as `/${string}`, 'VALIDATION_FAILED');
   const result = await api.closeSettlementPeriod(parsed.data, { sessionToken: token });
   if (!result.ok) return failureRedirect(request, returnPath as `/${string}`, result.code);
-  const target = new URL(returnPath, request.url);
+  const target = new URL(returnPath, 'https://unused.invalid');
   target.searchParams.set(
     'success',
     result.data.outcome === 'CLOSED' ? 'period-closed' : 'period-already-closed',

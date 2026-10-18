@@ -1,0 +1,24 @@
+-- Milestone 9.5, checkpoint A7 — one new enum label, and nothing else.
+--
+-- WHY THIS IS A MIGRATION OF ITS OWN, AND NOT THE FIRST LINE OF THE NEXT ONE.
+-- PostgreSQL permits `ALTER TYPE ... ADD VALUE` inside a transaction block, but
+-- REFUSES to let the same transaction USE the label it just added. The next
+-- migration defines `media_attachment_owner_chk` with `'PUBLIC_SPACE'` in it,
+-- which is exactly that forbidden use, and Prisma runs each migration file in
+-- its own transaction. Two files is therefore the shape the database demands,
+-- not a filing preference — and splitting it here rather than reaching for a
+-- text cast keeps the constraint in the next file readable as an enum
+-- comparison, like the four branches it joins.
+--
+-- WHAT THE LABEL MEANS is stated where the column that uses it is defined. In
+-- one line: `PUBLIC_SPACE` names a `public_space` row and therefore behaves
+-- like `THERAPIST_PROFILE`, `PUBLIC_ARTICLE` and `PUBLIC_TESTIMONIAL` — an
+-- owner id is required and the owner's own publication gates the photograph.
+-- `CLINIC_SPACE` is untouched and goes on meaning what checkpoint A5 froze:
+-- an ownerless slot that no public projection in this product reads.
+--
+-- NOTHING IS VISIBLE TO ANYBODY AFTER THIS FILE. Adding a label to an enum
+-- publishes nothing, changes no row and grants no authority.
+
+-- AlterEnum
+ALTER TYPE "media_attachment_owner" ADD VALUE 'PUBLIC_SPACE';

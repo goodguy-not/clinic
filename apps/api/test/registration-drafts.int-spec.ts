@@ -7,6 +7,7 @@ import {
   resetDatabase,
   TEST_PASSWORD,
   type Harness,
+  ownerPrisma,
 } from './harness';
 import {
   asUser,
@@ -46,7 +47,7 @@ describe('registration drafts (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     token = (await signIn(harness, 'RECEPTIONIST')).token;
   });
 
@@ -155,7 +156,9 @@ describe('registration drafts (real PostgreSQL)', () => {
       // page whose entire job is to ask "is this the same family?".
       const { draftToken, candidateIds } = await blockedDraft();
 
-      await harness.prisma.$executeRaw`
+      // Out of band, as the owner: the application replaces guardians and never
+      // updates one in place, so the runtime role holds no UPDATE on them.
+      await ownerPrisma().$executeRaw`
         UPDATE guardian SET mobile = '09990000000' WHERE family_id = ${candidateIds[0]}::uuid
       `;
 

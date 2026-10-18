@@ -1,0 +1,240 @@
+import request from 'supertest';
+import { publicTeamResponseSchema, therapistPublicProfileResponseSchema } from '@clinic/contracts';
+import { uuidv7 } from '../src/common/uuid';
+import { createHarness, internalHeaders, resetDatabase, type Harness } from './harness';
+import { as, auditActionsFor, loginAs } from './website-support';
+
+/**
+ * A therapist's public profile, maintained through the real manager path.
+ *
+ * Milestone 9, checkpoint A2. A1 shipped these columns with no writer and said
+ * so; this suite is the proof that the checkpoint closed that gap — a manager
+ * can put a colleague on the website and take them off again with no SQL, no
+ * seed change and no deployment.
+ *
+ * THE OPT-IN IS THE RULE UNDER TEST. An active therapist is not a public one,
+ * nothing falls back to the personnel record, and preparing the content
+ * publishes nobody.
+ *
+ * Everything is synthetic. No real colleague, photograph or biography appears.
+ */
+describe('therapist public profile (real PostgreSQL)', () => {
+  let harness: Harness;
+  let manager: string;
+  let receptionist: string;
+  let therapistId: string;
+
+  beforeAll(async () => {
+    harness = await createHarness();
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase();
+    manager = await loginAs(harness, 'MANAGER');
+    receptionist = await loginAs(harness, 'RECEPTIONIST');
+
+    const actor = (
+      await harness.prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM app_user WHERE role = 'MANAGER'::user_role LIMIT 1
+      `
+    )[0]!.id;
+
+    therapistId = uuidv7();
+    await harness.prisma.$executeRaw`
+      INSERT INTO therapist (id, full_name, specialty, status, created_at, created_by_user_id)
+      VALUES (
+        ${therapistId}::uuid, 'Synthetic Colleague', 'Synthetic Specialty',
+        'ACTIVE'::catalog_status, transaction_timestamp(), ${actor}::uuid
+      )
+    `;
+  });
+
+  const server = () => harness.app.getHttpServer();
+
+  const profileBody = (overrides: Record<string, unknown> = {}) => ({
+    displayName: 'Synthetic Display Name',
+    title: 'Synthetic Public Title',
+    bio: 'Synthetic biography written for a test.',
+    displayOrder: 10,
+    ...overrides,
+  });
+
+  const writeProfile = (session: string, overrides: Record<string, unknown> = {}) =>
+    request(server())
+      .patch(`/catalog/therapists/${therapistId}/public-profile`)
+      .set(as(session))
+      .send(profileBody(overrides));
+
+  const setVisibility = (session: string, isPublic: boolean) =>
+    request(server())
+      .patch(`/catalog/therapists/${therapistId}/public-profile/visibility`)
+      .set(as(session))
+      .send({ isPublic });
+
+  describe('the authority', () => {
+    it('refuses a receptionist all three routes', async () => {
+      // `therapist.read` is a receptionist's, to run the diary.
+      // `therapist.publish_profile` is not, and A1 separated them precisely so
+      // this line could be true — including for the READ, because a draft
+      // biography of a colleague who has not agreed to be published is not
+      // diary information.
+      const read = await request(server())
+        .get(`/catalog/therapists/${therapistId}/public-profile`)
+        .set(as(receptionist));
+      const write = await writeProfile(receptionist);
+      const publish = await setVisibility(receptionist, true);
+
+      for (const response of [read, write, publish]) {
+        expect(response.status).toBe(403);
+        expect(response.body.error.code).toBe('AUTH_FORBIDDEN');
+      }
+    });
+
+    it('lets a manager maintain the profile and the opt-in with no SQL', async () => {
+      const written = await writeProfile(manager);
+      const published = await setVisibility(manager, true);
+
+      expect(written.status).toBe(200);
+      expect(therapistPublicProfileResponseSchema.parse(written.body).profile.isPublic).toBe(false);
+      expect(published.status).toBe(200);
+      expect(therapistPublicProfileResponseSchema.parse(published.body).profile.isPublic).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('the opt-in', () => {
+    it('publishes nobody when the content is written', async () => {
+      // Two acts, and this is the one that is not a publication. A manager who
+      // writes a biography has not thereby put anybody on the internet.
+      await writeProfile(manager);
+
+      const team = await request(server()).get('/public/team').set(internalHeaders());
+
+      expect(publicTeamResponseSchema.parse(team.body).therapists).toEqual([]);
+    });
+
+    it('refuses publication without an approved name', async () => {
+      const attempt = await setVisibility(manager, true);
+
+      expect(attempt.status).toBe(422);
+      expect(attempt.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
+    });
+
+    it('accepts clearing the DRAFT name of somebody already published, and leaves their page alone', async () => {
+      // CHECKPOINT A6 MOVED THIS REFUSAL RATHER THAN REMOVING IT. Before the
+      // draft and published copy were separated, this write would have left a
+      // live page with no name on it and had to be refused. It no longer can:
+      // the page goes on saying what was published, so the preparation is
+      // accepted and the PUBLICATION that would make it real is what fails.
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+
+      const cleared = await writeProfile(manager, { displayName: null });
+      const team = await request(server()).get('/public/team').set(internalHeaders());
+
+      expect(cleared.status).toBe(200);
+      expect(publicTeamResponseSchema.parse(team.body).therapists).toEqual([
+        expect.objectContaining({ displayName: 'Synthetic Display Name' }),
+      ]);
+    });
+
+    it('refuses PUBLISHING a profile whose draft name has been cleared', async () => {
+      // The other half of the move above: the rule is the same rule, checked
+      // against the column that is actually published.
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+      await writeProfile(manager, { displayName: null });
+
+      const republished = await setVisibility(manager, true);
+
+      expect(republished.status).toBe(422);
+      expect(republished.body.error.code).toBe('THERAPIST_PUBLIC_PROFILE_INCOMPLETE');
+    });
+
+    it('takes the colleague off the site again on request', async () => {
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+      await setVisibility(manager, false);
+
+      const team = await request(server()).get('/public/team').set(internalHeaders());
+
+      expect(publicTeamResponseSchema.parse(team.body).therapists).toEqual([]);
+    });
+
+    it('never substitutes the personnel record', async () => {
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+
+      const team = await request(server()).get('/public/team').set(internalHeaders());
+      const body = JSON.stringify(team.body);
+
+      expect(body).toContain('Synthetic Display Name');
+      expect(body).not.toContain('Synthetic Colleague');
+      expect(body).not.toContain('Synthetic Specialty');
+    });
+  });
+
+  describe('the address (M10-A10, T-010)', () => {
+    it('is assigned when the therapist row is created, and the form cannot carry one', async () => {
+      const read = await request(server())
+        .get(`/catalog/therapists/${therapistId}/public-profile`)
+        .set(as(manager));
+      const assigned = therapistPublicProfileResponseSchema.parse(read.body).profile.publicSlug;
+      expect(assigned).toMatch(/^[2-9bcdfghjkmnpqrstvwxz]{8}$/);
+
+      const typed = await writeProfile(manager, { publicSlug: 'typed-address' });
+      expect(typed.status).toBe(400);
+      expect(typed.body.error.code).toBe('VALIDATION_FAILED');
+    });
+
+    it('never changes across publication, withdrawal and republication', async () => {
+      const before = (
+        await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } })
+      ).publicSlug;
+
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+      await setVisibility(manager, false);
+      await writeProfile(manager, { displayName: 'Synthetic Renamed' });
+      await setVisibility(manager, true);
+
+      const team = await request(server()).get(`/public/team/${before}`).set(internalHeaders());
+      expect(team.status).toBe(200);
+      expect(
+        (await harness.prisma.therapist.findUniqueOrThrow({ where: { id: therapistId } }))
+          .publicSlug,
+      ).toBe(before);
+    });
+  });
+
+  describe('the audit trail', () => {
+    it('separates preparing the content from publishing the person', async () => {
+      await writeProfile(manager);
+      await setVisibility(manager, true);
+      await setVisibility(manager, false);
+
+      expect(await auditActionsFor(harness, 'therapist', therapistId)).toEqual([
+        'therapist.public_profile_updated',
+        'therapist.public_profile_published',
+        'therapist.public_profile_unpublished',
+      ]);
+    });
+
+    it('records the biography as a length rather than as a copy of it', async () => {
+      await writeProfile(manager);
+
+      const rows = await harness.prisma.$queryRaw<{ after: Record<string, unknown> }[]>`
+        SELECT after FROM audit_log
+        WHERE entity_type = 'therapist' AND entity_id = ${therapistId}::uuid
+      `;
+
+      expect(rows[0]!.after).toMatchObject({ bioLength: expect.any(Number) });
+      expect(JSON.stringify(rows[0]!.after)).not.toContain('Synthetic biography');
+    });
+  });
+});

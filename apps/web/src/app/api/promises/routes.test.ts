@@ -145,7 +145,7 @@ describe('promise BFF handlers', () => {
     );
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe(
-      `${ORIGIN}/families/${FAMILY_ID}/promises?success=promise-cancelled`,
+      `/families/${FAMILY_ID}/promises?success=promise-cancelled`,
     );
   });
 

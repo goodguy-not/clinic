@@ -3,6 +3,7 @@ import { catalogReasonSchema } from '../catalog/common';
 import { isoDateSchema } from '../dates';
 import { clockTimeSchema, weekdaySchema } from './common';
 import { therapistAvailabilityExceptionSchema, therapistAvailabilitySchema } from './appointments';
+import { appointmentChildSummarySchema } from './day';
 
 /**
  * Managing and reading a therapist's availability.
@@ -90,22 +91,47 @@ export type ReplaceAvailabilityWindowsRequest = z.infer<
 >;
 
 /**
- * A date on which the therapist's ordinary week does not apply.
+ * A closure: the whole of a date, or one time range on it (M10-A9, tour item
+ * T-012).
  *
- * Carries no times, and structurally cannot: a closed day with a start and an
- * end is a half-stated fact that every later reader would have to guess about.
- * The reason is optional — "why" is worth recording and is usually private
- * enough that requiring it would produce fiction.
- *
- * On its own this is a day off. Paired with an extra window on the same date it
+ * WITHOUT TIMES IT IS A DAY OFF, exactly as before: the therapist's ordinary week
+ * does not apply on that date. Paired with an extra window on the same date it
  * says "not my usual hours, these instead", which is the only way to record that
  * arrangement and is deliberately permitted.
+ *
+ * WITH TIMES IT IS A PARTIAL CLOSURE — "leaves at 14:00", "arrives at 11:00" —
+ * and removes that range, and only that range, from the ordinary week for the
+ * date. Both times or neither: a closure with one bound is a half-stated fact.
+ * The times are wall-clock `HH:MM` on the clinic's calendar (Asia/Tehran), like
+ * every other availability time, so `00:00` to `23:59` is the whole of the day a
+ * range can name and nothing outside the day can be expressed. Absent and null
+ * are the same answer, so a form that always sends the two fields can send them
+ * empty for a whole-day closure.
+ *
+ * Two closures of one date may not overlap, and a whole-day closure overlaps
+ * everything on its date; a partial closure may not overlap an extra window on
+ * its date either, because the two would contradict each other. The database
+ * refuses all three with `AVAILABILITY_EXCEPTION_CONFLICT`.
+ *
+ * The reason is optional — "why" is worth recording and is usually private
+ * enough that requiring it would produce fiction.
  */
-const closedDayExceptionSchema = z.strictObject({
-  isAvailable: z.literal(false),
-  exceptionDate: isoDateSchema,
-  reason: catalogReasonSchema.nullable(),
-});
+const closedDayExceptionSchema = z
+  .strictObject({
+    isAvailable: z.literal(false),
+    exceptionDate: isoDateSchema,
+    startTime: clockTimeSchema.nullish(),
+    endTime: clockTimeSchema.nullish(),
+    reason: catalogReasonSchema.nullable(),
+  })
+  .refine(
+    (value) => (value.startTime == null) === (value.endTime == null),
+    'a partial closure needs both a start and an end',
+  )
+  .refine(
+    (value) => value.startTime == null || value.endTime == null || value.endTime > value.startTime,
+    'the closure must end after it starts',
+  );
 
 /** One extra window on a date, outside the ordinary weekly pattern. */
 const extraWindowExceptionSchema = z
@@ -172,8 +198,23 @@ export const resolvedAvailabilitySchema = z.strictObject({
   date: isoDateSchema,
   /** Saturday-first, derived from the date at the clinic's own calendar. */
   weekday: weekdaySchema,
+  /** A WHOLE-DAY closure. A partial closure leaves this false. */
   isClosed: z.boolean(),
   closedReason: z.string().nullable(),
+  /**
+   * The partial closures on this date, in start order (M10-A9). Each has
+   * already been taken out of the ordinary week in `windows`; they are listed so
+   * an interface can say WHY the day is shorter than the therapist's usual one.
+   * Empty on a date with none, and on a whole-day closure, which `isClosed`
+   * states instead.
+   */
+  closedRanges: z.array(
+    z.strictObject({
+      startTime: clockTimeSchema,
+      endTime: clockTimeSchema,
+      reason: z.string().nullable(),
+    }),
+  ),
   windows: z.array(z.strictObject({ startTime: clockTimeSchema, endTime: clockTimeSchema })),
 });
 
@@ -206,9 +247,72 @@ export type AvailabilityExceptionListResponse = z.infer<
   typeof availabilityExceptionListResponseSchema
 >;
 
+/**
+ * A scheduled appointment that a closure has left outside the therapist's hours
+ * (M10-A9).
+ *
+ * WHAT A CLOSURE DOES TO THE DIARY: NOTHING. Closing a day, or part of one,
+ * cancels and moves nothing — a session the clinic has promised a family is
+ * changed only by a person who has spoken to that family. What the closure does
+ * is make the conflict visible, and this is the shape it is shown in.
+ *
+ * Listed when it is `SCHEDULED`, falls on a date carrying a closure, overlaps a
+ * closed range on that date (a whole-day closure is the whole date), and is not
+ * inside the resolved availability for that date — so a session sitting in an
+ * extra window on a closed day is not a conflict. Series occurrences are
+ * appointments like any other and are listed with their `seriesId`.
+ *
+ * `availabilityOverrideReason` is carried because an appointment that was booked
+ * with a recorded override is still in conflict, but the interface should be
+ * able to say it was placed there deliberately.
+ *
+ * Times are the clinic's calendar and clock (Asia/Tehran), computed by
+ * PostgreSQL; the instants are there for anything that needs them.
+ */
+export const closureAffectedAppointmentSchema = z.strictObject({
+  appointmentId: z.uuid(),
+  seriesId: z.uuid().nullable(),
+  date: isoDateSchema,
+  startTime: clockTimeSchema,
+  endTime: clockTimeSchema,
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  availabilityOverrideReason: z.string().nullable(),
+  children: z.array(appointmentChildSummarySchema),
+});
+
+export type ClosureAffectedAppointment = z.infer<typeof closureAffectedAppointmentSchema>;
+
+/**
+ * `affectedAppointments` is the closure conflicts of the exception's date, read
+ * in the same transaction that wrote it (M10-A9). Always empty for an extra
+ * window, which can only add hours.
+ */
 export const availabilityExceptionResponseSchema = z.strictObject({
   exception: therapistAvailabilityExceptionSchema,
+  affectedAppointments: z.array(closureAffectedAppointmentSchema),
 });
+
+/**
+ * Both bounds inclusive and both required: unlike the exception list, a
+ * conflict read is a diary read and has to say which days it means. No maximum
+ * span, as for every report range: the cost follows the closures and scheduled
+ * sessions in the range, which an over-long range does not multiply.
+ */
+export const closureConflictQuerySchema = z
+  .strictObject({
+    from: isoDateSchema,
+    to: isoDateSchema,
+  })
+  .refine((value) => value.to >= value.from, 'the range must not end before it starts');
+
+export type ClosureConflictQuery = z.infer<typeof closureConflictQuerySchema>;
+
+export const closureConflictResponseSchema = z.strictObject({
+  appointments: z.array(closureAffectedAppointmentSchema),
+});
+
+export type ClosureConflictResponse = z.infer<typeof closureConflictResponseSchema>;
 
 export type AvailabilityExceptionResponse = z.infer<typeof availabilityExceptionResponseSchema>;
 

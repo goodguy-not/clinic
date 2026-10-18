@@ -105,8 +105,11 @@ export type DashboardPromiseSummary = z.infer<typeof dashboardPromiseSummarySche
  * severity, no category vocabulary, no rule engine and no stored issue record.
  *
  * THE OTHER TWO ITEMS ON PROJECT_SPEC.md 10's LIST ARE NOT HERE, AND THAT IS NOT
- * AN OVERSIGHT. Website requests belong to the public-site inbox, which is
- * Milestone 9 and has no table yet. And the spec's "conflicts" item is not a
+ * AN OVERSIGHT. Website requests belonged to the public-site inbox, which had no
+ * table when this was written; Milestone 9 checkpoint A4 added the lifecycle and
+ * the count now sits beside this block as `newWebsiteRequestCount` — outside
+ * `dataIssues`, deliberately, because a parent writing in is not a defect. And
+ * the spec's "conflicts" item is not a
  * DATA ISSUE at all: a therapist, room or child overlap is refused by a
  * PostgreSQL exclusion constraint at the moment of booking, so a conflicting
  * appointment never exists to be listed, and the reading the accepted plan
@@ -174,6 +177,41 @@ export type DashboardDataIssues = z.infer<typeof dashboardDataIssuesSchema>;
  * as it states counts and never rows for everything else.
  */
 export const dashboardAvailabilityOverrideCountSchema = z.number().int().nonnegative();
+
+/**
+ * THE WEBSITE REQUESTS NOBODY HAS LOOKED AT YET — the item PROJECT_SPEC.md 10
+ * lists and that Milestone 7 could not implement.
+ *
+ * The comment on `dashboardDataIssuesSchema` above says why it was absent: the
+ * public-site inbox belonged to Milestone 9 and had no table. Checkpoint A3 gave
+ * it one and A4 gave it the five-status lifecycle, so this is that gap closed.
+ *
+ * `NEW` AND ONLY `NEW`, WHICH IS WHY THE FIELD IS NAMED FOR IT. It counts
+ * requests in the ARRIVAL state — messages that have come in and that nobody at
+ * the clinic has touched. Nothing in the accepted lifecycle returns to `NEW`, so
+ * this number can only fall as the morning's work is done, and a colleague who
+ * telephones somebody and marks the request `CONTACTED` sees it drop by one.
+ * That is the property that makes a count worth putting on a dashboard;
+ * a broader "open requests" figure that included `FOLLOW_UP_NEEDED` would sit
+ * there all week and would be a workload metric this product has not asked for.
+ *
+ * IT IS NOT SCOPED TO THE DASHBOARD'S DAY, AND IT IS THE ONLY COUNT HERE THAT IS
+ * NOT — the same exception `missedCount` already is, for the same reason. A
+ * request that arrived three weeks ago and has never been read is exactly what
+ * this exists to surface, and counting only today's arrivals would hide a
+ * backlog behind a quiet morning.
+ *
+ * IT IS IN BOTH VARIANTS AND CARRIES NO FINANCIAL AUTHORITY. A message asking
+ * for a call back is not money. What it DOES carry is `website_request.read`,
+ * which is why that name joins `DASHBOARD_READ_PERMISSIONS`: a count of a
+ * table's rows is a read of that table, and the permission model has to be an
+ * accurate description of what the route reads.
+ *
+ * A COUNT, NEVER A LIST. The requests themselves are read in the inbox, under
+ * the same authority — no name, no telephone number and no word a visitor typed
+ * appears anywhere in this response.
+ */
+export const dashboardNewWebsiteRequestCountSchema = z.number().int().nonnegative();
 
 /**
  * One method's share of a day's money.
@@ -308,6 +346,11 @@ export const dashboardClinicChargesSchema = z.strictObject({
   chargeCount: z.number().int().nonnegative(),
   netChargedTotalToman: tomanAmountSchema,
   voidedChargeCount: z.number().int().nonnegative(),
+  /**
+   * M10.5 phase 1: how many of `chargeCount` are no-show penalties for this
+   * day's sessions — already counted there, stated so they can be labelled.
+   */
+  penaltyChargeCount: z.number().int().nonnegative(),
 });
 
 export type DashboardClinicCharges = z.infer<typeof dashboardClinicChargesSchema>;
@@ -365,6 +408,14 @@ const dashboardCommonFields = {
   availabilityOverrideCount: dashboardAvailabilityOverrideCountSchema,
   promises: dashboardPromiseSummarySchema,
   dataIssues: dashboardDataIssuesSchema,
+  newWebsiteRequestCount: dashboardNewWebsiteRequestCountSchema,
+  /**
+   * M10.5 phase 1: absent seats of completed sessions with no standing manager
+   * decision, clinic-wide and NOT scoped to the dashboard's day — like
+   * `missedCount`, an absence nobody decided three weeks ago is still waiting.
+   * Both roles see the count; deciding is `charge.adjust`.
+   */
+  noShowsToDecideCount: z.number().int().nonnegative(),
   reconciliation: dashboardReconciliationSchema,
 } as const;
 

@@ -34,6 +34,10 @@
 *.css   text eol=lf
 *.txt   text eol=lf
 
+# Shell scripts (scripts/backup). Bash reads a carriage return as part of the
+# command, so a CRLF checkout does not run at all.
+*.sh    text eol=lf
+
 # Database schema and reviewed migration SQL.
 *.prisma text eol=lf
 *.sql    text eol=lf
@@ -41,6 +45,9 @@
 # Environment templates: .env.example and apps/web/.env.local.example.
 # Real environment files are never committed.
 *.example text eol=lf
+
+# Owner-approved brand artwork is copied byte-for-byte from its immutable pack.
+apps/web/public/brand/*.svg -text
 
 # Extensionless dotfiles, which no wildcard above reaches.
 .editorconfig   text eol=lf

@@ -368,20 +368,65 @@ walk(webAppRoot, (file) => {
 // it were reachable from a Client Component; the import bans below are the
 // second, legible line of that same defence.
 const CLIENT_COMPONENT_ALLOWLIST = [
-  'src/app/families/family-search.tsx',
+  // Native details cannot close itself after an in-page mobile navigation
+  // choice; this island owns only that refinement and imports no site data.
+  'src/components/public-mobile-menu.tsx',
+  // The concern-first opening swaps only authored B1 guidance and development
+  // photography; it receives the one clinic label as a serialisable prop.
+  'src/components/public-concern-guide.tsx',
+  // Service exploration swaps one illustrative crop and published description
+  // in place; all service facts still arrive as serialisable Server Component props.
+  'src/components/public-service-explorer.tsx',
+  // The Home spaces teaser owns only the active synthetic photograph. The real
+  // About content and its public read remain in the later server-owned page.
+  'src/components/public-space-teaser.tsx',
+  // Horizontal paging, focus spotlight and snap behaviour require browser
+  // geometry; every therapist fact still arrives through the public server read.
+  'src/components/public-team-track.tsx',
+  // The B2 family-experience cards need local flip state only. Published
+  // testimonial text is passed in as serialisable public-contract data, while
+  // the two clearly labelled development cards contain no clinic facts.
+  'src/components/public-testimonial-grid.tsx',
+  // The public request needs transient selection-tray state, focus return and
+  // useActionState. The server-only action remains the sole API boundary.
+  'src/app/(public)/request/request-form.tsx',
+  'src/app/(internal)/families/family-search.tsx',
+  // Website-request conversion keeps the family search result and explicit
+  // selection in local state; the authorised server action owns every read.
+  'src/app/(internal)/website-requests/website-request-family-search.tsx',
+  // Terminal request actions use the browser's confirmation dialog only; the
+  // POST handler and backend remain authoritative for the actual mutation.
+  'src/app/(internal)/website-requests/confirmed-submit-button.tsx',
   // Reuses the POST-only family search action; the island owns useActionState
   // and puts only the selected opaque family id into the report URL.
-  'src/app/reports/family-report-filter.tsx',
+  'src/app/(internal)/reports/family-report-filter.tsx',
   // Printing and download progress require only browser APIs and transient UI
   // state. CSV bytes still come from the named BFF and are never assembled here.
-  'src/app/reports/report-actions.tsx',
+  'src/app/(internal)/reports/report-actions.tsx',
   // A weekly set needs rows to be added and removed before its one wholesale
   // PUT. The form still posts ordinarily; the island owns only that local row
   // state and receives its labels as serialisable props from the Server Component.
-  'src/app/availability/weekly-availability-editor.tsx',
+  'src/app/(internal)/availability/weekly-availability-editor.tsx',
+  // Closure scope toggles paired clock inputs without exposing a write API.
+  'src/app/(internal)/availability/closure-scope-fields.tsx',
+  // Locale-independent clock entry keeps Persian digits visible and submits
+  // the ASCII 24-hour value that the existing handlers validate.
+  'src/components/time-input.tsx',
+  // Catalog forms reveal only applicable inputs. The handlers and API retain
+  // validation and all writes; these islands own only unsaved form state.
+  'src/app/(internal)/catalog/services/service-form.tsx',
+  'src/app/(internal)/rooms/room-form.tsx',
+  'src/app/(internal)/tariffs/tariff-conditional-fields.tsx',
+  // Guardian rows appear on demand up to the existing six-person contract cap.
+  'src/app/(internal)/families/guardian-fields.tsx',
   // Booking needs private POST-based child search and an advisory preview whose
   // returned occurrences remain beside the receptionist's unpersisted intent.
-  'src/app/appointments/new/booking-workflow.tsx',
+  'src/app/(internal)/appointments/new/booking-workflow.tsx',
+  // Series changes are previewed locally before the existing guarded apply route.
+  'src/app/(internal)/appointment-series/series-update-preview.tsx',
+  // Phone gallery/camera selection, immediate object-URL preview and focal-point
+  // controls are browser-only. Named BFF handlers still own all media writes.
+  'src/components/media-upload-framing.tsx',
 ];
 
 const CLIENT_FORBIDDEN_IMPORTS = ['server-only', 'next/headers', '@/env'];

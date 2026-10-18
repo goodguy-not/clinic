@@ -16,6 +16,7 @@ import {
   seedUser,
   TEST_PASSWORD,
   type Harness,
+  ownerPrisma,
 } from './harness';
 
 describe('staff administration (real PostgreSQL)', () => {
@@ -30,7 +31,7 @@ describe('staff administration (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const server = () => harness.app.getHttpServer();
@@ -435,7 +436,7 @@ describe('staff administration (real PostgreSQL)', () => {
       expect([403, 404, 405]).toContain(response.status);
 
       await expect(
-        harness.prisma.$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${target.id}'`),
+        ownerPrisma().$executeRawUnsafe(`DELETE FROM app_user WHERE id = '${target.id}'`),
       ).rejects.toThrow(/protected|not permitted/i);
     });
   });

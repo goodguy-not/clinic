@@ -1,0 +1,25 @@
+# Milestone 10, checkpoint A2 — one backup run (README, Backup and restore).
+# Installed to /etc/systemd/system/ with clinic-backup.timer. Paths below are
+# the documented defaults; change them to match the deployment.
+[Unit]
+Description=Clinic encrypted backup (database and media)
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=clinic-backup
+Group=clinic-backup
+# Every BACKUP_* variable and MEDIA_STORAGE_DIR, readable only by root and
+# clinic-backup. Never in this file, never in the repository.
+EnvironmentFile=/etc/clinic/backup.env
+ExecStart=/srv/clinic/scripts/backup/backup.sh
+Nice=10
+IOSchedulingClass=idle
+# The backup only reads the media and writes the destination and its own
+# staging directory; everything else is read-only to it.
+ProtectSystem=strict
+# The signing key's GnuPG home is written by gpg itself (agent socket, trust db).
+ReadWritePaths=/var/backups/clinic /var/lib/clinic-backup /var/tmp
+PrivateTmp=true
+NoNewPrivileges=true

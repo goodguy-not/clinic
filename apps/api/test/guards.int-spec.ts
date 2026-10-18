@@ -25,7 +25,7 @@ describe('guard chain (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const server = () => harness.app.getHttpServer();
@@ -41,11 +41,19 @@ describe('guard chain (real PostgreSQL)', () => {
   }
 
   describe('internal key', () => {
-    it('exempts only /health', async () => {
+    it('exempts only /health and /health/ready', async () => {
       const response = await request(server()).get('/health');
 
       expect(response.status).toBe(200);
       expect(response.body.service).toBe('api');
+
+      // Milestone 10, checkpoint A3. Readiness is the second public route, and
+      // it answers with two words per check and nothing else.
+      const ready = await request(server()).get('/health/ready');
+
+      expect(ready.status).toBe(200);
+      expect(ready.body).toEqual({ status: 'ok', checks: { database: 'ok', media: 'ok' } });
+      expect(ready.headers['cache-control']).toBe('no-store');
     });
 
     it('requires the key on /health/db', async () => {
@@ -156,6 +164,11 @@ describe('guard chain (real PostgreSQL)', () => {
         'appointment.override_availability',
         'appointment.read',
         'appointment.update',
+        // Milestone 9, checkpoint A2: drafting public content and reading the
+        // drafts. `article.publish` and `testimonial.approve` are the manager's
+        // alone and are asserted absent below.
+        'article.draft',
+        'article.read',
         'availability.read',
         'charge.post',
         'charge.read',
@@ -167,6 +180,13 @@ describe('guard chain (real PostgreSQL)', () => {
         'family.read',
         'family.update',
         'family.update_status',
+        // Milestone 9.5, checkpoint A5: the media library, minus the name that
+        // makes a photograph visible. `media.publish` — publish, unpublish,
+        // archive, restore — is the manager's alone and is asserted absent
+        // below.
+        'media.attach',
+        'media.read',
+        'media.upload',
         // Milestone 6: recording money and the whole promise workflow.
         // `payment.void` stays with the manager.
         'payment.create',
@@ -174,10 +194,25 @@ describe('guard chain (real PostgreSQL)', () => {
         'promise.create',
         'promise.read',
         'promise.resolve',
+        // Milestone 9.5, checkpoint A7: describing the clinic's building.
+        // `public_space.publish` stays with the manager and is asserted absent
+        // below, beside the room WRITES this role has never held — a public
+        // space is editorial content, a room is scheduling configuration.
+        'public_space.draft',
+        'public_space.read',
         'room.read',
+        'service.draft_public_copy',
         'service.read',
         'tariff.read',
+        'testimonial.draft',
+        'testimonial.read',
+        'therapist.draft_public_profile',
         'therapist.read',
+        // Milestone 9, checkpoint A4: answering the clinic's contact form.
+        // Reading the inbox and moving a request along the accepted lifecycle,
+        // including linking one to a family this role can already register.
+        'website_request.process',
+        'website_request.read',
       ]);
 
       // Still no user administration, no session administration, no catalog
@@ -198,6 +233,23 @@ describe('guard chain (real PostgreSQL)', () => {
         // withdrawing one and reducing one are the manager's.
         'charge.void',
         'charge.adjust',
+        // Milestone 9: the content side of the same boundary. Writing the words
+        // is theirs; deciding that the world sees them is not.
+        'article.publish',
+        'testimonial.approve',
+        // Milestone 9.5, checkpoint A7: the same boundary for the clinic's own
+        // building. Describing the waiting area is theirs; deciding that the
+        // description is what the website says is not.
+        'public_space.publish',
+        'therapist.publish_profile',
+        'clinic_profile.read',
+        'clinic_profile.update',
+        // Milestone 9.5, checkpoint A6: the two names that promote a prepared
+        // change onto a live page. Drafting a service description and a
+        // colleague's biography is now this role's; publishing either is
+        // `service.update` and `therapist.publish_profile`, and it still holds
+        // neither.
+        'service.update',
       ]) {
         expect(asReceptionist.user.permissions).not.toContain(forbidden);
       }
@@ -407,7 +459,160 @@ describe('guard chain (real PostgreSQL)', () => {
       //                  route and not two — there is no per-period export and
       //                  no bulk "every therapist" file, either of which would be
       //                  a report nobody has approved.
-      expect(routes).toBe(107);
+      //
+      // public site:     the FIVE public reads (Milestone 9, checkpoint A1) —
+      //                  the published services, one published service, the
+      //                  opted-in team, one opted-in profile, and the clinic's
+      //                  own public facts. Every one is classified `internal`:
+      //                  the internal key WITHOUT a session, exactly like login,
+      //                  because a visitor has none and the browser still never
+      //                  speaks to NestJS. FIVE READS AND NO WRITE — the public
+      //                  request form is a later checkpoint, so nothing an
+      //                  anonymous caller sends can make this application write.
+      //
+      // public content:  checkpoint A2 adds FOUR more `internal` public reads —
+      //                  the published articles, one published article, the
+      //                  approved testimonials, and the sitemap's URL facts —
+      //                  bringing the public surface to nine reads and still no
+      //                  write.
+      //
+      // public request:  checkpoint A3 adds THE ONE ANONYMOUS WRITE IN THE
+      //                  PRODUCT — `POST /public/requests`, the contact form —
+      //                  and it is classified `internal` like every read beside
+      //                  it. That is the A1 question re-opened deliberately and
+      //                  answered the same way: accepting a write from a stranger
+      //                  does not put NestJS on the internet, the browser still
+      //                  speaks only to Next.js, and `/health` remains the one
+      //                  route in the product that bypasses the key. It holds no
+      //                  permission, because the caller by definition has no
+      //                  account, and there is NO PUBLIC READ OF WHAT IT WRITES:
+      //                  the inbox is checkpoint A4 and is staff-only.
+      //
+      // request inbox:   checkpoint A4 adds FOUR routes, and every one of them
+      //                  names a permission: the inbox page and one request
+      //                  under `website_request.read`, the status change under
+      //                  `website_request.process`, and the family link under
+      //                  BOTH that and `family.read`. NONE of them is
+      //                  `internal`, none is on a `/public` path, and the
+      //                  promise the A3 note above made is kept — what a
+      //                  stranger writes is readable only by somebody signed
+      //                  in. The ninety-day erasure is deliberately not among
+      //                  them: it is an operator command, and no HTTP route in
+      //                  this product destroys anything.
+      //
+      // content admin:   SIXTEEN manager-and-author routes, and every one of
+      //                  them names a permission. Five for articles (list, get,
+      //                  create, edit, publish), six for testimonials (list,
+      //                  get, create, edit, approve, publish), three for a
+      //                  therapist public profile (read, content, opt-in) and
+      //                  two for the clinic's own profile (read, replace).
+      //
+      //                  The split inside them is the point: `article.read` and
+      //                  `article.draft` are a receptionist's, `article.publish`
+      //                  and `testimonial.approve` are a manager's alone, and
+      //                  the therapist and clinic routes carry the three names
+      //                  A1 froze. Nothing here is `internal` and nothing here
+      //                  is reachable without a session.
+      //
+      // media:           Milestone 9.5 checkpoint A5 adds EIGHT routes. SEVEN
+      //                  are staff routes on `MediaController`, each naming one
+      //                  of three permissions — `media.read` for the library and
+      //                  one asset, `media.upload` for the upload, `media.attach`
+      //                  for attaching and detaching, and `media.publish`, the
+      //                  manager's alone, for publishing an attachment and for
+      //                  archiving an asset.
+      //
+      //                  THE EIGHTH IS THE ONLY ROUTE IN THIS PRODUCT THAT
+      //                  RETURNS SOMETHING OTHER THAN JSON, and it is declared
+      //                  on `PublicSiteController` rather than in the media
+      //                  module: `GET /public/media/:renditionId`, classified
+      //                  `internal` like every public read beside it, bringing
+      //                  the public surface to TEN reads and one write. It is
+      //                  filed there deliberately, so the file answering "what
+      //                  can the world see?" goes on answering it completely.
+      //
+      // editorial copy:  Milestone 9.5 checkpoint A6 adds SEVEN routes, all of
+      //                  them under `/content` beside the article and
+      //                  testimonial ones, and every one names a permission.
+      //                  Four for a service's public copy (list, get, draft,
+      //                  publish) and three for a colleague's public copy
+      //                  (list, get, draft).
+      //
+      //                  THE SPLIT INSIDE THEM IS THE POINT, AGAIN. Six name
+      //                  `service.draft_public_copy` or
+      //                  `therapist.draft_public_profile`, which a
+      //                  RECEPTIONIST holds; the seventh names `service.update`,
+      //                  which only a MANAGER holds, and it is the only one of
+      //                  the seven that can change a word a visitor reads. The
+      //                  therapist half has no publication route at all: putting
+      //                  a named colleague on the website is the A2 opt-in,
+      //                  under `therapist.publish_profile`, and a second route
+      //                  would be two names for one decision.
+      //
+      // public spaces:  Milestone 9.5 checkpoint A7 adds SIX routes. Five are
+      //                 under `/content/spaces`, beside the article and
+      //                 testimonial ones, and every one names a permission:
+      //                 list, get and draft under `public_space.read` /
+      //                 `public_space.draft`, which a RECEPTIONIST holds, and
+      //                 the publication route under `public_space.publish`,
+      //                 which only a MANAGER holds and which is the only one of
+      //                 the five that can change a word a visitor reads.
+      //
+      //                 THE SIXTH IS THE PUBLIC READ — `GET /public/spaces`,
+      //                 classified `internal` like every public read beside it,
+      //                 bringing the public surface to ELEVEN reads and one
+      //                 write. NONE OF THE SIX IS A ROOM ROUTE: a public space
+      //                 is editorial content, an operational room is scheduling
+      //                 configuration under `room.*` in the catalog, and the
+      //                 two share no table and no permission.
+      //
+      // clinic content: Milestone 9.5 checkpoint A8 adds THREE routes and NO
+      //                 PERMISSION. Two hang off `ClinicProfileController` —
+      //                 `GET /content/clinic-profile/entries` under
+      //                 `clinic_profile.read` and
+      //                 `PUT /content/clinic-profile/entries/:entryId` under
+      //                 `clinic_profile.update` — because the clinic's routine
+      //                 public copy is governed by exactly the authority its
+      //                 address is: MANAGER-ONLY, with no draft state and no
+      //                 publication act, so a receptionist holds neither name.
+      //
+      //                 THE THIRD IS THE PUBLIC READ —
+      //                 `GET /public/clinic-content`, classified `internal`
+      //                 like every public read beside it, bringing the public
+      //                 surface to TWELVE reads and one write. There is no
+      //                 `POST` and no `DELETE` among the three: the editorial
+      //                 blocks are the accepted page design, they arrive with a
+      //                 migration, and the database refuses to delete one.
+      //
+      // staff preview:  Milestone 9.5's staff-preview checkpoint adds ONE route
+      //                 and NO PERMISSION. `GET /media/renditions/:id/preview`
+      //                 names `media.read`, and the service then requires the
+      //                 owning content's own read permission. It is a SESSION
+      //                 route, not a public one: the public surface is still
+      //                 twelve reads and one write, and still the only place a
+      //                 stranger can reach a byte.
+      //
+      // description:    The Milestone 9.5 stabilisation adds ONE route and NO
+      //                 PERMISSION. `PATCH /media/:id/alt-text` names
+      //                 `media.attach`, and the service additionally requires
+      //                 `media.publish` once the photograph is publicly served.
+      //
+      // backup status:  Milestone 10 checkpoint A2 adds ONE route and NO
+      //                 PERMISSION. `GET /operations/backup-status` names
+      //                 `user.read`, manager-only, and reads one status file.
+      //
+      // M10 A3:         FOUR routes and NO PERMISSION.
+      //                 `GET /health/ready` is PUBLIC like `/health` — the
+      //                 runbooks and a monitor need no credential — and says
+      //                 `ok`/`unavailable` per check and nothing else.
+      //                 `GET /operations/job-status` names `user.read`, beside
+      //                 the backup status. `POST /content/testimonials/:id/
+      //                 consent-withdrawal` names `testimonial.approve`, the
+      //                 manager's; `GET /content/testimonials/consent-withdrawals`
+      //                 names `testimonial.read` and carries dates only. The
+      //                 erasures themselves are the nightly job's — still no
+      //                 HTTP route in this product destroys anything.
+      expect(routes).toBe(171);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { recordStatusSchema } from '@clinic/contracts';
+import { familyBalanceSchema, updateFamilyStatusRequestSchema } from '@clinic/contracts';
 import { api } from '@/server/api-client';
 import {
   failureRedirect,
@@ -8,7 +8,7 @@ import {
   readBody,
   sessionTokenFrom,
 } from '@/server/handler-support';
-import { secureRedirect } from '@/server/security-headers';
+import { relativeRedirect, secureRedirect } from '@/server/security-headers';
 
 export const runtime = 'nodejs';
 
@@ -31,13 +31,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const id = body['id'] ?? '';
-  const status = recordStatusSchema.safeParse(body['status']);
-  if (!status.success || id === '')
+  const acknowledgedBalance =
+    body['amountDueToman'] !== undefined || body['creditToman'] !== undefined
+      ? familyBalanceSchema.safeParse({
+          amountDueToman: body['amountDueToman'],
+          creditToman: body['creditToman'],
+        })
+      : null;
+  if (acknowledgedBalance !== null && !acknowledgedBalance.success)
+    return failureRedirect(request, `/families/${id}`, 'VALIDATION_FAILED');
+
+  const payload = updateFamilyStatusRequestSchema.safeParse({
+    status: body['status'],
+    ...(acknowledgedBalance?.success ? { acknowledgedBalance: acknowledgedBalance.data } : {}),
+  });
+  if (!payload.success || id === '')
     return failureRedirect(request, '/families', 'VALIDATION_FAILED');
 
-  const result = await api.changeFamilyStatus(id, status.data, { sessionToken });
+  const result = await api.changeFamilyStatus(id, payload.data, { sessionToken });
 
-  if (!result.ok) return failureRedirect(request, `/families/${id}`, result.code);
+  if (!result.ok) {
+    if (result.code === 'FAMILY_BALANCE_UNACKNOWLEDGED') {
+      const balance = familyBalanceSchema.safeParse(result.details);
+      if (balance.success) {
+        const target = new URL(`/families/${encodeURIComponent(id)}`, 'https://unused.invalid');
+        target.searchParams.set('balanceDue', balance.data.amountDueToman);
+        target.searchParams.set('balanceCredit', balance.data.creditToman);
+        return relativeRedirect(`${target.pathname}${target.search}` as `/${string}`);
+      }
+    }
+    return failureRedirect(request, `/families/${id}`, result.code);
+  }
 
   return secureRedirect(request, `/families/${id}`);
 }

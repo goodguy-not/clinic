@@ -53,7 +53,7 @@ describe('ledger snapshots and the appointment lifecycle', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     fixture = await seedChargeableSession(harness);
   });
 

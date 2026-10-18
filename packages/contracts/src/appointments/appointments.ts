@@ -145,10 +145,11 @@ export const therapistAvailabilitySchema = z.strictObject({
 export type TherapistAvailability = z.infer<typeof therapistAvailabilitySchema>;
 
 /**
- * A dated exception: one day off, or one extra window.
+ * A dated exception: a closure, or one extra window.
  *
- * `isAvailable = false` closes the day and carries no times; `true` adds a
- * window and requires them. A CHECK pairs the two, so an exception cannot be
+ * `isAvailable = false` is a closure: with no times it closes the whole day,
+ * with both it closes that range only (M10-A9). `true` adds a window and
+ * requires both times. A CHECK states the pairing, so an exception cannot be
  * half-stated.
  */
 export const therapistAvailabilityExceptionSchema = z.strictObject({

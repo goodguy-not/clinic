@@ -4,7 +4,7 @@ import {
   createFamilyRequestSchema,
   familySearchRequestSchema,
   updateFamilyRequestSchema,
-  updateRecordStatusRequestSchema,
+  updateFamilyStatusRequestSchema,
   type ConfirmDraftRequest,
   type CreateFamilyRequest,
   type FamilyDetailResponse,
@@ -12,7 +12,7 @@ import {
   type FamilySearchRequest,
   type FamilyWriteResponse,
   type UpdateFamilyRequest,
-  type UpdateRecordStatusRequest,
+  type UpdateFamilyStatusRequest,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../../auth/decorators/endpoint-access';
 import { Ctx, CurrentSession } from '../../auth/decorators/request.decorators';
@@ -116,11 +116,11 @@ export class FamiliesController {
   @RequirePermissions('family.update_status')
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodBodyPipe(updateRecordStatusRequestSchema)) body: UpdateRecordStatusRequest,
+    @Body(new ZodBodyPipe(updateFamilyStatusRequestSchema)) body: UpdateFamilyStatusRequest,
     @CurrentSession() session: ResolvedSession,
     @Ctx() context: RequestContext,
   ): Promise<FamilyDetailResponse> {
-    return this.families.changeStatus(id, body.status, session, context);
+    return this.families.changeStatus(id, body, session, context);
   }
 
   /**

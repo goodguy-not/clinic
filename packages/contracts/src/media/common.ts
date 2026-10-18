@@ -1,0 +1,366 @@
+import { z } from 'zod';
+import { publicMediaPathSchema } from '../website/common';
+
+/**
+ * The media vocabulary both tiers have to agree on, and nothing else.
+ *
+ * Milestone 9.5, checkpoint A5. Everything in this directory describes ONE
+ * workflow: a member of staff photographs something on an ordinary telephone,
+ * the API takes the bytes, and a stranger eventually sees a small, fast,
+ * metadata-free copy of them — or, much more often, does not.
+ *
+ * THE ORIGINAL PHOTOGRAPH IS NOT A THING THIS CONTRACT CAN NAME. There is no
+ * shape here for it, no identifier for it and no path to it, because the API
+ * never writes it to disk: the uploaded bytes exist in one process's memory for
+ * the length of one request and are replaced by a re-encoded, re-oriented,
+ * metadata-free master before anything is stored. A contract that could refer
+ * to the original would be a contract somebody could later serve.
+ *
+ * WHAT THE WEB TIER GETS IS `publicImageSchema` AND NOTHING BELOW IT. It never
+ * learns an attachment id, a storage key, an upload actor, a publication
+ * instant or the internal state machine that decided the image is public. It
+ * gets an alt text, an intrinsic size, and a list of renditions to put in a
+ * `srcset`.
+ */
+
+/**
+ * What the uploader accepts, decided from the BYTES and never from a filename
+ * or a browser-supplied content type.
+ *
+ * THREE FORMATS, AND SVG IS NOT ONE OF THEM. An SVG is a document with a script
+ * engine attached, not a photograph: serving one from the clinic's own origin
+ * would put uploader-authored markup on the clinic's own domain, which is the
+ * whole of the same-origin problem in a single file upload. This workflow is
+ * for photographs, and the accepted brand and logo artwork stays static in the
+ * web tier where a human reviewed it.
+ *
+ * HEIC/HEIF IS ALSO ABSENT, and deliberately rather than by oversight: it is
+ * what a current iPhone stores by default, but every route by which a
+ * photograph reaches a clinic receptionist in practice — a messaging
+ * application, a download, an email — has already converted it to JPEG.
+ * Accepting it is a decision with a licensing question behind it, and nobody
+ * has taken that decision.
+ */
+export const MEDIA_ACCEPTED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+export type MediaContentType = (typeof MEDIA_ACCEPTED_CONTENT_TYPES)[number];
+
+/**
+ * Twelve mebibytes: comfortably above a full-resolution photograph from a
+ * current telephone, and comfortably below a size at which one request can hurt
+ * the process.
+ *
+ * The cap is enforced while the body is still being read, so an oversized
+ * upload is refused rather than buffered whole and then rejected.
+ */
+export const MEDIA_SOURCE_MAX_BYTES = 12 * 1024 * 1024;
+
+/**
+ * A ceiling on DECODED pixels, which is a different attack from a ceiling on
+ * bytes. A few hundred kilobytes of highly compressible PNG can decode to
+ * gigabytes of bitmap; the byte cap says nothing about that, and this does.
+ */
+export const MEDIA_SOURCE_MAX_PIXELS = 50_000_000;
+
+/**
+ * Below this, on either side, it is not a photograph anybody can put on a page.
+ * Refused rather than upscaled: enlarging somebody's thumbnail and publishing
+ * the result is the product deciding it knows better than the person who chose
+ * the file.
+ */
+export const MEDIA_SOURCE_MIN_DIMENSION = 200;
+
+/**
+ * The longest edge of the stored master.
+ *
+ * The master is the ONLY copy the clinic keeps, it is what every rendition is
+ * derived from, and it is never served. 2560 is large enough that a rendition
+ * width nobody has thought of yet can still be produced without going back to a
+ * photograph that no longer exists, and small enough that a shelf of them is an
+ * ordinary amount of disk.
+ */
+export const MEDIA_MASTER_MAX_DIMENSION = 2560;
+
+/**
+ * The responsive ladder, in intrinsic CSS pixels of width.
+ *
+ * A rendition is produced for every width in this list that is SMALLER than the
+ * master, plus one at the master's own width. Nothing is ever enlarged, so a
+ * modest photograph produces two or three renditions rather than five, and the
+ * largest rendition of any image is exactly as sharp as its master and never
+ * sharper than the photograph that was uploaded.
+ */
+export const MEDIA_RENDITION_WIDTHS = [320, 640, 960, 1280, 1920] as const;
+
+/**
+ * TWO FORMATS, AND THE SECOND IS THE REASON THE FIRST IS SAFE. WebP is markedly
+ * smaller at the same quality and is supported by everything the clinic's
+ * visitors realistically use; JPEG is the floor that cannot fail. The web tier
+ * emits both in one `picture` element and lets the browser choose.
+ *
+ * AVIF IS NOT HERE. It is smaller again, and it costs an order of magnitude
+ * more processor time per rendition on the clinic's own single machine. That is
+ * a trade worth revisiting when there is a measurement to revisit it against.
+ */
+export const MEDIA_RENDITION_FORMATS = ['webp', 'jpeg'] as const;
+
+export type MediaRenditionFormat = (typeof MEDIA_RENDITION_FORMATS)[number];
+
+export const MEDIA_RENDITION_CONTENT_TYPE: Record<MediaRenditionFormat, MediaContentType> = {
+  webp: 'image/webp',
+  jpeg: 'image/jpeg',
+};
+
+/**
+ * How long a photograph's bytes are kept once nothing needs them. Milestone 10,
+ * checkpoint A3 (owner decision).
+ *
+ * - Uploaded and NEVER attached anywhere: erased this many days after upload.
+ * - ARCHIVED by a manager: restorable for this many days, then erased.
+ *
+ * ERASURE IS OF THE BYTES AND THE DESCRIPTION — the master, every rendition and
+ * the alt text, which can name a child (owner decision, Milestone 9.5 A10). The
+ * asset stays in the library with `bytesPurgedAt` set and `altText` null,
+ * saying that a photograph existed and where it was used; it can no longer be
+ * attached, published, restored or re-described, and those requests answer
+ * `MEDIA_NOT_FOUND`, because there is no photograph left to act on. The same
+ * numbers are in the database's own erasure guard.
+ */
+export const MEDIA_UNATTACHED_ERASURE_DAYS = 30;
+export const MEDIA_ARCHIVED_ERASURE_DAYS = 30;
+
+/**
+ * The path a rendition is served from, relative to wherever the web tier
+ * publishes media: `media/` followed by the rendition id.
+ *
+ * IT IS A PATH RATHER THAN A URL FOR THE A1 REASON: nothing in this package
+ * names a host, and resolving a relative path against the site's own origin is
+ * the web tier's job. It satisfies `publicMediaPathSchema`, which is the shape
+ * a manager-typed static photo path has always had, so the web tier keeps one
+ * way to turn a public image reference into a `src` rather than gaining a
+ * second.
+ */
+export const PUBLIC_MEDIA_PATH_PREFIX = 'media/';
+
+/**
+ * THE `Cache-Control` ON A PUBLISHED RENDITION, AT BOTH TIERS. Milestone 9.5,
+ * checkpoint A10, replacing A5's five-minute window.
+ *
+ * REVOCATION IS IMMEDIATE AT VALA'S WEB ORIGIN, NOT MERELY AT THE API. The
+ * serving route re-derives publication from live rows on every request, and the
+ * web tier re-asks it on every request (it holds no copy of the bytes it may
+ * serve without asking). Unpublishing an image, unpublishing the page it hangs
+ * off, detaching it, archiving it or erasing it makes the very next visitor
+ * request a 404 at `/media/<id>` on the clinic's own domain.
+ *
+ * WHAT A VISITOR'S BROWSER MAY KEEP: the bytes, for as long as its own cache
+ * keeps anything, and it may NEVER USE THEM WITHOUT ASKING FIRST. `no-cache`
+ * means exactly that — store, but revalidate before every reuse. A repeat view
+ * therefore costs one conditional request per image (`If-None-Match` with the
+ * content-hash `ETag`), answered `304` with no body while the image is still
+ * public, and `404` the moment it is not; a browser does not show a stored copy
+ * over a 404. The 304 is itself a revocation check: it is reached only after
+ * the same servability predicate a 200 is.
+ *
+ * `private` KEEPS EVERY SHARED CACHE OUT. The one copy outside Vala is the one
+ * in the browser the photograph was shown to; a corporate or ISP proxy gets
+ * nothing to hold. Revisit if the clinic ever puts a CDN in front of the site —
+ * that would be `public, no-cache` plus a CDN that honours it, decided then.
+ *
+ * WHAT NO HEADER CAN DO. A copy that has already left — the bytes sitting in a
+ * browser's cache, a screenshot, a scraper, a search index — is bounded by
+ * nothing. Content identity solves REPLACEMENT (a changed photograph gets new
+ * rendition ids, so no cache can serve the old bytes in their place); it does
+ * not solve REVOCATION. Do not write copy that promises a family an image can
+ * be recalled from the internet.
+ *
+ * WHY NOT `no-store`: every page view would re-download every photograph on a
+ * Persian site whose visitors are largely on mobile data, to buy nothing the
+ * revalidation above does not already buy. WHY NOT A `max-age`: any freshness
+ * lifetime is a window during which a revoked image is shown from the browser
+ * without asking, and the conditional request that replaces it is cheap.
+ */
+export const PUBLIC_MEDIA_CACHE_CONTROL = 'private, no-cache';
+
+/**
+ * `public-media:` followed by the rendition id.
+ *
+ * The tag a web-tier cache entry for one rendition's BYTES would carry, so a
+ * publication change can drop exactly that entry. Since A10 the web tier keeps
+ * no such entry (see `PUBLIC_MEDIA_CACHE_CONTROL`), so invalidating it is a
+ * harmless no-op kept for defence in depth; the web lane may retire it. It is a
+ * separate name from the page tags in `PUBLIC_CACHE_TAGS`, which still matter.
+ *
+ * A MEDIA PUBLICATION CHANGE ALSO AFFECTS THE OWNER'S PAGE TAGS, because the
+ * projection listing the image is part of that page's data. Publishing a
+ * therapist portrait affects `public-team` and `public-therapist:` + the slug,
+ * exactly as editing that profile does.
+ */
+export const PUBLIC_MEDIA_CACHE_TAG_PREFIX = 'public-media:';
+
+/**
+ * The `Cache-Control` on a STAFF PREVIEW of a rendition, at both tiers.
+ *
+ * Milestone 9.5, the staff-preview checkpoint. `GET
+ * /media/renditions/:renditionId/preview` serves the same re-encoded bytes the
+ * public route does, but to a signed-in colleague and regardless of
+ * publication — so what it returns may be a photograph the clinic has not
+ * decided to show anybody. `private` keeps it out of every shared cache and
+ * `no-store` keeps it out of the browser's too, so logging out (or losing the
+ * permission) is the end of seeing it: there is no copy for a later, logged-out
+ * visit to find.
+ *
+ * DELIBERATELY NOT `PUBLIC_MEDIA_CACHE_CONTROL`. A published image may sit in
+ * a visitor's browser cache and be revalidated; nothing unpublished may be
+ * stored anywhere at all.
+ * The web tier must forward this value unchanged and must not cache the
+ * upstream response (`cache: 'no-store'`, no tag).
+ */
+export const MEDIA_PREVIEW_CACHE_CONTROL = 'private, no-store';
+
+/**
+ * The Persian text a screen reader says instead of the photograph.
+ *
+ * REQUIRED, WITH NO EMPTY OPTION. An unlabelled image on a clinic's public site
+ * is unreadable to exactly the visitors a rehabilitation clinic exists to
+ * serve. Plain text and markup-free for the A2 reason: it is written by staff,
+ * it is rendered to strangers, and there is no sanitiser anywhere in this
+ * product because nothing is ever stored that would need one.
+ */
+export const mediaAltTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^[^<]*$/, 'must not contain markup');
+
+/**
+ * HOW A PHOTOGRAPH IS FRAMED WHERE IT IS USED — NOT HOW IT IS STORED.
+ *
+ * Milestone 9.5, checkpoint A5 (coordinator revision). Framing is the answer to
+ * "this portrait is fine, but her face is off to the left in the round avatar".
+ *
+ * IT NEVER TOUCHES A PIXEL. Nothing here is applied by the encoder, nothing
+ * here is baked into the master, and nothing here causes a rendition to be
+ * re-derived. The stored renditions are always the WHOLE FRAME; these numbers
+ * tell the renderer which part of that frame matters. Three consequences fall
+ * straight out, and all three are product requirements:
+ *
+ *  1. FRAMING CHANGES WITHOUT RE-UPLOADING. It is one field update on one row.
+ *  2. THE MASTER IS NEVER REWRITTEN OR DESTROYED BY RE-FRAMING. A crop is a
+ *     description, so it is reversible for ever; a crop encoded into the stored
+ *     bytes would throw away the parts of the photograph outside it, and the
+ *     only way back would be to ask a family for the picture again.
+ *  3. THE WEB TIER CAN PREVIEW IT LIVE. Applying a normalised rectangle and a
+ *     focal point is CSS, so a crop handle can move at sixty frames a second
+ *     with no request in the loop.
+ *
+ * IT BELONGS TO THE ATTACHMENT, NOT THE ASSET. One photograph of the therapy
+ * room may be a wide banner on one page and a square tile on another, and those
+ * are two attachments with two framings over one master. Framing on the asset
+ * would make the second use silently re-frame the first.
+ *
+ * EVERY NUMBER IS A FRACTION OF THE FRAME, 0 TO 1, NEVER A PIXEL. Pixels would
+ * be a coordinate system that means something different on each of the five
+ * rendition widths, so a crop chosen against one would be wrong on the rest.
+ */
+
+/**
+ * The rectangle worth showing, as fractions of the whole frame, or null for
+ * "the whole frame" — which is the normal state and the default.
+ */
+export const mediaCropSchema = z
+  .strictObject({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().gt(0).max(1),
+    height: z.number().gt(0).max(1),
+  })
+  .refine(
+    (crop) => crop.x + crop.width <= 1 + 1e-9 && crop.y + crop.height <= 1 + 1e-9,
+    'the crop rectangle must lie inside the frame',
+  );
+
+export type MediaCrop = z.infer<typeof mediaCropSchema>;
+
+/**
+ * The subject, and optionally the rectangle around it.
+ *
+ * `focalX`/`focalY` ARE THE POINT THAT MUST SURVIVE ANY CROP THE LAYOUT
+ * IMPOSES. A responsive page crops images itself — a wide photograph in a
+ * square tile, a portrait in a wide banner — and the browser's default is to
+ * take the middle, which is how a clinic ends up publishing a photograph of
+ * somebody's shoulder. The centre, 0.5/0.5, is the default and is exactly the
+ * behaviour of an image nobody has framed.
+ *
+ * `crop` IS THE STRONGER STATEMENT: not "keep this in view" but "show only
+ * this". Null unless somebody has drawn one.
+ */
+export const mediaFramingSchema = z.strictObject({
+  focalX: z.number().min(0).max(1),
+  focalY: z.number().min(0).max(1),
+  crop: mediaCropSchema.nullable(),
+});
+
+export type MediaFraming = z.infer<typeof mediaFramingSchema>;
+
+/** What an unframed photograph means, stated once so both tiers agree. */
+export const DEFAULT_MEDIA_FRAMING: MediaFraming = { focalX: 0.5, focalY: 0.5, crop: null };
+
+/**
+ * One servable copy of one photograph.
+ *
+ * `path` is what goes in a `srcset`; `width` is the `w` descriptor beside it.
+ * `byteSize` is here so a page budget is measurable without fetching anything.
+ */
+export const publicImageRenditionSchema = z.strictObject({
+  path: publicMediaPathSchema,
+  format: z.enum(MEDIA_RENDITION_FORMATS),
+  width: z.int().positive(),
+  height: z.int().positive(),
+  byteSize: z.int().positive(),
+});
+
+export type PublicImageRendition = z.infer<typeof publicImageRenditionSchema>;
+
+/**
+ * A published photograph, as the website states it.
+ *
+ * NO INTERNAL IDENTIFIER OF ANY KIND (Milestone 9.5, checkpoint A10). A visitor
+ * identifies a photograph only by its rendition paths, which are the addresses
+ * its bytes come from and nothing more. The asset id it once carried was never
+ * an address, but it was a stable key shared with every staff surface, and a
+ * public page has no use for one: key a list by the first rendition's `path`.
+ *
+ * `width` AND `height` ARE THE INTRINSIC SIZE OF THE LARGEST RENDITION, which
+ * is what a layout needs in order to reserve space before any byte arrives.
+ * They are post-orientation dimensions: a photograph taken with the telephone
+ * turned sideways reports the size it will actually occupy, because the
+ * rotation was applied to the pixels at ingest rather than left in a metadata
+ * field a renderer might or might not honour.
+ *
+ * ABSENT, FOR THE REASON EVERY PUBLIC PROJECTION IN THIS PRODUCT IS SHORT: the
+ * uploader, the upload instant, the publication instant, the attachment, the
+ * original file name, the original byte size, the master, and every internal
+ * state that decided this is public at all.
+ */
+export const publicImageSchema = z.strictObject({
+  alt: z.string(),
+  width: z.int().positive(),
+  height: z.int().positive(),
+  renditions: z.array(publicImageRenditionSchema).min(1),
+  /**
+   * How this use of this photograph is framed. See `mediaFramingSchema`.
+   *
+   * IT IS ALWAYS PRESENT, never optional, and an unframed image carries
+   * `DEFAULT_MEDIA_FRAMING` rather than nothing — so the renderer has one code
+   * path instead of a branch it might get wrong on the image that matters.
+   *
+   * THE RENDITIONS ARE THE WHOLE FRAME AND THESE NUMBERS DESCRIBE PART OF IT.
+   * The web tier applies them; the API does not, and no rendition is re-derived
+   * when they change.
+   */
+  framing: mediaFramingSchema,
+});
+
+export type PublicImage = z.infer<typeof publicImageSchema>;

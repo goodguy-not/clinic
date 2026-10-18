@@ -19,14 +19,18 @@ export function applySecurityHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
-/** A redirect to a fixed, literal path on this application's own origin. */
-export function secureRedirect(request: Request, path: `/${string}`): NextResponse {
-  // Built from the request's own origin and a literal path. No header, query
-  // parameter or body value contributes, so there is nothing for an attacker to
-  // steer — the handlers accept no return URL at all.
-  const target = new URL(path, new URL(request.url).origin);
+/** A browser redirect that resolves against the public page's origin. */
+export function relativeRedirect(path: `/${string}`): NextResponse {
+  // Next.js sees its private :3000 URL behind a reverse proxy. A relative
+  // Location lets the browser use the origin it actually visited, without
+  // trusting forwarded headers or requiring a proxy rewrite.
+  if (path.startsWith('//')) throw new Error('Redirect path must stay on this site');
+  return applySecurityHeaders(new NextResponse(null, { status: 303, headers: { location: path } }));
+}
 
-  return applySecurityHeaders(NextResponse.redirect(target, 303));
+/** A redirect to a fixed path on the public site's origin. */
+export function secureRedirect(_request: Request, path: `/${string}`): NextResponse {
+  return relativeRedirect(path);
 }
 
 export function secureJson(body: unknown, status = 200): NextResponse {

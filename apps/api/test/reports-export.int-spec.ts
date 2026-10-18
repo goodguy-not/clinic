@@ -61,7 +61,7 @@ describe('the report CSV exports (real PostgreSQL)', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
   });
 
   const REPORTS = [

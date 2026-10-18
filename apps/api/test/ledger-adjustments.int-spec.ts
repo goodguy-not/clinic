@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { sessionChargeResponseSchema } from '@clinic/contracts';
+import { adjustmentPortionsDetailsSchema, sessionChargeResponseSchema } from '@clinic/contracts';
 import { asUser, complete, makeTariff, recordAttendance, signIn } from './appointments-support';
 import { uuidv7 } from '../src/common/uuid';
 import { createHarness, resetDatabase, type Harness } from './harness';
@@ -74,7 +74,7 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
   });
 
   beforeEach(async () => {
-    await resetDatabase(harness.prisma);
+    await resetDatabase();
     session = await seedPostedSession(harness);
   });
 
@@ -161,7 +161,12 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${session.chargeId}/adjustments`)
         .set(asUser(session.managerToken))
-        .send({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '20000' });
+        .send({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '20000',
+          clinicDiscountToman: '30000',
+        });
 
       expect(response.status).toBe(422);
       expect(response.body.error.code).toBe('ADJUSTMENT_SPLIT_INVALID');
@@ -174,16 +179,20 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
     });
 
     /**
-     * The other half of the same rule. A caller stating a portion of ZERO is
-     * stating the clinic-borne concession the server records, so what is stored
-     * is exactly what was submitted — there is nothing to lose and nothing to
-     * refuse.
+     * The other half of the same rule. A caller stating a therapist portion of
+     * ZERO and the clinic's as the whole is stating the clinic-borne concession
+     * the server records, so what is stored is exactly what was submitted.
      */
     it('accepts an explicit therapist portion of zero, which loses nothing', async () => {
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${session.chargeId}/adjustments`)
         .set(asUser(session.managerToken))
-        .send({ amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '0' });
+        .send({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '50000',
+        });
 
       expect(response.status).toBe(200);
 
@@ -193,16 +202,50 @@ describe('charge adjustments: clinic-funded concessions and their void', () => {
       expect(rows[0]?.clinicDiscountToman).toBe(50000n);
     });
 
-    /** The clinic portion stays unsubmittable, so an invalid split stays unrepresentable. */
-    it('refuses a caller that tries to state the clinic allocation', async () => {
+    /**
+     * M10.5 D10 (owner, R1-1): the manager states BOTH portions. An omitted one
+     * is no longer "the clinic bears all" — it is refused, and nothing is written.
+     */
+    it('refuses a concession that omits either portion', async () => {
+      for (const body of [
+        { amountToman: '50000', reason: 'تخفیف' },
+        { amountToman: '50000', reason: 'تخفیف', therapistDiscountToman: '0' },
+        { amountToman: '50000', reason: 'تخفیف', clinicDiscountToman: '50000' },
+      ]) {
+        const response = await request(harness.app.getHttpServer())
+          .post(`/session-charges/${session.chargeId}/adjustments`)
+          .set(asUser(session.managerToken))
+          .send(body);
+
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('VALIDATION_FAILED');
+      }
+      expect(await adjustments()).toHaveLength(0);
+    });
+
+    /** Portions that do not add up are refused with the three amounts, never reinterpreted. */
+    it('refuses portions that do not add up to the concession, naming all three', async () => {
       const response = await request(harness.app.getHttpServer())
         .post(`/session-charges/${session.chargeId}/adjustments`)
         .set(asUser(session.managerToken))
-        .send({ amountToman: '50000', reason: 'تخفیف', clinicDiscountToman: '50000' });
+        .send({
+          amountToman: '50000',
+          reason: 'تخفیف',
+          therapistDiscountToman: '0',
+          clinicDiscountToman: '40000',
+        });
 
-      expect(response.status).toBe(400);
-      expect(response.body.error.code).toBe('VALIDATION_FAILED');
+      expect(response.status).toBe(422);
+      expect(response.body.error.code).toBe('ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP');
+      expect(adjustmentPortionsDetailsSchema.parse(response.body.error.details)).toEqual({
+        amountToman: '50000',
+        therapistDiscountToman: '0',
+        clinicDiscountToman: '40000',
+      });
       expect(await adjustments()).toHaveLength(0);
+      expect(
+        await harness.prisma.auditLog.count({ where: { entityType: 'charge_adjustment' } }),
+      ).toBe(0);
     });
 
     it('refuses a receptionist with 403 and records nothing', async () => {

@@ -29,12 +29,24 @@ export async function AppHeader() {
   const csrfToken = (await readCsrfCookie()) ?? '';
 
   const links: { href: string; label: string }[] = [];
-  links.push({ href: '/', label: COPY.dashboardTitle });
+  links.push({ href: '/dashboard', label: COPY.dashboardTitle });
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/appointments', label: COPY.appointmentsTitle });
   }
   if (user.permissions.includes('family.read')) {
     links.push({ href: '/families', label: COPY.familiesTitle });
+  }
+  if (user.permissions.includes('website_request.read')) {
+    links.push({ href: '/website-requests', label: COPY.websiteRequestsTitle });
+  }
+  if (user.permissions.includes('article.read') && user.permissions.includes('testimonial.read')) {
+    links.push({ href: '/content', label: 'محتوای وب‌سایت' });
+  }
+  if (user.permissions.includes('public_space.read')) {
+    links.push({ href: '/content/spaces', label: 'معرفی فضاهای کلینیک' });
+  }
+  if (user.permissions.includes('media.read')) {
+    links.push({ href: '/media', label: 'عکس‌ها' });
   }
   if (user.permissions.includes('appointment.read')) {
     links.push({ href: '/reports', label: 'گزارش‌ها' });
@@ -43,7 +55,7 @@ export async function AppHeader() {
     links.push({ href: '/settlements', label: 'تسویهٔ درمانگران' });
   }
   if (user.permissions.includes('service.read')) {
-    links.push({ href: '/services', label: COPY.servicesTitle });
+    links.push({ href: '/catalog/services', label: COPY.servicesTitle });
   }
   if (user.permissions.includes('room.read')) {
     links.push({ href: '/rooms', label: COPY.roomsTitle });
@@ -87,7 +99,7 @@ export async function AppHeader() {
     <header className="app-chrome sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-2.5 sm:px-6">
         <Link
-          href="/"
+          href="/dashboard"
           className={`flex items-center gap-2 whitespace-nowrap rounded-md px-1 py-1 text-base font-bold text-brand-900 ${FOCUS_RING}`}
         >
           <span

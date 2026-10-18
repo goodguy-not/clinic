@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma, PrismaClient } from '@prisma/client';
@@ -23,6 +26,20 @@ export const TEST_INTERNAL_KEY = 'test_only_internal_key_0123456789abcdef';
 
 /** Satisfies the 15-code-point minimum and trips no blocklist rule. */
 export const TEST_PASSWORD = 'quiet harbour lantern drift';
+
+/**
+ * The media root every harness in this suite writes to.
+ *
+ * A FRESH TEMPORARY DIRECTORY PER PROCESS, outside the repository, holding only
+ * synthetically generated images. It is deliberately not cleaned up between
+ * tests: `resetDatabase` truncates the rows, which makes every file under it
+ * unreferenced and therefore unreachable by every route, and leaving the bytes
+ * where they are is what lets a failing test be inspected afterwards.
+ *
+ * It is created once, at module load, so that two harnesses in one file share a
+ * root and a test can hand a storage key from one to the other.
+ */
+export const TEST_MEDIA_ROOT = mkdtempSync(join(tmpdir(), 'clinic-media-test-'));
 
 /**
  * Database names these tests are allowed to touch.
@@ -62,6 +79,125 @@ export function testDatabaseUrl(): string {
   return url;
 }
 
+/**
+ * The OWNER's connection string — test-only, and never read by the application.
+ *
+ * `DATABASE_URL` is what the API connects as, and in this suite it must be the
+ * runtime role (`clinic_app`), exactly as in a deployment. The reset below has
+ * to truncate protected tables and switch their triggers off, which by design
+ * only the owner can do, so it gets a second, separate connection. The API's
+ * environment schema does not know this variable exists, so nothing in
+ * `src/` can ever connect with it.
+ *
+ * Same server and same database as `DATABASE_URL`, different role — anything
+ * else is refused, so the reset can never land on a database the suite is not
+ * testing.
+ */
+export function testOwnerDatabaseUrl(): string {
+  const runtime = new URL(testDatabaseUrl());
+  const url = process.env['TEST_OWNER_DATABASE_URL'];
+
+  if (url === undefined || url === '') {
+    throw new Error(
+      'TEST_OWNER_DATABASE_URL must be set for integration tests: the schema owner, on the ' +
+        'same database as DATABASE_URL. DATABASE_URL itself must be the runtime role.',
+    );
+  }
+
+  let owner: URL;
+
+  try {
+    owner = new URL(url);
+  } catch {
+    throw new Error('TEST_OWNER_DATABASE_URL is not a valid connection string');
+  }
+
+  if (owner.host !== runtime.host || owner.pathname !== runtime.pathname) {
+    throw new Error(
+      'TEST_OWNER_DATABASE_URL must name the same server and database as DATABASE_URL',
+    );
+  }
+
+  if (owner.username === runtime.username) {
+    throw new Error(
+      'DATABASE_URL and TEST_OWNER_DATABASE_URL name the same role. The API must connect as ' +
+        'the runtime role, not as the owner.',
+    );
+  }
+
+  return url;
+}
+
+/**
+ * One owner connection per test file, opened on first use and closed when the
+ * file finishes. Jest gives every file its own module registry, so a client per
+ * reset would leave a connection behind for each of well over a hundred files.
+ */
+let ownerClient: PrismaClient | undefined;
+
+export function ownerPrisma(): PrismaClient {
+  ownerClient ??= new PrismaClient({ datasourceUrl: testOwnerDatabaseUrl() });
+  return ownerClient;
+}
+
+if (typeof afterAll === 'function') {
+  afterAll(async () => {
+    await ownerClient?.$disconnect();
+    ownerClient = undefined;
+  });
+}
+
+type RuntimeRoleFacts = {
+  role: string;
+  superuser: boolean;
+  owns: bigint;
+  memberOfOwner: boolean;
+  schemaCreate: boolean;
+  databaseCreate: boolean;
+};
+
+/**
+ * Refuses to run the suite unless the API's connection is a genuine runtime
+ * role: not a superuser, owning nothing, unable to become whoever does, and
+ * unable to create objects. This is what makes "the whole suite passes as the
+ * runtime role" a property of every run rather than of one careful setup.
+ */
+export async function assertRuntimeRole(prisma: PrismaClient | PrismaService): Promise<void> {
+  const [facts] = await prisma.$queryRaw<RuntimeRoleFacts[]>`
+    SELECT
+      current_user::text AS role,
+      r.rolsuper AS superuser,
+      (SELECT count(*) FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relowner = r.oid) AS owns,
+      EXISTS (
+        SELECT 1 FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND pg_has_role(r.oid, c.relowner, 'MEMBER')
+      ) AS "memberOfOwner",
+      has_schema_privilege('public', 'CREATE') AS "schemaCreate",
+      has_database_privilege(current_database(), 'CREATE') AS "databaseCreate"
+    FROM pg_roles r
+    WHERE r.rolname = current_user
+  `;
+
+  if (
+    facts === undefined ||
+    facts.superuser ||
+    facts.owns > 0n ||
+    facts.memberOfOwner ||
+    facts.schemaCreate ||
+    facts.databaseCreate
+  ) {
+    throw new Error(
+      `Refusing to run integration tests: DATABASE_URL connects as "${facts?.role ?? '?'}", ` +
+        'which is not a least-privilege runtime role (superuser, owner, member of the owner, or ' +
+        'able to create objects). Point DATABASE_URL at clinic_app and TEST_OWNER_DATABASE_URL ' +
+        'at the owner. See README, Integration tests.',
+    );
+  }
+}
+
 export type Harness = {
   app: INestApplication;
   prisma: PrismaService;
@@ -96,6 +232,8 @@ export function auditContext(): RequestContext {
 
 export async function createHarness(): Promise<Harness> {
   const url = testDatabaseUrl();
+  // Validated up front, so a misconfigured pair fails with its own message.
+  testOwnerDatabaseUrl();
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(API_ENV)
@@ -105,12 +243,14 @@ export async function createHarness(): Promise<Harness> {
       DATABASE_URL: url,
       INTERNAL_API_KEY: TEST_INTERNAL_KEY,
       PASSWORD_BLOCKED_TERMS: undefined,
+      MEDIA_STORAGE_DIR: TEST_MEDIA_ROOT,
     })
     .compile();
 
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.init();
+  await assertRuntimeRole(app.get(PrismaService));
 
   return {
     app,
@@ -123,14 +263,16 @@ export async function createHarness(): Promise<Harness> {
 }
 
 /**
- * Truncates between tests.
+ * Truncates between tests, AS THE OWNER.
  *
- * `audit_log` and `app_user` carry BEFORE DELETE and BEFORE TRUNCATE triggers,
- * so ordinary teardown is refused — which is exactly the guarantee those
- * triggers exist to provide. Disabling them here is possible only because the
- * test connects as the table owner, and that is precisely the gap a production
- * deployment closes with a separate, non-owner runtime role. Tests that prove
- * the triggers work run WITHOUT this helper.
+ * `audit_log`, `app_user` and every historical table carry BEFORE DELETE and
+ * BEFORE TRUNCATE triggers, so ordinary teardown is refused — which is exactly
+ * the guarantee those triggers exist to provide. Disabling them is possible
+ * only for the table owner, so this runs on the separate owner connection. The
+ * API under test connects as the runtime role and could do none of it: it
+ * holds no TRUNCATE anywhere and owns nothing whose triggers it could switch
+ * off (`runtime-role.int-spec.ts` proves both). Tests that prove the triggers
+ * work run WITHOUT this helper.
  */
 const PROTECTED_TABLES = [
   'audit_log',
@@ -164,6 +306,25 @@ const PROTECTED_TABLES = [
   // named here for the reset to be able to clear them.
   'settlement_period',
   'settlement_line',
+  // Milestone 9, checkpoint A2. Published content is withdrawn, never erased,
+  // so both tables carry no-delete and no-truncate triggers and both have to be
+  // named here for the reset to be able to clear them.
+  'public_article',
+  'public_testimonial',
+  // Milestone 9, checkpoint A3. Protected like every other historical table:
+  // the ninety-day retention rule is an UPDATE that CLEARS the intake columns,
+  // never a DELETE, so the row itself refuses both DELETE and TRUNCATE.
+  'website_request',
+  // Milestone 9.5, checkpoint A5. All three refuse DELETE and TRUNCATE: a
+  // photograph is unpublished, detached or archived, and since Milestone 10 A3
+  // its BYTES may be erased in place — the rows are never deleted.
+  'media_asset',
+  'media_rendition',
+  'media_attachment',
+  // Milestone 9.5, checkpoint A7. A published space is withdrawn, never erased,
+  // so it carries the same two triggers and has to be named here for the reset
+  // to be able to clear it.
+  'public_space',
 ];
 
 /**
@@ -175,6 +336,26 @@ const PROTECTED_TABLES = [
 const TRUNCATED_TABLES = [
   'audit_log',
   'user_session',
+  // Milestone 9.5, dependents first: an attachment names an asset, a therapist,
+  // an article, a testimonial and a public space, so it goes before all five; a
+  // rendition names
+  // its asset. Truncating the rows leaves the files under `TEST_MEDIA_ROOT`
+  // unreferenced, which is the same state a failed upload transaction leaves
+  // them in — and unreachable by every route, because the serving route selects
+  // a row.
+  'media_attachment',
+  'media_rendition',
+  'media_asset',
+  // Milestone 9, checkpoint A3. It names a service, so it goes before `service`.
+  'website_request',
+  // Milestone 9. Neither names anything but the user who created it, so they go
+  // before `app_user` and nowhere in particular otherwise.
+  'public_article',
+  'public_testimonial',
+  // Milestone 9.5, checkpoint A7. It names only the user who created it, and
+  // `media_attachment` above already names it, so it goes after the attachments
+  // and before `app_user`.
+  'public_space',
   // Milestone 8, dependents first: a closed line names its period, a charge and
   // the rating it was materialised from, so it goes before all three.
   'settlement_line',
@@ -221,7 +402,9 @@ const TRUNCATED_TABLES = [
   'app_user',
 ];
 
-export async function resetDatabase(prisma: PrismaClient | PrismaService): Promise<void> {
+export async function resetDatabase(): Promise<void> {
+  const prisma = ownerPrisma();
+
   for (const table of PROTECTED_TABLES) {
     await prisma.$executeRawUnsafe(`ALTER TABLE ${table} DISABLE TRIGGER USER`);
   }
@@ -233,6 +416,51 @@ export async function resetDatabase(prisma: PrismaClient | PrismaService): Promi
       await prisma.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE TRIGGER USER`);
     }
   }
+
+  // Milestone 10, checkpoint A3. The four job rows are structure, like the
+  // profile below; only when each last succeeded is reset.
+  await prisma.$executeRawUnsafe(`UPDATE scheduled_job SET last_succeeded_at = NULL`);
+
+  // THE ONE TABLE A TRUNCATE CANNOT RESET, CLEARED IN PLACE INSTEAD.
+  //
+  // `clinic_public_profile` is a SINGLETON created by its migration and
+  // deliberately undeletable: the public contact page must never 404 over a
+  // missing configuration row. So it survives the truncate above, and every
+  // value a suite writes into it survives with it — which makes any test
+  // asserting "the clinic profile is unconfigured" pass or fail depending on
+  // which file jest happened to run first. That is a latent order dependency
+  // rather than a real defect, and it surfaces whenever the file ordering
+  // changes; clearing the columns here removes it at the source.
+  //
+  // An UPDATE rather than a DELETE, because the row is the point: this restores
+  // exactly the state the migration created.
+  await prisma.$executeRawUnsafe(`
+    UPDATE clinic_public_profile
+    SET display_name = NULL, tagline = NULL, about = NULL, address_line = NULL,
+        city_label = NULL, phone_primary = NULL, phone_secondary = NULL, email = NULL,
+        working_hours_note = NULL, map_latitude = NULL, map_longitude = NULL,
+        instagram_url = NULL, telegram_url = NULL
+    WHERE singleton_key = 1
+  `);
+
+  // AND THE TWENTY-ONE EDITORIAL BLOCKS BESIDE IT, FOR THE SAME REASON.
+  //
+  // Milestone 9.5, checkpoint A8. `clinic_content_entry` is the second table
+  // whose rows are STRUCTURE created by a migration rather than records
+  // anybody made: they are the accepted page design, they carry the same delete
+  // and truncate triggers the profile does, and they survive the truncate
+  // above with whatever copy the last suite wrote into them. Clearing the four
+  // copy columns in place restores exactly the state the migration created —
+  // twenty-one empty slots, publishing nothing — and removes the same latent
+  // file-ordering dependency the profile had.
+  //
+  // `slot` AND `position` ARE NOT TOUCHED. They are the identity of each block,
+  // and a reset that rewrote them would be a reset that could change what the
+  // next suite is testing.
+  await prisma.$executeRawUnsafe(`
+    UPDATE clinic_content_entry
+    SET label = NULL, eyebrow = NULL, heading = NULL, body = NULL
+  `);
 }
 
 export type SeedUserOptions = {

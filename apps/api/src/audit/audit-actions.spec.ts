@@ -227,4 +227,127 @@ describe('audit vocabulary', () => {
     expect(new Set(AUDIT_ACTIONS).size).toBe(AUDIT_ACTIONS.length);
     expect(new Set(AUDIT_ENTITY_TYPES).size).toBe(AUDIT_ENTITY_TYPES.length);
   });
+
+  describe('the public website', () => {
+    const websiteActions = AUDIT_ACTIONS.filter((action) =>
+      /^(?:public_article|public_testimonial|clinic_public_profile)\.|^therapist\.public_/.test(
+        action,
+      ),
+    );
+
+    it('adds exactly the fourteen approved checkpoint A2 actions, plus A6 drafting and M10 A3 withdrawal', () => {
+      expect([...websiteActions].sort()).toEqual(
+        [
+          'public_article.created',
+          'public_article.updated',
+          'public_article.published',
+          'public_article.unpublished',
+          'public_testimonial.created',
+          'public_testimonial.updated',
+          'public_testimonial.approved',
+          'public_testimonial.approval_revoked',
+          'public_testimonial.published',
+          'public_testimonial.unpublished',
+          'therapist.public_profile_updated',
+          'therapist.public_profile_published',
+          'therapist.public_profile_unpublished',
+          'clinic_public_profile.updated',
+          // Milestone 9.5, checkpoint A6. Preparing a colleague's public copy
+          // under the drafting authority, which is a different act by a
+          // different role from the manager's `.updated`, and publishes nobody.
+          'therapist.public_profile_drafted',
+          // Milestone 10, checkpoint A3. A family withdrawing consent (the
+          // manager's record) and the erasure that follows (the nightly job's).
+          'public_testimonial.consent_withdrawn',
+          'public_testimonial.content_erased',
+        ].sort(),
+      );
+    });
+
+    it('names the A6 service editorial acts, and only those two', () => {
+      // The service side of the same split. `service.updated` is unchanged and
+      // still records the operational form including the slug and the
+      // visibility flag; these two are the copy being prepared and the copy
+      // being promoted onto the live page, which A2 could not have separated
+      // because there was nothing to promote.
+      expect(AUDIT_ACTIONS.filter((action) => action.startsWith('service.'))).toEqual([
+        'service.created',
+        'service.updated',
+        'service.status_changed',
+        'service.public_copy_drafted',
+        'service.public_copy_published',
+      ]);
+    });
+
+    it('does not name a separate publication for a therapist copy', () => {
+      // Publishing a colleague's prepared words IS the opt-in: the same
+      // statement copies the draft across and sets the flag, so a second name
+      // would describe one act twice.
+      expect(AUDIT_ACTIONS).not.toContain('therapist.public_copy_published' as never);
+      expect(AUDIT_ACTIONS).not.toContain('service.public_copy_withdrawn' as never);
+    });
+
+    it('keeps publishing separate from editing, in both directions', () => {
+      // "When did this go on the website, and when did it come off again?" is
+      // the question asked after somebody complains about a page, and an answer
+      // buried in a diff of a boolean is not something you can count.
+      for (const subject of ['public_article', 'public_testimonial'] as const) {
+        expect(AUDIT_ACTIONS).toContain(`${subject}.published`);
+        expect(AUDIT_ACTIONS).toContain(`${subject}.unpublished`);
+        expect(AUDIT_ACTIONS).toContain(`${subject}.updated`);
+      }
+    });
+
+    it('names approval and publication as different testimonial facts', () => {
+      // Approval is the privacy review PROJECT_SPEC.md 11 requires; publication
+      // is placement on a page. A single action would make withdrawing a
+      // quotation indistinguishable from declaring its review wrong.
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.approved');
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.approval_revoked');
+      expect(AUDIT_ACTIONS).toContain('public_testimonial.published');
+    });
+
+    it('adds no second action for publishing a service', () => {
+      // A service public description, slug and visibility are columns on the
+      // catalog row written by the same form under the same authority, so
+      // `service.updated` already records it with both sides in its payload. A
+      // second name would describe one write as two facts.
+      for (const absent of ['service.published', 'service.unpublished', 'service.public_updated']) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names no act the public reads perform', () => {
+      // Reading a published page is not an audited act. Copying every visit
+      // into an append-only permanent table would build a second, undeletable
+      // record of who looked at what.
+      for (const absent of [
+        'public_article.viewed',
+        'public_article.read',
+        'website.visited',
+        'sitemap.generated',
+      ]) {
+        expect(AUDIT_ACTIONS).not.toContain(absent as never);
+      }
+    });
+
+    it('names the three Milestone 9 tables as entity types', () => {
+      for (const entityType of [
+        'clinic_public_profile',
+        'public_article',
+        'public_testimonial',
+      ] as const) {
+        expect(AUDIT_ENTITY_TYPES).toContain(entityType);
+      }
+    });
+  });
+
+  describe('Milestone 10, checkpoint A3', () => {
+    it('adds exactly the erasure and job actions, and one entity type', () => {
+      expect(AUDIT_ACTIONS.filter((action) => /bytes_erased|scheduled_job\./.test(action))).toEqual(
+        ['media.bytes_erased', 'scheduled_job.succeeded'],
+      );
+      expect(AUDIT_ENTITY_TYPES).toContain('scheduled_job');
+    });
+  });
 });

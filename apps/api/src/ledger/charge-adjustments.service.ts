@@ -139,10 +139,19 @@ export class ChargeAdjustmentsService {
   ): Promise<SessionChargeResponse> {
     const reason = canonicalText(body.reason);
     const amount = BigInt(body.amountToman);
-    // Omitted means clinic-borne, which is what this request has always meant.
-    // The schema has already proved the digit shape and that the portion does
-    // not exceed the concession it is part of, so this conversion is safe.
-    const therapistPortion = BigInt(body.therapistDiscountToman ?? '0');
+    // M10.5 D10: the manager states BOTH portions and nothing is defaulted. A
+    // pair that does not add up is refused with the three amounts — never
+    // reinterpreted — before anything is locked: no stored row could make it
+    // acceptable. The schema has proved the digit shapes, so these are safe.
+    const therapistPortion = BigInt(body.therapistDiscountToman);
+    const clinicPortion = BigInt(body.clinicDiscountToman);
+    if (therapistPortion + clinicPortion !== amount) {
+      throw new AppError('ADJUSTMENT_PORTIONS_DO_NOT_ADD_UP', {
+        amountToman: amount.toString(),
+        therapistDiscountToman: therapistPortion.toString(),
+        clinicDiscountToman: clinicPortion.toString(),
+      });
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const charge = await lockChargeRow(tx, chargeId);

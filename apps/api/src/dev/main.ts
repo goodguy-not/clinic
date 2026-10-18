@@ -1,14 +1,24 @@
+import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { loadDotEnvIfPresent } from '../config/env';
+import { PrismaService } from '../prisma/prisma.service';
 import { redactSecrets } from '../common/redact';
 import { assertDisposableDatabase } from './disposable-database';
-import { seedSyntheticClinic } from './synthetic-clinic';
+import { reconcileClinic } from './clinic-reconciliation';
+import { simulateClinic } from './clinic-simulation';
+import { managerActor, seedSyntheticClinic } from './synthetic-clinic';
 
 /**
  * Entry point for the synthetic-clinic seed.
  *
  *   node dist/dev/main.js --confirm [--weeks 5] [--families 12] [--run-tag abc123]
+ *   node dist/dev/main.js --confirm --practice-clinic
+ *
+ * `--practice-clinic` builds the two-month practice clinic of Milestone 10
+ * (`clinic-simulation.ts`) into an EMPTY database and reconciles it before it
+ * returns; it exits non-zero on any discrepancy, so a practice environment is
+ * never handed over with books that do not balance.
  *
  * A SEPARATE BINARY FROM THE OPERATOR CLI, DELIBERATELY. `dist/cli/main.js` is
  * documented as the thing you run against a deployed database from a shell on
@@ -44,6 +54,14 @@ async function main(): Promise<number> {
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
 
+  if (argv.includes('--practice-clinic')) {
+    try {
+      return await practiceClinic(app);
+    } finally {
+      await app.close();
+    }
+  }
+
   try {
     const summary = await seedSyntheticClinic(app, {
       weeks: numberFlag(argv, '--weeks'),
@@ -61,6 +79,10 @@ async function main(): Promise<number> {
       ['services', summary.services],
       ['rooms', summary.rooms],
       ['therapists', summary.therapists],
+      ['published services', summary.publishedServices],
+      ['published articles', summary.publishedArticles],
+      ['published testimonials', summary.publishedTestimonials],
+      ['published therapists', summary.publishedTherapists],
       ['families', summary.families],
       ['children', summary.children],
       ['appointments', summary.appointments],
@@ -97,10 +119,63 @@ async function main(): Promise<number> {
   }
 }
 
+async function practiceClinic(app: INestApplicationContext): Promise<number> {
+  const { book } = await simulateClinic(app);
+  const report = await reconcileClinic(app, book, await managerActor(app.get(PrismaService)));
+  const { calendar } = book;
+  const out = (line = '') => process.stdout.write(`${line}\n`);
+
+  out();
+  out(`Built the practice clinic. Clinic today: ${calendar.today}`);
+  out(
+    `History: ${calendar.windowStart} to ${calendar.lastHistoryDay} (closed month ` +
+      `${calendar.closedMonth.label}: ${calendar.closedMonth.from} to ${calendar.closedMonth.to})`,
+  );
+  out();
+
+  for (const [label, value] of [
+    ['families', book.families.length],
+    ['sessions booked', book.sessions.length],
+    ['charges', book.charges.size],
+    ['payments', book.payments.length],
+    ['promises', book.promises.length],
+    ['closed periods', book.periods.length],
+    ['website requests', book.websiteRequests.length],
+  ] as const) {
+    out(`  ${label.padEnd(24)} ${value}`);
+  }
+
+  out();
+  out('Reconciliation (independent of the report code):');
+  for (const check of report.checks) {
+    const verdict =
+      check.discrepancies.length === 0 ? 'ok' : `${check.discrepancies.length} DISCREPANCIES`;
+    out(`  ${verdict.padEnd(18)} ${String(check.compared).padStart(6)}  ${check.name}`);
+    for (const line of check.discrepancies.slice(0, 10)) out(`      ${line}`);
+  }
+
+  // Printed to stdout and never through the logger, as the seed prints its
+  // accounts: these exist only in this disposable database.
+  out();
+  out('Practice staff accounts (this database only; change the password at first sign-in):');
+  for (const account of book.staff) {
+    if (account.temporaryPassword !== null) {
+      out(`  ${account.username}  ${account.temporaryPassword}`);
+    }
+  }
+
+  return report.discrepancyCount === 0 ? 0 : 1;
+}
+
 const USAGE = [
   'Usage:',
   '  node dist/dev/main.js --confirm [--weeks 5] [--families 12] [--therapists 4]',
   '                        [--slots-per-day 3] [--run-tag abc123]',
+  '  node dist/dev/main.js --confirm --practice-clinic',
+  '',
+  '--practice-clinic builds the reconciled two-month practice clinic into an empty',
+  'database (one active manager from bootstrap-manager, nothing else) and exits',
+  'non-zero if its books do not reconcile.',
   '',
   'Populates a synthetic multi-week clinic for local review of the dashboard and',
   'reports. Everything it writes is invented. It refuses to run unless NODE_ENV is',

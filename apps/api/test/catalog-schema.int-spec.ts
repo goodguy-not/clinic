@@ -196,9 +196,11 @@ describe('catalog schema objects', () => {
   });
 
   it('adds no table beyond the approved scope', async () => {
+    // `pg_tables`, not `information_schema.tables`: the latter lists only the
+    // tables the current role holds a privilege on, and the runtime role holds
+    // none on `_prisma_migrations`.
     const rows = await harness.prisma.$queryRaw<{ table_name: string }[]>`
-      SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      SELECT tablename::text AS table_name FROM pg_tables WHERE schemaname = 'public'
     `;
     const tables = rows.map((row) => row.table_name).sort();
 
@@ -214,6 +216,8 @@ describe('catalog schema objects', () => {
         'audit_log',
         'room',
         'room_service',
+        // Milestone 10, checkpoint A3: one row per nightly job.
+        'scheduled_job',
         'service',
         'service_duration',
         'tariff',
@@ -248,6 +252,64 @@ describe('catalog schema objects', () => {
         'session_settlement',
         'settlement_period',
         'settlement_line',
+        // Milestone 9, checkpoint A1. ONE table and no more: the clinic's own
+        // single-row public profile. The public face of a SERVICE and of a
+        // THERAPIST is columns on those rows rather than a published copy of
+        // them, and no article, testimonial, page or website-request table
+        // exists — those are later checkpoints.
+        'clinic_public_profile',
+        // Milestone 9.5, checkpoint A8. ONE table and no more: the twenty-one
+        // fixed editorial blocks of the home and about pages, beside the
+        // profile row whose surface they belong to.
+        //
+        // NO PAGE, SECTION, BLOCK-TREE, TEMPLATE, REVISION, TRANSLATION OR
+        // DRAFT TABLE EXISTS. The slots are the accepted design, they arrive
+        // with a migration and are neither created nor deleted at runtime; the
+        // copy is held ONCE because this surface is manager-only and editing it
+        // IS publishing; and a block's photograph is a `media_attachment` row
+        // under the A5 owner discriminator, as every other photograph is.
+        //
+        // IT HOLDS NO FOREIGN KEY IN EITHER DIRECTION, which is the privacy
+        // guarantee rather than a projection's discipline: no therapist, room,
+        // service, appointment, family or child can be reached from it.
+        'clinic_content_entry',
+        // Milestone 9, checkpoint A2. TWO tables and no more: an article and a
+        // testimonial. No page, block, template, media, tag, revision or
+        // scheduling table exists.
+        'public_article',
+        // Milestone 9.5, checkpoint A7. ONE table and no more: an editorial
+        // description of part of the building. NO room-to-space link table, no
+        // gallery table, no caption table — a space's photographs are
+        // `media_attachment` rows under the A5 owner discriminator, and the
+        // separation from `room` is the ABSENCE of any reference between the
+        // two rather than a table mediating one.
+        'public_space',
+        'public_testimonial',
+        // Milestone 9, checkpoint A3. ONE table and no more: what a stranger
+        // typed into the public contact form. NO INBOX, NO STATUS, NO
+        // ASSIGNMENT, NO THREAD, NO ATTACHMENT AND NO QUEUE TABLE — the workflow
+        // over a request is checkpoint A4. No archive or shadow table either:
+        // the ninety-day retention rule ERASES the intake columns in place, so
+        // there is nowhere for a second copy of them to live.
+        'website_request',
+        // Milestone 9.5, checkpoint A5. THREE tables and no more: the
+        // photograph, its servable copies, and the one place it has been put.
+        //
+        // NO IMAGE BYTE IS IN ANY OF THEM. The columns are keys into a
+        // directory the API owns, and there is deliberately no `bytea` column
+        // anywhere in this schema.
+        //
+        // AND NO TABLE FOR THE UPLOADED FILE. `media_asset` describes what
+        // arrived — a content type and a byte size — because a colleague asking
+        // "did that upload work?" needs it; the bytes themselves are never
+        // written, so there is nothing for a fourth table to hold.
+        //
+        // No folder, album, tag, collection, caption, crop, usage-count or
+        // analytics table exists either. This is photographs for a public
+        // website and nothing else.
+        'media_asset',
+        'media_rendition',
+        'media_attachment',
       ].sort(),
     );
   });

@@ -25,6 +25,7 @@ export function serviceFormToRequest(body: SubmittedBody): Record<string, unknow
     // An empty textarea is an absent description, not an empty one: the column
     // is nullable and the CHECK rejects a blank string.
     publicDescription: description === '' ? null : description,
+    // No `publicSlug`: the API assigns every address (M10-A10, T-010).
     isPublic: body['isPublic'] === 'true',
     // `null` when unparseable, which fails the array schema and produces
     // VALIDATION_FAILED rather than an empty duration set.

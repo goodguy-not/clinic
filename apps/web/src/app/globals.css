@@ -29,11 +29,7 @@
 @theme {
   --font-sans: 'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
 
-  /*
-   * Brand ramp: a calm clinical teal. `--color-brand-*` is the single source
-   * for interactive/primary colour; semantic tones (success/warning/danger)
-   * keep Tailwind's emerald/amber/red so alerts and badges stay conventional.
-   */
+  /* Internal surfaces retain their accepted palette. */
   --color-brand-50: #f0fdfa;
   --color-brand-100: #ccfbf1;
   --color-brand-200: #99f6e4;
@@ -45,13 +41,10 @@
   --color-brand-800: #115e59;
   --color-brand-900: #134e4a;
   --color-brand-950: #042f2e;
-
-  /* App chrome: a light neutral canvas behind white panels. */
   --color-canvas: #f8fafc;
 }
 
 html {
-  /* Comfortable for Persian text at small sizes. */
   -webkit-text-size-adjust: 100%;
 }
 
