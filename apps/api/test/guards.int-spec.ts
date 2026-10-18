@@ -612,7 +612,7 @@ describe('guard chain (real PostgreSQL)', () => {
       //                 names `testimonial.read` and carries dates only. The
       //                 erasures themselves are the nightly job's — still no
       //                 HTTP route in this product destroys anything.
-      expect(routes).toBe(170);
+      expect(routes).toBe(171);
     });
   });
 });

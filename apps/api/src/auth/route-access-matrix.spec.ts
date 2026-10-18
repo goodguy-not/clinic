@@ -32,9 +32,9 @@ describe('the route × role matrix', () => {
   const matrixPath = resolve(__dirname, '../../../../docs/PERMISSION_MATRIX.md');
 
   it('finds every route the guard coverage test counts', () => {
-    // The same 170 `test/guards.int-spec.ts` counts by instantiating the app;
+    // The same 171 `test/guards.int-spec.ts` counts by instantiating the app;
     // agreeing proves the static walk missed no module.
-    expect(routes).toHaveLength(170);
+    expect(routes).toHaveLength(171);
     expect(new Set(routes.map((route) => `${route.method} ${route.path}`)).size).toBe(
       routes.length,
     );

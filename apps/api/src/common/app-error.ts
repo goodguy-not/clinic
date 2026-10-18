@@ -97,6 +97,11 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // 409: the row is in a state that does not allow this transition, which a
   // retry against a re-read row may well resolve.
   APPOINTMENT_TRANSITION_INVALID: 409,
+  // 422, like `PAYMENT_DATE_IN_FUTURE`: nothing conflicts, the outcome is
+  // simply not yet a true thing to say about the session.
+  APPOINTMENT_OUTCOME_DATE_IN_FUTURE: 422,
+  APPOINTMENT_OUTCOME_BEFORE_START: 422,
+  RECURRENCE_OCCURRENCE_IN_PAST: 422,
   APPOINTMENT_OUTSIDE_AVAILABILITY: 422,
   RECURRENCE_RULE_INVALID: 422,
   AVAILABILITY_WINDOW_INVALID: 422,
@@ -316,6 +321,11 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   APPOINTMENT_DURATION_NOT_ALLOWED: 'The service does not offer this session length',
   APPOINTMENT_TRANSITION_INVALID:
     'The current status of the appointment does not allow this change',
+  APPOINTMENT_OUTCOME_DATE_IN_FUTURE:
+    'No outcome can be recorded for a session on a date that has not come yet',
+  APPOINTMENT_OUTCOME_BEFORE_START:
+    'Completion and no-show can be recorded only once the session has started',
+  RECURRENCE_OCCURRENCE_IN_PAST: 'An occurrence would be placed at a time that has already passed',
   APPOINTMENT_OUTSIDE_AVAILABILITY: 'The therapist is not available in this time range',
   RECURRENCE_RULE_INVALID: 'A series must state either an occurrence count or an end date',
   AVAILABILITY_WINDOW_INVALID: 'The availability window is not a valid time range',

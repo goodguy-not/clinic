@@ -104,6 +104,18 @@ export const ERROR_CODES = [
   // The requested status change is not a permitted transition from the current
   // one — completing a cancelled appointment, cancelling a completed one.
   'APPOINTMENT_TRANSITION_INVALID',
+  // An outcome recorded too early (M10-A10, T-020), in Asia/Tehran by the
+  // database clock, for every role. A session on a later date than today takes
+  // no outcome at all; on its own date attendance may be recorded at any time,
+  // but completion and no-show only from its scheduled start. Two codes because
+  // the fixes differ: "wait for that day" and "wait until it starts". Details:
+  // `appointmentOutcomeTimingDetailsSchema`.
+  'APPOINTMENT_OUTCOME_DATE_IN_FUTURE',
+  'APPOINTMENT_OUTCOME_BEFORE_START',
+  // A this-and-future change that would place an occurrence at an instant that
+  // has already passed (M10-A10, T-023) — typically moving the weekday earlier
+  // in the current week. The series is planning; the past is not re-planned.
+  'RECURRENCE_OCCURRENCE_IN_PAST',
   // Booked outside the therapist's recurring windows, or on a day a dated
   // exception closes. PROJECT_SPEC.md 5 requires this to be prevented or
   // explicitly authorized: it is refused unless the caller holds

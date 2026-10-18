@@ -35,6 +35,7 @@ import {
   type RecordAttendanceRequest,
   type RecurrencePreviewResponse,
   type ReopenAppointmentRequest,
+  type SeriesUpdatePreviewResponse,
   type UpdateAppointmentSeriesFromRequest,
 } from '@clinic/contracts';
 import { RequirePermissions } from '../auth/decorators/endpoint-access';
@@ -325,6 +326,24 @@ export class AppointmentSeriesController {
     @Ctx() context: RequestContext,
   ): Promise<AppointmentSeriesOperationResponse> {
     return this.series.updateFrom(id, body, session, context);
+  }
+
+  /**
+   * A dry run of `update-from`: the same body, the same targets, and what is in
+   * the way of each, written nowhere (M10-A10, T-023). `POST` and `200` for the
+   * reason the creation preview is; `appointment.update` because it answers
+   * the question that permission is needed to act on.
+   */
+  @Post(':id/update-from/preview')
+  @HttpCode(200)
+  @RequirePermissions('appointment.update')
+  async previewUpdateFrom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodBodyPipe(updateAppointmentSeriesFromRequestSchema))
+    body: UpdateAppointmentSeriesFromRequest,
+    @CurrentSession() session: ResolvedSession,
+  ): Promise<SeriesUpdatePreviewResponse> {
+    return this.series.previewUpdateFrom(id, body, session);
   }
 }
 

@@ -115,6 +115,8 @@ describe('B3 booking workflow', () => {
           startsAt: '2026-08-13T05:30:00.000Z',
           endsAt: '2026-08-13T06:15:00.000Z',
           outsideAvailability: false,
+          outsideAvailabilityReason: null,
+          conflicts: [],
           blockedBy: null,
         },
         {
@@ -123,6 +125,8 @@ describe('B3 booking workflow', () => {
           startsAt: '2026-08-20T05:30:00.000Z',
           endsAt: '2026-08-20T06:15:00.000Z',
           outsideAvailability: true,
+          outsideAvailabilityReason: 'OUTSIDE_WORKING_HOURS' as const,
+          conflicts: [],
           blockedBy: null,
         },
         {
@@ -131,6 +135,16 @@ describe('B3 booking workflow', () => {
           startsAt: '2026-08-27T05:30:00.000Z',
           endsAt: '2026-08-27T06:15:00.000Z',
           outsideAvailability: false,
+          outsideAvailabilityReason: null,
+          conflicts: [
+            {
+              resource: 'ROOM' as const,
+              resourceId: ID('3'),
+              appointmentId: ID('9'),
+              startsAt: '2026-08-27T05:30:00.000Z',
+              endsAt: '2026-08-27T06:15:00.000Z',
+            },
+          ],
           blockedBy: 'APPOINTMENT_ROOM_CONFLICT' as const,
         },
       ],

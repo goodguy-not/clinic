@@ -70,6 +70,7 @@ exposed to the internet). Open routes and in-handler checks are listed after the
 | `GET /appointment-series/:id` | appointment.read | ✔ | ✔ | — |
 | `POST /appointment-series/:id/cancel-from` | appointment.cancel | ✔ | ✔ | — |
 | `PATCH /appointment-series/:id/update-from` | appointment.update | ✔ | ✔ | — |
+| `POST /appointment-series/:id/update-from/preview` | appointment.update | ✔ | ✔ | — |
 | `POST /appointment-series/preview` | appointment.create | ✔ | ✔ | — |
 | `POST /appointments` | appointment.create | ✔ | ✔ | — |
 | `GET /appointments/:id` | appointment.read | ✔ | ✔ | — |
@@ -236,7 +237,7 @@ exposed to the internet). Open routes and in-handler checks are listed after the
 
 ## Totals
 
-170 routes. Manager 170, receptionist 106, visitor 16 (2 liveness probes directly, the rest via the site).
+171 routes. Manager 171, receptionist 107, visitor 16 (2 liveness probes directly, the rest via the site).
 
 ## Routes that require no permission
 

@@ -244,7 +244,7 @@ export class AppointmentsService {
 
       const decision = await this.rules.decideAvailability(tx, span, input, submittedReason, actor);
 
-      await this.rules.assertChildIsFree(tx, input);
+      await this.rules.assertPlacementIsFree(tx, input, [input.childId]);
 
       await this.rules.insertAppointment(tx, {
         appointmentId,
@@ -254,6 +254,7 @@ export class AppointmentsService {
         note,
         overrideReason: decision.overrideReason,
         actor,
+        childIds: [input.childId],
       });
 
       await this.rules.insertParticipant(tx, {
@@ -358,21 +359,26 @@ export class AppointmentsService {
 
       const decision = await this.rules.decideAvailability(tx, span, input, submittedReason, actor);
 
-      for (const participant of participants) {
-        await this.rules.assertChildIsFree(
-          tx,
-          {
-            childId: participant.child_id,
-            startsAt: input.startsAt,
-            durationMinutes: input.durationMinutes,
-          },
-          // Excluded, or an appointment would conflict with the position it is
-          // leaving and no session could ever be moved by less than its length.
-          id,
-        );
-      }
+      const childIds = participants.map((participant) => participant.child_id);
 
-      await this.rules.writePlacement(tx, id, input, note, decision.overrideReason, actor);
+      await this.rules.assertPlacementIsFree(
+        tx,
+        input,
+        childIds,
+        // Excluded, or an appointment would conflict with the position it is
+        // leaving and no session could ever be moved by less than its length.
+        id,
+      );
+
+      await this.rules.writePlacement(
+        tx,
+        id,
+        input,
+        note,
+        decision.overrideReason,
+        actor,
+        childIds,
+      );
 
       const moved = await this.rules.readAppointment(tx, id);
 
@@ -499,6 +505,11 @@ export class AppointmentsService {
 
       if (current.status === 'COMPLETED') return detailOf(current, participants);
       if (current.status !== 'SCHEDULED') throw new AppError('APPOINTMENT_TRANSITION_INVALID');
+
+      // A session cannot have taken place before it starts (T-020). Decided
+      // after the idempotent return, so a repeat of a completion that was valid
+      // when made is still a no-op.
+      await this.rules.assertOutcomeIsDue(tx, current, 'COMPLETED');
 
       await tx.$executeRaw`
         UPDATE appointment
@@ -684,6 +695,10 @@ export class AppointmentsService {
       if (participant.attendance === input.attendance) {
         return detailOf(appointment, await this.rules.readParticipants(tx, appointmentId));
       }
+
+      // Nothing on a future date; on the day, an arrival at any time but a
+      // no-show only once the session should have started (T-020).
+      await this.rules.assertOutcomeIsDue(tx, appointment, input.attendance);
 
       // MOVING AWAY FROM `ATTENDED` FALSIFIES THE OTHER HALF OF A CHARGE'S
       // PREMISE, so the ledger refuses it while this seat still carries one. Only

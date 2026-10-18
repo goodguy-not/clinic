@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Permission } from '@clinic/contracts';
+import type {
+  AppointmentConflict,
+  AppointmentConflictResource,
+  AppointmentOutcomeKind,
+  AppointmentOutcomeTimingDetails,
+  AvailabilityRefusalDetails,
+  AvailabilityRefusalReason,
+  ErrorCode,
+  Permission,
+} from '@clinic/contracts';
 import type { AuditJsonObject } from '../audit/audit.types';
 import { AvailabilityService } from '../availability/availability.service';
 import { AppError } from '../common/app-error';
@@ -9,6 +18,7 @@ import type { ResolvedSession } from '../common/request-context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   isWithinAvailability,
+  type AvailabilityWindow,
   type AppointmentRow,
   type ClinicSpan,
   type ParticipantRow,
@@ -102,6 +112,61 @@ export class SchedulingRules {
   }
 
   /**
+   * Refuses an outcome recorded before it can be true (M10-A10, T-020).
+   *
+   * In Asia/Tehran, by the DATABASE clock, for every role: a session on a later
+   * clinic date than today takes no outcome at all; on its own date attendance
+   * may be recorded at any time — the child walks in before the hour — but
+   * completion and no-show only from the scheduled start; a session on an
+   * earlier date takes everything, because the desk records late.
+   *
+   * `transaction_timestamp()` rather than Node's clock, for the reason
+   * `insertAppointment` gives: one clock decides "now" for the whole system, and
+   * it is the one `completed_at` and `attendance_recorded_at` are written with.
+   * The caller holds the appointment `FOR UPDATE`, so a concurrent move cannot
+   * change the start this was decided against.
+   *
+   * It is money-critical: completion of an attended seat posts the charge, so
+   * this is what stops a session next week from being charged today.
+   */
+  async assertOutcomeIsDue(
+    tx: Prisma.TransactionClient,
+    appointment: AppointmentRow,
+    outcome: AppointmentOutcomeKind,
+  ): Promise<void> {
+    const startsAt = appointment.starts_at.toISOString();
+    const rows = await tx.$queryRaw<
+      { session_date: string; start_time: string; today: string; started: boolean }[]
+    >`
+      SELECT clinic_date(${startsAt}::timestamptz)::text AS session_date,
+             clinic_clock_time(${startsAt}::timestamptz) AS start_time,
+             clinic_date(transaction_timestamp())::text AS today,
+             transaction_timestamp() >= ${startsAt}::timestamptz AS started
+    `;
+
+    const row = rows[0];
+    // Unreachable: a projection over one synthetic row.
+    if (row === undefined) throw new AppError('APPOINTMENT_OUTCOME_DATE_IN_FUTURE');
+
+    const details: AppointmentOutcomeTimingDetails = {
+      outcome,
+      sessionDate: row.session_date,
+      startTime: row.start_time,
+      startsAt,
+      today: row.today,
+    };
+
+    // ISO dates compare chronologically as strings.
+    if (row.session_date > row.today) {
+      throw new AppError('APPOINTMENT_OUTCOME_DATE_IN_FUTURE', details);
+    }
+
+    if (outcome !== 'ATTENDED' && !row.started) {
+      throw new AppError('APPOINTMENT_OUTCOME_BEFORE_START', details);
+    }
+  }
+
+  /**
    * A placement's write, and the three rules PostgreSQL decides as it runs.
    *
    * `ends_at` is recomputed from the new start and length with the same
@@ -117,13 +182,15 @@ export class SchedulingRules {
     note: string | null,
     overrideReason: string | null,
     actor: ResolvedSession,
+    childIds: readonly string[],
   ): Promise<void> {
     const overrideBy = overrideReason === null ? null : actor.userId;
     const overrideAt =
       overrideReason === null ? Prisma.sql`NULL` : Prisma.sql`transaction_timestamp()`;
 
-    try {
-      await tx.$executeRaw`
+    await this.constrainedWrite(
+      tx,
+      () => tx.$executeRaw`
         UPDATE appointment
         SET duration_minutes = ${placement.durationMinutes},
             therapist_id = ${placement.therapistId}::uuid,
@@ -136,10 +203,9 @@ export class SchedulingRules {
             availability_override_by_user_id = ${overrideBy}::uuid,
             availability_override_at = ${overrideAt}
         WHERE id = ${id}::uuid
-      `;
-    } catch (error) {
-      throw translateSchedulingWrite(error);
-    }
+      `,
+      { placement, childIds, excludeId: id },
+    );
   }
 
   /**
@@ -177,7 +243,14 @@ export class SchedulingRules {
       return { overrideReason: null, audit: null };
     }
 
-    if (submittedReason === null) throw new AppError('APPOINTMENT_OUTSIDE_AVAILABILITY');
+    // The refusal says why (T-025) and whether this caller could override it,
+    // so the interface can explain the hour and point at the reason field.
+    if (submittedReason === null) {
+      throw new AppError(
+        'APPOINTMENT_OUTSIDE_AVAILABILITY',
+        availabilityRefusalDetails(span, resolved, actor.permissions.includes(OVERRIDE_PERMISSION)),
+      );
+    }
 
     // The permission list was resolved from the database by `SessionGuard` for
     // this request, never taken from anything the caller sent. `AUTH_FORBIDDEN`
@@ -232,10 +305,12 @@ export class SchedulingRules {
     tx: Prisma.TransactionClient,
     therapistId: string,
     span: ClinicSpan,
-  ): Promise<boolean> {
+  ): Promise<AvailabilityRefusalReason | null> {
     const resolved = await this.availability.resolveWithin(tx, therapistId, span.startDate);
 
-    return !isWithinAvailability(span, resolved.windows);
+    return isWithinAvailability(span, resolved.windows)
+      ? null
+      : availabilityRefusalReason(span, resolved);
   }
 
   /**
@@ -273,7 +348,7 @@ export class SchedulingRules {
   }
 
   /**
-   * Refuses a child already booked into an overlapping session.
+   * Refuses a placement whose child, therapist or room is already booked.
    *
    * The advisory lock is taken FIRST and the recomputation runs UNDER it, which
    * is the whole point: without it two bookings both read "free" and both
@@ -301,35 +376,154 @@ export class SchedulingRules {
    * recomputation of the next — so a rule that would book a child against
    * themselves is caught by the same statement that catches a clash with an
    * unrelated appointment.
+   *
+   * EVERY CONFLICTING DIMENSION IS REPORTED AT ONCE (M10-A10, T-024). Under the
+   * child's lock, the therapist and the room are asked in the same statement,
+   * so a refusal names the child, the therapist and the room that are busy and
+   * the sessions in the way — not just the first one a check reached. The code
+   * is the first dimension in the order child, therapist, room. This read does
+   * NOT replace the two exclusion constraints: a booking committed after it is
+   * still refused by them as the write lands, and `insertAppointment` and
+   * `writePlacement` then re-ask this question to describe that refusal too.
    */
-  async assertChildIsFree(
+  async assertPlacementIsFree(
     tx: Prisma.TransactionClient,
-    placement: { childId: string; startsAt: string; durationMinutes: number },
+    placement: AppointmentPlacement,
+    childIds: readonly string[],
     excludeAppointmentId: string | null = null,
   ): Promise<void> {
-    await tx.$executeRaw`
-      SELECT pg_advisory_xact_lock(
-        hashtextextended(${CHILD_SCHEDULE_LOCK_NAMESPACE} || ${placement.childId}, 0)
+    // One key per child, in a stable order, so two writers locking the same
+    // children cannot take them in opposite orders.
+    for (const childId of [...childIds].sort()) {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${CHILD_SCHEDULE_LOCK_NAMESPACE} || ${childId}, 0)
+        )
+      `;
+    }
+
+    const conflicts = await this.findConflicts(tx, placement, childIds, excludeAppointmentId);
+    if (conflicts.length > 0) throw conflictError(conflicts);
+  }
+
+  /**
+   * Every occupying session that overlaps this placement, per dimension.
+   *
+   * The occupancy predicate is the one the exclusion constraints and the child
+   * recomputation have always used — `[)` ranges against `SCHEDULED` and
+   * `COMPLETED` — so a preview, a refusal and the constraint agree about what
+   * "busy" means. Read-only and lock-free: the series previews ask it too.
+   */
+  async findConflicts(
+    client: PrismaService | Prisma.TransactionClient,
+    placement: AppointmentPlacement,
+    childIds: readonly string[],
+    excludeAppointmentId: string | null = null,
+  ): Promise<AppointmentConflict[]> {
+    const children =
+      childIds.length === 0
+        ? Prisma.sql`ARRAY[]::uuid[]`
+        : Prisma.sql`ARRAY[${Prisma.join(childIds.map((id) => Prisma.sql`${id}::uuid`))}]`;
+
+    const rows = await client.$queryRaw<
+      {
+        resource: AppointmentConflictResource;
+        resource_id: string;
+        appointment_id: string;
+        starts_at: Date;
+        ends_at: Date;
+      }[]
+    >`
+      WITH proposed AS (
+        SELECT tstzrange(
+          ${placement.startsAt}::timestamptz,
+          ${placement.startsAt}::timestamptz
+            + make_interval(mins => ${placement.durationMinutes}::int),
+          '[)'
+        ) AS span
+      ),
+      found AS (
+        SELECT 1 AS rank, 'CHILD' AS resource, ap.child_id AS resource_id,
+               a.id AS appointment_id, a.starts_at, a.ends_at
+        FROM appointment_participant ap
+        JOIN appointment a ON a.id = ap.appointment_id, proposed p
+        WHERE ap.child_id = ANY(${children})
+          AND a.status IN ('SCHEDULED', 'COMPLETED')
+          AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
+          AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
+        UNION ALL
+        SELECT 2, 'THERAPIST', a.therapist_id, a.id, a.starts_at, a.ends_at
+        FROM appointment a, proposed p
+        WHERE a.therapist_id = ${placement.therapistId}::uuid
+          AND a.status IN ('SCHEDULED', 'COMPLETED')
+          AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
+          AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
+        UNION ALL
+        SELECT 3, 'ROOM', a.room_id, a.id, a.starts_at, a.ends_at
+        FROM appointment a, proposed p
+        WHERE a.room_id = ${placement.roomId}::uuid
+          AND a.status IN ('SCHEDULED', 'COMPLETED')
+          AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
+          AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
       )
+      SELECT resource, resource_id::text AS resource_id, appointment_id::text AS appointment_id,
+             starts_at, ends_at
+      FROM found
+      ORDER BY rank, starts_at, appointment_id
     `;
 
-    const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT a.id
-      FROM appointment_participant ap
-      JOIN appointment a ON a.id = ap.appointment_id
-      WHERE ap.child_id = ${placement.childId}::uuid
-        AND a.status IN ('SCHEDULED', 'COMPLETED')
-        AND a.id IS DISTINCT FROM ${excludeAppointmentId}::uuid
-        AND tstzrange(a.starts_at, a.ends_at, '[)') && tstzrange(
-              ${placement.startsAt}::timestamptz,
-              ${placement.startsAt}::timestamptz
-                + make_interval(mins => ${placement.durationMinutes}::int),
-              '[)'
-            )
-      LIMIT 1
-    `;
+    return rows.map((row) => ({
+      resource: row.resource,
+      resourceId: row.resource_id,
+      appointmentId: row.appointment_id,
+      startsAt: row.starts_at.toISOString(),
+      endsAt: row.ends_at.toISOString(),
+    }));
+  }
 
-    if (rows.length > 0) throw new AppError('APPOINTMENT_CHILD_CONFLICT');
+  /**
+   * A constrained write that, when a resource constraint refuses it, says
+   * everything that is in the way.
+   *
+   * The pre-check already reported what it could see; a refusal here means a
+   * booking committed in between. The write runs under a savepoint so the
+   * transaction survives the constraint error long enough to re-ask
+   * `findConflicts` — in READ COMMITTED the new statement sees the row that won —
+   * and the refusal carries the same details as one the pre-check raised. The
+   * constraint stays the authority on the code: if the winner has already gone
+   * again, the code is still the one that fired, with no details.
+   */
+  private async constrainedWrite(
+    tx: Prisma.TransactionClient,
+    write: () => Promise<unknown>,
+    probe: {
+      placement: AppointmentPlacement;
+      childIds: readonly string[];
+      excludeId: string | null;
+    },
+  ): Promise<void> {
+    await tx.$executeRaw`SAVEPOINT scheduling_write`;
+
+    try {
+      await write();
+    } catch (error) {
+      const translated = translateSchedulingWrite(error);
+      if (!(translated instanceof AppError) || !isConflictCode(translated.code)) throw translated;
+
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT scheduling_write`;
+      const conflicts = await this.findConflicts(
+        tx,
+        probe.placement,
+        probe.childIds,
+        probe.excludeId,
+      );
+      const fired = conflicts.filter(
+        (conflict) => CONFLICT_CODES[conflict.resource] === translated.code,
+      );
+      throw fired.length > 0 ? conflictError(conflicts) : translated;
+    }
+
+    await tx.$executeRaw`RELEASE SAVEPOINT scheduling_write`;
   }
 
   /**
@@ -355,6 +549,8 @@ export class SchedulingRules {
       note: string | null;
       overrideReason: string | null;
       actor: ResolvedSession;
+      /** The children about to be seated, for describing a constraint refusal. */
+      childIds: readonly string[];
     },
   ): Promise<void> {
     const { appointmentId, seriesId, serviceId, placement, note, overrideReason, actor } = args;
@@ -365,8 +561,9 @@ export class SchedulingRules {
     const overrideAt =
       overrideReason === null ? Prisma.sql`NULL` : Prisma.sql`transaction_timestamp()`;
 
-    try {
-      await tx.$executeRaw`
+    await this.constrainedWrite(
+      tx,
+      () => tx.$executeRaw`
         INSERT INTO appointment (
           id, service_id, duration_minutes, therapist_id, room_id,
           starts_at, ends_at, status, series_id, note,
@@ -390,10 +587,9 @@ export class SchedulingRules {
           transaction_timestamp(),
           ${actor.userId}::uuid
         )
-      `;
-    } catch (error) {
-      throw translateSchedulingWrite(error);
-    }
+      `,
+      { placement, childIds: args.childIds, excludeId: null },
+    );
   }
 
   /** The seat, always written in the same transaction as the booking around it. */
@@ -560,6 +756,72 @@ export class SchedulingRules {
       ORDER BY id ASC
     `;
   }
+}
+
+const CONFLICT_CODES = {
+  CHILD: 'APPOINTMENT_CHILD_CONFLICT',
+  THERAPIST: 'APPOINTMENT_THERAPIST_CONFLICT',
+  ROOM: 'APPOINTMENT_ROOM_CONFLICT',
+} as const satisfies Record<AppointmentConflictResource, ErrorCode>;
+
+function isConflictCode(code: ErrorCode): boolean {
+  return Object.values(CONFLICT_CODES).some((conflictCode) => conflictCode === code);
+}
+
+/**
+ * The refusal for a non-empty conflict list: the code of its first dimension
+ * (the list is ordered child, therapist, room) and every conflict as details.
+ */
+export function conflictError(conflicts: readonly AppointmentConflict[]): AppError {
+  const first = conflicts[0];
+  // Unreachable: callers only pass a non-empty list.
+  if (first === undefined) return new AppError('APPOINTMENT_CHILD_CONFLICT');
+
+  return new AppError(CONFLICT_CODES[first.resource], { conflicts: [...conflicts] });
+}
+
+/**
+ * Why a session the windows do not cover is outside availability (T-025).
+ *
+ * A whole-day closure wins, then a closed range the session overlaps; anything
+ * else is simply outside the hours the day has — including a day with none.
+ */
+export function availabilityRefusalReason(
+  span: ClinicSpan,
+  resolved: { isClosed: boolean; closedRanges: readonly AvailabilityWindow[] },
+): AvailabilityRefusalReason {
+  if (resolved.isClosed) return 'CLOSED_DAY';
+
+  const overlapsClosure = resolved.closedRanges.some(
+    (range) => range.startTime < span.endTime && span.startTime < range.endTime,
+  );
+
+  return overlapsClosure ? 'PARTIAL_CLOSURE' : 'OUTSIDE_WORKING_HOURS';
+}
+
+function availabilityRefusalDetails(
+  span: ClinicSpan,
+  resolved: {
+    isClosed: boolean;
+    closedRanges: readonly AvailabilityWindow[];
+    windows: readonly AvailabilityWindow[];
+  },
+  overridable: boolean,
+): AvailabilityRefusalDetails {
+  const range = (window: AvailabilityWindow) => ({
+    startTime: window.startTime,
+    endTime: window.endTime,
+  });
+
+  return {
+    reason: availabilityRefusalReason(span, resolved),
+    date: span.startDate,
+    startTime: span.startTime,
+    endTime: span.endTime,
+    availableWindows: resolved.windows.map(range),
+    closedRanges: resolved.closedRanges.map(range),
+    overridable,
+  };
 }
 
 /**

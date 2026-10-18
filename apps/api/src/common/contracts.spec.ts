@@ -981,16 +981,34 @@ describe('Milestone 4 contracts', () => {
       for (const code of RECURRENCE_BLOCK_CODES) expect(ERROR_CODES).toContain(code);
     });
 
-    it('moves the hour of a series without moving its weekday', () => {
+    it('moves the hour and, optionally, the weekday of a series, never its rhythm', () => {
       const shape = Object.keys(updateAppointmentSeriesFromRequestSchema.shape);
 
-      // A wall-clock time applied to each occurrence's own date. There is no
-      // `startsAt`, no `weekday` and no recurrence rule: changing the rhythm is
-      // a new series, and shortening one is `cancel-from`.
+      // A wall-clock time, and since M10-A10 (T-023) an optional weekday inside
+      // each occurrence's own week. There is no `startsAt` and no recurrence
+      // rule: changing the rhythm is a new series, and shortening one is
+      // `cancel-from`.
       expect(shape).toContain('startTime');
+      expect(shape).toContain('weekday');
       expect(shape).not.toContain('startsAt');
-      expect(shape).not.toContain('weekday');
       expect(shape).not.toContain('recurrence');
+      // Absent and null both keep each occurrence on its own date.
+      const base = {
+        fromAppointmentId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+        durationMinutes: 45,
+        therapistId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c',
+        roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5d',
+        startTime: '10:00',
+        note: null,
+        availabilityOverrideReason: null,
+      };
+      expect(updateAppointmentSeriesFromRequestSchema.safeParse(base).success).toBe(true);
+      expect(
+        updateAppointmentSeriesFromRequestSchema.safeParse({ ...base, weekday: null }).success,
+      ).toBe(true);
+      expect(
+        updateAppointmentSeriesFromRequestSchema.safeParse({ ...base, weekday: 7 }).success,
+      ).toBe(false);
       // The service and the child are absent for the reason they are absent
       // from a single move: either would make it a different booking.
       expect(shape).not.toContain('serviceId');

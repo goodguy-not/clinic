@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  type AppointmentConflict,
   type AppointmentDetail,
   type AppointmentSeries,
   type AppointmentSeriesDetail,
@@ -12,7 +13,10 @@ import {
   type RecurrencePreviewOccurrence,
   type RecurrencePreviewResponse,
   type RecurrenceRule,
+  type SeriesUpdatePreviewOccurrence,
+  type SeriesUpdatePreviewResponse,
   type UpdateAppointmentSeriesFromRequest,
+  type AvailabilityRefusalReason,
 } from '@clinic/contracts';
 import { AuditService } from '../audit/audit.service';
 import type { AuditJsonObject } from '../audit/audit.types';
@@ -21,7 +25,7 @@ import { AppError } from '../common/app-error';
 import type { RequestContext, ResolvedSession } from '../common/request-context';
 import { uuidv7 } from '../common/uuid';
 import { PrismaService } from '../prisma/prisma.service';
-import { detailOf, isWholeMinute, type AppointmentRow } from './booking-support';
+import { detailOf, isWholeMinute, type AppointmentRow, type ClinicSpan } from './booking-support';
 import { exceedsRecurrenceBounds, occurrenceDates } from './recurrence-support';
 import {
   APPOINTMENT_COLUMNS,
@@ -179,15 +183,22 @@ export class AppointmentSeriesService {
           occurrence.startsAt,
           input.durationMinutes,
         );
-        const outside = await this.rules.isOutsideAvailability(tx, input.therapistId, span);
+        const outsideReason = await this.rules.isOutsideAvailability(tx, input.therapistId, span);
+        const conflicts = await this.rules.findConflicts(
+          tx,
+          { ...input, startsAt: occurrence.startsAt },
+          [input.childId],
+        );
 
         findings.push({
           index: occurrence.index,
           date: occurrence.date,
           startsAt: occurrence.startsAt,
           endsAt: occurrence.endsAt,
-          outsideAvailability: outside,
-          blockedBy: await this.previewBlock(tx, input, occurrence, outside, submittedReason),
+          outsideAvailability: outsideReason !== null,
+          outsideAvailabilityReason: outsideReason,
+          conflicts,
+          blockedBy: blockOf({ outsideReason, conflicts, submittedReason, intoPast: false }),
         });
       }
 
@@ -274,11 +285,7 @@ export class AppointmentSeriesService {
           actor,
         );
 
-        await this.rules.assertChildIsFree(tx, {
-          childId: input.childId,
-          startsAt: occurrence.startsAt,
-          durationMinutes: placement.durationMinutes,
-        });
+        await this.rules.assertPlacementIsFree(tx, placement, [input.childId]);
 
         await this.rules.insertAppointment(tx, {
           appointmentId,
@@ -288,6 +295,7 @@ export class AppointmentSeriesService {
           note,
           overrideReason: decision.overrideReason,
           actor,
+          childIds: [input.childId],
         });
 
         await this.rules.insertParticipant(tx, {
@@ -372,7 +380,7 @@ export class AppointmentSeriesService {
     return this.prisma.$transaction(async (tx) => {
       const series = await this.lockSeries(tx, seriesId);
       const pivot = await this.readPivot(tx, seriesId, input.fromAppointmentId);
-      const eligible = await this.lockEligibleFrom(tx, seriesId, pivot);
+      const eligible = await this.eligibleFrom(tx, seriesId, pivot, true);
 
       const changed: string[] = [];
 
@@ -429,20 +437,29 @@ export class AppointmentSeriesService {
   }
 
   /**
-   * Re-places the rest of a series: a new therapist, room, length or hour, from
-   * one occurrence onwards.
+   * Re-places the rest of a series: a new therapist, room, length, hour or
+   * weekday, from one occurrence onwards.
    *
-   * EACH OCCURRENCE KEEPS ITS OWN CLINIC DATE and takes the new wall-clock time
-   * on it, so the weekday and the rhythm are untouched and only the hour moves.
-   * The new instant is computed by PostgreSQL's `clinic_moment`, so the zone is
-   * applied in the one place it is applied everywhere else.
+   * EACH OCCURRENCE STAYS IN ITS OWN CLINIC WEEK. Without a weekday it keeps its
+   * own clinic date and takes the new wall-clock time on it; with one (M10-A10,
+   * T-023) it moves to that weekday of its own Saturday-first week. Either way
+   * the rhythm and the count are untouched, nothing is cancelled, and the
+   * occurrences before the pivot — and every completed or cancelled one — are
+   * left exactly as they are. The new instant is computed by PostgreSQL's
+   * `clinic_moment`, so the zone is applied in the one place it is applied
+   * everywhere else.
+   *
+   * NO OCCURRENCE THAT HAS NOT STARTED IS MOVED INTO THE PAST. Moving the
+   * weekday earlier in the current week could otherwise place a future session
+   * at an hour that has gone, where an outcome — and a charge — could be
+   * recorded at once for a session that never happened.
    *
    * EVERY RULE A MOVE RUNS, RUN PER OCCURRENCE: the catalog compatibility of the
    * new therapist and room, the availability decision for that week's own date —
    * which is why a dated closure part-way through a term is caught rather than
-   * assumed away — and the child recomputation excluding the occurrence itself.
-   * The two resource overlaps are decided by the exclusion constraints as each
-   * UPDATE lands.
+   * assumed away — and the conflict check excluding the occurrence itself. The
+   * two resource overlaps are decided by the exclusion constraints as each
+   * UPDATE lands. `previewUpdateFrom` reports the same findings first.
    *
    * ALL OR NOTHING. The first occurrence that cannot be placed aborts the
    * transaction, and the series is left exactly as it was.
@@ -459,11 +476,12 @@ export class AppointmentSeriesService {
   ): Promise<AppointmentSeriesOperationResponse> {
     const note = canonicalOptionalText(input.note);
     const submittedReason = canonicalOptionalText(input.availabilityOverrideReason);
+    const weekday = input.weekday ?? null;
 
     return this.prisma.$transaction(async (tx) => {
       const series = await this.lockSeries(tx, seriesId);
       const pivot = await this.readPivot(tx, seriesId, input.fromAppointmentId);
-      const eligible = await this.lockEligibleFrom(tx, seriesId, pivot);
+      const eligible = await this.eligibleFrom(tx, seriesId, pivot, true);
 
       await this.rules.lockActiveTherapist(tx, input.therapistId);
       await this.rules.lockActiveRoom(tx, input.roomId);
@@ -471,59 +489,40 @@ export class AppointmentSeriesService {
       const changed: string[] = [];
 
       for (const occurrence of eligible) {
-        // Against the occurrence's OWN service, which a series update cannot
-        // change any more than a single move can.
-        await this.rules.assertTherapistProvidesService(
-          tx,
-          input.therapistId,
-          occurrence.service_id,
-        );
-        await this.rules.assertRoomAllowsService(tx, input.roomId, occurrence.service_id);
-
-        const startsAt = await this.momentOn(tx, occurrence.starts_at, input.startTime);
-        const placement: AppointmentPlacement = {
-          durationMinutes: input.durationMinutes,
-          therapistId: input.therapistId,
-          roomId: input.roomId,
-          startsAt,
-        };
-
+        const target = await this.targetOf(tx, occurrence, input);
         const participants = await this.rules.readParticipants(tx, occurrence.id);
 
-        if (isSameSeriesPlacement(occurrence, placement, note, submittedReason)) continue;
+        if (isSameSeriesPlacement(occurrence, target.placement, note, submittedReason)) continue;
 
-        const span = await this.rules.readClinicSpan(tx, startsAt, placement.durationMinutes);
-        if (span.startDate !== span.endDate) throw new AppError('APPOINTMENT_TIME_INVALID');
+        if (target.intoPast) {
+          throw new AppError('RECURRENCE_OCCURRENCE_IN_PAST', {
+            appointmentId: occurrence.id,
+            startsAt: target.placement.startsAt,
+          });
+        }
 
         const decision = await this.rules.decideAvailability(
           tx,
-          span,
-          placement,
+          target.span,
+          target.placement,
           submittedReason,
           actor,
         );
 
-        for (const participant of participants) {
-          await this.rules.assertChildIsFree(
-            tx,
-            {
-              childId: participant.child_id,
-              startsAt,
-              durationMinutes: placement.durationMinutes,
-            },
-            // Excluded, or an occurrence would conflict with the position it is
-            // leaving whenever the hour moves by less than a session's length.
-            occurrence.id,
-          );
-        }
+        const childIds = participants.map((participant) => participant.child_id);
+
+        // Excluded, or an occurrence would conflict with the position it is
+        // leaving whenever the hour moves by less than a session's length.
+        await this.rules.assertPlacementIsFree(tx, target.placement, childIds, occurrence.id);
 
         await this.rules.writePlacement(
           tx,
           occurrence.id,
-          placement,
+          target.placement,
           note,
           decision.overrideReason,
           actor,
+          childIds,
         );
 
         const moved = await this.rules.readAppointment(tx, occurrence.id);
@@ -552,6 +551,8 @@ export class AppointmentSeriesService {
           metadata: {
             operation: 'UPDATE_FROM',
             pivotAppointmentId: input.fromAppointmentId,
+            // Null when every occurrence kept its own date.
+            weekday,
             startTime: input.startTime,
             durationMinutes: input.durationMinutes,
             therapistId: input.therapistId,
@@ -567,6 +568,153 @@ export class AppointmentSeriesService {
         changedAppointmentIds: changed,
       };
     });
+  }
+
+  /**
+   * What `updateFrom` would do with the same request, and what the diary says
+   * about each new placement right now. Writes nothing.
+   *
+   * The same targets from the same `targetOf`, the same compatibility refusals
+   * for the whole request, and per occurrence the same findings the creation
+   * preview gives — so the receptionist sees every clash before applying.
+   * Nothing is locked `FOR UPDATE`: a preview must not block the desk.
+   */
+  async previewUpdateFrom(
+    seriesId: string,
+    input: UpdateAppointmentSeriesFromRequest,
+    actor: ResolvedSession,
+  ): Promise<SeriesUpdatePreviewResponse> {
+    const note = canonicalOptionalText(input.note);
+    const submittedReason = canonicalOptionalText(input.availabilityOverrideReason);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.readSeries(tx, seriesId);
+      const pivot = await this.readPivot(tx, seriesId, input.fromAppointmentId);
+      const eligible = await this.eligibleFrom(tx, seriesId, pivot, false);
+
+      await this.rules.lockActiveTherapist(tx, input.therapistId);
+      await this.rules.lockActiveRoom(tx, input.roomId);
+
+      const findings: SeriesUpdatePreviewOccurrence[] = [];
+
+      for (const occurrence of eligible) {
+        const target = await this.targetOf(tx, occurrence, input);
+        const participants = await this.rules.readParticipants(tx, occurrence.id);
+        const unchanged = isSameSeriesPlacement(
+          occurrence,
+          target.placement,
+          note,
+          submittedReason,
+        );
+
+        const outsideReason = await this.rules.isOutsideAvailability(
+          tx,
+          input.therapistId,
+          target.span,
+        );
+        const conflicts = unchanged
+          ? []
+          : await this.rules.findConflicts(
+              tx,
+              target.placement,
+              participants.map((participant) => participant.child_id),
+              occurrence.id,
+            );
+
+        findings.push({
+          appointmentId: occurrence.id,
+          currentStartsAt: occurrence.starts_at.toISOString(),
+          date: target.span.startDate,
+          startsAt: target.placement.startsAt,
+          endsAt: target.endsAt,
+          unchanged,
+          outsideAvailability: outsideReason !== null,
+          outsideAvailabilityReason: outsideReason,
+          conflicts,
+          blockedBy: unchanged
+            ? null
+            : blockOf({ outsideReason, conflicts, submittedReason, intoPast: target.intoPast }),
+        });
+      }
+
+      // The authority check the update would make, at the same point.
+      if (
+        submittedReason !== null &&
+        findings.some((finding) => !finding.unchanged && finding.outsideAvailability)
+      ) {
+        this.assertMayOverride(actor);
+      }
+
+      const blockedCount = findings.filter((finding) => finding.blockedBy !== null).length;
+
+      return { occurrences: findings, blockedCount, applicable: blockedCount === 0 };
+    });
+  }
+
+  /**
+   * Where `update-from` puts one occurrence: the catalog compatibility of the
+   * new therapist and room against the occurrence's OWN service (which a series
+   * update cannot change any more than a single move can), the new instant, the
+   * clinic's reading of it, and whether it would move a session that has not
+   * started into the past. One method, so the preview and the update cannot
+   * compute a different target.
+   */
+  private async targetOf(
+    tx: Prisma.TransactionClient,
+    occurrence: AppointmentRow,
+    input: UpdateAppointmentSeriesFromRequest,
+  ): Promise<{
+    placement: AppointmentPlacement;
+    span: ClinicSpan;
+    endsAt: string;
+    intoPast: boolean;
+  }> {
+    await this.rules.assertTherapistProvidesService(tx, input.therapistId, occurrence.service_id);
+    await this.rules.assertRoomAllowsService(tx, input.roomId, occurrence.service_id);
+
+    const weekday = input.weekday ?? null;
+    const current = occurrence.starts_at.toISOString();
+
+    const rows = await tx.$queryRaw<{ moment: Date; ends_at: Date; into_past: boolean }[]>`
+      WITH own AS (
+        SELECT clinic_date(${current}::timestamptz) AS day
+      ),
+      target AS (
+        SELECT clinic_moment(
+                 CASE
+                   WHEN ${weekday}::int IS NULL THEN own.day
+                   -- Saturday-first: back to the week's Saturday, then forward.
+                   ELSE own.day - ((EXTRACT(DOW FROM own.day)::int + 1) % 7) + ${weekday}::int
+                 END,
+                 ${input.startTime}::time
+               ) AS moment
+        FROM own
+      )
+      SELECT moment,
+             moment + make_interval(mins => ${input.durationMinutes}::int) AS ends_at,
+             (${current}::timestamptz > transaction_timestamp()
+               AND moment < transaction_timestamp()) AS into_past
+      FROM target
+    `;
+
+    const row = rows[0];
+    // Unreachable: a projection over one synthetic row, stated so a future edit
+    // that makes it a join cannot silently produce no instant.
+    if (row === undefined) throw new AppError('APPOINTMENT_TIME_INVALID');
+
+    const placement: AppointmentPlacement = {
+      durationMinutes: input.durationMinutes,
+      therapistId: input.therapistId,
+      roomId: input.roomId,
+      startsAt: row.moment.toISOString(),
+    };
+
+    const span = await this.rules.readClinicSpan(tx, placement.startsAt, placement.durationMinutes);
+    // A session that ends on another clinic day is refused before availability
+    // is considered, here as everywhere; the override must not reach it.
+    if (span.startDate !== span.endDate) throw new AppError('APPOINTMENT_TIME_INVALID');
+
+    return { placement, span, endsAt: row.ends_at.toISOString(), intoPast: row.into_past };
   }
 
   /**
@@ -651,73 +799,6 @@ export class AppointmentSeriesService {
       startsAt: row.starts_at.toISOString(),
       endsAt: row.ends_at.toISOString(),
     }));
-  }
-
-  /**
-   * Why the preview says this week cannot be booked as submitted, or null.
-   *
-   * ONE CODE, IN THE ORDER THE BOOKING DECIDES THEM: availability first, then
-   * the child, then the therapist and the room. An occurrence can be blocked
-   * more than one way, and reporting the reason a create would actually fail
-   * with is more use than reporting all of them.
-   *
-   * READ-ONLY AND ADVISORY, and the only place in this module that asks a
-   * conflict question without being the answer to it. The occupancy predicate is
-   * the same `[)` range against the same two occupying statuses the exclusion
-   * constraints and the child recomputation use — it has to be, or a preview
-   * would show a green week the create refuses.
-   */
-  private async previewBlock(
-    tx: Prisma.TransactionClient,
-    input: CreateAppointmentSeriesRequest,
-    occurrence: GeneratedOccurrence,
-    outsideAvailability: boolean,
-    submittedReason: string | null,
-  ): Promise<RecurrenceBlockCode | null> {
-    if (outsideAvailability && submittedReason === null) return 'APPOINTMENT_OUTSIDE_AVAILABILITY';
-
-    const rows = await tx.$queryRaw<
-      { child_busy: boolean; therapist_busy: boolean; room_busy: boolean }[]
-    >`
-      WITH proposed AS (
-        SELECT tstzrange(
-          ${occurrence.startsAt}::timestamptz,
-          ${occurrence.startsAt}::timestamptz
-            + make_interval(mins => ${input.durationMinutes}::int),
-          '[)'
-        ) AS span
-      )
-      SELECT
-        EXISTS (
-          SELECT 1
-          FROM appointment_participant ap
-          JOIN appointment a ON a.id = ap.appointment_id, proposed p
-          WHERE ap.child_id = ${input.childId}::uuid
-            AND a.status IN ('SCHEDULED', 'COMPLETED')
-            AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
-        ) AS child_busy,
-        EXISTS (
-          SELECT 1 FROM appointment a, proposed p
-          WHERE a.therapist_id = ${input.therapistId}::uuid
-            AND a.status IN ('SCHEDULED', 'COMPLETED')
-            AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
-        ) AS therapist_busy,
-        EXISTS (
-          SELECT 1 FROM appointment a, proposed p
-          WHERE a.room_id = ${input.roomId}::uuid
-            AND a.status IN ('SCHEDULED', 'COMPLETED')
-            AND tstzrange(a.starts_at, a.ends_at, '[)') && p.span
-        ) AS room_busy
-    `;
-
-    const found = rows[0];
-    if (found === undefined) return null;
-
-    if (found.child_busy) return 'APPOINTMENT_CHILD_CONFLICT';
-    if (found.therapist_busy) return 'APPOINTMENT_THERAPIST_CONFLICT';
-    if (found.room_busy) return 'APPOINTMENT_ROOM_CONFLICT';
-
-    return null;
   }
 
   /**
@@ -824,38 +905,23 @@ export class AppointmentSeriesService {
    * both are preserved, and filtering them here is what makes that true for
    * every operation rather than being restated in each.
    */
-  private async lockEligibleFrom(
+  private async eligibleFrom(
     tx: Prisma.TransactionClient,
     seriesId: string,
     pivot: AppointmentRow,
+    lock: boolean,
   ): Promise<AppointmentRow[]> {
+    // A preview reads the same set without holding it.
+    const forUpdate = lock ? Prisma.sql`FOR UPDATE` : Prisma.empty;
+
     return tx.$queryRaw<AppointmentRow[]>`
       SELECT ${APPOINTMENT_COLUMNS} FROM appointment
       WHERE series_id = ${seriesId}::uuid
         AND status = 'SCHEDULED'::appointment_status
         AND starts_at >= ${pivot.starts_at.toISOString()}::timestamptz
       ORDER BY starts_at ASC, id ASC
-      FOR UPDATE
+      ${forUpdate}
     `;
-  }
-
-  /** This occurrence's own clinic day, at the requested wall-clock time. */
-  private async momentOn(
-    tx: Prisma.TransactionClient,
-    current: Date,
-    startTime: string,
-  ): Promise<string> {
-    const rows = await tx.$queryRaw<{ moment: Date }[]>`
-      SELECT clinic_moment(clinic_date(${current.toISOString()}::timestamptz), ${startTime}::time)
-        AS moment
-    `;
-
-    const moment = rows[0]?.moment;
-    // Unreachable: a projection over one synthetic row, stated so a future edit
-    // that makes it a join cannot silently produce no instant.
-    if (moment === undefined) throw new AppError('APPOINTMENT_TIME_INVALID');
-
-    return moment.toISOString();
   }
 
   /** Every occurrence of the series, in start order, whatever its status. */
@@ -878,6 +944,37 @@ export class AppointmentSeriesService {
     return occurrences;
   }
 }
+
+/**
+ * Why a previewed occurrence cannot be placed as submitted, or null.
+ *
+ * In the order the write decides them: a move into the past, then
+ * availability (unless a reason covers it), then the first conflicting
+ * dimension (child, therapist, room), so the preview names the refusal the
+ * write would actually raise. Every conflict is still listed beside it.
+ */
+function blockOf(finding: {
+  outsideReason: AvailabilityRefusalReason | null;
+  conflicts: readonly AppointmentConflict[];
+  submittedReason: string | null;
+  intoPast: boolean;
+}): RecurrenceBlockCode | null {
+  if (finding.intoPast) return 'RECURRENCE_OCCURRENCE_IN_PAST';
+  if (finding.outsideReason !== null && finding.submittedReason === null) {
+    return 'APPOINTMENT_OUTSIDE_AVAILABILITY';
+  }
+
+  const first = finding.conflicts[0];
+  if (first === undefined) return null;
+
+  return BLOCK_BY_RESOURCE[first.resource];
+}
+
+const BLOCK_BY_RESOURCE = {
+  CHILD: 'APPOINTMENT_CHILD_CONFLICT',
+  THERAPIST: 'APPOINTMENT_THERAPIST_CONFLICT',
+  ROOM: 'APPOINTMENT_ROOM_CONFLICT',
+} as const satisfies Record<AppointmentConflict['resource'], RecurrenceBlockCode>;
 
 function boundCount(rule: RecurrenceRule): number | null {
   return rule.endMode === 'OCCURRENCE_COUNT' ? rule.occurrenceCount : null;
